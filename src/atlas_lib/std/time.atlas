@@ -1,31 +1,31 @@
+//package std::time;
+
+//Private functions, you can only use "Time" related functions through the public interface (Time class)
+private extern now() -> const Time;
+private extern format_time(t: const Time, fmt: const str) -> str;
+private extern sleep(t: const Time);
+
+
 public class Time {
     public:
-        sec: int64;
-        nsec: int64;
+        sec: const int64;
+        nsec: const int64;
     public:
-        Time(sec: int64, nsec: int64) {
+        Time(sec: const int64, nsec: const int64) {
             self.sec = sec;
             self.nsec = nsec;
         }
         ~Time() {}
         func to_iso_string(self) -> str {
-            return format_time_iso(self);
+            return format_time(self, "%Y-%m-%dT%H:%M:%S");
         }
-        func format(self, fmt: str) -> str {
+        func format(self, fmt: const str) -> str {
             return format_time(self, fmt);
         }
-        func now() -> Time {
+        func now() -> const Time {
             return now();
         }
         func sleep(self) {
             sleep(self);
         }
-}
-//Private functions, you can only use "Time" related functions through the public interface (Time class)
-private extern now() -> Time;
-private extern format_time(t: Time, fmt: str) -> str;
-private extern sleep(t: Time);
-
-func format_time_iso(t: Time) -> str {
-    return format_time(t, "%Y-%m-%dT%H:%M:%S");
 }

@@ -171,7 +171,10 @@ impl<'ast> Parser<'ast> {
     fn parse_constructor(&mut self, class_name: String) -> ParseResult<AstConstructor<'ast>> {
         self.expect(TokenKind::Identifier(class_name))?;
         self.expect(TokenKind::LParen)?;
-        let params = self.eat_until(TokenKind::RParen, |p| p.parse_obj_field())?;
+        let params = self.eat_until(TokenKind::RParen, |p| {
+            p.eat_if(TokenKind::Comma, |_| { Ok(()) }, ())?;
+            p.parse_obj_field()
+        })?;
         self.expect(TokenKind::RParen)?;
         let body = self.parse_block()?;
         let node = AstConstructor {
@@ -1127,7 +1130,6 @@ impl<'ast> Parser<'ast> {
         if self.current().kind() == TokenKind::RArrow {
             let _ = self.expect(TokenKind::RArrow)?;
             ret_ty = self.parse_type()?;
-
         } else {
             ret_ty = AstType::Unit(AstUnitType {
                 span: self.current().span(),
@@ -1335,7 +1337,7 @@ impl<'ast> Parser<'ast> {
             TokenKind::KwConst => {
                 let _ = self.advance();
                 let inner = self.parse_type()?;
-                AstType::ReadOnly(AstReadOnlyType{
+                AstType::ReadOnly(AstReadOnlyType {
                     span: Span::union_span(&start, &self.current().span()),
                     inner: self.arena.alloc(inner),
                 })

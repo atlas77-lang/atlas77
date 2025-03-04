@@ -23,7 +23,7 @@ public struct Vector3i: impl Add, Sub, Mul, Div, Eq, Ord, Copy, Inc, Dec, From<[
     }
     #[override(From<[int32; 3]>::from)]
     func from(value: [int32; 3]) -> Vector3i {
-        return new Vector3i{
+        return new Vector3i {
             value[0],
             value[1],
             value[2]

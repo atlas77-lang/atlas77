@@ -5,7 +5,7 @@ use std::{
     rc::Rc,
 };
 
-use super::ty::{HirBooleanTy, HirCharTy, HirFloatTy, HirIntegerTy, HirListTy, HirNamedTy, HirNullTy, HirNullableTy, HirReadOnlyTy, HirStringTy, HirTy, HirTyId, HirUninitializedTy, HirUnitTy, HirUnsignedIntTy};
+use super::ty::{HirBooleanTy, HirCharTy, HirConstTy, HirFloatTy, HirIntegerTy, HirListTy, HirNamedTy, HirNullTy, HirNullableTy, HirStringTy, HirTy, HirTyId, HirUninitializedTy, HirUnitTy, HirUnsignedIntTy};
 use bumpalo::Bump;
 use logos::Span;
 
@@ -156,7 +156,7 @@ impl<'arena> TypeArena<'arena> {
         self.intern
             .borrow_mut()
             .entry(id)
-            .or_insert_with(|| self.allocator.alloc(HirTy::ReadOnly(HirReadOnlyTy { inner })))
+            .or_insert_with(|| self.allocator.alloc(HirTy::Const(HirConstTy { inner })))
     }
 
     pub fn get_unit_ty(&'arena self) -> &'arena HirTy<'arena> {

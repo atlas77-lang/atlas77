@@ -26,26 +26,26 @@ use miette::{SourceOffset, SourceSpan};
 pub type CodegenResult<T> = Result<T, HirError>;
 
 /// Unit of codegen
-pub struct CodeGenUnit<'hir, 'gen>
+pub struct CodeGenUnit<'hir, 'codegen>
 where
-    'gen: 'hir,
+    'codegen: 'hir,
 {
     hir: HirModule<'hir>,
-    program: ProgramDescriptor<'gen>,
-    arena: CodeGenArena<'gen>,
+    program: ProgramDescriptor<'codegen>,
+    arena: CodeGenArena<'codegen>,
     //simulate a var_map so the codegen can translate it into stack operations
     local_variables: Table<&'hir str>,
     //store the function position
     current_pos: usize,
-    string_pool: Vec<&'gen str>,
-    class_pool: Vec<ClassDescriptor<'gen>>,
+    string_pool: Vec<&'codegen str>,
+    class_pool: Vec<ClassDescriptor<'codegen>>,
     //todo: Replace this with the path of the current module to be codegen
     src: String,
 }
 
-impl<'hir, 'gen> CodeGenUnit<'hir, 'gen> {
+impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
     /// Create a new CodeGenUnit
-    pub fn new(hir: HirModule<'hir>, arena: CodeGenArena<'gen>, src: String) -> Self {
+    pub fn new(hir: HirModule<'hir>, arena: CodeGenArena<'codegen>, src: String) -> Self {
         Self {
             hir,
             program: ProgramDescriptor::new(),
@@ -64,7 +64,7 @@ impl<'hir, 'gen> CodeGenUnit<'hir, 'gen> {
             self.generate_class_descriptor(class_name, &class);
         }
 
-        let mut functions: HashMap<&'gen str, usize> = HashMap::new();
+        let mut functions: HashMap<&'codegen str, usize> = HashMap::new();
         for (func_name, function) in self.hir.body.functions.clone() {
             let mut bytecode = Vec::new();
 
@@ -137,9 +137,9 @@ impl<'hir, 'gen> CodeGenUnit<'hir, 'gen> {
         &mut self,
         class_name: &str,
         class: &HirClass<'hir>,
-        labels: &mut Vec<Label<'gen>>,
+        labels: &mut Vec<Label<'codegen>>,
         src: String,
-        functions: &mut HashMap<&'gen str, usize>,
+        functions: &mut HashMap<&'codegen str, usize>,
     ) -> HirResult<()> {
         for method in class.methods.iter() {
             let mut bytecode = Vec::new();
@@ -184,8 +184,8 @@ impl<'hir, 'gen> CodeGenUnit<'hir, 'gen> {
         class: &HirClass<'hir>,
     ) {
         println!("Generating class descriptor for {}", class_name);
-        let mut fields: Vec<&'gen str> = Vec::new();
-        let mut constants: BTreeMap<&'gen str, ConstantValue> = BTreeMap::new();
+        let mut fields: Vec<&'codegen str> = Vec::new();
+        let mut constants: BTreeMap<&'codegen str, ConstantValue> = BTreeMap::new();
         for field in class.fields.iter() {
             fields.push(self.arena.alloc(field.name.to_string()));
         }
@@ -209,7 +209,7 @@ impl<'hir, 'gen> CodeGenUnit<'hir, 'gen> {
         &mut self,
         class_name: &str,
         constructor: &HirClassConstructor<'hir>,
-        labels: &mut Vec<Label<'gen>>,
+        labels: &mut Vec<Label<'codegen>>,
         src: String,
         // If the HirClassConstructor is a constructor or a destructor
         is_constructor: bool,
@@ -247,7 +247,7 @@ impl<'hir, 'gen> CodeGenUnit<'hir, 'gen> {
     fn generate_bytecode_block(
         &mut self,
         block: &HirBlock<'hir>,
-        bytecode: &mut Vec<Instruction<'gen>>,
+        bytecode: &mut Vec<Instruction<'codegen>>,
         src: String,
     ) -> HirResult<()> {
         for stmt in &block.statements {
@@ -259,7 +259,7 @@ impl<'hir, 'gen> CodeGenUnit<'hir, 'gen> {
     fn generate_bytecode_stmt(
         &mut self,
         stmt: &HirStatement<'hir>,
-        bytecode: &mut Vec<Instruction<'gen>>,
+        bytecode: &mut Vec<Instruction<'codegen>>,
         src: String,
     ) -> HirResult<()> {
         match stmt {
@@ -337,7 +337,7 @@ impl<'hir, 'gen> CodeGenUnit<'hir, 'gen> {
     fn generate_bytecode_expr(
         &mut self,
         expr: &HirExpr<'hir>,
-        bytecode: &mut Vec<Instruction<'gen>>,
+        bytecode: &mut Vec<Instruction<'codegen>>,
         src: String,
     ) -> HirResult<()> {
         match expr {
@@ -849,7 +849,7 @@ impl<'hir, 'gen> CodeGenUnit<'hir, 'gen> {
     fn generate_bytecode_args(
         &mut self,
         args: Vec<&HirFunctionParameterSignature<'hir>>,
-        bytecode: &mut Vec<Instruction<'gen>>,
+        bytecode: &mut Vec<Instruction<'codegen>>,
         //The index of the first arguments
         base_index: u8,
     ) -> HirResult<()> {

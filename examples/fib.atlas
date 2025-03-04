@@ -2,7 +2,7 @@ import "std/io"
 
 public class Fibonacci {
     public:
-        nth: readonly int64;
+        nth: const int64;
     public:
         Fibonacci(number: int64) {
             self.nth = number;

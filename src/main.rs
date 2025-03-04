@@ -39,8 +39,6 @@ enum AtlasRuntimeCLI {
 
 
 fn main() -> miette::Result<()> {
-    //Set Backtrace to 1
-    std::env::set_var("RUST_BACKTRACE", "1");
     match AtlasRuntimeCLI::parse() {
         AtlasRuntimeCLI::Run { file_path, release, debug } => {
             if release && debug {

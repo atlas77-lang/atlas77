@@ -123,7 +123,7 @@ impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
             HirTy::Named(ty) => HirTyId::compute_name_ty_id(ty.name),
             HirTy::Uninitialized(_) => Self::compute_uninitialized_ty_id(),
             HirTy::Nullable(ty) => HirTyId::compute_nullable_ty_id(&HirTyId::from(ty.inner)),
-            HirTy::ReadOnly(ty) => HirTyId::compute_readonly_ty_id(&HirTyId::from(ty.inner)),
+            HirTy::Const(ty) => HirTyId::compute_readonly_ty_id(&HirTyId::from(ty.inner)),
             HirTy::_Function(f) => {
                 let parameters = f.params.iter().map(HirTyId::from).collect::<Vec<_>>();
                 let ret_ty = HirTyId::from(f.ret_ty);
@@ -147,7 +147,7 @@ pub enum HirTy<'hir> {
     Named(HirNamedTy<'hir>),
     Uninitialized(HirUninitializedTy),
     Nullable(HirNullableTy<'hir>),
-    ReadOnly(HirReadOnlyTy<'hir>),
+    Const(HirConstTy<'hir>),
 
     _Function(HirFunctionTy<'hir>),
 }
@@ -167,7 +167,7 @@ impl fmt::Display for HirTy<'_> {
             HirTy::Named(ty) => write!(f, "{}", ty.name),
             HirTy::Uninitialized(_) => write!(f, "uninitialized"),
             HirTy::Nullable(ty) => write!(f, "{}?", ty.inner),
-            HirTy::ReadOnly(ty) => write!(f, "const {}", ty.inner),
+            HirTy::Const(ty) => write!(f, "const {}", ty.inner),
             HirTy::_Function(func) => {
                 let params = func
                     .params
@@ -182,7 +182,7 @@ impl fmt::Display for HirTy<'_> {
 }
 
 #[derive(Debug, Clone, Serialize, Eq, Hash, PartialEq)]
-pub struct HirReadOnlyTy<'hir> {
+pub struct HirConstTy<'hir> {
     pub inner: &'hir HirTy<'hir>,
 }
 

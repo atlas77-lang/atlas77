@@ -1,7 +1,7 @@
 [package]
 name = "atlas_77"
 version = "0.5.2"
-edition = "2021"
+edition = "2024"
 description = "Programming language with strong interoperability with Rust (WIP)"
 authors = ["Gipson62", "ElhamAryanpur"]
 license = "MIT"
@@ -13,7 +13,7 @@ readme = "README.md"
 
 
 [profile.release]
-#opt-level = 3
+opt-level = 3
 panic = "abort"
 lto = true
 codegen-units = 1

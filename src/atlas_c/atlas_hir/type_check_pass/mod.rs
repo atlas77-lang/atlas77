@@ -14,7 +14,7 @@ use super::{
     ty::{HirTy, HirTyId},
     HirFunction, HirModule, HirModuleSignature,
 };
-use crate::atlas_c::atlas_hir::error::{AccessingClassFieldOutsideClassError, AccessingPrivateFieldError, EmptyListLiteralError, FieldKind, UnsupportedExpr};
+use crate::atlas_c::atlas_hir::error::{AccessingClassFieldOutsideClassError, AccessingPrivateFieldError, ConstTyToNonConstTyError, EmptyListLiteralError, FieldKind, UnsupportedExpr};
 use crate::atlas_c::atlas_hir::expr::{HirFunctionCallExpr, HirIdentExpr};
 use crate::atlas_c::atlas_hir::item::{HirClass, HirClassConstructor, HirClassMethod};
 use crate::atlas_c::atlas_hir::signature::{HirClassMethodModifier, HirFunctionParameterSignature, HirFunctionSignature, HirVisibility};
@@ -358,7 +358,7 @@ impl<'hir> TypeChecker<'hir> {
                     .get_mut(self.current_func_name.unwrap())
                     .unwrap()
                     .end_scope();
-                if let Some(ref mut else_branch) = &mut i.else_branch {
+                if let Some(else_branch) = &mut i.else_branch {
                     self.context_functions
                         .last_mut()
                         .unwrap()
@@ -999,10 +999,25 @@ impl<'hir> TypeChecker<'hir> {
                 eprintln!("ty1: {:?} ty2: {:?}", n1.inner, n2.inner);
                 self.is_equivalent_ty(n1.inner, ty1_span, n2.inner, ty2_span)
             }
-            (HirTy::ReadOnly(r1), _) => {
-                self.is_equivalent_ty(r1.inner, ty1_span, ty2, ty2_span)
+            (HirTy::Const(c1), HirTy::Const(c2)) => {
+                self.is_equivalent_ty(c1.inner, ty1_span, c2.inner, ty2_span)
             }
-            (_, HirTy::ReadOnly(r2)) => {
+            (HirTy::Const(_), _) => {
+                Err(HirError::ConstTyToNonConstTy(ConstTyToNonConstTyError {
+                    const_val: SourceSpan::new(
+                        SourceOffset::from(ty1_span.start),
+                        ty1_span.end - ty1_span.start,
+                    ),
+                    const_type: ty1.to_string(),
+                    non_const_type: ty2.to_string(),
+                    non_const_val: SourceSpan::new(
+                        SourceOffset::from(ty2_span.start),
+                        ty2_span.end - ty2_span.start,
+                    ),
+                    src: self.src.clone(),
+                }))
+            }
+            (_, HirTy::Const(r2)) => {
                 self.is_equivalent_ty(ty1, ty1_span, r2.inner, ty2_span)
             }
             (HirTy::Nullable(_), HirTy::Null(_)) |
@@ -1028,6 +1043,7 @@ impl<'hir> TypeChecker<'hir> {
             }
         }
     }
+
 
     #[inline(always)]
     fn type_mismatch_err(actual_type: &str, actual_loc: &Span, expected_type: &str, expected_loc: &Span, src: String) -> HirError {

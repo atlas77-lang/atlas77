@@ -20,11 +20,26 @@ declare_error_type! {
         AccessingClassFieldOutsideClass(AccessingClassFieldOutsideClassError),
         AccessingPrivateField(AccessingPrivateFieldError),
         NonConstantValue(NonConstantValueError),
+        ConstTyToNonConstTy(ConstTyToNonConstTyError),
     }
 }
 
 /// Handy type alias for all HIR-related errors.
 pub type HirResult<T> = Result<T, HirError>;
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::const_ty_to_non_const_ty))]
+#[error("Can't assign a constant type to a non constant type")]
+pub struct ConstTyToNonConstTyError {
+    #[label("This is of type {const_type} which is a constant type")]
+    pub const_val: Span,
+    pub const_type: String,
+    #[label("This is of type {non_const_type} which is not a constant type")]
+    pub non_const_val: Span,
+    pub non_const_type: String,
+    #[source_code]
+    pub src: String,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::non_constant_value))]
