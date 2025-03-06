@@ -152,6 +152,12 @@ pub enum HirTy<'hir> {
     _Function(HirFunctionTy<'hir>),
 }
 
+impl HirTy<'_> {
+    pub fn is_const(&self) -> bool {
+        matches!(self, HirTy::Const(_))
+    }
+}
+
 impl fmt::Display for HirTy<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {

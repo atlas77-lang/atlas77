@@ -8,10 +8,10 @@ private extern sleep(t: const Time);
 
 public class Time {
     public:
-        sec: const int64;
-        nsec: const int64;
+        sec: int64;
+        nsec: int64;
     public:
-        Time(sec: const int64, nsec: const int64) {
+        Time(sec: int64, nsec: int64) {
             self.sec = sec;
             self.nsec = nsec;
         }
@@ -28,4 +28,9 @@ public class Time {
         func sleep(self) {
             sleep(self);
         }
+}
+
+func test() {
+    let t = Time::now();
+    //t = new Time(0, 0);
 }

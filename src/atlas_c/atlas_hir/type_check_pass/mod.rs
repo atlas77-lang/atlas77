@@ -760,6 +760,16 @@ impl<'hir> TypeChecker<'hir> {
             HirExpr::Assign(a) => {
                 let rhs = self.check_expr(&mut a.rhs)?;
                 let lhs = self.check_expr(&mut a.lhs)?;
+                //Todo needs a special rule for `self.field = value`, because you can assign once to a const field
+                if lhs.is_const() {
+                    return Err(Self::type_mismatch_err(
+                        &format!("{}", lhs),
+                        &a.lhs.span(),
+                        "non-const",
+                        &a.lhs.span(),
+                        self.src.clone(),
+                    ));
+                }
                 self.is_equivalent_ty(
                     rhs,
                     a.rhs.span(),
