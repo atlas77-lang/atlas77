@@ -176,10 +176,10 @@ pub enum TokenKind {
     KwNew,
     #[token("delete")]
     KwDelete,
-    #[token("func")]
+    #[token("fn")]
     KwFunc,
     #[token("where")]
-    //Used for generics constraints and bounds (i.e. func foo(arg: @T) -> T where T: Add)
+    //Used for generics constraints and bounds (i.e. fn foo<T>(arg: T) -> T where T: Add)
     KwWhere,
     #[token("extern")]
     KwExtern,

@@ -1,5 +1,11 @@
 import "std/io"
 
 func main() {
-    println("Hello World!");
+    let i: int64 = 0;
+    while i < 1000000 {
+        if 1 == 1 {
+            i = i + 1;
+        }
+    }
+    println("Hello, World!");
 }

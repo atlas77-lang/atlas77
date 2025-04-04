@@ -624,7 +624,7 @@ impl AstType<'_> {
 /// A readonly type in atlas has the form of `readonly T`
 pub struct AstReadOnlyType<'ast> {
     pub span: Span,
-    pub inner: &'ast AstType<'ast>
+    pub inner: &'ast AstType<'ast>,
 }
 
 #[derive(Debug, Clone, Serialize)]

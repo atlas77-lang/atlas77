@@ -1,50 +1,78 @@
-import "std/io"
+//Top of the file
+package test;
+//No need to "import std" because it is already imported in the main module by default
 
-public class Bar {
-    public:
-        baz: int64;
+public concept Shape {
+    fn draw();
 }
 
-public class Foo {
+public class Circle: Shape {
+    private:
+        name: std::string,
+        radius: float64,
     public:
-        owned: Bar;
-        borrowed: readonly Bar;
-        mut_borrowed: mut Bar;
-}
-
-
-public class Test {
-    public:
-        data: readonly int64;
-    public:
-        Test(data: int64) {
-            self.data = data;
+        Circle(name: std::string, radius: float64) {
+            self.name = name;
+            self.radius = radius;
         }
-        func uh(self) {
-            println(self.data);
-            return;
-        }
-        func uh2(self, data: int64) {
-            println(data);
-            return;
+        //Not really needed, but just to show that we can override a function
+        #[override(Shape::draw)] 
+        fn draw(self) {
+            std::println("Drawing a circle with name: " + self.name + " and radius: " + self.radius);
         }
 }
 
-public concept Builder<T, U> {
-    T(arg: U) -> T;
-}
-
-class Builder impl Builder<T, U> {
+public class ShapeCollection<T> where T: Shape {
+    private:
+        shapes: std::vector<T>,
     public:
-        func build<T, U>(t: T, arg: U) -> T {
-            return new T(arg);
+        ShapeCollection() {
+            self.shapes = new std::vector<T>();
+        }
+        fn add(self, shape: T) {
+            self.shapes.push(shape);
+        }
+        fn display(self) {
+            let i = 0;
+            while i < self.shapes.len() {
+                self.shapes[i].draw();
+                i += 1;
+            }
+        }
+        // Concatenate two ShapeCollection<T> objects and return a new ShapeCollection<T> object
+        operator +(self, other: ShapeCollection<T>) -> ShapeCollection<T> {
+            let result = new ShapeCollection<T>();
+            let i = 0;
+            while i < self.shapes.len() {
+                result.add(self.shapes[i]);
+                i += 1;
+            }
+            let j = 0;
+            while j < other.shapes.len() {
+                result.add(other.shapes[j]);
+                j += 1;
+            }
+            return result;
         }
 }
 
-func main() {
-    let test = new Test(42);
-    println(test.data);
-    test.uh();
-    test.uh2(42);
-    //test.uh3(42);
+
+fn main() {
+    let c1 = new Circle("Circle1", 5.0);
+    let c2 = new Circle("Circle2", 10.0);
+    let c3 = new Circle("Circle3", 15.0);
+
+    let collection1 = new ShapeCollection::<Circle>();
+    collection1.add(c1);
+    collection1.add(c2);
+
+    let collection2 = new ShapeCollection::<Circle>();
+    collection2.add(c3);
+
+    let combined = collection1 + collection2;
+    combined.display(); // This should display all circles in the combined collection
+    // The output should be:
+    // Drawing a circle with name: Circle1 and radius: 5.0
+    // Drawing a circle with name: Circle2 and radius: 10.0
+    // Drawing a circle with name: Circle3 and radius: 15.0
 }
