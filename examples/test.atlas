@@ -1,78 +1,91 @@
-//Top of the file
 package test;
-//No need to "import std" because it is already imported in the main module by default
 
-public concept Shape {
-    fn draw();
+using System;
+using System.Collections.Generic;
+
+
+concept IAffichable
+{
+    fn afficher_informations();
 }
 
-public class Circle: Shape {
-    private:
-        name: std::string,
-        radius: float64,
+concept Animal: 
+{
     public:
-        Circle(name: std::string, radius: float64) {
-            self.name = name;
-            self.radius = radius;
-        }
-        //Not really needed, but just to show that we can override a function
-        #[override(Shape::draw)] 
-        fn draw(self) {
-            std::println("Drawing a circle with name: " + self.name + " and radius: " + self.radius);
-        }
-}
+        nom: std::string;
+        age: int32;
+        espece: std::string?;
 
-public class ShapeCollection<T> where T: Shape {
-    private:
-        shapes: std::vector<T>,
     public:
-        ShapeCollection() {
-            self.shapes = new std::vector<T>();
-        }
-        fn add(self, shape: T) {
-            self.shapes.push(shape);
-        }
-        fn display(self) {
-            let i = 0;
-            while i < self.shapes.len() {
-                self.shapes[i].draw();
-                i += 1;
-            }
-        }
-        // Concatenate two ShapeCollection<T> objects and return a new ShapeCollection<T> object
-        operator +(self, other: ShapeCollection<T>) -> ShapeCollection<T> {
-            let result = new ShapeCollection<T>();
-            let i = 0;
-            while i < self.shapes.len() {
-                result.add(self.shapes[i]);
-                i += 1;
-            }
-            let j = 0;
-            while j < other.shapes.len() {
-                result.add(other.shapes[j]);
-                j += 1;
-            }
-            return result;
+        Animal(nom: std::string, age: int32, espece: std::string? = null) {
+            self.nom = nom;
+            self.age = age;
+            self.espece = espece;
         }
 }
 
+class Dog : Animal
+{
+    public String Race { get; set; }
+    public Dog(string race, string nom, int age, string? espece = null) : base(nom, age, espece)
+    {
+        Race = race;
+    }
 
-fn main() {
-    let c1 = new Circle("Circle1", 5.0);
-    let c2 = new Circle("Circle2", 10.0);
-    let c3 = new Circle("Circle3", 15.0);
+    public void AfficherInformations()
+    {
+        Console.WriteLine($"Nom: {Nom}, Age: {Age}, Espece: {Espece ?? "Pas d'espèce"}");
+        //<Variable> ?? valeur_default permet de pouvoir check si c'est null 
+        // et si oui on met la valeur par défaut à droite
+    }
+}
 
-    let collection1 = new ShapeCollection::<Circle>();
-    collection1.add(c1);
-    collection1.add(c2);
+class Refuge<T> 
+{
+    public List<T> animaux = new List<T>();
 
-    let collection2 = new ShapeCollection::<Circle>();
-    collection2.add(c3);
+    public void AjouterAnimal(T animal)
+    {
+        animaux.Add(animal);
+    }
+    
+    public List<T> GetAll()
+    {
+        return animaux;
+    }
+}
+class Prog
+{
+    static void Main(string[] args)
+    {
+        //create a list of dogs 
+        List<Dog> dogs = new List<Dog>();
 
-    let combined = collection1 + collection2;
-    combined.display(); // This should display all circles in the combined collection
-    // The output should be:
-    // Drawing a circle with name: Circle1 and radius: 5.0
-    // Drawing a circle with name: Circle2 and radius: 10.0
-    // Drawing a circle with name: Circle3 and radius: 15.0
+        dogs.Add(new Dog("Labrador", "Max", 2, "Chien"));
+        dogs.Add(new Dog("Bulldog", "Rocky", 3, "Chien"));
+        //On peut aussi faire ça grace au "string? espece = null"
+        dogs.Add(new Dog("Chiuhauha", "Lili", 5));
+
+        Refuge<Dog> refuge = new Refuge<Dog>();
+        
+        for(int i = 0; i < dogs.Count; i++)
+        {
+          dogs[i].AfficherInformations();
+          refuge.AjouterAnimal(dogs[i]);
+        } 
+        //On a pas vu ça, mais ça fait la meme chose que la boucle d'au dessus
+        foreach(Dog dog in dogs)
+        {
+            dog.AfficherInformations();
+            refuge.AjouterAnimal(dog);
+
+        }
+
+        List<Dog> allDogs = refuge.GetAll();
+        
+        Console.WriteLine(allDogs);
+
+        
+        
+    }
 }

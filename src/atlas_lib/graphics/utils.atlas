@@ -1,32 +1,17 @@
-import std::number;
-
 package graphics;
 
-public struct Vector3i: impl Add, Sub, Mul, Div, Eq, Ord, Copy, Inc, Dec, From<[int32; 3]>
-{
+import std::number;
+
+public struct Vector3i {
     x: int32;
     y: int32;
     z: int32;
-    const ZERO: Vector3i = Vector3i {0, 0, 0};
+    const ZERO: Vector3i = Vector3i {x: 0, y: 0, z: 0};
 
-    /// Marking the constructor as `const` makes it usable for constant expressions.
-    ///By default, a struct constructor is constant anyways.
-    ///But it's good practice to explicitly mark it as `const`.
-    const Vector3i(x: int32, y: int32, z: int32) {
+    Vector3i(x: int32, y: int32, z: int32) {
         self.x = x;
         self.y = y;
         self.z = z;
     }
     ~Vector3i() {}
-    func to_str(self) -> str {
-        return "[" + self.x.to_str() + ", " + self.y.to_str() + ", " + self.z.to_str() + "]";
-    }
-    #[override(From<[int32; 3]>::from)]
-    func from(value: [int32; 3]) -> Vector3i {
-        return new Vector3i {
-            value[0],
-            value[1],
-            value[2]
-        };
-    }
 }

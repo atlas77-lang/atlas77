@@ -45,6 +45,7 @@ public struct Vector<T> {
         self.data[self.length] = val;
         self.length = self.length + 1;
     }
+    
     fn pop(self) -> T {
         if self.length == 0 {
             std::panic("Cannot pop from an empty vector");

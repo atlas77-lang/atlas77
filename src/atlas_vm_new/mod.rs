@@ -2,6 +2,7 @@ mod vm_data;
 mod heap;
 mod stack;
 mod state;
+mod object;
 
 use crate::atlas_vm::memory::object_map::Memory;
 use crate::atlas_vm::memory::stack::Stack;

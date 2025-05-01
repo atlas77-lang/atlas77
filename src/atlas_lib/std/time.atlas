@@ -16,21 +16,21 @@ public class Time {
             self.nsec = nsec;
         }
         ~Time() {}
-        func to_iso_string(self) -> str {
+        fn to_iso_string(self) -> str {
             return format_time(self, "%Y-%m-%dT%H:%M:%S");
         }
-        func format(self, fmt: const str) -> str {
+        fn format(self, fmt: const str) -> str {
             return format_time(self, fmt);
         }
-        func now() -> const Time {
+        fn now() -> const Time {
             return now();
         }
-        func sleep(self) {
+        fn sleep(self) {
             sleep(self);
         }
 }
 
-func test() {
+fn test() {
     let t = Time::now();
     //t = new Time(0, 0);
 }

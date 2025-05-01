@@ -21,35 +21,35 @@ public class File {
             /// we close the file when it goes out of scope
             self.close();
         }
-        func read(path: str) -> File {
+        fn read(path: str) -> File {
             let file: File = new File();
             file.path = path;
             file.content = read_file(path);
             return file;
         }
-        func open(self) {
+        fn open(self) {
             self.content = read_file(self.path);
             return;
         }
-        func close(self) {
+        fn close(self) {
             close_file(self.path);
             return;
         }
-        func write(self, content: str) {
+        fn write(self, content: str) {
             write_file(self.path, content);
             return;
         }
-        func remove(self) {
+        fn remove(self) {
             remove_file(self.path);
             return;
         }
-        func exists(self) -> bool {
+        fn exists(self) -> bool {
             return file_exists(self.path);
         }
-        func read_dir(path: str) -> [str] {
+        fn read_dir(path: str) -> [str] {
             return read_dir(path);
         }
-        func read_file(path: str) -> str {
+        fn read_file(path: str) -> str {
             return read_file(path);
         }
 }
