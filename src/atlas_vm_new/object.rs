@@ -15,7 +15,6 @@ pub const BOOL_TYPE_ID: TypeId = 10;
 pub const CHAR_TYPE_ID: TypeId = 11;
 
 pub struct Object {
-    pub size: u16,
     pub ref_count: u16,
     pub descriptor: ObjectDescriptorId,
     pub data: Vec<u8>,
@@ -23,15 +22,20 @@ pub struct Object {
 
 pub struct ObjectDescriptor {
     pub type_id: u64,
+    pub size: u16,
+    pub fields: Vec<ObjectField>,
+    pub functions: Vec<ObjectFunction>,
 }
 
 pub struct ObjectField {
-    pub name: String,
+    pub name: &'static str,
     pub type_id: TypeId,
+    pub size: u16,
+    pub offset: u16,
 }
 
 pub struct ObjectFunction {
-    pub name: String,
+    pub name: &'static str,
     pub ret_type_id: TypeId,
     pub args: Vec<ObjectField>,
 }
