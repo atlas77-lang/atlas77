@@ -1,12 +1,12 @@
 // All of this is assuming that Time is of type: Time(sec: 64, nsec: i64)
 // Time will have a tag of 256 as it will be the first type defined by the compiler (0-255 are reserved for the compiler)
 
+use crate::atlas_vm::CallBack;
 use crate::atlas_vm::errors::RuntimeError;
 use crate::atlas_vm::memory::object_map::{Class, ObjectKind};
 use crate::atlas_vm::memory::vm_data::VMData;
 use crate::atlas_vm::runtime::vm_state::VMState;
-use crate::atlas_vm::CallBack;
-use time::{format_description, OffsetDateTime};
+use time::{OffsetDateTime, format_description};
 
 pub const TIME_FUNCTIONS: [(&str, CallBack); 4] = [
     ("now", now),
@@ -23,9 +23,14 @@ pub fn now<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
     let sec = duration.as_secs();
     let nsec = duration.subsec_nanos();
 
-    let fields = state.runtime_arena.alloc(vec![VMData::new_i64(sec as i64), VMData::new_i64(nsec as i64)]);
+    let fields = state.runtime_arena.alloc(vec![
+        VMData::new_i64(sec as i64),
+        VMData::new_i64(nsec as i64),
+    ]);
 
-    let obj_idx = state.object_map.put(ObjectKind::Class(Class::new(fields.len(), fields)));
+    let obj_idx = state
+        .object_map
+        .put(ObjectKind::Class(Class::new(fields.len(), fields)));
     match obj_idx {
         Ok(index) => Ok(VMData::new_object(index)),
         Err(_) => Err(RuntimeError::OutOfMemory),
@@ -92,7 +97,6 @@ pub fn elapsed<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
     let start_sec = start_obj[0].as_i64();
     let start_nsec = start_obj[1].as_i64();
 
-
     let raw_end_obj = state.object_map.get(end_ptr)?;
     let end_obj = raw_end_obj.class();
 
@@ -102,9 +106,14 @@ pub fn elapsed<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
     let elapsed_sec = end_sec - start_sec;
     let elapsed_nsec = end_nsec - start_nsec;
 
-    let fields = state.runtime_arena.alloc(vec![VMData::new_i64(elapsed_sec), VMData::new_i64(elapsed_nsec)]);
+    let fields = state.runtime_arena.alloc(vec![
+        VMData::new_i64(elapsed_sec),
+        VMData::new_i64(elapsed_nsec),
+    ]);
 
-    let obj_idx = state.object_map.put(ObjectKind::Class(Class::new(fields.len(), fields)));
+    let obj_idx = state
+        .object_map
+        .put(ObjectKind::Class(Class::new(fields.len(), fields)));
 
     match obj_idx {
         Ok(index) => Ok(VMData::new_object(index)),

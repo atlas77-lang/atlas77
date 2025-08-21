@@ -1,7 +1,7 @@
 pub mod errors;
+pub mod libraries;
 pub mod memory;
 pub mod runtime;
-pub mod libraries;
 
 use std::collections::HashMap;
 
@@ -16,8 +16,7 @@ use crate::atlas_vm::{
     memory::{
         object_map::Memory,
         object_map::{Class, ObjectKind},
-        stack::Stack
-        ,
+        stack::Stack,
         vm_data::VMData,
     },
     runtime::{
@@ -104,7 +103,10 @@ impl<'run> Atlas77VM<'run> {
         self.base_ptr = 0;
     }
     pub fn run(&mut self) -> RuntimeResult<VMData> {
-        let position = self.program.functions.get(self.program.entry_point.as_str());
+        let position = self
+            .program
+            .functions
+            .get(self.program.entry_point.as_str());
 
         self.stack.extends(
             &self
@@ -143,8 +145,12 @@ impl<'run> Atlas77VM<'run> {
             Instruction::NewObj { class_descriptor } => {
                 let class = &self.program.classes[class_descriptor];
                 let nb_fields = class.fields.len();
-                let fields = self.runtime_arena.alloc(vec![VMData::new_unit(); nb_fields]);
-                let class_ptr = self.object_map.put(ObjectKind::Class(Class::new(class_descriptor, fields)))?;
+                let fields = self
+                    .runtime_arena
+                    .alloc(vec![VMData::new_unit(); nb_fields]);
+                let class_ptr = self
+                    .object_map
+                    .put(ObjectKind::Class(Class::new(class_descriptor, fields)))?;
                 self.stack.push(VMData::new_object(class_ptr))?;
                 self.pc += 1;
             }
@@ -209,7 +215,10 @@ impl<'run> Atlas77VM<'run> {
             }
             Instruction::PushStr(u) => {
                 let string = self.program.global.string_pool[u];
-                let ptr = match self.object_map.put(ObjectKind::String(String::from(string))) {
+                let ptr = match self
+                    .object_map
+                    .put(ObjectKind::String(String::from(string)))
+                {
                     Ok(ptr) => ptr,
                     Err(_) => return Err(RuntimeError::OutOfMemory),
                 };
@@ -272,83 +281,66 @@ impl<'run> Atlas77VM<'run> {
                     Type::String => {
                         let string = val.to_string();
                         let ptr = match self.object_map.put(ObjectKind::String(string)) {
-                            Ok(ptr) => {
-                                ptr
-                            }
+                            Ok(ptr) => ptr,
                             Err(_) => return Err(RuntimeError::OutOfMemory),
                         };
                         VMData::new_string(ptr)
                     }
-                    Type::Char => {
-                        match val.tag {
-                            VMTag::Str => {
-                                let raw_string = self.object_map.get(val.as_object())?;
-                                let string = raw_string.string();
-                                if string.len() != 1 {
-                                    return Err(RuntimeError::InvalidCast(
-                                        val.tag,
-                                        Type::Char,
-                                    ));
-                                }
-                                VMData::new_char(string.chars().next().unwrap())
+                    Type::Char => match val.tag {
+                        VMTag::Str => {
+                            let raw_string = self.object_map.get(val.as_object())?;
+                            let string = raw_string.string();
+                            if string.len() != 1 {
+                                return Err(RuntimeError::InvalidCast(val.tag, Type::Char));
                             }
-                            _ => {
-                                VMData::new_char(val.as_char())
-                            }
+                            VMData::new_char(string.chars().next().unwrap())
                         }
-                    }
-                    Type::Boolean => {
-                        match val.tag {
-                            VMTag::Str => {
-                                let raw_string = self.object_map.get(val.as_object())?;
-                                let string = raw_string.string();
-                                VMData::new_bool(string.parse::<bool>().unwrap())
-                            }
-                            _ => VMData::new_bool(val.as_bool()),
+                        _ => VMData::new_char(val.as_char()),
+                    },
+                    Type::Boolean => match val.tag {
+                        VMTag::Str => {
+                            let raw_string = self.object_map.get(val.as_object())?;
+                            let string = raw_string.string();
+                            VMData::new_bool(string.parse::<bool>().unwrap())
                         }
-                    }
-                    Type::Float => {
-                        match val.tag {
-                            VMTag::Str => {
-                                let raw_string = self.object_map.get(val.as_object())?;
-                                let string = raw_string.string();
-                                VMData::new_f64(string.parse::<f64>().unwrap())
-                            }
-                            VMTag::UInt64 => VMData::new_f64(val.as_u64() as f64),
-                            VMTag::Int64 => VMData::new_f64(val.as_i64() as f64),
-                            VMTag::Bool => VMData::new_f64(val.as_bool() as i64 as f64),
-                            VMTag::Char => VMData::new_f64(val.as_char() as i64 as f64),
-                            _ => unreachable!("Invalid cast to float"),
+                        _ => VMData::new_bool(val.as_bool()),
+                    },
+                    Type::Float => match val.tag {
+                        VMTag::Str => {
+                            let raw_string = self.object_map.get(val.as_object())?;
+                            let string = raw_string.string();
+                            VMData::new_f64(string.parse::<f64>().unwrap())
                         }
-                    }
-                    Type::Integer => {
-                        match val.tag {
-                            VMTag::Str => {
-                                let raw_string = self.object_map.get(val.as_object())?;
-                                let string = raw_string.string();
-                                VMData::new_i64(string.parse::<i64>().unwrap())
-                            }
-                            VMTag::UInt64 => VMData::new_i64(val.as_u64() as i64),
-                            VMTag::Float64 => VMData::new_i64(val.as_f64() as i64),
-                            VMTag::Bool => VMData::new_i64(val.as_bool() as i64),
-                            VMTag::Char => VMData::new_i64(val.as_char() as i64),
-                            _ => unreachable!("Invalid cast to integer"),
+                        VMTag::UInt64 => VMData::new_f64(val.as_u64() as f64),
+                        VMTag::Int64 => VMData::new_f64(val.as_i64() as f64),
+                        VMTag::Bool => VMData::new_f64(val.as_bool() as i64 as f64),
+                        VMTag::Char => VMData::new_f64(val.as_char() as i64 as f64),
+                        _ => unreachable!("Invalid cast to float"),
+                    },
+                    Type::Integer => match val.tag {
+                        VMTag::Str => {
+                            let raw_string = self.object_map.get(val.as_object())?;
+                            let string = raw_string.string();
+                            VMData::new_i64(string.parse::<i64>().unwrap())
                         }
-                    }
-                    Type::UnsignedInteger => {
-                        match val.tag {
-                            VMTag::Str => {
-                                let raw_string = self.object_map.get(val.as_object())?;
-                                let string = raw_string.string();
-                                VMData::new_u64(string.parse::<u64>().unwrap())
-                            }
-                            VMTag::Int64 => VMData::new_u64(val.as_i64() as u64),
-                            VMTag::Float64 => VMData::new_u64(val.as_f64() as u64),
-                            VMTag::Bool => VMData::new_u64(val.as_bool() as u64),
-                            VMTag::Char => VMData::new_u64(val.as_char() as u64),
-                            _ => unreachable!("Invalid cast to unsigned integer"),
+                        VMTag::UInt64 => VMData::new_i64(val.as_u64() as i64),
+                        VMTag::Float64 => VMData::new_i64(val.as_f64() as i64),
+                        VMTag::Bool => VMData::new_i64(val.as_bool() as i64),
+                        VMTag::Char => VMData::new_i64(val.as_char() as i64),
+                        _ => unreachable!("Invalid cast to integer"),
+                    },
+                    Type::UnsignedInteger => match val.tag {
+                        VMTag::Str => {
+                            let raw_string = self.object_map.get(val.as_object())?;
+                            let string = raw_string.string();
+                            VMData::new_u64(string.parse::<u64>().unwrap())
                         }
-                    }
+                        VMTag::Int64 => VMData::new_u64(val.as_i64() as u64),
+                        VMTag::Float64 => VMData::new_u64(val.as_f64() as u64),
+                        VMTag::Bool => VMData::new_u64(val.as_bool() as u64),
+                        VMTag::Char => VMData::new_u64(val.as_char() as u64),
+                        _ => unreachable!("Invalid cast to unsigned integer"),
+                    },
                 };
                 self.stack.push(res)?;
                 self.pc += 1;
@@ -486,7 +478,10 @@ impl<'run> Atlas77VM<'run> {
                 self.stack[self.base_ptr + nb_arg as usize] = val;
                 self.pc += 1;
             }
-            Instruction::FunctionCall { function_name, nb_args } => {
+            Instruction::FunctionCall {
+                function_name,
+                nb_args,
+            } => {
                 let position = *self.program.functions.get(function_name).unwrap();
                 for arg in (0..nb_args).rev() {
                     self.args[arg as usize] = self.stack.pop()?;
@@ -532,7 +527,8 @@ impl<'run> Atlas77VM<'run> {
                     }
                     _ => {}
                 }
-                self.stack.truncate(previous_stack_frame.base_ptr, &mut self.object_map)?;
+                self.stack
+                    .truncate(previous_stack_frame.base_ptr, &mut self.object_map)?;
                 self.pc = previous_stack_frame.pc + 1;
                 self.base_ptr = self.stack.top;
                 self.stack.push(ret)?;

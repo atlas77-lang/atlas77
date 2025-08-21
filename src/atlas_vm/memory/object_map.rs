@@ -1,6 +1,6 @@
+use crate::atlas_vm::RuntimeResult;
 use crate::atlas_vm::errors::RuntimeError;
 use crate::atlas_vm::memory::vm_data::{VMData, VMTag};
-use crate::atlas_vm::RuntimeResult;
 use std::borrow::Borrow;
 use std::ops::{Index, IndexMut};
 use std::{
@@ -57,9 +57,7 @@ impl<'mem> Memory<'mem> {
     }
     pub fn clear(&mut self) {
         for (idx, obj) in self.mem.iter_mut().enumerate() {
-            obj.kind = ObjectKind::Free {
-                next: self.free,
-            };
+            obj.kind = ObjectKind::Free { next: self.free };
             obj.rc = 0;
             self.free = ObjectIndex::new(idx);
         }
@@ -68,16 +66,23 @@ impl<'mem> Memory<'mem> {
     pub fn put(&mut self, object: ObjectKind<'mem>) -> Result<ObjectIndex, RuntimeError> {
         let idx = self.free;
         let v = self.mem.get_mut(usize::from(self.free)).unwrap();
-        let repl = std::mem::replace(v, Object { kind: object, rc: 1000 });
+        let repl = std::mem::replace(
+            v,
+            Object {
+                kind: object,
+                rc: 1000,
+            },
+        );
 
         match repl {
-            Object { kind: ObjectKind::Free { next }, .. } => {
+            Object {
+                kind: ObjectKind::Free { next },
+                ..
+            } => {
                 self.free = next;
                 Ok(idx)
             }
-            _ => {
-                Err(RuntimeError::OutOfMemory)
-            }
+            _ => Err(RuntimeError::OutOfMemory),
         }
     }
 
@@ -110,7 +115,7 @@ impl<'mem> Memory<'mem> {
             }
             ObjectKind::Free { .. } => {
                 // Already freed
-                return Ok(())
+                return Ok(());
             }
             _ => {}
         }
@@ -126,12 +131,11 @@ impl<'mem> Memory<'mem> {
             },
         );
         let res = match repl {
-            Object { kind: ObjectKind::Free { .. }, .. } => {
-                Err(RuntimeError::NullReference)
-            }
-            _ => {
-                Ok(())
-            }
+            Object {
+                kind: ObjectKind::Free { .. },
+                ..
+            } => Err(RuntimeError::NullReference),
+            _ => Ok(()),
         };
         self.free = index;
         res
@@ -181,7 +185,11 @@ impl<'mem> Memory<'mem> {
 impl Display for Memory<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         for (i, obj) in self.mem.iter().enumerate() {
-            if let Object { kind: ObjectKind::Free { .. }, .. } = obj {
+            if let Object {
+                kind: ObjectKind::Free { .. },
+                ..
+            } = obj
+            {
                 continue;
             }
             writeln!(f, "\t{}: {}", i, obj)?;
@@ -281,7 +289,6 @@ impl<'mem> ObjectKind<'mem> {
     }
 }
 
-
 impl<'mem> From<Class<'mem>> for ObjectKind<'mem> {
     fn from(value: Class<'mem>) -> Self {
         ObjectKind::Class(value)
@@ -314,11 +321,8 @@ pub struct RawClass<'mem> {
 
 impl<'mem> Clone for RawClass<'mem> {
     fn clone(&self) -> Self {
-        let ptr = Box::leak(Box::new(self.ptr.to_vec()))
-            .as_mut_slice();
-        RawClass {
-            ptr,
-        }
+        let ptr = Box::leak(Box::new(self.ptr.to_vec())).as_mut_slice();
+        RawClass { ptr }
     }
 }
 

@@ -4,7 +4,10 @@ use heck::{ToPascalCase, ToSnakeCase};
 use miette::{SourceOffset, SourceSpan};
 use std::collections::BTreeMap;
 
-use crate::atlas_c::atlas_frontend::parser::ast::{AstClass, AstConstructor, AstDestructor, AstIdentifier, AstMethod, AstMethodModifier, AstNamedType};
+use crate::atlas_c::atlas_frontend::parser::ast::{
+    AstClass, AstConstructor, AstDestructor, AstIdentifier, AstMethod, AstMethodModifier,
+    AstNamedType,
+};
 use crate::atlas_c::atlas_frontend::{
     parse,
     parser::{
@@ -23,23 +26,35 @@ const MATH_ATLAS: &str = include_str!("../../../atlas_lib/std/math.atlas");
 const STRING_ATLAS: &str = include_str!("../../../atlas_lib/std/string.atlas");
 
 use crate::atlas_c::atlas_hir::error::NonConstantValueError;
-use crate::atlas_c::atlas_hir::expr::{HirCastExpr, HirCharLiteralExpr, HirDeleteExpr, HirFieldAccessExpr, HirIndexingExpr, HirListLiteralExpr, HirNewArrayExpr, HirNewObjExpr, HirNoneLiteral, HirSelfLiteral, HirStaticAccessExpr, HirStringLiteralExpr, HirUnitLiteralExpr};
+use crate::atlas_c::atlas_hir::expr::{
+    HirCastExpr, HirCharLiteralExpr, HirDeleteExpr, HirFieldAccessExpr, HirIndexingExpr,
+    HirListLiteralExpr, HirNewArrayExpr, HirNewObjExpr, HirNoneLiteral, HirSelfLiteral,
+    HirStaticAccessExpr, HirStringLiteralExpr, HirUnitLiteralExpr,
+};
 use crate::atlas_c::atlas_hir::item::{HirClass, HirClassConstructor, HirClassMethod};
-use crate::atlas_c::atlas_hir::signature::{ConstantValue, HirClassConstSignature, HirClassConstructorSignature, HirClassFieldSignature, HirClassMethodModifier, HirClassMethodSignature, HirClassSignature};
+use crate::atlas_c::atlas_hir::signature::{
+    ConstantValue, HirClassConstSignature, HirClassConstructorSignature, HirClassFieldSignature,
+    HirClassMethodModifier, HirClassMethodSignature, HirClassSignature,
+};
 use crate::atlas_c::atlas_hir::syntax_lowering_pass::case::Case;
 use crate::atlas_c::atlas_hir::{
+    HirImport, HirModule, HirModuleBody,
     arena::HirArena,
     error::{HirError, HirResult, UnsupportedExpr, UnsupportedStatement},
     expr::{
         HirAssignExpr, HirBinaryOp, HirBinaryOpExpr, HirBooleanLiteralExpr, HirExpr,
-        HirFloatLiteralExpr, HirFunctionCallExpr, HirIdentExpr, HirIntegerLiteralExpr,
-        HirUnaryOp, HirUnsignedIntegerLiteralExpr, UnaryOpExpr,
+        HirFloatLiteralExpr, HirFunctionCallExpr, HirIdentExpr, HirIntegerLiteralExpr, HirUnaryOp,
+        HirUnsignedIntegerLiteralExpr, UnaryOpExpr,
     },
     item::HirFunction,
-    signature::{HirFunctionParameterSignature, HirFunctionSignature, HirModuleSignature, HirTypeParameterItemSignature},
-    stmt::{HirBlock, HirExprStmt, HirIfElseStmt, HirLetStmt, HirReturn, HirStatement, HirWhileStmt},
+    signature::{
+        HirFunctionParameterSignature, HirFunctionSignature, HirModuleSignature,
+        HirTypeParameterItemSignature,
+    },
+    stmt::{
+        HirBlock, HirExprStmt, HirIfElseStmt, HirLetStmt, HirReturn, HirStatement, HirWhileStmt,
+    },
     ty::HirTy,
-    HirImport, HirModule, HirModuleBody,
 };
 
 pub struct AstSyntaxLoweringPass<'ast, 'hir> {
@@ -95,7 +110,10 @@ where
                 let name = self.arena.names().get(f.name.name);
                 if !name.is_snake_case() {
                     eprintln!("Warning: {} is not snake case", name);
-                    eprintln!("Try using snake_case for function names e.g. {}", name.to_snake_case());
+                    eprintln!(
+                        "Try using snake_case for function names e.g. {}",
+                        name.to_snake_case()
+                    );
                 }
                 module_signature.functions.insert(name, fun.signature);
                 module_body.functions.insert(name, fun);
@@ -120,7 +138,10 @@ where
                 let name = self.arena.names().get(e.name.name);
                 if !name.is_snake_case() {
                     eprintln!("Warning: {} is not snake case", name);
-                    eprintln!("Try using snake_case for function names e.g. {}", name.to_snake_case());
+                    eprintln!(
+                        "Try using snake_case for function names e.g. {}",
+                        name.to_snake_case()
+                    );
                 }
                 let ty = self.visit_ty(e.ret)?;
 
@@ -128,7 +149,13 @@ where
                 let mut type_params: Vec<&HirTypeParameterItemSignature<'_>> = Vec::new();
 
                 let generics = if e.generics.is_some() {
-                    Some(e.generics.unwrap().iter().map(|g| self.visit_generic(g)).collect::<HirResult<Vec<_>>>()?)
+                    Some(
+                        e.generics
+                            .unwrap()
+                            .iter()
+                            .map(|g| self.visit_generic(g))
+                            .collect::<HirResult<Vec<_>>>()?,
+                    )
                 } else {
                     None
                 };
@@ -169,7 +196,10 @@ where
     }
 
     //todo: Add constraints to generics
-    fn visit_generic(&self, generics: &'ast AstNamedType) -> HirResult<&'hir HirTypeParameterItemSignature<'hir>> {
+    fn visit_generic(
+        &self,
+        generics: &'ast AstNamedType,
+    ) -> HirResult<&'hir HirTypeParameterItemSignature<'hir>> {
         let name = self.arena.names().get(generics.name.name);
         let hir = self.arena.intern(HirTypeParameterItemSignature {
             span: generics.span.clone(),
@@ -183,7 +213,10 @@ where
         let name = self.arena.names().get(node.name.name);
         if !name.is_pascal_case() {
             eprintln!("Warning: {} is not pascal case", name);
-            eprintln!("Try using PascalCase for class names e.g. {}", name.to_pascal_case());
+            eprintln!(
+                "Try using PascalCase for class names e.g. {}",
+                name.to_pascal_case()
+            );
         }
 
         let mut methods = Vec::new();
@@ -211,7 +244,8 @@ where
             operators.push(self.visit_bin_op(&operator.op)?);
         }
 
-        let mut constants: BTreeMap<&'hir str, &'hir HirClassConstSignature<'hir>> = BTreeMap::new();
+        let mut constants: BTreeMap<&'hir str, &'hir HirClassConstSignature<'hir>> =
+            BTreeMap::new();
         for constant in node.constants.iter() {
             let ty = self.visit_ty(constant.ty)?;
             let name = self.arena.names().get(constant.name.name);
@@ -225,18 +259,21 @@ where
                             constant.value.span().end - constant.value.span().start,
                         ),
                         src: self.src.clone(),
-                    }))
+                    }));
                 }
             };
-            constants.insert(name, self.arena.intern(HirClassConstSignature {
-                span: constant.span.clone(),
-                vis: node.vis.into(),
+            constants.insert(
                 name,
-                name_span: constant.name.span.clone(),
-                ty,
-                ty_span: constant.ty.span(),
-                value: self.arena.intern(value),
-            }));
+                self.arena.intern(HirClassConstSignature {
+                    span: constant.span.clone(),
+                    vis: node.vis.into(),
+                    name,
+                    name_span: constant.name.span.clone(),
+                    ty,
+                    ty_span: constant.ty.span(),
+                    value: self.arena.intern(value),
+                }),
+            );
         }
 
         let constructor = self.visit_constructor(node.constructor, &fields)?;
@@ -328,7 +365,11 @@ where
         Ok(method)
     }
 
-    fn visit_constructor(&self, constructor: Option<&'ast AstConstructor<'ast>>, fields: &[HirClassFieldSignature<'hir>]) -> HirResult<HirClassConstructor<'hir>> {
+    fn visit_constructor(
+        &self,
+        constructor: Option<&'ast AstConstructor<'ast>>,
+        fields: &[HirClassFieldSignature<'hir>],
+    ) -> HirResult<HirClassConstructor<'hir>> {
         if constructor.is_none() {
             let mut params: Vec<&'hir HirFunctionParameterSignature<'hir>> = Vec::new();
             for field in fields.iter() {
@@ -392,7 +433,10 @@ where
         Ok(hir)
     }
 
-    fn visit_destructor(&self, destructor: Option<&'ast AstDestructor<'ast>>) -> HirResult<HirClassConstructor<'hir>> {
+    fn visit_destructor(
+        &self,
+        destructor: Option<&'ast AstDestructor<'ast>>,
+    ) -> HirResult<HirClassConstructor<'hir>> {
         if destructor.is_none() {
             let hir = HirClassConstructor {
                 span: logos::Span::default(),
@@ -445,7 +489,7 @@ where
                     self.ast_arena,
                     IO_ATLAS.to_string(),
                 )
-                    .unwrap();
+                .unwrap();
                 let allocated_ast = self.ast_arena.alloc(ast);
                 let hir = self.arena.intern(AstSyntaxLoweringPass::<'ast, 'hir>::new(
                     self.arena,
@@ -473,7 +517,7 @@ where
                     self.ast_arena,
                     MATH_ATLAS.to_string(),
                 )
-                    .unwrap();
+                .unwrap();
                 let allocated_ast = self.ast_arena.alloc(ast);
                 let hir = self.arena.intern(AstSyntaxLoweringPass::<'ast, 'hir>::new(
                     self.arena,
@@ -499,7 +543,7 @@ where
                     self.ast_arena,
                     FILE_ATLAS.to_string(),
                 )
-                    .unwrap();
+                .unwrap();
                 let allocated_ast = self.ast_arena.alloc(ast);
                 let hir = self.arena.intern(AstSyntaxLoweringPass::<'ast, 'hir>::new(
                     self.arena,
@@ -515,7 +559,7 @@ where
                     self.ast_arena,
                     LIST_ATLAS.to_string(),
                 )
-                    .unwrap();
+                .unwrap();
                 let allocated_ast = self.ast_arena.alloc(ast);
                 let hir = self.arena.intern(AstSyntaxLoweringPass::<'ast, 'hir>::new(
                     self.arena,
@@ -542,7 +586,7 @@ where
                     self.ast_arena,
                     STRING_ATLAS.to_string(),
                 )
-                    .unwrap();
+                .unwrap();
                 let allocated_ast = self.ast_arena.alloc(ast);
                 let hir = self.arena.intern(AstSyntaxLoweringPass::<'ast, 'hir>::new(
                     self.arena,
@@ -571,7 +615,7 @@ where
                     self.ast_arena,
                     STRING_ATLAS.to_string(),
                 )
-                    .unwrap();
+                .unwrap();
                 let allocated_ast = self.ast_arena.alloc(ast);
                 let hir = self.arena.intern(AstSyntaxLoweringPass::<'ast, 'hir>::new(
                     self.arena,
@@ -620,7 +664,10 @@ where
                 let name = self.arena.names().get(c.name.name);
                 if !name.is_snake_case() {
                     eprintln!("Warning: {} is not snake case", name);
-                    eprintln!("Try using snake_case for variable names e.g. {}", name.to_snake_case());
+                    eprintln!(
+                        "Try using snake_case for variable names e.g. {}",
+                        name.to_snake_case()
+                    );
                 }
                 let ty = self.visit_ty(c.ty)?;
 
@@ -639,7 +686,10 @@ where
                 let name = self.arena.names().get(l.name.name);
                 if !name.is_snake_case() {
                     eprintln!("Warning: {} is not snake case", name);
-                    eprintln!("Try using snake_case for variable names e.g. {}", name.to_snake_case());
+                    eprintln!(
+                        "Try using snake_case for variable names e.g. {}",
+                        name.to_snake_case()
+                    );
                 }
                 let ty = l.ty.map(|ty| self.visit_ty(ty)).transpose()?;
 
@@ -815,7 +865,10 @@ where
             AstExpr::NewObj(obj) => {
                 let hir = HirExpr::NewObj(HirNewObjExpr {
                     span: node.span(),
-                    ty: self.arena.types().get_named_ty(obj.ty.name, obj.ty.span.clone()),
+                    ty: self
+                        .arena
+                        .types()
+                        .get_named_ty(obj.ty.name, obj.ty.span.clone()),
                     args: obj
                         .args
                         .iter()
@@ -849,38 +902,28 @@ where
                             ty: self.arena.types().get_uint64_ty(),
                         })
                     }
-                    AstLiteral::SelfLiteral(_) => {
-                        HirExpr::SelfLiteral(HirSelfLiteral {
-                            span: l.span(),
-                            ty: self.arena.types().get_uninitialized_ty(),
-                        })
-                    }
-                    AstLiteral::None(_) => {
-                        HirExpr::NoneLiteral(HirNoneLiteral {
-                            span: l.span(),
-                            ty: self.arena.types().get_none_ty(),
-                        })
-                    }
-                    AstLiteral::Char(c) => {
-                        HirExpr::CharLiteral(HirCharLiteralExpr {
-                            span: l.span(),
-                            value: c.value,
-                            ty: self.arena.types().get_char_ty(),
-                        })
-                    }
-                    AstLiteral::Unit(_) => {
-                        HirExpr::UnitLiteral(HirUnitLiteralExpr {
-                            span: l.span(),
-                            ty: self.arena.types().get_unit_ty(),
-                        })
-                    }
-                    AstLiteral::String(s) => {
-                        HirExpr::StringLiteral(HirStringLiteralExpr {
-                            span: l.span(),
-                            value: s.value,
-                            ty: self.arena.types().get_str_ty(),
-                        })
-                    }
+                    AstLiteral::SelfLiteral(_) => HirExpr::SelfLiteral(HirSelfLiteral {
+                        span: l.span(),
+                        ty: self.arena.types().get_uninitialized_ty(),
+                    }),
+                    AstLiteral::None(_) => HirExpr::NoneLiteral(HirNoneLiteral {
+                        span: l.span(),
+                        ty: self.arena.types().get_none_ty(),
+                    }),
+                    AstLiteral::Char(c) => HirExpr::CharLiteral(HirCharLiteralExpr {
+                        span: l.span(),
+                        value: c.value,
+                        ty: self.arena.types().get_char_ty(),
+                    }),
+                    AstLiteral::Unit(_) => HirExpr::UnitLiteral(HirUnitLiteralExpr {
+                        span: l.span(),
+                        ty: self.arena.types().get_unit_ty(),
+                    }),
+                    AstLiteral::String(s) => HirExpr::StringLiteral(HirStringLiteralExpr {
+                        span: l.span(),
+                        value: s.value,
+                        ty: self.arena.types().get_str_ty(),
+                    }),
                     AstLiteral::List(l) => {
                         let elements = l
                             .items
@@ -1058,14 +1101,16 @@ where
             }
             //The self ty is replaced during the type checking phase
             AstType::SelfTy(_) => self.arena.types().get_uninitialized_ty(),
-            _ => return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                span: SourceSpan::new(
-                    SourceOffset::from(node.span().start),
-                    node.span().end - node.span().start,
-                ),
-                expr: format!("{:?}", node),
-                src: self.src.clone(),
-            })),
+            _ => {
+                return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                    span: SourceSpan::new(
+                        SourceOffset::from(node.span().start),
+                        node.span().end - node.span().start,
+                    ),
+                    expr: format!("{:?}", node),
+                    src: self.src.clone(),
+                }));
+            }
         };
         Ok(ty)
     }

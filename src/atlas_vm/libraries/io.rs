@@ -1,8 +1,8 @@
+use crate::atlas_vm::CallBack;
 use crate::atlas_vm::errors::RuntimeError;
 use crate::atlas_vm::memory::object_map::ObjectKind;
 use crate::atlas_vm::memory::vm_data::{VMData, VMTag};
 use crate::atlas_vm::runtime::vm_state::VMState;
-use crate::atlas_vm::CallBack;
 
 pub const IO_FUNCTIONS: [(&str, CallBack); 4] = [
     ("println", println),
@@ -61,9 +61,7 @@ pub fn input<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
         .object_map
         .put(ObjectKind::String(input.trim().to_string()));
     match obj_index {
-        Ok(index) => {
-            Ok(VMData::new_string(index))
-        }
+        Ok(index) => Ok(VMData::new_string(index)),
         Err(_) => Err(RuntimeError::OutOfMemory),
     }
 }

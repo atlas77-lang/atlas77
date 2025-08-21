@@ -1,6 +1,6 @@
 use crate::atlas_vm::memory::object_map::Memory;
 use crate::atlas_vm::memory::vm_data::VMTag;
-use crate::atlas_vm::{errors::RuntimeError, memory::vm_data::VMData, RuntimeResult};
+use crate::atlas_vm::{RuntimeResult, errors::RuntimeError, memory::vm_data::VMData};
 use std::fmt::Display;
 use std::ops::{Index, IndexMut};
 
@@ -207,20 +207,15 @@ impl Index<StackFrameInfo> for Stack {
     }
 }
 
-
 impl Display for Stack {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Stack: {}",
-            {
-                let mut s = "[".to_string();
-                for i in 0..self.top {
-                    s.push_str(&format!("{}, ", self.values[i]))
-                }
-                s.push(']');
-                s
-            },
-        )
+        write!(f, "Stack: {}", {
+            let mut s = "[".to_string();
+            for i in 0..self.top {
+                s.push_str(&format!("{}, ", self.values[i]))
+            }
+            s.push(']');
+            s
+        },)
     }
 }

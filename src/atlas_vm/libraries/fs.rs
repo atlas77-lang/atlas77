@@ -1,8 +1,8 @@
+use crate::atlas_vm::CallBack;
 use crate::atlas_vm::errors::RuntimeError;
 use crate::atlas_vm::memory::object_map::ObjectKind;
 use crate::atlas_vm::memory::vm_data::VMData;
 use crate::atlas_vm::runtime::vm_state::VMState;
-use crate::atlas_vm::CallBack;
 
 pub const FILE_FUNCTIONS: [(&str, CallBack); 5] = [
     ("read_dir", read_dir),

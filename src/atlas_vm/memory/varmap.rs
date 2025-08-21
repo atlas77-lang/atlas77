@@ -1,6 +1,6 @@
+use crate::atlas_vm::RuntimeResult;
 use crate::atlas_vm::memory::object_map::Memory;
 use crate::atlas_vm::memory::vm_data::{VMData, VMTag};
-use crate::atlas_vm::RuntimeResult;
 use std::collections::HashMap;
 
 #[derive(Debug, Default)]
@@ -17,12 +17,17 @@ pub struct Key<'run> {
 impl<'run> VarMap<'run> {
     pub fn new() -> Self {
         VarMap {
-            var_map: HashMap::new()
+            var_map: HashMap::new(),
         }
     }
     /// Insert doesn't need to increment the reference count of the value.
     /// Because stack.pop() doesn't decrement the reference count of the value.
-    pub fn insert(&mut self, key: Key<'run>, value: VMData, mem: &mut Memory) -> RuntimeResult<VMData> {
+    pub fn insert(
+        &mut self,
+        key: Key<'run>,
+        value: VMData,
+        mem: &mut Memory,
+    ) -> RuntimeResult<VMData> {
         let old_data = self.var_map.insert(key, value);
         if let Some(old_data) = old_data {
             match old_data.tag {

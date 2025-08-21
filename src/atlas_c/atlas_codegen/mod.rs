@@ -3,14 +3,16 @@ pub mod arena;
 mod table;
 
 use crate::atlas_c::atlas_hir::{
+    HirModule,
     error::{HirResult, UnsupportedExpr, UnsupportedStatement},
     expr::HirExpr,
     signature::HirFunctionParameterSignature,
     stmt::{HirBlock, HirStatement},
     ty::HirTy,
-    HirModule,
 };
-use crate::atlas_vm::runtime::instruction::{ClassDescriptor, ImportedLibrary, Instruction, Label, ProgramDescriptor, Type};
+use crate::atlas_vm::runtime::instruction::{
+    ClassDescriptor, ImportedLibrary, Instruction, Label, ProgramDescriptor, Type,
+};
 use std::collections::{BTreeMap, HashMap};
 
 use crate::atlas_c::atlas_codegen::table::Table;
@@ -76,9 +78,12 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
 
             self.generate_bytecode_block(&function.body, &mut bytecode, self.src.clone())?;
-            bytecode.insert(0, Instruction::LocalSpace {
-                nb_vars: self.local_variables.len() as u8
-            });
+            bytecode.insert(
+                0,
+                Instruction::LocalSpace {
+                    nb_vars: self.local_variables.len() as u8,
+                },
+            );
 
             if func_name == "main" {
                 bytecode.push(Instruction::Halt);
@@ -88,7 +93,6 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             let func_name = self.arena.alloc(func_name.to_string());
 
             functions.insert(func_name, self.current_pos);
-
 
             labels.push(Label {
                 name: self.arena.alloc(func_name.to_string()),
@@ -100,16 +104,42 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             self.local_variables.clear();
         }
         for (class_name, class) in self.hir.body.classes.clone() {
-            self.generate_bytecode_class(class_name, &class, &mut labels, self.src.clone(), &mut functions)?;
-            let destructor_pos = self.generate_bytecode_constructor(class_name, &class.destructor, &mut labels, self.src.clone(), false)?;
+            self.generate_bytecode_class(
+                class_name,
+                &class,
+                &mut labels,
+                self.src.clone(),
+                &mut functions,
+            )?;
+            let destructor_pos = self.generate_bytecode_constructor(
+                class_name,
+                &class.destructor,
+                &mut labels,
+                self.src.clone(),
+                false,
+            )?;
             self.local_variables.clear();
-            functions.insert(self.arena.alloc(format!("{}.delete", class_name)), destructor_pos);
-            let constructor_pos = self.generate_bytecode_constructor(class_name, &class.constructor, &mut labels, self.src.clone(), true)?;
+            functions.insert(
+                self.arena.alloc(format!("{}.delete", class_name)),
+                destructor_pos,
+            );
+            let constructor_pos = self.generate_bytecode_constructor(
+                class_name,
+                &class.constructor,
+                &mut labels,
+                self.src.clone(),
+                true,
+            )?;
             self.local_variables.clear();
-            functions.insert(self.arena.alloc(format!("{}.new", class_name)), constructor_pos);
-            let class_pos = self.class_pool.iter().position(|constant_class| {
-                constant_class.name == class_name
-            }).unwrap();
+            functions.insert(
+                self.arena.alloc(format!("{}.new", class_name)),
+                constructor_pos,
+            );
+            let class_pos = self
+                .class_pool
+                .iter()
+                .position(|constant_class| constant_class.name == class_name)
+                .unwrap();
             self.class_pool[class_pos].destructor_pos = destructor_pos;
             self.class_pool[class_pos].constructor_pos = constructor_pos;
         }
@@ -146,18 +176,19 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             let params = method.signature.params.clone();
             if method.signature.modifier != HirClassMethodModifier::Static {
                 self.local_variables.insert("self");
-                bytecode.push(Instruction::LoadArg {
-                    index: 0,
-                });
+                bytecode.push(Instruction::LoadArg { index: 0 });
                 self.generate_bytecode_args(params, &mut bytecode, 1)?;
             } else {
                 self.generate_bytecode_args(params, &mut bytecode, 0)?;
             }
             self.generate_bytecode_block(&method.body, &mut bytecode, src.clone())?;
 
-            bytecode.insert(0, Instruction::LocalSpace {
-                nb_vars: self.local_variables.len() as u8
-            });
+            bytecode.insert(
+                0,
+                Instruction::LocalSpace {
+                    nb_vars: self.local_variables.len() as u8,
+                },
+            );
 
             let len = bytecode.len();
             let method_name = self.arena.alloc(
@@ -165,7 +196,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     format!("{}::{}", class_name, method.name)
                 } else {
                     format!("{}.{}", class_name, method.name)
-                }
+                },
             );
             functions.insert(method_name, self.current_pos);
             labels.push(Label {
@@ -178,11 +209,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
         }
         Ok(())
     }
-    fn generate_class_descriptor(
-        &mut self,
-        class_name: &str,
-        class: &HirClass<'hir>,
-    ) {
+    fn generate_class_descriptor(&mut self, class_name: &str, class: &HirClass<'hir>) {
         println!("Generating class descriptor for {}", class_name);
         let mut fields: Vec<&'codegen str> = Vec::new();
         let mut constants: BTreeMap<&'codegen str, ConstantValue> = BTreeMap::new();
@@ -190,7 +217,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             fields.push(self.arena.alloc(field.name.to_string()));
         }
         for (constant_name, constant) in class.signature.constants.iter() {
-            constants.insert(self.arena.alloc(constant_name.to_string()), constant.value.clone());
+            constants.insert(
+                self.arena.alloc(constant_name.to_string()),
+                constant.value.clone(),
+            );
         }
         let class_constant = ClassDescriptor {
             name: self.arena.alloc(class_name.to_string()),
@@ -214,28 +244,43 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
         // If the HirClassConstructor is a constructor or a destructor
         is_constructor: bool,
     ) -> CodegenResult<usize> {
-        println!("Doing {} of {}", if is_constructor { "constructor" } else { "destructor" }, class_name);
+        println!(
+            "Doing {} of {}",
+            if is_constructor {
+                "constructor"
+            } else {
+                "destructor"
+            },
+            class_name
+        );
         let mut bytecode = Vec::new();
         let params = constructor.params.clone();
 
         self.local_variables.insert("self");
-        bytecode.push(Instruction::LoadArg {
-            index: 0,
-        });
+        bytecode.push(Instruction::LoadArg { index: 0 });
         self.generate_bytecode_args(params, &mut bytecode, 1)?;
 
         self.generate_bytecode_block(&constructor.body, &mut bytecode, src.clone())?;
 
         //Return the self reference
-        bytecode.push(Instruction::LoadVar(self.local_variables.get_index("self").unwrap()));
+        bytecode.push(Instruction::LoadVar(
+            self.local_variables.get_index("self").unwrap(),
+        ));
         bytecode.push(Instruction::Return);
         println!("nbParams: {}", constructor.params.len());
-        bytecode.insert(0, Instruction::LocalSpace {
-            nb_vars: self.local_variables.len() as u8
-        });
+        bytecode.insert(
+            0,
+            Instruction::LocalSpace {
+                nb_vars: self.local_variables.len() as u8,
+            },
+        );
         let len = bytecode.len();
         labels.push(Label {
-            name: self.arena.alloc(if is_constructor { format!("{}.new", class_name) } else { format!("{}.delete", class_name) }),
+            name: self.arena.alloc(if is_constructor {
+                format!("{}.new", class_name)
+            } else {
+                format!("{}.delete", class_name)
+            }),
             position: self.current_pos,
             body: self.arena.alloc(bytecode),
         });
@@ -305,13 +350,17 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             HirStatement::Const(const_stmt) => {
                 let mut value = Vec::new();
                 self.generate_bytecode_expr(&const_stmt.value, &mut value, src)?;
-                value.push(Instruction::StoreVar(self.local_variables.insert(const_stmt.name)));
+                value.push(Instruction::StoreVar(
+                    self.local_variables.insert(const_stmt.name),
+                ));
                 bytecode.append(&mut value);
             }
             HirStatement::Let(let_stmt) => {
                 let mut value = Vec::new();
                 self.generate_bytecode_expr(&let_stmt.value, &mut value, src)?;
-                value.push(Instruction::StoreVar(self.local_variables.insert(let_stmt.name)));
+                value.push(Instruction::StoreVar(
+                    self.local_variables.insert(let_stmt.name),
+                ));
                 bytecode.append(&mut value);
             }
             HirStatement::Expr(e) => {
@@ -319,16 +368,14 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 bytecode.push(Instruction::Pop);
             }
             _ => {
-                return Err(HirError::UnsupportedStatement(
-                    UnsupportedStatement {
-                        span: SourceSpan::new(
-                            SourceOffset::from(stmt.span().start),
-                            stmt.span().end - stmt.span().start,
-                        ),
-                        stmt: format!("{:?}", stmt),
-                        src: src.clone(),
-                    },
-                ))
+                return Err(HirError::UnsupportedStatement(UnsupportedStatement {
+                    span: SourceSpan::new(
+                        SourceOffset::from(stmt.span().start),
+                        stmt.span().end - stmt.span().start,
+                    ),
+                    stmt: format!("{:?}", stmt),
+                    src: src.clone(),
+                }));
             }
         }
         Ok(())
@@ -346,7 +393,9 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 match lhs {
                     HirExpr::Ident(i) => {
                         self.generate_bytecode_expr(&a.rhs, bytecode, src.clone())?;
-                        bytecode.push(Instruction::StoreVar(self.local_variables.get_index(i.name).unwrap()));
+                        bytecode.push(Instruction::StoreVar(
+                            self.local_variables.get_index(i.name).unwrap(),
+                        ));
                     }
                     HirExpr::Indexing(i) => {
                         match i.target.ty() {
@@ -372,16 +421,14 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                 bytecode.push(Instruction::StringStore);
                             }
                             _ => {
-                                return Err(HirError::UnsupportedExpr(
-                                    UnsupportedExpr {
-                                        span: SourceSpan::new(
-                                            SourceOffset::from(expr.span().start),
-                                            expr.span().end - expr.span().start,
-                                        ),
-                                        expr: format!("{:?}", expr),
-                                        src: src.clone(),
-                                    },
-                                ));
+                                return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                                    span: SourceSpan::new(
+                                        SourceOffset::from(expr.span().start),
+                                        expr.span().end - expr.span().start,
+                                    ),
+                                    expr: format!("{:?}", expr),
+                                    src: src.clone(),
+                                }));
                             }
                         }
                     }
@@ -398,35 +445,40 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                         SourceOffset::from(expr.span().start),
                                         expr.span().end - expr.span().start,
                                     ),
-                                    expr: format!("No field access for {:?}", field_access.target.ty()),
+                                    expr: format!(
+                                        "No field access for {:?}",
+                                        field_access.target.ty()
+                                    ),
                                     src,
-                                }))
+                                }));
                             }
                         };
-                        let class = self.class_pool.iter().find(|c| {
-                            c.name == class_name.name
-                        }).unwrap_or_else(|| {
-                            //should never happen
-                            panic!("Class {} not found", class_name.name)
-                        });
+                        let class = self
+                            .class_pool
+                            .iter()
+                            .find(|c| c.name == class_name.name)
+                            .unwrap_or_else(|| {
+                                //should never happen
+                                panic!("Class {} not found", class_name.name)
+                            });
                         //get the position of the field
-                        let field = class.fields.iter().position(|f| *f == field_access.field.name).unwrap();
+                        let field = class
+                            .fields
+                            .iter()
+                            .position(|f| *f == field_access.field.name)
+                            .unwrap();
                         //Store the value in the field
-                        bytecode.push(Instruction::SetField {
-                            field
-                        })
+                        bytecode.push(Instruction::SetField { field })
                     }
                     _ => {
-                        return Err(HirError::UnsupportedExpr(
-                            UnsupportedExpr {
-                                span: SourceSpan::new(
-                                    SourceOffset::from(expr.span().start),
-                                    expr.span().end - expr.span().start,
-                                ),
-                                expr: format!("{:?}", expr),
-                                src,
-                            },
-                        ));
+                        return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                            span: SourceSpan::new(
+                                SourceOffset::from(expr.span().start),
+                                expr.span().end - expr.span().start,
+                            ),
+                            expr: format!("{:?}", expr),
+                            src,
+                        }));
                     }
                 }
                 bytecode.push(Instruction::PushUnit);
@@ -477,7 +529,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                             expr: format!("Can't negate: {:?}", expr),
                                             src,
                                         },
-                                    ))
+                                    ));
                                 }
                             }
                             bytecode.push(Instruction::Swap);
@@ -488,16 +540,14 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                 bytecode.push(Instruction::PushBool(false));
                                 bytecode.push(Instruction::Eq);
                             } else {
-                                return Err(HirError::UnsupportedExpr(
-                                    UnsupportedExpr {
-                                        span: SourceSpan::new(
-                                            SourceOffset::from(expr.span().start),
-                                            expr.span().end - expr.span().start,
-                                        ),
-                                        expr: format!("Can't negate: {:?}", expr),
-                                        src,
-                                    },
-                                ));
+                                return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                                    span: SourceSpan::new(
+                                        SourceOffset::from(expr.span().start),
+                                        expr.span().end - expr.span().start,
+                                    ),
+                                    expr: format!("Can't negate: {:?}", expr),
+                                    src,
+                                }));
                             }
                         }
                     }
@@ -534,36 +584,32 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                 expr: format!("Can't cast: {:?}", expr),
                                 src,
                             },
-                        ))
+                        ));
                     }
                 }
             }
-            HirExpr::Indexing(i) => {
-                match i.target.ty() {
-                    HirTy::List(_) => {
-                        self.generate_bytecode_expr(&i.target, bytecode, src.clone())?;
-                        self.generate_bytecode_expr(&i.index, bytecode, src)?;
-                        bytecode.push(Instruction::ListLoad);
-                    }
-                    HirTy::String(_) => {
-                        self.generate_bytecode_expr(&i.target, bytecode, src.clone())?;
-                        self.generate_bytecode_expr(&i.index, bytecode, src)?;
-                        bytecode.push(Instruction::StringLoad);
-                    }
-                    _ => {
-                        return Err(HirError::UnsupportedExpr(
-                            UnsupportedExpr {
-                                span: SourceSpan::new(
-                                    SourceOffset::from(expr.span().start),
-                                    expr.span().end - expr.span().start,
-                                ),
-                                expr: format!("Can't index: {:?}", expr),
-                                src: src.clone(),
-                            },
-                        ))
-                    }
+            HirExpr::Indexing(i) => match i.target.ty() {
+                HirTy::List(_) => {
+                    self.generate_bytecode_expr(&i.target, bytecode, src.clone())?;
+                    self.generate_bytecode_expr(&i.index, bytecode, src)?;
+                    bytecode.push(Instruction::ListLoad);
                 }
-            }
+                HirTy::String(_) => {
+                    self.generate_bytecode_expr(&i.target, bytecode, src.clone())?;
+                    self.generate_bytecode_expr(&i.index, bytecode, src)?;
+                    bytecode.push(Instruction::StringLoad);
+                }
+                _ => {
+                    return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                        span: SourceSpan::new(
+                            SourceOffset::from(expr.span().start),
+                            expr.span().end - expr.span().start,
+                        ),
+                        expr: format!("Can't index: {:?}", expr),
+                        src: src.clone(),
+                    }));
+                }
+            },
             HirExpr::Call(f) => {
                 let callee = f.callee.as_ref();
                 match callee {
@@ -585,7 +631,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         }
                     }
                     HirExpr::FieldAccess(field_access) => {
-                        //Get the Class pointer: 
+                        //Get the Class pointer:
                         self.generate_bytecode_expr(&field_access.target, bytecode, src.clone())?;
                         for arg in &f.args {
                             self.generate_bytecode_expr(arg, bytecode, src.clone())?;
@@ -593,20 +639,20 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         let class_name = match field_access.target.ty() {
                             HirTy::Named(class_name) => class_name,
                             _ => {
-                                return Err(HirError::UnsupportedExpr(
-                                    UnsupportedExpr {
-                                        span: SourceSpan::new(
-                                            SourceOffset::from(expr.span().start),
-                                            expr.span().end - expr.span().start,
-                                        ),
-                                        expr: format!("Can't call from: {:?}", expr),
-                                        src,
-                                    },
-                                ))
+                                return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                                    span: SourceSpan::new(
+                                        SourceOffset::from(expr.span().start),
+                                        expr.span().end - expr.span().start,
+                                    ),
+                                    expr: format!("Can't call from: {:?}", expr),
+                                    src,
+                                }));
                             }
                         };
                         bytecode.push(Instruction::FunctionCall {
-                            function_name: self.arena.alloc(format!("{}.{}", class_name.name, field_access.field.name)),
+                            function_name: self
+                                .arena
+                                .alloc(format!("{}.{}", class_name.name, field_access.field.name)),
                             nb_args: f.args.len() as u8 + 1,
                         })
                     }
@@ -615,21 +661,22 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                             self.generate_bytecode_expr(arg, bytecode, src.clone())?;
                         }
                         bytecode.push(Instruction::FunctionCall {
-                            function_name: self.arena.alloc(format!("{}::{}", static_access.target.name, static_access.field.name)),
+                            function_name: self.arena.alloc(format!(
+                                "{}::{}",
+                                static_access.target.name, static_access.field.name
+                            )),
                             nb_args: f.args.len() as u8,
                         })
                     }
                     _ => {
-                        return Err(HirError::UnsupportedExpr(
-                            UnsupportedExpr {
-                                span: SourceSpan::new(
-                                    SourceOffset::from(expr.span().start),
-                                    expr.span().end - expr.span().start,
-                                ),
-                                expr: format!("Can't call from: {:?}", expr),
-                                src: src.clone(),
-                            },
-                        ));
+                        return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                            span: SourceSpan::new(
+                                SourceOffset::from(expr.span().start),
+                                expr.span().end - expr.span().start,
+                            ),
+                            expr: format!("Can't call from: {:?}", expr),
+                            src: src.clone(),
+                        }));
                     }
                 }
             }
@@ -657,7 +704,8 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     //Swap the index and the list reference
                     bytecode.push(Instruction::Swap);
                     //Generate the expression
-                    self.generate_bytecode_expr(i, bytecode, src.clone()).unwrap();
+                    self.generate_bytecode_expr(i, bytecode, src.clone())
+                        .unwrap();
                     //Store the value in the list
                     bytecode.push(Instruction::ListStore);
                 });
@@ -667,8 +715,12 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 self.generate_bytecode_expr(&d.expr, bytecode, src)?;
                 bytecode.push(Instruction::DeleteObj);
             }
-            HirExpr::Ident(i) => bytecode.push(Instruction::LoadVar(self.local_variables.get_index(i.name).unwrap())),
-            HirExpr::SelfLiteral(_) => bytecode.push(Instruction::LoadVar(self.local_variables.get_index("self").unwrap())),
+            HirExpr::Ident(i) => bytecode.push(Instruction::LoadVar(
+                self.local_variables.get_index(i.name).unwrap(),
+            )),
+            HirExpr::SelfLiteral(_) => bytecode.push(Instruction::LoadVar(
+                self.local_variables.get_index("self").unwrap(),
+            )),
             HirExpr::FieldAccess(field_access) => {
                 self.generate_bytecode_expr(field_access.target.as_ref(), bytecode, src.clone())?;
                 let class_name = match field_access.target.ty() {
@@ -681,161 +733,220 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                             ),
                             expr: format!("No field access for {:?}", field_access.target.ty()),
                             src: src.clone(),
-                        }))
+                        }));
                     }
                 };
-                let class = self.class_pool.iter().find(|c| {
-                    c.name == class_name.name
-                }).unwrap_or_else(|| {
-                    //should never happen
-                    panic!("Class {} not found", class_name.name)
-                });
+                let class = self
+                    .class_pool
+                    .iter()
+                    .find(|c| c.name == class_name.name)
+                    .unwrap_or_else(|| {
+                        //should never happen
+                        panic!("Class {} not found", class_name.name)
+                    });
                 //get the position of the field
-                let field = class.fields.iter().position(|f| *f == field_access.field.name).unwrap();
-                bytecode.push(Instruction::GetField {
-                    field
-                })
+                let field = class
+                    .fields
+                    .iter()
+                    .position(|f| *f == field_access.field.name)
+                    .unwrap();
+                bytecode.push(Instruction::GetField { field })
             }
-            HirExpr::StaticAccess(static_access) => {
-                match static_access.field.ty {
-                    HirTy::String(_) => {
-                        let target_name = static_access.target.name;
-                        let class_signature = self.hir.signature.classes.get(target_name).unwrap();
-                        let value = match class_signature.constants.get(static_access.field.name).unwrap().value {
-                            ConstantValue::String(s) => String::from(s),
-                            _ => {
-                                return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                                    span: SourceSpan::new(
-                                        SourceOffset::from(expr.span().start),
-                                        expr.span().end - expr.span().start,
-                                    ),
-                                    expr: format!("No string constant for {}", static_access.field.name),
-                                    src: src.clone(),
-                                }))
-                            }
-                        };
-                        self.string_pool.push(self.arena.alloc(value));
-                        let index = self.string_pool.len() - 1;
-                        bytecode.push(Instruction::PushStr(index));
-                    }
-                    HirTy::Float64(_) => {
-                        let class_signature = self.hir.signature.classes.get(static_access.target.name).unwrap();
-                        let value = match class_signature.constants.get(static_access.field.name).unwrap().value {
-                            ConstantValue::Float(f) => *f,
-                            _ => {
-                                return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                                    span: SourceSpan::new(
-                                        SourceOffset::from(expr.span().start),
-                                        expr.span().end - expr.span().start,
-                                    ),
-                                    expr: format!("No float constant for {}", static_access.field.name),
-                                    src: src.clone(),
-                                }))
-                            }
-                        };
-                        bytecode.push(Instruction::PushFloat(value));
-                    }
-                    HirTy::Int64(_) => {
-                        let class_signature = self.hir.signature.classes.get(static_access.target.name).unwrap();
-                        let value = match class_signature.constants.get(static_access.field.name).unwrap().value {
-                            ConstantValue::Int(i) => *i,
-                            _ => {
-                                return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                                    span: SourceSpan::new(
-                                        SourceOffset::from(expr.span().start),
-                                        expr.span().end - expr.span().start,
-                                    ),
-                                    expr: format!("No int constant for {}", static_access.field.name),
-                                    src: src.clone(),
-                                }))
-                            }
-                        };
-                        bytecode.push(Instruction::PushInt(value));
-                    }
-                    HirTy::Char(_) => {
-                        let class_signature = self.hir.signature.classes.get(static_access.target.name).unwrap();
-                        let value = match class_signature.constants.get(static_access.field.name).unwrap().value {
-                            ConstantValue::Char(c) => *c,
-                            _ => {
-                                return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                                    span: SourceSpan::new(
-                                        SourceOffset::from(expr.span().start),
-                                        expr.span().end - expr.span().start,
-                                    ),
-                                    expr: format!("No char constant for {}", static_access.field.name),
-                                    src: src.clone(),
-                                }))
-                            }
-                        };
-                        bytecode.push(Instruction::PushChar(value));
-                    }
-                    HirTy::UInt64(_) => {
-                        let class_signature = self.hir.signature.classes.get(static_access.target.name).unwrap();
-                        let value = match class_signature.constants.get(static_access.field.name).unwrap().value {
-                            ConstantValue::UInt(u) => *u,
-                            _ => {
-                                return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                                    span: SourceSpan::new(
-                                        SourceOffset::from(expr.span().start),
-                                        expr.span().end - expr.span().start,
-                                    ),
-                                    expr: format!("No uint constant for {}", static_access.field.name),
-                                    src: src.clone(),
-                                }))
-                            }
-                        };
-                        bytecode.push(Instruction::PushUnsignedInt(value));
-                    }
-                    HirTy::List(_) => {
-                        return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                            span: SourceSpan::new(
-                                SourceOffset::from(expr.span().start),
-                                expr.span().end - expr.span().start,
-                            ),
-                            expr: format!("Lists aren't supported as constants for now {}", static_access.field.name),
-                            src: src.clone(),
-                        }))
-                    }
-                    _ => {
-                        return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                            span: SourceSpan::new(
-                                SourceOffset::from(expr.span().start),
-                                expr.span().end - expr.span().start,
-                            ),
-                            expr: format!("Unsupported type for now {}", static_access.field.name),
-                            src: src.clone(),
-                        }))
-                    }
+            HirExpr::StaticAccess(static_access) => match static_access.field.ty {
+                HirTy::String(_) => {
+                    let target_name = static_access.target.name;
+                    let class_signature = self.hir.signature.classes.get(target_name).unwrap();
+                    let value = match class_signature
+                        .constants
+                        .get(static_access.field.name)
+                        .unwrap()
+                        .value
+                    {
+                        ConstantValue::String(s) => String::from(s),
+                        _ => {
+                            return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                                span: SourceSpan::new(
+                                    SourceOffset::from(expr.span().start),
+                                    expr.span().end - expr.span().start,
+                                ),
+                                expr: format!(
+                                    "No string constant for {}",
+                                    static_access.field.name
+                                ),
+                                src: src.clone(),
+                            }));
+                        }
+                    };
+                    self.string_pool.push(self.arena.alloc(value));
+                    let index = self.string_pool.len() - 1;
+                    bytecode.push(Instruction::PushStr(index));
                 }
-            }
+                HirTy::Float64(_) => {
+                    let class_signature = self
+                        .hir
+                        .signature
+                        .classes
+                        .get(static_access.target.name)
+                        .unwrap();
+                    let value = match class_signature
+                        .constants
+                        .get(static_access.field.name)
+                        .unwrap()
+                        .value
+                    {
+                        ConstantValue::Float(f) => *f,
+                        _ => {
+                            return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                                span: SourceSpan::new(
+                                    SourceOffset::from(expr.span().start),
+                                    expr.span().end - expr.span().start,
+                                ),
+                                expr: format!("No float constant for {}", static_access.field.name),
+                                src: src.clone(),
+                            }));
+                        }
+                    };
+                    bytecode.push(Instruction::PushFloat(value));
+                }
+                HirTy::Int64(_) => {
+                    let class_signature = self
+                        .hir
+                        .signature
+                        .classes
+                        .get(static_access.target.name)
+                        .unwrap();
+                    let value = match class_signature
+                        .constants
+                        .get(static_access.field.name)
+                        .unwrap()
+                        .value
+                    {
+                        ConstantValue::Int(i) => *i,
+                        _ => {
+                            return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                                span: SourceSpan::new(
+                                    SourceOffset::from(expr.span().start),
+                                    expr.span().end - expr.span().start,
+                                ),
+                                expr: format!("No int constant for {}", static_access.field.name),
+                                src: src.clone(),
+                            }));
+                        }
+                    };
+                    bytecode.push(Instruction::PushInt(value));
+                }
+                HirTy::Char(_) => {
+                    let class_signature = self
+                        .hir
+                        .signature
+                        .classes
+                        .get(static_access.target.name)
+                        .unwrap();
+                    let value = match class_signature
+                        .constants
+                        .get(static_access.field.name)
+                        .unwrap()
+                        .value
+                    {
+                        ConstantValue::Char(c) => *c,
+                        _ => {
+                            return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                                span: SourceSpan::new(
+                                    SourceOffset::from(expr.span().start),
+                                    expr.span().end - expr.span().start,
+                                ),
+                                expr: format!("No char constant for {}", static_access.field.name),
+                                src: src.clone(),
+                            }));
+                        }
+                    };
+                    bytecode.push(Instruction::PushChar(value));
+                }
+                HirTy::UInt64(_) => {
+                    let class_signature = self
+                        .hir
+                        .signature
+                        .classes
+                        .get(static_access.target.name)
+                        .unwrap();
+                    let value = match class_signature
+                        .constants
+                        .get(static_access.field.name)
+                        .unwrap()
+                        .value
+                    {
+                        ConstantValue::UInt(u) => *u,
+                        _ => {
+                            return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                                span: SourceSpan::new(
+                                    SourceOffset::from(expr.span().start),
+                                    expr.span().end - expr.span().start,
+                                ),
+                                expr: format!("No uint constant for {}", static_access.field.name),
+                                src: src.clone(),
+                            }));
+                        }
+                    };
+                    bytecode.push(Instruction::PushUnsignedInt(value));
+                }
+                HirTy::List(_) => {
+                    return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                        span: SourceSpan::new(
+                            SourceOffset::from(expr.span().start),
+                            expr.span().end - expr.span().start,
+                        ),
+                        expr: format!(
+                            "Lists aren't supported as constants for now {}",
+                            static_access.field.name
+                        ),
+                        src: src.clone(),
+                    }));
+                }
+                _ => {
+                    return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                        span: SourceSpan::new(
+                            SourceOffset::from(expr.span().start),
+                            expr.span().end - expr.span().start,
+                        ),
+                        expr: format!("Unsupported type for now {}", static_access.field.name),
+                        src: src.clone(),
+                    }));
+                }
+            },
             HirExpr::NewArray(a) => {
                 self.generate_bytecode_expr(&a.size, bytecode, src.clone())?;
                 bytecode.push(Instruction::NewList);
             }
             HirExpr::NewObj(new_obj) => {
                 let class_pos = match new_obj.ty {
-                    HirTy::Named(class_name) => {
-                        self.class_pool.iter().position(|class| class.name == class_name.name).unwrap()
+                    HirTy::Named(class_name) => self
+                        .class_pool
+                        .iter()
+                        .position(|class| class.name == class_name.name)
+                        .unwrap(),
+                    _ => {
+                        return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                            span: SourceSpan::new(
+                                SourceOffset::from(new_obj.span.start),
+                                new_obj.span.end - new_obj.span.start,
+                            ),
+                            expr: format!("No constructor for {}", new_obj.ty),
+                            src: src.clone(),
+                        }));
                     }
-                    _ => return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                        span: SourceSpan::new(
-                            SourceOffset::from(new_obj.span.start),
-                            new_obj.span.end - new_obj.span.start,
-                        ),
-                        expr: format!("No constructor for {}", new_obj.ty),
-                        src: src.clone(),
-                    }))
                 };
                 //Need to create a NewObj & call its constructor (constructor name = ClassName.ClassName)
                 bytecode.push(Instruction::NewObj {
-                    class_descriptor: class_pos
+                    class_descriptor: class_pos,
                 });
 
                 for arg in new_obj.args.iter() {
                     self.generate_bytecode_expr(arg, bytecode, src.clone())?;
                 }
                 bytecode.push(Instruction::FunctionCall {
-                    function_name: self.arena.alloc(format!("{}.new", self.class_pool[class_pos].name)),
+                    function_name: self
+                        .arena
+                        .alloc(format!("{}.new", self.class_pool[class_pos].name)),
                     nb_args: new_obj.args.len() as u8 + 1,
                 });
             }

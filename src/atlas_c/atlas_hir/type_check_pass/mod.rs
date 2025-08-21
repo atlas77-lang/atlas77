@@ -3,21 +3,23 @@
 //A rework of the type checker will be done when structs, classes, enums and unions are added.
 
 use super::{
+    HirFunction, HirModule, HirModuleSignature,
     arena::HirArena,
-    error::{
-        FunctionTypeMismatchError, HirError, HirResult
-        , TypeMismatchError, UnknownTypeError,
-    },
+    error::{FunctionTypeMismatchError, HirError, HirResult, TypeMismatchError, UnknownTypeError},
     expr,
     expr::{HirBinaryOp, HirExpr},
     stmt::HirStatement,
     ty::{HirTy, HirTyId},
-    HirFunction, HirModule, HirModuleSignature,
 };
-use crate::atlas_c::atlas_hir::error::{AccessingClassFieldOutsideClassError, AccessingPrivateFieldError, ConstTyToNonConstTyError, EmptyListLiteralError, FieldKind, UnsupportedExpr};
+use crate::atlas_c::atlas_hir::error::{
+    AccessingClassFieldOutsideClassError, AccessingPrivateFieldError, ConstTyToNonConstTyError,
+    EmptyListLiteralError, FieldKind, UnsupportedExpr,
+};
 use crate::atlas_c::atlas_hir::expr::{HirFunctionCallExpr, HirIdentExpr};
 use crate::atlas_c::atlas_hir::item::{HirClass, HirClassConstructor, HirClassMethod};
-use crate::atlas_c::atlas_hir::signature::{HirClassMethodModifier, HirFunctionParameterSignature, HirFunctionSignature, HirVisibility};
+use crate::atlas_c::atlas_hir::signature::{
+    HirClassMethodModifier, HirFunctionParameterSignature, HirFunctionSignature, HirVisibility,
+};
 use logos::Span;
 use miette::{SourceOffset, SourceSpan};
 use std::collections::HashMap;
@@ -34,7 +36,8 @@ pub struct TypeChecker<'hir> {
     current_class_name: Option<&'hir str>,
     // Source code
     src: String,
-    extern_monomorphized: HashMap<(&'hir str, Vec<&'hir HirTy<'hir>>), &'hir HirFunctionSignature<'hir>>,
+    extern_monomorphized:
+        HashMap<(&'hir str, Vec<&'hir HirTy<'hir>>), &'hir HirFunctionSignature<'hir>>,
 }
 
 pub struct ContextFunction<'hir> {
@@ -219,12 +222,15 @@ impl<'hir> TypeChecker<'hir> {
         Ok(())
     }
 
-    pub fn check_constructor(&mut self, constructor: &mut HirClassConstructor<'hir>) -> HirResult<()> {
+    pub fn check_constructor(
+        &mut self,
+        constructor: &mut HirClassConstructor<'hir>,
+    ) -> HirResult<()> {
         self.context_functions.push(HashMap::new());
-        self.context_functions.last_mut().unwrap().insert(
-            String::from("constructor"),
-            ContextFunction::new(),
-        );
+        self.context_functions
+            .last_mut()
+            .unwrap()
+            .insert(String::from("constructor"), ContextFunction::new());
         for param in &constructor.params {
             self.context_functions
                 .last_mut()
@@ -249,12 +255,15 @@ impl<'hir> TypeChecker<'hir> {
         Ok(())
     }
 
-    pub fn check_destructor(&mut self, destructor: &mut HirClassConstructor<'hir>) -> HirResult<()> {
+    pub fn check_destructor(
+        &mut self,
+        destructor: &mut HirClassConstructor<'hir>,
+    ) -> HirResult<()> {
         self.context_functions.push(HashMap::new());
-        self.context_functions.last_mut().unwrap().insert(
-            String::from("destructor"),
-            ContextFunction::new(),
-        );
+        self.context_functions
+            .last_mut()
+            .unwrap()
+            .insert(String::from("destructor"), ContextFunction::new());
         for param in &destructor.params {
             self.context_functions
                 .last_mut()
@@ -291,7 +300,11 @@ impl<'hir> TypeChecker<'hir> {
                 let mut span = Span::default();
                 if self.current_class_name.is_some() {
                     //This means we're in a class method
-                    let class = self.signature.classes.get(self.current_class_name.unwrap()).unwrap();
+                    let class = self
+                        .signature
+                        .classes
+                        .get(self.current_class_name.unwrap())
+                        .unwrap();
                     let method = class.methods.get(self.current_func_name.unwrap()).unwrap();
                     expected_ret_ty = method.return_ty;
                     span = method.return_ty_span.clone().unwrap_or(r.span.clone());
@@ -303,7 +316,10 @@ impl<'hir> TypeChecker<'hir> {
                         .get(self.current_func_name.unwrap())
                         .unwrap();
                     expected_ret_ty = func_ret_from.return_ty;
-                    span = func_ret_from.return_ty_span.clone().unwrap_or(r.span.clone());
+                    span = func_ret_from
+                        .return_ty_span
+                        .clone()
+                        .unwrap_or(r.span.clone());
                 }
                 self.is_equivalent_ty(actual_ret_ty, r.value.span(), expected_ret_ty, span)
             }
@@ -449,16 +465,23 @@ impl<'hir> TypeChecker<'hir> {
             HirExpr::SelfLiteral(s) => {
                 let class_name = match self.current_class_name {
                     Some(class_name) => class_name,
-                    None => return Err(HirError::AccessingClassFieldOutsideClass(AccessingClassFieldOutsideClassError {
-                        span: SourceSpan::new(
-                            SourceOffset::from(expr.span().start),
-                            expr.span().end - expr.span().start,
-                        ),
-                        src: self.src.clone(),
-                    }))
+                    None => {
+                        return Err(HirError::AccessingClassFieldOutsideClass(
+                            AccessingClassFieldOutsideClassError {
+                                span: SourceSpan::new(
+                                    SourceOffset::from(expr.span().start),
+                                    expr.span().end - expr.span().start,
+                                ),
+                                src: self.src.clone(),
+                            },
+                        ));
+                    }
                 };
                 let class = self.signature.classes.get(class_name).unwrap();
-                let self_ty = self.arena.types().get_named_ty(class.name, class.span.clone());
+                let self_ty = self
+                    .arena
+                    .types()
+                    .get_named_ty(class.name, class.span.clone());
                 s.ty = self_ty;
                 Ok(self_ty)
             }
@@ -485,12 +508,7 @@ impl<'hir> TypeChecker<'hir> {
                 let ty = self.check_expr(&mut l.items[0])?;
                 for e in &mut l.items {
                     let e_ty = self.check_expr(e)?;
-                    self.is_equivalent_ty(
-                        e_ty,
-                        e.span(),
-                        ty,
-                        l.span.clone(),
-                    )?;
+                    self.is_equivalent_ty(e_ty, e.span(), ty, l.span.clone())?;
                 }
                 l.ty = self.arena.types().get_list_ty(ty);
                 Ok(self.arena.types().get_list_ty(ty))
@@ -519,9 +537,12 @@ impl<'hir> TypeChecker<'hir> {
                 let expr_ty = self.check_expr(&mut c.expr)?;
                 let can_cast = matches!(
                     expr_ty,
-                    HirTy::Int64(_) | HirTy::Float64(_) |
-                    HirTy::UInt64(_) | HirTy::Boolean(_) |
-                    HirTy::Char(_) | HirTy::String(_)
+                    HirTy::Int64(_)
+                        | HirTy::Float64(_)
+                        | HirTy::UInt64(_)
+                        | HirTy::Boolean(_)
+                        | HirTy::Char(_)
+                        | HirTy::String(_)
                 );
                 if !can_cast {
                     return Err(Self::type_mismatch_err(
@@ -563,13 +584,7 @@ impl<'hir> TypeChecker<'hir> {
                 let lhs = self.check_expr(&mut b.lhs)?;
                 b.ty = lhs;
                 let rhs = self.check_expr(&mut b.rhs)?;
-                self.is_equivalent_ty(
-                    lhs,
-                    b.lhs.span(),
-                    rhs,
-                    b.rhs.span(),
-                )?;
-
+                self.is_equivalent_ty(lhs, b.lhs.span(), rhs, b.rhs.span())?;
 
                 match b.op {
                     HirBinaryOp::And
@@ -591,19 +606,25 @@ impl<'hir> TypeChecker<'hir> {
                         let func = match self.signature.functions.get(name) {
                             Some(f) => *f,
                             None => {
-                                return Err(Self::unknown_type_err(name, &i.span, self.src.clone()));
+                                return Err(Self::unknown_type_err(
+                                    name,
+                                    &i.span,
+                                    self.src.clone(),
+                                ));
                             }
                         };
 
                         if func.params.len() != func_expr.args.len() {
-                            return Err(HirError::FunctionTypeMismatch(FunctionTypeMismatchError {
-                                expected_ty: format!("{:?}", func),
-                                span: SourceSpan::new(
-                                    SourceOffset::from(func.span.start),
-                                    func.span.end - func.span.start,
-                                ),
-                                src: self.src.clone(),
-                            }));
+                            return Err(HirError::FunctionTypeMismatch(
+                                FunctionTypeMismatchError {
+                                    expected_ty: format!("{:?}", func),
+                                    span: SourceSpan::new(
+                                        SourceOffset::from(func.span.start),
+                                        func.span.end - func.span.start,
+                                    ),
+                                    src: self.src.clone(),
+                                },
+                            ));
                         }
 
                         //Only check if it's an external function with generics (e.g. `extern foo<T>(a: T) -> T`)
@@ -630,22 +651,33 @@ impl<'hir> TypeChecker<'hir> {
                             let class = match self.signature.classes.get(n.name) {
                                 Some(c) => *c,
                                 None => {
-                                    return Err(Self::unknown_type_err(n.name, &field_access.span, self.src.clone()));
+                                    return Err(Self::unknown_type_err(
+                                        n.name,
+                                        &field_access.span,
+                                        self.src.clone(),
+                                    ));
                                 }
                             };
-                            let method = class.methods.iter().find(|m| *m.0 == field_access.field.name);
+                            let method = class
+                                .methods
+                                .iter()
+                                .find(|m| *m.0 == field_access.field.name);
 
                             if let Some((_, method_signature)) = method {
                                 //Check if you're currently in the class, if not check is the method public
-                                if self.current_class_name != Some(n.name) && method_signature.vis != HirVisibility::Public {
-                                    return Err(HirError::AccessingPrivateField(AccessingPrivateFieldError {
-                                        span: SourceSpan::new(
-                                            SourceOffset::from(expr.span().start),
-                                            expr.span().end - expr.span().start,
-                                        ),
-                                        kind: FieldKind::Function,
-                                        src: self.src.clone(),
-                                    }));
+                                if self.current_class_name != Some(n.name)
+                                    && method_signature.vis != HirVisibility::Public
+                                {
+                                    return Err(HirError::AccessingPrivateField(
+                                        AccessingPrivateFieldError {
+                                            span: SourceSpan::new(
+                                                SourceOffset::from(expr.span().start),
+                                                expr.span().end - expr.span().start,
+                                            ),
+                                            kind: FieldKind::Function,
+                                            src: self.src.clone(),
+                                        },
+                                    ));
                                 }
                                 if method_signature.modifier == HirClassMethodModifier::Static {
                                     return Err(HirError::UnsupportedExpr(UnsupportedExpr {
@@ -658,16 +690,22 @@ impl<'hir> TypeChecker<'hir> {
                                     }));
                                 }
                                 if method_signature.params.len() != func_expr.args.len() {
-                                    return Err(HirError::FunctionTypeMismatch(FunctionTypeMismatchError {
-                                        expected_ty: format!("{:?}", method_signature),
-                                        span: SourceSpan::new(
-                                            SourceOffset::from(field_access.span.start),
-                                            field_access.span.end - field_access.span.start,
-                                        ),
-                                        src: self.src.clone(),
-                                    }));
+                                    return Err(HirError::FunctionTypeMismatch(
+                                        FunctionTypeMismatchError {
+                                            expected_ty: format!("{:?}", method_signature),
+                                            span: SourceSpan::new(
+                                                SourceOffset::from(field_access.span.start),
+                                                field_access.span.end - field_access.span.start,
+                                            ),
+                                            src: self.src.clone(),
+                                        },
+                                    ));
                                 }
-                                for (param, arg) in method_signature.params.iter().zip(func_expr.args.iter_mut()) {
+                                for (param, arg) in method_signature
+                                    .params
+                                    .iter()
+                                    .zip(func_expr.args.iter_mut())
+                                {
                                     let arg_ty = self.check_expr(arg)?;
                                     self.is_equivalent_ty(
                                         arg_ty,
@@ -682,7 +720,11 @@ impl<'hir> TypeChecker<'hir> {
 
                                 Ok(method_signature.return_ty)
                             } else {
-                                Err(Self::unknown_type_err(field_access.field.name, &field_access.span, self.src.clone()))
+                                Err(Self::unknown_type_err(
+                                    field_access.field.name,
+                                    &field_access.span,
+                                    self.src.clone(),
+                                ))
                             }
                         } else {
                             Err(Self::type_mismatch_err(
@@ -698,12 +740,21 @@ impl<'hir> TypeChecker<'hir> {
                         let class = match self.signature.classes.get(static_access.target.name) {
                             Some(c) => *c,
                             None => {
-                                return Err(Self::unknown_type_err(static_access.target.name, &static_access.span, self.src.clone()));
+                                return Err(Self::unknown_type_err(
+                                    static_access.target.name,
+                                    &static_access.span,
+                                    self.src.clone(),
+                                ));
                             }
                         };
-                        let func = class.methods.iter().find(|m| *m.0 == static_access.field.name);
+                        let func = class
+                            .methods
+                            .iter()
+                            .find(|m| *m.0 == static_access.field.name);
                         if let Some((_, method_signature)) = func {
-                            if method_signature.modifier == HirClassMethodModifier::None || method_signature.modifier == HirClassMethodModifier::Const {
+                            if method_signature.modifier == HirClassMethodModifier::None
+                                || method_signature.modifier == HirClassMethodModifier::Const
+                            {
                                 return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                     span: SourceSpan::new(
                                         SourceOffset::from(static_access.span.start),
@@ -714,16 +765,22 @@ impl<'hir> TypeChecker<'hir> {
                                 }));
                             }
                             if method_signature.params.len() != func_expr.args.len() {
-                                return Err(HirError::FunctionTypeMismatch(FunctionTypeMismatchError {
-                                    expected_ty: format!("{:?}", method_signature),
-                                    span: SourceSpan::new(
-                                        SourceOffset::from(static_access.span.start),
-                                        static_access.span.end - static_access.span.start,
-                                    ),
-                                    src: self.src.clone(),
-                                }));
+                                return Err(HirError::FunctionTypeMismatch(
+                                    FunctionTypeMismatchError {
+                                        expected_ty: format!("{:?}", method_signature),
+                                        span: SourceSpan::new(
+                                            SourceOffset::from(static_access.span.start),
+                                            static_access.span.end - static_access.span.start,
+                                        ),
+                                        src: self.src.clone(),
+                                    },
+                                ));
                             }
-                            for (param, arg) in method_signature.params.iter().zip(func_expr.args.iter_mut()) {
+                            for (param, arg) in method_signature
+                                .params
+                                .iter()
+                                .zip(func_expr.args.iter_mut())
+                            {
                                 let arg_ty = self.check_expr(arg)?;
                                 if HirTyId::from(arg_ty) != HirTyId::from(param.ty) {
                                     return Err(HirError::TypeMismatch(TypeMismatchError {
@@ -744,12 +801,19 @@ impl<'hir> TypeChecker<'hir> {
 
                             static_access.ty = method_signature.return_ty;
                             func_expr.ty = method_signature.return_ty;
-                            static_access.target.ty = self.arena.types().get_named_ty(class.name, class.span.clone());
+                            static_access.target.ty = self
+                                .arena
+                                .types()
+                                .get_named_ty(class.name, class.span.clone());
                             static_access.field.ty = method_signature.return_ty;
 
                             Ok(method_signature.return_ty)
                         } else {
-                            Err(Self::unknown_type_err(static_access.field.name, &static_access.span, self.src.clone()))
+                            Err(Self::unknown_type_err(
+                                static_access.field.name,
+                                &static_access.span,
+                                self.src.clone(),
+                            ))
                         }
                     }
                     _ => {
@@ -770,12 +834,7 @@ impl<'hir> TypeChecker<'hir> {
                         self.src.clone(),
                     ));
                 }
-                self.is_equivalent_ty(
-                    rhs,
-                    a.rhs.span(),
-                    lhs,
-                    a.lhs.span(),
-                )?;
+                self.is_equivalent_ty(rhs, a.rhs.span(), lhs, a.lhs.span())?;
                 Ok(lhs)
             }
             HirExpr::Ident(i) => {
@@ -788,15 +847,13 @@ impl<'hir> TypeChecker<'hir> {
                     HirTy::Named(_) | HirTy::List(_) | HirTy::String(_) => {
                         Ok(self.arena.types().get_unit_ty())
                     }
-                    _ => {
-                        Err(Self::type_mismatch_err(
-                            &format!("{}", to_delete),
-                            &d.span,
-                            "Named, List or String",
-                            &d.span,
-                            self.src.clone(),
-                        ))
-                    }
+                    _ => Err(Self::type_mismatch_err(
+                        &format!("{}", to_delete),
+                        &d.span,
+                        "Named, List or String",
+                        &d.span,
+                        self.src.clone(),
+                    )),
                 }
             }
             HirExpr::NewObj(obj) => {
@@ -806,7 +863,11 @@ impl<'hir> TypeChecker<'hir> {
                     let tmp = match self.signature.classes.get(n.name) {
                         Some(c) => c,
                         None => {
-                            return Err(Self::unknown_type_err(n.name, &obj.span, self.src.clone()));
+                            return Err(Self::unknown_type_err(
+                                n.name,
+                                &obj.span,
+                                self.src.clone(),
+                            ));
                         }
                     };
                     *tmp
@@ -819,16 +880,19 @@ impl<'hir> TypeChecker<'hir> {
                         self.src.clone(),
                     ));
                 };
-                for (param, arg) in class_signature.constructor.params.iter().zip(obj.args.iter_mut()) {
+                for (param, arg) in class_signature
+                    .constructor
+                    .params
+                    .iter()
+                    .zip(obj.args.iter_mut())
+                {
                     let arg_ty = self.check_expr(arg)?;
-                    self.is_equivalent_ty(
-                        arg_ty,
-                        arg.span(),
-                        param.ty,
-                        param.span.clone(),
-                    )?;
+                    self.is_equivalent_ty(arg_ty, arg.span(), param.ty, param.span.clone())?;
                 }
-                obj.ty = self.arena.types().get_named_ty(class_ty.name, class_ty.span.clone());
+                obj.ty = self
+                    .arena
+                    .types()
+                    .get_named_ty(class_ty.name, class_ty.span.clone());
                 Ok(obj.ty)
             }
             HirExpr::FieldAccess(field_access) => {
@@ -837,26 +901,41 @@ impl<'hir> TypeChecker<'hir> {
                     let class = match self.signature.classes.get(n.name) {
                         Some(c) => *c,
                         None => {
-                            return Err(Self::unknown_type_err(n.name, &field_access.span, self.src.clone()));
+                            return Err(Self::unknown_type_err(
+                                n.name,
+                                &field_access.span,
+                                self.src.clone(),
+                            ));
                         }
                     };
-                    let field = class.fields.iter().find(|f| *f.0 == field_access.field.name);
+                    let field = class
+                        .fields
+                        .iter()
+                        .find(|f| *f.0 == field_access.field.name);
                     if let Some((_, field_signature)) = field {
-                        if self.current_class_name != Some(n.name) && field_signature.vis != HirVisibility::Public {
-                            return Err(HirError::AccessingPrivateField(AccessingPrivateFieldError {
-                                span: SourceSpan::new(
-                                    SourceOffset::from(expr.span().start),
-                                    expr.span().end - expr.span().start,
-                                ),
-                                kind: FieldKind::Field,
-                                src: self.src.clone(),
-                            }));
+                        if self.current_class_name != Some(n.name)
+                            && field_signature.vis != HirVisibility::Public
+                        {
+                            return Err(HirError::AccessingPrivateField(
+                                AccessingPrivateFieldError {
+                                    span: SourceSpan::new(
+                                        SourceOffset::from(expr.span().start),
+                                        expr.span().end - expr.span().start,
+                                    ),
+                                    kind: FieldKind::Field,
+                                    src: self.src.clone(),
+                                },
+                            ));
                         }
                         field_access.ty = field_signature.ty;
                         field_access.field.ty = field_signature.ty;
                         Ok(field_signature.ty)
                     } else {
-                        Err(Self::unknown_type_err(field_access.field.name, &field_access.span, self.src.clone()))
+                        Err(Self::unknown_type_err(
+                            field_access.field.name,
+                            &field_access.span,
+                            self.src.clone(),
+                        ))
                     }
                 } else {
                     Err(Self::type_mismatch_err(
@@ -872,23 +951,42 @@ impl<'hir> TypeChecker<'hir> {
                 let class = match self.signature.classes.get(static_access.target.name) {
                     Some(c) => *c,
                     None => {
-                        return Err(Self::unknown_type_err(static_access.target.name, &static_access.span, self.src.clone()));
+                        return Err(Self::unknown_type_err(
+                            static_access.target.name,
+                            &static_access.span,
+                            self.src.clone(),
+                        ));
                     }
                 };
-                let constant = class.constants.iter().find(|f| *f.0 == static_access.field.name);
+                let constant = class
+                    .constants
+                    .iter()
+                    .find(|f| *f.0 == static_access.field.name);
                 if let Some((_, const_signature)) = constant {
-                    static_access.target.ty = self.arena.types().get_named_ty(class.name, class.span.clone());
+                    static_access.target.ty = self
+                        .arena
+                        .types()
+                        .get_named_ty(class.name, class.span.clone());
                     static_access.field.ty = const_signature.ty;
                     static_access.ty = const_signature.ty;
                     Ok(const_signature.ty)
                 } else {
-                    Err(Self::unknown_type_err(static_access.field.name, &static_access.span, self.src.clone()))
+                    Err(Self::unknown_type_err(
+                        static_access.field.name,
+                        &static_access.span,
+                        self.src.clone(),
+                    ))
                 }
             }
         }
     }
 
-    fn check_extern_fn(&mut self, name: &'hir str, expr: &mut HirFunctionCallExpr<'hir>, signature: &'hir HirFunctionSignature<'hir>) -> HirResult<&'hir HirTy<'hir>> {
+    fn check_extern_fn(
+        &mut self,
+        name: &'hir str,
+        expr: &mut HirFunctionCallExpr<'hir>,
+        signature: &'hir HirFunctionSignature<'hir>,
+    ) -> HirResult<&'hir HirTy<'hir>> {
         let args_ty = expr
             .args
             .iter_mut()
@@ -925,13 +1023,14 @@ impl<'hir> TypeChecker<'hir> {
                 };
                 generics.push((name, ty));
             }
-            let param_sign: &'hir HirFunctionParameterSignature = self.arena.intern(HirFunctionParameterSignature {
-                name: param.name,
-                name_span: param.name_span.clone(),
-                span: param.span.clone(),
-                ty: arg,
-                ty_span: param.ty_span.clone(),
-            });
+            let param_sign: &'hir HirFunctionParameterSignature =
+                self.arena.intern(HirFunctionParameterSignature {
+                    name: param.name,
+                    name_span: param.name_span.clone(),
+                    span: param.span.clone(),
+                    ty: arg,
+                    ty_span: param.ty_span.clone(),
+                });
             params.push(param_sign);
         }
 
@@ -958,24 +1057,30 @@ impl<'hir> TypeChecker<'hir> {
         }
     }
 
-    fn get_generic_ret_ty(&self, ty: &'hir HirTy<'hir>, actual_generic_ty: &'hir HirTy<'hir>) -> &'hir HirTy<'hir> {
+    fn get_generic_ret_ty(
+        &self,
+        ty: &'hir HirTy<'hir>,
+        actual_generic_ty: &'hir HirTy<'hir>,
+    ) -> &'hir HirTy<'hir> {
         match ty {
-            HirTy::List(l) => self.arena.types().get_list_ty(self.get_generic_ret_ty(l.inner, actual_generic_ty)),
-            HirTy::Named(_) => {
-                actual_generic_ty
-            }
+            HirTy::List(l) => self
+                .arena
+                .types()
+                .get_list_ty(self.get_generic_ret_ty(l.inner, actual_generic_ty)),
+            HirTy::Named(_) => actual_generic_ty,
             _ => actual_generic_ty,
         }
     }
 
     /// Return the type of the generic after monormophization
     /// e.g. `foo<T>(a: T) -> T` with `foo(42)` will return `int64`
-    fn get_generic_ty(ty: &'hir HirTy<'hir>, given_ty: &'hir HirTy<'hir>) -> Option<&'hir HirTy<'hir>> {
+    fn get_generic_ty(
+        ty: &'hir HirTy<'hir>,
+        given_ty: &'hir HirTy<'hir>,
+    ) -> Option<&'hir HirTy<'hir>> {
         match (ty, given_ty) {
             (HirTy::List(l1), HirTy::List(l2)) => Self::get_generic_ty(l1.inner, l2.inner),
-            (HirTy::Named(_), _) => {
-                Some(given_ty)
-            }
+            (HirTy::Named(_), _) => Some(given_ty),
             _ => None,
         }
     }
@@ -994,53 +1099,55 @@ impl<'hir> TypeChecker<'hir> {
         } else {
             Err(HirError::UnknownType(UnknownTypeError {
                 name: i.name.to_string(),
-                span: SourceSpan::new(
-                    SourceOffset::from(i.span.start),
-                    i.span.end - i.span.start,
-                ),
+                span: SourceSpan::new(SourceOffset::from(i.span.start), i.span.end - i.span.start),
                 src: self.src.clone(),
             }))
         }
     }
-    fn is_equivalent_ty(&self, ty1: &'hir HirTy<'hir>, ty1_span: Span, ty2: &'hir HirTy<'hir>, ty2_span: Span) -> HirResult<()> {
+    fn is_equivalent_ty(
+        &self,
+        ty1: &'hir HirTy<'hir>,
+        ty1_span: Span,
+        ty2: &'hir HirTy<'hir>,
+        ty2_span: Span,
+    ) -> HirResult<()> {
         match (ty1, ty2) {
             (HirTy::Nullable(n1), HirTy::Nullable(n2)) => {
-                eprintln!("Warning: Nullable type is equivalent to non-nullable type but might lead to runtime errors");
+                eprintln!(
+                    "Warning: Nullable type is equivalent to non-nullable type but might lead to runtime errors"
+                );
                 eprintln!("ty1: {:?} ty2: {:?}", n1.inner, n2.inner);
                 self.is_equivalent_ty(n1.inner, ty1_span, n2.inner, ty2_span)
             }
             (HirTy::Const(c1), HirTy::Const(c2)) => {
                 self.is_equivalent_ty(c1.inner, ty1_span, c2.inner, ty2_span)
             }
-            (HirTy::Const(_), _) => {
-                Err(HirError::ConstTyToNonConstTy(ConstTyToNonConstTyError {
-                    const_val: SourceSpan::new(
-                        SourceOffset::from(ty1_span.start),
-                        ty1_span.end - ty1_span.start,
-                    ),
-                    const_type: ty1.to_string(),
-                    non_const_type: ty2.to_string(),
-                    non_const_val: SourceSpan::new(
-                        SourceOffset::from(ty2_span.start),
-                        ty2_span.end - ty2_span.start,
-                    ),
-                    src: self.src.clone(),
-                }))
-            }
-            (_, HirTy::Const(r2)) => {
-                self.is_equivalent_ty(ty1, ty1_span, r2.inner, ty2_span)
-            }
-            (HirTy::Nullable(_), HirTy::Null(_)) |
-            (HirTy::Null(_), HirTy::Nullable(_)) => {
-                Ok(())
-            }
+            (HirTy::Const(_), _) => Err(HirError::ConstTyToNonConstTy(ConstTyToNonConstTyError {
+                const_val: SourceSpan::new(
+                    SourceOffset::from(ty1_span.start),
+                    ty1_span.end - ty1_span.start,
+                ),
+                const_type: ty1.to_string(),
+                non_const_type: ty2.to_string(),
+                non_const_val: SourceSpan::new(
+                    SourceOffset::from(ty2_span.start),
+                    ty2_span.end - ty2_span.start,
+                ),
+                src: self.src.clone(),
+            })),
+            (_, HirTy::Const(r2)) => self.is_equivalent_ty(ty1, ty1_span, r2.inner, ty2_span),
+            (HirTy::Nullable(_), HirTy::Null(_)) | (HirTy::Null(_), HirTy::Nullable(_)) => Ok(()),
             (HirTy::Nullable(n1), _) => {
-                eprintln!("Warning: Nullable type is equivalent to non-nullable type but might lead to runtime errors");
+                eprintln!(
+                    "Warning: Nullable type is equivalent to non-nullable type but might lead to runtime errors"
+                );
                 eprintln!("ty1: {:?} ty2: {:?}", n1.inner, ty2);
                 self.is_equivalent_ty(n1.inner, ty1_span, ty2, ty2_span)
             }
             (_, HirTy::Nullable(n2)) => {
-                eprintln!("Warning: Nullable type is equivalent to non-nullable type but might lead to runtime errors");
+                eprintln!(
+                    "Warning: Nullable type is equivalent to non-nullable type but might lead to runtime errors"
+                );
                 eprintln!("ty1: {:?} ty2: {:?}", ty1, n2.inner);
                 self.is_equivalent_ty(ty1, ty1_span, n2.inner, ty2_span)
             }
@@ -1048,15 +1155,26 @@ impl<'hir> TypeChecker<'hir> {
                 if HirTyId::from(ty1) == HirTyId::from(ty2) {
                     Ok(())
                 } else {
-                    Err(Self::type_mismatch_err(&format!("{}", ty1), &ty1_span, &format!("{}", ty2), &ty2_span, self.src.clone()))
+                    Err(Self::type_mismatch_err(
+                        &format!("{}", ty1),
+                        &ty1_span,
+                        &format!("{}", ty2),
+                        &ty2_span,
+                        self.src.clone(),
+                    ))
                 }
             }
         }
     }
 
-
     #[inline(always)]
-    fn type_mismatch_err(actual_type: &str, actual_loc: &Span, expected_type: &str, expected_loc: &Span, src: String) -> HirError {
+    fn type_mismatch_err(
+        actual_type: &str,
+        actual_loc: &Span,
+        expected_type: &str,
+        expected_loc: &Span,
+        src: String,
+    ) -> HirError {
         HirError::TypeMismatch(TypeMismatchError {
             actual_type: actual_type.to_string(),
             actual_loc: SourceSpan::new(
@@ -1076,10 +1194,7 @@ impl<'hir> TypeChecker<'hir> {
     fn unknown_type_err(name: &str, span: &Span, src: String) -> HirError {
         HirError::UnknownType(UnknownTypeError {
             name: name.to_string(),
-            span: SourceSpan::new(
-                SourceOffset::from(span.start),
-                span.end - span.start,
-            ),
+            span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
             src,
         })
     }

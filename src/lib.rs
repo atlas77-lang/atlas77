@@ -1,32 +1,20 @@
-pub mod atlas_vm;
+pub mod atlas_asm;
 pub mod atlas_c;
 pub mod atlas_lib;
-pub mod atlas_asm;
+pub mod atlas_vm;
 mod atlas_vm_new;
 
 use atlas_c::{
-    atlas_codegen::{
-        arena::CodeGenArena,
-        CodeGenUnit,
-    },
-    atlas_frontend::{
-        parse,
-        parser::arena::AstArena,
-    },
+    atlas_codegen::{CodeGenUnit, arena::CodeGenArena},
+    atlas_frontend::{parse, parser::arena::AstArena},
     atlas_hir::{
-        arena::HirArena,
-        syntax_lowering_pass::AstSyntaxLoweringPass,
-        type_check_pass::TypeChecker,
+        arena::HirArena, syntax_lowering_pass::AstSyntaxLoweringPass, type_check_pass::TypeChecker,
     },
 };
 use bumpalo::Bump;
 
 use crate::atlas_vm::runtime::arena::RuntimeArena;
-use std::{
-    io::Write,
-    path::PathBuf,
-    time::Instant,
-};
+use std::{io::Write, path::PathBuf, time::Instant};
 //todo: The pipeline of the compiler should be more straightforward and should include the "debug" and "release" modes
 //todo: There should also be a function for each stage of the pipeline
 

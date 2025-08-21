@@ -1,6 +1,10 @@
-use crate::atlas_vm::memory::object_map::ObjectIndex;
+use crate::atlas_vm_new::object::ObjectIndex;
 use std::fmt::Formatter;
-use std::{fmt, fmt::Display, ops::{Add, Div, Mul, Rem, Sub}};
+use std::{
+    fmt,
+    fmt::Display,
+    ops::{Add, Div, Mul, Rem, Sub},
+};
 
 #[derive(Copy, Clone)]
 pub union RawVMData {
@@ -99,7 +103,6 @@ impl VMTag {
         }
     }
 }
-
 
 macro_rules! def_new_vm_data_func {
     ($ident: ident, $field: ident, $ty: ty, $const: ident) => {
@@ -283,7 +286,8 @@ impl Display for VMData {
                 VMTag::Float64 => self.as_f64().to_string(),
                 VMTag::Bool => self.as_bool().to_string(),
                 VMTag::Char => format!("'{}'", self.as_char()),
-                VMTag::StackPtr => format!("&[{}, {}]", self.as_stack_ptr()[0], self.as_stack_ptr()[1]),
+                VMTag::StackPtr =>
+                    format!("&[{}, {}]", self.as_stack_ptr()[0], self.as_stack_ptr()[1]),
                 VMTag::FnPtr => self.as_fn_ptr().to_string(),
                 _ if self.is_object() => self.as_object().to_string(),
                 _ => "reserved".to_string(),
@@ -333,9 +337,7 @@ impl VMData {
     //Clippy doesn't like #[must_use] on () return types
     #[inline(always)]
     pub fn as_unit(self) {
-        unsafe {
-            self.data.as_unit
-        }
+        unsafe { self.data.as_unit }
     }
     #[inline(always)]
     #[must_use]
@@ -345,9 +347,7 @@ impl VMData {
 
     #[inline(always)]
     pub fn as_none(self) {
-        unsafe {
-            self.data.as_none
-        }
+        unsafe { self.data.as_none }
     }
     #[inline(always)]
     #[must_use]
@@ -365,7 +365,10 @@ impl VMData {
     #[must_use]
     pub fn as_object(self) -> ObjectIndex {
         if !self.is_object() {
-            unreachable!("Attempted to get an object from a non-object VMData {:?}", self);
+            unreachable!(
+                "Attempted to get an object from a non-object VMData {:?}",
+                self
+            );
         }
 
         unsafe { self.data.as_object }

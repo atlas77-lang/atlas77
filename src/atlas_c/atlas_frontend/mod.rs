@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use lexer::AtlasLexer;
 use parser::{arena::AstArena, ast::AstProgram, error::ParseResult};
 
-
 pub fn parse<'ast>(
     path: &'ast str,
     arena: &'ast AstArena<'ast>,

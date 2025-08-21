@@ -11,19 +11,17 @@ pub struct AtlasLexer<'lex> {
 
 impl<'lex> AtlasLexer<'lex> {
     pub fn new(_path: &'lex str, source: String) -> Self {
-        AtlasLexer {
-            _path,
-            source,
-        }
+        AtlasLexer { _path, source }
     }
     pub fn tokenize(&mut self) -> Result<Vec<Token>, (LexingError, Span)> {
         let lex = TokenKind::lexer(&self.source);
-        let mut res: Vec<Result<Token, (LexingError, Span)>> = lex.spanned().map(|(kind, span)| {
-            match kind {
+        let mut res: Vec<Result<Token, (LexingError, Span)>> = lex
+            .spanned()
+            .map(|(kind, span)| match kind {
                 Ok(kind) => Ok(Token::new(span, kind)),
                 Err(e) => Err((e, span)),
-            }
-        }).collect::<Vec<_>>();
+            })
+            .collect::<Vec<_>>();
         res.push(Ok(Token::new(Span::default(), TokenKind::EoI)));
         res.into_iter().collect::<Result<_, _>>()
     }

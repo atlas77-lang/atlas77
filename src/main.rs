@@ -1,5 +1,5 @@
-use atlas_77::{build, run, CompilationFlag};
-use clap::{command, Parser};
+use atlas_77::{CompilationFlag, build, run};
+use clap::{Parser, command};
 
 #[derive(Parser)] // requires `derive` feature
 #[command(name = "Atlas77")]
@@ -37,22 +37,43 @@ enum AtlasRuntimeCLI {
     },
 }
 
-
 fn main() -> miette::Result<()> {
     match AtlasRuntimeCLI::parse() {
-        AtlasRuntimeCLI::Run { file_path, release, debug } => {
+        AtlasRuntimeCLI::Run {
+            file_path,
+            release,
+            debug,
+        } => {
             if release && debug {
                 eprintln!("Cannot run in both release and debug mode");
                 std::process::exit(1);
             }
-            run(file_path, if release { CompilationFlag::Release } else { CompilationFlag::Debug })
+            run(
+                file_path,
+                if release {
+                    CompilationFlag::Release
+                } else {
+                    CompilationFlag::Debug
+                },
+            )
         }
-        AtlasRuntimeCLI::Build { file_path, release, debug } => {
+        AtlasRuntimeCLI::Build {
+            file_path,
+            release,
+            debug,
+        } => {
             if release && debug {
                 eprintln!("Cannot run in both release and debug mode");
                 std::process::exit(1);
             }
-            build(file_path, if release { CompilationFlag::Release } else { CompilationFlag::Debug })
+            build(
+                file_path,
+                if release {
+                    CompilationFlag::Release
+                } else {
+                    CompilationFlag::Debug
+                },
+            )
         }
     }
 }

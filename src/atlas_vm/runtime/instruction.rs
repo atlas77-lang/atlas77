@@ -232,7 +232,6 @@ pub struct ClassDescriptor<'run> {
     pub constants: BTreeMap<&'run str, ConstantValue>,
 }
 
-
 #[derive(Debug, Clone, PartialEq, PartialOrd, Serialize)]
 //todo: This should be dropped cuz it's slow
 pub struct Label<'run> {

@@ -1,13 +1,10 @@
+use crate::atlas_vm::CallBack;
 use crate::atlas_vm::errors::RuntimeError;
 use crate::atlas_vm::memory::object_map::ObjectKind;
 use crate::atlas_vm::memory::vm_data::VMData;
 use crate::atlas_vm::runtime::vm_state::VMState;
-use crate::atlas_vm::CallBack;
 
-pub const LIST_FUNCTIONS: [(&str, CallBack); 2] = [
-    ("len", len),
-    ("slice", slice),
-];
+pub const LIST_FUNCTIONS: [(&str, CallBack); 2] = [("len", len), ("slice", slice)];
 
 pub fn len<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
     let list_ptr = state.stack.pop()?.as_object();
@@ -15,7 +12,6 @@ pub fn len<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
     let list = raw_list.list();
     Ok(VMData::new_i64(list.len() as i64))
 }
-
 
 pub fn slice<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
     let end = state.stack.pop_with_rc(state.object_map)?.as_i64();

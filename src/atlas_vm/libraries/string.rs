@@ -109,12 +109,7 @@ pub fn from_chars<'lib>(state: VMState) -> RuntimeResult<VMData> {
     let raw_list = state.object_map.get(list_ptr)?;
     let list = raw_list.list().clone();
 
-    let string: String = list
-        .iter()
-        .map(|data| {
-            data.as_char()
-        })
-        .collect();
+    let string: String = list.iter().map(|data| data.as_char()).collect();
 
     let obj_idx = state.object_map.put(ObjectKind::String(string));
     match obj_idx {

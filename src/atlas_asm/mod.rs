@@ -14,7 +14,6 @@ pub enum OpCode {
     Nop = 0x00,
 
     // Constants
-
     I8Load,
     I16Load,
     I32Load,
@@ -42,14 +41,12 @@ pub enum OpCode {
     CastTo,
 
     // Stack operations
-
     Pop,
     Swap,
     Dup,
     Rot,
 
     //Variables
-
     Get,
     Store,
 

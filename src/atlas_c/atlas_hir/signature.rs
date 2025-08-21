@@ -114,7 +114,7 @@ impl TryFrom<HirExpr<'_>> for ConstantValue {
                     ConstantValue::try_from(*u.expr)
                 }
             }
-            _ => Err(())
+            _ => Err(()),
         }
     }
 }
