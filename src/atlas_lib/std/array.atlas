@@ -1,0 +1,87 @@
+package collections;
+
+/// ===============================
+/// FFI bindings (implemented in Rust)
+/// ===============================
+/// These are thin external functions providing the actual
+/// array operations. The `Array[T]` type below is just a
+/// safe wrapper around them.
+
+extern arr_new[T](): externptr;
+extern arr_reserve[T](ptr: externptr, cap: Int64): Unit;
+extern arr_len[T](ptr: externptr): Int64;
+extern arr_slice[T](ptr: externptr, start: Int64, end: Int64): externptr;
+extern arr_pop[T](ptr: externptr): T;
+extern arr_push[T](ptr: externptr, val: T): Unit;
+extern arr_remove[T](ptr: externptr, index: Int64): Unit;
+extern arr_get[T](ptr: externptr, index: Int64): T;
+
+
+/// ===============================
+/// Array[T]
+/// ===============================
+/// A mutable, growable array of elements of type `T`.
+/// This is a thin wrapper around the Rust FFI functions.
+///
+/// # Syntax Sugar
+/// The expression:
+///
+/// ```
+/// Array(1, 2, 3)
+/// ```
+///
+/// is *not* a literal. It is syntactic sugar that lowers to:
+///
+/// ```atlas77
+/// let __arr: Array[Int64] = Array[Int64].init()
+/// collections::arr_reserve(__arr.handle, 3)
+/// __arr.push(1)
+/// __arr.push(2)
+/// __arr.push(3)
+/// __arr
+/// ```
+///
+/// This lowering happens after type and access-modifier checks.
+///
+@public
+struct Array[T] {
+    @private
+    var handle: externptr
+
+    /// Creates a new, empty array.
+    fun init(): Array[T] {
+        let h = arr_new[T]();
+        return Array { handle = h }
+    }
+
+    /// Returns the number of elements currently in the array.
+    fun len(this): Int64 {
+        arr_len(this.handle)
+    }
+
+    /// Returns a slice of the array between `start` (inclusive) and `end` (exclusive).
+    fun slice(this, start: Int64, end: Int64): Array[T] {
+        let h = arr_slice(this.handle, start, end);
+        Array { handle = h }
+    }
+
+    /// Removes and returns the last element of the array.
+    fun pop(this): T {
+        arr_pop(this.handle)
+    }
+
+    /// Appends an element to the end of the array.
+    fun push(this, value: T): Unit {
+        arr_push(this.handle, value)
+    }
+
+    /// Removes the element at the given index.
+    fun remove(this, index: Int64): Unit {
+        arr_remove(this.handle, index)
+    }
+
+    /// Returns the element at the given index.
+    fun get(this, index: Int64): T {
+        arr_get(this.handle, index)
+    }
+}

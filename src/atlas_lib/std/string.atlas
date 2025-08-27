@@ -1,55 +1,56 @@
 import "std/list"
 // Miscellaneous functions for raw strings
-extern str_len(s: str) -> uint64
-extern trim(s: str) -> str
-extern to_upper(s: str) -> str
-extern to_lower(s: str) -> str
-extern split(s: str, sep: str) -> [str]
-extern str_cmp(s1: str, s2: str) -> int64
-extern to_chars(s: str) -> [char]
-extern from_chars(s: [char]) -> str
+extern str_len(s: Str): uint64
+extern trim(s: Str): Str
+extern to_upper(s: Str): Str
+extern to_lower(s: Str): Str
+extern split(s: Str, sep: Str): Array[Str]
+extern str_cmp(s1: Str, s2: Str): Int64
+extern to_chars(s: Str): Array[Char]
+extern from_chars(s: [Char]): Str
 
 
-public struct String {
-    s: str;
-    len: uint64;
+@public
+struct String {
+    var s: Str
+    var len: UInt64
 
-    String(s: str) {
+    String(s: Str) {
         self.s = s;
         self.len = len(s);
     }
     ~String() {}
-    func from_chars(s: [char]) -> String {
+    fun from_chars(s: [Char]) -> String {
         return new String(from_chars(s));
     }
     /// Example: String::str_len("Hello") -> 5
-    func str_len(s: str) -> uint64 {
+    fun str_len(s: Str) -> uint64 {
         return str_len(s);
     }
 
-    func len(self) -> uint64 {
+    fun len(self) -> uint64 {
         return self.len;
     }
-    func is_empty(self) -> bool {
+    fun is_empty(self) -> bool {
         return self.len == 0 as uint64;
     }
     //todo: implement as_bytes
-    //func as_bytes(self) -> [uint8] {}
-    func concat(self, other: String) -> String {
+    //fun as_bytes(self) -> [uint8] {}
+    fun concat(self, other: String) -> String {
         //I should really implement the <- operator for copying objects
         let self_chars = to_chars(self.s);
         let other_chars = to_chars(other.s);
-        let res = new [char; len(self_chars) + len(other_chars)];
+        let res = new [Char; len(self_chars) + len(other_chars)];
         let i = 0;
         while i < len(self_chars) {
             res[i] = self_chars[i];
             i = i + 1;
         }
     }
-    func push(self, c: char) -> unit {
+    fun push(self, c: Char) -> unit {
         //Same... I should implement the <- operator
         let self_chars = to_chars(self.s);
-        let res = new [char; len(self_chars) + 1];
+        let res = new [Char; len(self_chars) + 1];
         let i = 0;
         while i < len(self_chars) {
             res[i] = self_chars[i];
@@ -60,10 +61,10 @@ public struct String {
         self.len = str_len(self.s);
         return;
     }
-    func push_str(self, s: String) -> unit {
+    fun push_str(self, s: String) -> unit {
         let self_chars = to_chars(self.s);
         let s_chars = to_chars(s.s);
-        let res = new [char; len(self_chars) + len(s_chars)];
+        let res = new [Char; len(self_chars) + len(s_chars)];
         let i = 0;
         while i < len(self_chars) {
             res[i] = self_chars[i];
@@ -79,7 +80,7 @@ public struct String {
         self.len = str_len(self.s);
         return;
     }
-    func find(self, sub_string: String) -> int64 {
+    fun find(self, sub_string: String) -> int64 {
         let res = -1;
         let i = 0;
         let j = 0;
@@ -102,31 +103,31 @@ public struct String {
         return res;
     }
 
-    func get(self, i: uint64) -> char {
+    fun get(self, i: uint64) -> Char {
         return self.s[i];
     }
-    func set(self, i: uint64, c: char) -> unit {
+    fun set(self, i: uint64, c: Char) -> unit {
         self.s[i] = c;
         return;
     }
 
-    func to_str(self) -> str {
+    fun to_str(self) -> Str {
         return self.s;
     }
-    func to_chars(self) -> [char] {
+    fun to_chars(self) -> [Char] {
         return to_chars(self.s);
     }
-    func to_upper(self) -> String {
+    fun to_upper(self) -> String {
         return new String(to_upper(self.s));
     }
-    func to_lower(self) -> String {
+    fun to_lower(self) -> String {
         return new String(to_lower(self.s));
     }
-    func trim(self) {
+    fun trim(self) {
         return new String(trim(self.s));
     }
-    func split(self, sep: str) -> [String] {
-        let s: [str] = split(self.s, sep);
+    fun split(self, sep: Str) -> [String] {
+        let s: [Str] = split(self.s, sep);
         let i = 0;
         let res = new [String; len(s)];
         while i < len(s) {
@@ -137,18 +138,16 @@ public struct String {
     }
 }
 
-public class Char {
-    public:
-        value: char;
-    public:
-        Char(val: char) {
-            self.value = val;
-        }
-        ~Char() {}
-        func to_str(self) -> str {
-            return self.value as str;
-        }
-        func from_str(s: str) -> Char {
-            return new Char(s[0]);
-        }
+@public
+struct RefChar {
+    var value: Char;
+    fun init(val: Char): RefChar {
+        this.value = val;
+    }
+    fun to_str(this): Str {
+        return this.value as Str;
+    }
+    fun from_str(s: Str): RefChar {
+        return new RefChar(s.get(0));
+    }
 }

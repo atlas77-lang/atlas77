@@ -1,81 +1,35 @@
-package std::result;
+package result; 
 
-public struct Result<T, E> {
-    private:
-        data: T?;
-        err: E?;
-    public:
-        Result(data: T?, err: E?) {
-            self.data = data;
-            self.err = err;
-        }
-        ~Result() {}
-        func ok(data: T) -> Result<T, E> {
-            return new Result(data, null);
-        }
-        func err(err: E) -> Result<T, E> {
-            return new Result(null, err);
-        }
-        func is_ok(self) -> bool {
-            return self.data != null;
-        }
-        func is_err(self) -> bool {
-            return self.err != null;
-        }
-        func unwrap(self) -> T {
-            if self.is_ok() {
-                return self.data;
-            } else {
-                panic("called `Result<T, E>::unwrap()` on an `Err` value");
-            }
-        }
-        func unwrap_err(self) -> E {
-            if self.is_err() {
-                return self.err;
-            } else {
-                panic("called `Result<T, E>::unwrap_err()` on an `Ok` value");
-            }
-        }
-        func expect(self, msg: str) -> T {
-            if self.is_ok() {
-                return self.data;
-            } else {
-                panic(msg);
-            }
-        }
-        func expect_err(self, msg: str) -> E {
-            if self.is_err() {
-                return self.err;
-            } else {
-                panic(msg);
-            }
-        }
-        func map<U>(self, f: func(T) -> U) -> Result<U, E> {
-            if self.is_ok() {
-                return new Result(f(self.data), null);
-            } else {
-                return new Result(null, self.err);
-            }
-        }
-        func map_err<F>(self, f: func(E) -> F) -> Result<T, F> {
-            if self.is_err() {
-                return new Result(null, f(self.err));
-            } else {
-                return new Result(self.data, null);
-            }
-        }
-        func and<U>(self, res: Result<U, E>) -> Result<U, E> {
-            if self.is_ok() {
-                return res;
-            } else {
-                return new Result(null, self.err);
-            }
-        }
-        func and_then<U>(self, f: func(T) -> Result<U, E>) -> Result<U, E> {
-            if self.is_ok() {
-                return f(self.data);
-            } else {
-                return new Result(null, self.err);
-            }
-        }
+@public
+struct Result[T, E] {
+  @private
+  var data: T?
+  @private
+  var err: E?
+
+  @private 
+  //Special case function like __init__() in Python
+  fun init(data: T?, err: E?): Result[T, E] {
+    this.data = data; 
+    this.err = err; 
+  } 
+  @public 
+  fun ok(data: T): Result[T, E] {
+    return this.init(data, null); 
+  } 
+  @public 
+  fun err(err: E): Result[T, E] { 
+    return this.init(null, err); 
+  } 
+  @public 
+  fun is_ok(this): bool { 
+    return this.data != null; 
+  } 
+  @public 
+  fun unwrap(this): T { 
+    if this.is_ok() {
+      return this.data; 
+    } 
+    panic("Unwrap called on an Err"); 
+  } 
 }
