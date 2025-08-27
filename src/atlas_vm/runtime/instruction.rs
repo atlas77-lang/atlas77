@@ -165,7 +165,7 @@ pub struct ProgramDescriptor<'run> {
     pub entry_point: String,
     pub libraries: Vec<ImportedLibrary>,
     pub global: ConstantPool<'run>,
-    pub classes: &'run [ClassDescriptor<'run>],
+    pub structs: &'run [StructDescriptor<'run>],
     //todo: Change `usize` to a `FunctionDescriptor`
     pub functions: HashMap<&'run str, usize>,
 }
@@ -201,7 +201,7 @@ impl ProgramDescriptor<'_> {
         Self {
             labels: vec![],
             entry_point: String::new(),
-            classes: &[],
+            structs: &[],
             functions: HashMap::new(),
             global: ConstantPool {
                 string_pool: &[],
@@ -222,13 +222,9 @@ pub struct ConstantPool<'run> {
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Serialize)]
-pub struct ClassDescriptor<'run> {
+pub struct StructDescriptor<'run> {
     pub name: &'run str,
     pub fields: Vec<&'run str>,
-    pub constructor_nb_args: usize,
-    pub constructor_pos: usize,
-    pub destructor_nb_args: usize,
-    pub destructor_pos: usize,
     pub constants: BTreeMap<&'run str, ConstantValue>,
 }
 

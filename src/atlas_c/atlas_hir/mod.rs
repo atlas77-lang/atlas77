@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::atlas_c::atlas_hir::item::HirClass;
+use crate::atlas_c::atlas_hir::item::HirStruct;
 use item::{HirFunction, HirImport};
 use serde::Serialize;
 use signature::HirModuleSignature;
@@ -26,7 +26,7 @@ pub mod ty;
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct HirModuleBody<'hir> {
     pub functions: BTreeMap<&'hir str, HirFunction<'hir>>,
-    pub classes: BTreeMap<&'hir str, HirClass<'hir>>,
+    pub structs: BTreeMap<&'hir str, HirStruct<'hir>>,
     pub imports: Vec<&'hir HirImport<'hir>>,
 }
 

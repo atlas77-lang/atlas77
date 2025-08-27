@@ -1,7 +1,7 @@
 use super::{signature::HirFunctionSignature, stmt::HirBlock};
 use crate::atlas_c::atlas_hir::signature::{
-    HirClassFieldSignature, HirClassMethodSignature, HirClassSignature,
-    HirFunctionParameterSignature, HirTypeParameterItemSignature,
+    HirClassFieldSignature, HirClassMethodSignature, HirFunctionParameterSignature,
+    HirStructSignature, HirTypeParameterItemSignature,
 };
 use logos::Span;
 use serde::Serialize;
@@ -27,15 +27,13 @@ pub struct HirImport<'hir> {
     pub alias_span: Option<Span>,
 }
 #[derive(Debug, Clone, Serialize)]
-pub struct HirClass<'hir> {
+pub struct HirStruct<'hir> {
     pub span: Span,
     pub name: &'hir str,
     pub name_span: Span,
-    pub signature: &'hir HirClassSignature<'hir>,
+    pub signature: &'hir HirStructSignature<'hir>,
     pub methods: Vec<HirClassMethod<'hir>>,
     pub fields: Vec<HirClassFieldSignature<'hir>>,
-    pub constructor: HirClassConstructor<'hir>,
-    pub destructor: HirClassConstructor<'hir>,
 }
 
 #[derive(Debug, Clone, Serialize)]

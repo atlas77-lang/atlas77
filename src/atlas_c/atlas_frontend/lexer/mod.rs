@@ -27,6 +27,58 @@ impl<'lex> AtlasLexer<'lex> {
     }
 }
 
+mod test {
+    #[test]
+    fn test_lexer() {
+        let source = r#"
+package result; 
+
+@public
+struct Result[T, E] {
+  @private
+  var data: T?
+  @private
+  var err: E?
+
+  @private 
+  //Special case function like __init__() in Python
+  fun init(data: T?, err: E?): Result[T, E] {
+    this.data = data; 
+    this.err = err; 
+  } 
+  @public 
+  fun ok(data: T): Result[T, E] {
+    return this.init(data, null); 
+  } 
+  @public 
+  fun err(err: E): Result[T, E] { 
+    return this.init(null, err); 
+  } 
+  @public 
+  fun is_ok(this): bool { 
+    return this.data != null; 
+  } 
+  @public 
+  fun unwrap(this): T { 
+    if this.is_ok() {
+      return this.data; 
+    } 
+    panic("Unwrap called on an Err"); 
+  } 
+}"#;
+        let mut lexer = super::AtlasLexer::new("test.atlas", source.to_string());
+        let tokens = match lexer.tokenize() {
+            Ok(tokens) => tokens,
+            Err((e, span)) => {
+                panic!("Lexing error: {:?} at {:?}", e, span);
+            }
+        };
+        for token in tokens {
+            println!("{:?} at {:?}", token.kind(), token.span());
+        }
+    }
+}
+
 pub trait Spanned {
     fn union_span(&self, other: &Self) -> Self;
 }

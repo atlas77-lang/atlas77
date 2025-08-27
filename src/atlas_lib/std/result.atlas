@@ -3,9 +3,9 @@ package result;
 @public
 struct Result[T, E] {
   @private
-  var data: T?
+  let data: T?
   @private
-  var err: E?
+  let err: E?
 
   @private 
   //Special case function like __init__() in Python

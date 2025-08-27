@@ -3,15 +3,15 @@ pub mod arena;
 mod table;
 
 use crate::atlas_c::atlas_hir::{
-    HirModule,
     error::{HirResult, UnsupportedExpr, UnsupportedStatement},
     expr::HirExpr,
     signature::HirFunctionParameterSignature,
     stmt::{HirBlock, HirStatement},
     ty::HirTy,
+    HirModule,
 };
 use crate::atlas_vm::runtime::instruction::{
-    ClassDescriptor, ImportedLibrary, Instruction, Label, ProgramDescriptor, Type,
+    ImportedLibrary, Instruction, Label, ProgramDescriptor, StructDescriptor, Type,
 };
 use std::collections::{BTreeMap, HashMap};
 
@@ -19,8 +19,8 @@ use crate::atlas_c::atlas_codegen::table::Table;
 use crate::atlas_c::atlas_hir;
 use crate::atlas_c::atlas_hir::error::HirError;
 use crate::atlas_c::atlas_hir::expr::HirUnaryOp;
-use crate::atlas_c::atlas_hir::item::{HirClass, HirClassConstructor};
-use crate::atlas_c::atlas_hir::signature::{ConstantValue, HirClassMethodModifier};
+use crate::atlas_c::atlas_hir::item::HirStruct;
+use crate::atlas_c::atlas_hir::signature::{ConstantValue, HirStructMethodModifier};
 use arena::CodeGenArena;
 use miette::{SourceOffset, SourceSpan};
 
@@ -40,7 +40,7 @@ where
     //store the function position
     current_pos: usize,
     string_pool: Vec<&'codegen str>,
-    class_pool: Vec<ClassDescriptor<'codegen>>,
+    struct_pool: Vec<StructDescriptor<'codegen>>,
     //todo: Replace this with the path of the current module to be codegen
     src: String,
 }
@@ -55,15 +55,15 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             local_variables: Table::new(),
             current_pos: 0,
             string_pool: Vec::new(),
-            class_pool: Vec::new(),
+            struct_pool: Vec::new(),
             src,
         }
     }
 
     pub fn compile(&mut self) -> CodegenResult<ProgramDescriptor> {
         let mut labels: Vec<Label> = Vec::new();
-        for (class_name, class) in self.hir.body.classes.clone() {
-            self.generate_class_descriptor(class_name, &class);
+        for (struct_name, hir_struct) in self.hir.body.structs.clone() {
+            self.generate_struct_descriptor(struct_name, &hir_struct);
         }
 
         let mut functions: HashMap<&'codegen str, usize> = HashMap::new();
@@ -103,51 +103,20 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             self.current_pos += len;
             self.local_variables.clear();
         }
-        for (class_name, class) in self.hir.body.classes.clone() {
-            self.generate_bytecode_class(
-                class_name,
-                &class,
+        for (struct_name, hir_struct) in self.hir.body.structs.clone() {
+            self.generate_bytecode_struct(
+                struct_name,
+                &hir_struct,
                 &mut labels,
                 self.src.clone(),
                 &mut functions,
             )?;
-            let destructor_pos = self.generate_bytecode_constructor(
-                class_name,
-                &class.destructor,
-                &mut labels,
-                self.src.clone(),
-                false,
-            )?;
-            self.local_variables.clear();
-            functions.insert(
-                self.arena.alloc(format!("{}.delete", class_name)),
-                destructor_pos,
-            );
-            let constructor_pos = self.generate_bytecode_constructor(
-                class_name,
-                &class.constructor,
-                &mut labels,
-                self.src.clone(),
-                true,
-            )?;
-            self.local_variables.clear();
-            functions.insert(
-                self.arena.alloc(format!("{}.new", class_name)),
-                constructor_pos,
-            );
-            let class_pos = self
-                .class_pool
-                .iter()
-                .position(|constant_class| constant_class.name == class_name)
-                .unwrap();
-            self.class_pool[class_pos].destructor_pos = destructor_pos;
-            self.class_pool[class_pos].constructor_pos = constructor_pos;
         }
 
         self.program.entry_point = String::from("main");
         self.program.labels = labels;
         self.program.global.string_pool = self.arena.alloc(self.string_pool.clone());
-        self.program.classes = self.arena.alloc(self.class_pool.clone());
+        self.program.structs = self.arena.alloc(self.struct_pool.clone());
         self.program.functions = functions;
         let libraries = self
             .hir
@@ -163,18 +132,18 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
         Ok(self.program.clone())
     }
 
-    fn generate_bytecode_class(
+    fn generate_bytecode_struct(
         &mut self,
-        class_name: &str,
-        class: &HirClass<'hir>,
+        struct_name: &str,
+        hir_struct: &HirStruct<'hir>,
         labels: &mut Vec<Label<'codegen>>,
         src: String,
         functions: &mut HashMap<&'codegen str, usize>,
     ) -> HirResult<()> {
-        for method in class.methods.iter() {
+        for method in hir_struct.methods.iter() {
             let mut bytecode = Vec::new();
             let params = method.signature.params.clone();
-            if method.signature.modifier != HirClassMethodModifier::Static {
+            if method.signature.modifier != HirStructMethodModifier::Static {
                 self.local_variables.insert("self");
                 bytecode.push(Instruction::LoadArg { index: 0 });
                 self.generate_bytecode_args(params, &mut bytecode, 1)?;
@@ -192,10 +161,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
 
             let len = bytecode.len();
             let method_name = self.arena.alloc(
-                if method.signature.modifier == HirClassMethodModifier::Static {
-                    format!("{}::{}", class_name, method.name)
+                if method.signature.modifier == HirStructMethodModifier::Static {
+                    format!("{}::{}", struct_name, method.name)
                 } else {
-                    format!("{}.{}", class_name, method.name)
+                    format!("{}.{}", struct_name, method.name)
                 },
             );
             functions.insert(method_name, self.current_pos);
@@ -209,86 +178,26 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
         }
         Ok(())
     }
-    fn generate_class_descriptor(&mut self, class_name: &str, class: &HirClass<'hir>) {
-        println!("Generating class descriptor for {}", class_name);
+    fn generate_struct_descriptor(&mut self, struct_name: &str, hir_struct: &HirStruct<'hir>) {
+        println!("Generating hir_struct descriptor for {}", struct_name);
         let mut fields: Vec<&'codegen str> = Vec::new();
         let mut constants: BTreeMap<&'codegen str, ConstantValue> = BTreeMap::new();
-        for field in class.fields.iter() {
+        for field in hir_struct.fields.iter() {
             fields.push(self.arena.alloc(field.name.to_string()));
         }
-        for (constant_name, constant) in class.signature.constants.iter() {
+        for (constant_name, constant) in hir_struct.signature.constants.iter() {
             constants.insert(
                 self.arena.alloc(constant_name.to_string()),
                 constant.value.clone(),
             );
         }
-        let class_constant = ClassDescriptor {
-            name: self.arena.alloc(class_name.to_string()),
+        let struct_constant = StructDescriptor {
+            name: self.arena.alloc(struct_name.to_string()),
             fields,
-            //takes self as param
-            constructor_nb_args: class.constructor.params.len() + 1, //+1 for self
-            constructor_pos: usize::default(),
-            //takes self as param
-            destructor_nb_args: class.destructor.params.len() + 1, //+1 for self
-            destructor_pos: usize::default(),
             constants,
         };
-        self.class_pool.push(class_constant);
+        self.struct_pool.push(struct_constant);
     }
-    fn generate_bytecode_constructor(
-        &mut self,
-        class_name: &str,
-        constructor: &HirClassConstructor<'hir>,
-        labels: &mut Vec<Label<'codegen>>,
-        src: String,
-        // If the HirClassConstructor is a constructor or a destructor
-        is_constructor: bool,
-    ) -> CodegenResult<usize> {
-        println!(
-            "Doing {} of {}",
-            if is_constructor {
-                "constructor"
-            } else {
-                "destructor"
-            },
-            class_name
-        );
-        let mut bytecode = Vec::new();
-        let params = constructor.params.clone();
-
-        self.local_variables.insert("self");
-        bytecode.push(Instruction::LoadArg { index: 0 });
-        self.generate_bytecode_args(params, &mut bytecode, 1)?;
-
-        self.generate_bytecode_block(&constructor.body, &mut bytecode, src.clone())?;
-
-        //Return the self reference
-        bytecode.push(Instruction::LoadVar(
-            self.local_variables.get_index("self").unwrap(),
-        ));
-        bytecode.push(Instruction::Return);
-        println!("nbParams: {}", constructor.params.len());
-        bytecode.insert(
-            0,
-            Instruction::LocalSpace {
-                nb_vars: self.local_variables.len() as u8,
-            },
-        );
-        let len = bytecode.len();
-        labels.push(Label {
-            name: self.arena.alloc(if is_constructor {
-                format!("{}.new", class_name)
-            } else {
-                format!("{}.delete", class_name)
-            }),
-            position: self.current_pos,
-            body: self.arena.alloc(bytecode),
-        });
-        self.current_pos += len;
-
-        Ok(self.current_pos - len)
-    }
-
     fn generate_bytecode_block(
         &mut self,
         block: &HirBlock<'hir>,
@@ -397,48 +306,13 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                             self.local_variables.get_index(i.name).unwrap(),
                         ));
                     }
-                    HirExpr::Indexing(i) => {
-                        match i.target.ty() {
-                            HirTy::List(_) => {
-                                //Get the Index
-                                self.generate_bytecode_expr(&i.index, bytecode, src.clone())?;
-                                //Get the list pointer
-                                self.generate_bytecode_expr(&i.target, bytecode, src.clone())?;
-                                //Get the value
-                                self.generate_bytecode_expr(&a.rhs, bytecode, src)?;
-                                //Store the value in the list
-                                bytecode.push(Instruction::ListStore);
-                            }
-                            HirTy::String(_) => {
-                                eprintln!("String store: {:?}", a);
-                                //Get the Index
-                                self.generate_bytecode_expr(&i.index, bytecode, src.clone())?;
-                                //Get the string pointer
-                                self.generate_bytecode_expr(&i.target, bytecode, src.clone())?;
-                                //Get the value
-                                self.generate_bytecode_expr(&a.rhs, bytecode, src)?;
-                                //Store the value in the string
-                                bytecode.push(Instruction::StringStore);
-                            }
-                            _ => {
-                                return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                                    span: SourceSpan::new(
-                                        SourceOffset::from(expr.span().start),
-                                        expr.span().end - expr.span().start,
-                                    ),
-                                    expr: format!("{:?}", expr),
-                                    src: src.clone(),
-                                }));
-                            }
-                        }
-                    }
                     HirExpr::FieldAccess(field_access) => {
-                        //Get the Class pointer
+                        //Get the Struct pointer
                         self.generate_bytecode_expr(&field_access.target, bytecode, src.clone())?;
                         //Get the value
                         self.generate_bytecode_expr(&a.rhs, bytecode, src.clone())?;
-                        let class_name = match field_access.target.ty() {
-                            HirTy::Named(class_name) => class_name,
+                        let struct_name = match field_access.target.ty() {
+                            HirTy::Named(struct_name) => struct_name,
                             _ => {
                                 return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                     span: SourceSpan::new(
@@ -453,16 +327,16 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                 }));
                             }
                         };
-                        let class = self
-                            .class_pool
+                        let struct_descriptor = self
+                            .struct_pool
                             .iter()
-                            .find(|c| c.name == class_name.name)
+                            .find(|c| c.name == struct_name.name)
                             .unwrap_or_else(|| {
                                 //should never happen
-                                panic!("Class {} not found", class_name.name)
+                                panic!("Struct {} not found", struct_name.name)
                             });
                         //get the position of the field
-                        let field = class
+                        let field = struct_descriptor
                             .fields
                             .iter()
                             .position(|f| *f == field_access.field.name)
@@ -588,28 +462,6 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     }
                 }
             }
-            HirExpr::Indexing(i) => match i.target.ty() {
-                HirTy::List(_) => {
-                    self.generate_bytecode_expr(&i.target, bytecode, src.clone())?;
-                    self.generate_bytecode_expr(&i.index, bytecode, src)?;
-                    bytecode.push(Instruction::ListLoad);
-                }
-                HirTy::String(_) => {
-                    self.generate_bytecode_expr(&i.target, bytecode, src.clone())?;
-                    self.generate_bytecode_expr(&i.index, bytecode, src)?;
-                    bytecode.push(Instruction::StringLoad);
-                }
-                _ => {
-                    return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                        span: SourceSpan::new(
-                            SourceOffset::from(expr.span().start),
-                            expr.span().end - expr.span().start,
-                        ),
-                        expr: format!("Can't index: {:?}", expr),
-                        src: src.clone(),
-                    }));
-                }
-            },
             HirExpr::Call(f) => {
                 let callee = f.callee.as_ref();
                 match callee {
@@ -636,8 +488,8 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         for arg in &f.args {
                             self.generate_bytecode_expr(arg, bytecode, src.clone())?;
                         }
-                        let class_name = match field_access.target.ty() {
-                            HirTy::Named(class_name) => class_name,
+                        let struct_name = match field_access.target.ty() {
+                            HirTy::Named(struct_name) => struct_name,
                             _ => {
                                 return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                     span: SourceSpan::new(
@@ -652,7 +504,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         bytecode.push(Instruction::FunctionCall {
                             function_name: self
                                 .arena
-                                .alloc(format!("{}.{}", class_name.name, field_access.field.name)),
+                                .alloc(format!("{}.{}", struct_name.name, field_access.field.name)),
                             nb_args: f.args.len() as u8 + 1,
                         })
                     }
@@ -693,38 +545,16 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 let index = self.string_pool.len() - 1;
                 bytecode.push(Instruction::PushStr(index));
             }
-            HirExpr::ListLiteral(l) => {
-                bytecode.push(Instruction::PushUnsignedInt(l.items.len() as u64));
-                bytecode.push(Instruction::NewList);
-                l.items.iter().enumerate().for_each(|(u, i)| {
-                    //Duplicate the list reference
-                    bytecode.push(Instruction::Dup);
-                    //Push the index
-                    bytecode.push(Instruction::PushUnsignedInt(u as u64));
-                    //Swap the index and the list reference
-                    bytecode.push(Instruction::Swap);
-                    //Generate the expression
-                    self.generate_bytecode_expr(i, bytecode, src.clone())
-                        .unwrap();
-                    //Store the value in the list
-                    bytecode.push(Instruction::ListStore);
-                });
-            }
-            HirExpr::Delete(d) => {
-                println!("Doing delete for {:?}", d);
-                self.generate_bytecode_expr(&d.expr, bytecode, src)?;
-                bytecode.push(Instruction::DeleteObj);
-            }
             HirExpr::Ident(i) => bytecode.push(Instruction::LoadVar(
                 self.local_variables.get_index(i.name).unwrap(),
             )),
-            HirExpr::SelfLiteral(_) => bytecode.push(Instruction::LoadVar(
+            HirExpr::ThisLiteral(_) => bytecode.push(Instruction::LoadVar(
                 self.local_variables.get_index("self").unwrap(),
             )),
             HirExpr::FieldAccess(field_access) => {
                 self.generate_bytecode_expr(field_access.target.as_ref(), bytecode, src.clone())?;
-                let class_name = match field_access.target.ty() {
-                    HirTy::Named(class_name) => class_name,
+                let struct_name = match field_access.target.ty() {
+                    HirTy::Named(struct_name) => struct_name,
                     _ => {
                         return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                             span: SourceSpan::new(
@@ -736,16 +566,16 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         }));
                     }
                 };
-                let class = self
-                    .class_pool
+                let struct_descriptor = self
+                    .struct_pool
                     .iter()
-                    .find(|c| c.name == class_name.name)
+                    .find(|c| c.name == struct_name.name)
                     .unwrap_or_else(|| {
                         //should never happen
-                        panic!("Class {} not found", class_name.name)
+                        panic!("Struct {} not found", struct_name.name)
                     });
                 //get the position of the field
-                let field = class
+                let field = struct_descriptor
                     .fields
                     .iter()
                     .position(|f| *f == field_access.field.name)
@@ -755,8 +585,8 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             HirExpr::StaticAccess(static_access) => match static_access.field.ty {
                 HirTy::String(_) => {
                     let target_name = static_access.target.name;
-                    let class_signature = self.hir.signature.classes.get(target_name).unwrap();
-                    let value = match class_signature
+                    let struct_signature = self.hir.signature.structs.get(target_name).unwrap();
+                    let value = match struct_signature
                         .constants
                         .get(static_access.field.name)
                         .unwrap()
@@ -782,13 +612,13 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     bytecode.push(Instruction::PushStr(index));
                 }
                 HirTy::Float64(_) => {
-                    let class_signature = self
+                    let struct_signature = self
                         .hir
                         .signature
-                        .classes
+                        .structs
                         .get(static_access.target.name)
                         .unwrap();
-                    let value = match class_signature
+                    let value = match struct_signature
                         .constants
                         .get(static_access.field.name)
                         .unwrap()
@@ -809,13 +639,13 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     bytecode.push(Instruction::PushFloat(value));
                 }
                 HirTy::Int64(_) => {
-                    let class_signature = self
+                    let struct_signature = self
                         .hir
                         .signature
-                        .classes
+                        .structs
                         .get(static_access.target.name)
                         .unwrap();
-                    let value = match class_signature
+                    let value = match struct_signature
                         .constants
                         .get(static_access.field.name)
                         .unwrap()
@@ -836,13 +666,13 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     bytecode.push(Instruction::PushInt(value));
                 }
                 HirTy::Char(_) => {
-                    let class_signature = self
+                    let struct_signature = self
                         .hir
                         .signature
-                        .classes
+                        .structs
                         .get(static_access.target.name)
                         .unwrap();
-                    let value = match class_signature
+                    let value = match struct_signature
                         .constants
                         .get(static_access.field.name)
                         .unwrap()
@@ -863,13 +693,13 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     bytecode.push(Instruction::PushChar(value));
                 }
                 HirTy::UInt64(_) => {
-                    let class_signature = self
+                    let struct_signature = self
                         .hir
                         .signature
-                        .classes
+                        .structs
                         .get(static_access.target.name)
                         .unwrap();
-                    let value = match class_signature
+                    let value = match struct_signature
                         .constants
                         .get(static_access.field.name)
                         .unwrap()
@@ -913,46 +743,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     }));
                 }
             },
-            HirExpr::NewArray(a) => {
-                self.generate_bytecode_expr(&a.size, bytecode, src.clone())?;
-                bytecode.push(Instruction::NewList);
-            }
-            HirExpr::NewObj(new_obj) => {
-                let class_pos = match new_obj.ty {
-                    HirTy::Named(class_name) => self
-                        .class_pool
-                        .iter()
-                        .position(|class| class.name == class_name.name)
-                        .unwrap(),
-                    _ => {
-                        return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                            span: SourceSpan::new(
-                                SourceOffset::from(new_obj.span.start),
-                                new_obj.span.end - new_obj.span.start,
-                            ),
-                            expr: format!("No constructor for {}", new_obj.ty),
-                            src: src.clone(),
-                        }));
-                    }
-                };
-                //Need to create a NewObj & call its constructor (constructor name = ClassName.ClassName)
-                bytecode.push(Instruction::NewObj {
-                    class_descriptor: class_pos,
-                });
-
-                for arg in new_obj.args.iter() {
-                    self.generate_bytecode_expr(arg, bytecode, src.clone())?;
-                }
-                bytecode.push(Instruction::FunctionCall {
-                    function_name: self
-                        .arena
-                        .alloc(format!("{}.new", self.class_pool[class_pos].name)),
-                    nb_args: new_obj.args.len() as u8 + 1,
-                });
-            }
             HirExpr::NoneLiteral(_) => {
                 bytecode.push(Instruction::PushNull);
             }
+            _ => unimplemented!(),
         }
         Ok(())
     }

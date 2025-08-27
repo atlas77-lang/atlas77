@@ -164,8 +164,8 @@ pub enum TokenKind {
     RFatArrow,
     #[token("~")]
     Tilde,
-    #[token("self")]
-    KwSelf,
+    #[token("this")]
+    KwThis,
     #[token("null")]
     KwNull,
     #[token("operator")]
@@ -176,7 +176,7 @@ pub enum TokenKind {
     KwNew,
     #[token("delete")]
     KwDelete,
-    #[token("fn")]
+    #[token("fun")]
     KwFunc,
     #[token("where")]
     //Used for generics constraints and bounds (i.e. fn foo<T>(arg: T) -> T where T: Add)
@@ -195,9 +195,19 @@ pub enum TokenKind {
     KwImport,
     //Visibility
     #[token("public")]
+    #[deprecated]
     KwPublic,
     #[token("private")]
+    #[deprecated]
     KwPrivate,
+    #[token("@public")]
+    AtPublic,
+    #[token("@private")]
+    AtPrivate,
+    #[token("@inline")]
+    AtInline,
+    #[token("@deprecated")]
+    AtDeprecated,
     //Control Flow
     #[token("if")]
     KwIf,
@@ -225,21 +235,23 @@ pub enum TokenKind {
     #[token("as")]
     KwAs,
     //Primitive Types
-    #[token("int64")]
+    #[token("extern_ptr")]
+    ExternPtr,
+    #[token("Int64")]
     Int64Ty,
-    #[token("float64")]
+    #[token("Float64")]
     Float64Ty,
-    #[token("uint64")]
+    #[token("UInt64")]
     UInt64Ty,
-    #[token("unit")]
+    #[token("Unit")]
     UnitTy,
-    #[token("char")]
+    #[token("Char")]
     CharTy,
-    #[token("bool")]
+    #[token("Bool")]
     BoolTy,
-    #[token("Self")]
-    SelfTy,
-    #[token("str")]
+    #[token("This")]
+    ThisTy,
+    #[token("Str")]
     StrTy,
     EoI,
 }

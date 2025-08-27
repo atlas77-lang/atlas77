@@ -4,10 +4,7 @@ use heck::{ToPascalCase, ToSnakeCase};
 use miette::{SourceOffset, SourceSpan};
 use std::collections::BTreeMap;
 
-use crate::atlas_c::atlas_frontend::parser::ast::{
-    AstClass, AstConstructor, AstDestructor, AstIdentifier, AstMethod, AstMethodModifier,
-    AstNamedType,
-};
+use crate::atlas_c::atlas_frontend::parser::ast::{AstIdentifier, AstMethod, AstMethodModifier, AstNamedType, AstStruct};
 use crate::atlas_c::atlas_frontend::{
     parse,
     parser::{
@@ -26,22 +23,15 @@ const MATH_ATLAS: &str = include_str!("../../../atlas_lib/std/math.atlas");
 const STRING_ATLAS: &str = include_str!("../../../atlas_lib/std/string.atlas");
 
 use crate::atlas_c::atlas_hir::error::NonConstantValueError;
-use crate::atlas_c::atlas_hir::expr::{
-    HirCastExpr, HirCharLiteralExpr, HirDeleteExpr, HirFieldAccessExpr, HirIndexingExpr,
-    HirListLiteralExpr, HirNewArrayExpr, HirNewObjExpr, HirNoneLiteral, HirSelfLiteral,
-    HirStaticAccessExpr, HirStringLiteralExpr, HirUnitLiteralExpr,
-};
-use crate::atlas_c::atlas_hir::item::{HirClass, HirClassConstructor, HirClassMethod};
+use crate::atlas_c::atlas_hir::expr::{HirCastExpr, HirCharLiteralExpr, HirConstructorExpr, HirFieldAccessExpr, HirFieldInit, HirNoneLiteral, HirStaticAccessExpr, HirStringLiteralExpr, HirThisLiteral, HirUnitLiteralExpr};
+use crate::atlas_c::atlas_hir::item::{HirClassMethod, HirStruct};
 use crate::atlas_c::atlas_hir::signature::{
-    ConstantValue, HirClassConstSignature, HirClassConstructorSignature, HirClassFieldSignature,
-    HirClassMethodModifier, HirClassMethodSignature, HirClassSignature,
+    ConstantValue, HirClassFieldSignature, HirClassMethodSignature, HirStructConstSignature,
+    HirStructMethodModifier, HirStructSignature,
 };
 use crate::atlas_c::atlas_hir::syntax_lowering_pass::case::Case;
 use crate::atlas_c::atlas_hir::{
-    HirImport, HirModule, HirModuleBody,
-    arena::HirArena,
-    error::{HirError, HirResult, UnsupportedExpr, UnsupportedStatement},
-    expr::{
+    arena::HirArena, error::{HirError, HirResult, UnsupportedExpr, UnsupportedStatement}, expr::{
         HirAssignExpr, HirBinaryOp, HirBinaryOpExpr, HirBooleanLiteralExpr, HirExpr,
         HirFloatLiteralExpr, HirFunctionCallExpr, HirIdentExpr, HirIntegerLiteralExpr, HirUnaryOp,
         HirUnsignedIntegerLiteralExpr, UnaryOpExpr,
@@ -55,6 +45,9 @@ use crate::atlas_c::atlas_hir::{
         HirBlock, HirExprStmt, HirIfElseStmt, HirLetStmt, HirReturn, HirStatement, HirWhileStmt,
     },
     ty::HirTy,
+    HirImport,
+    HirModule,
+    HirModuleBody,
 };
 
 pub struct AstSyntaxLoweringPass<'ast, 'hir> {
@@ -105,7 +98,7 @@ where
         item: &'ast AstItem<'ast>,
     ) -> HirResult<()> {
         match item {
-            AstItem::Func(f) => {
+            AstItem::Function(f) => {
                 let fun = self.visit_func(f)?;
                 let name = self.arena.names().get(f.name.name);
                 if !name.is_snake_case() {
@@ -119,10 +112,10 @@ where
                 module_body.functions.insert(name, fun);
             }
             //todo: add support for classes
-            AstItem::Class(c) => {
-                let class = self.visit_class(c)?;
-                module_signature.classes.insert(class.name, class.signature);
-                module_body.classes.insert(class.name, class);
+            AstItem::Struct(c) => {
+                let class = self.visit_struct(c)?;
+                module_signature.structs.insert(class.name, class.signature);
+                module_body.structs.insert(class.name, class);
             }
             AstItem::Import(i) => {
                 let hir = self.visit_import(i)?;
@@ -209,7 +202,7 @@ where
         Ok(hir)
     }
 
-    fn visit_class(&self, node: &'ast AstClass<'ast>) -> HirResult<HirClass<'hir>> {
+    fn visit_struct(&self, node: &'ast AstStruct<'ast>) -> HirResult<HirStruct<'hir>> {
         let name = self.arena.names().get(node.name.name);
         if !name.is_pascal_case() {
             eprintln!("Warning: {} is not pascal case", name);
@@ -244,7 +237,7 @@ where
             operators.push(self.visit_bin_op(&operator.op)?);
         }
 
-        let mut constants: BTreeMap<&'hir str, &'hir HirClassConstSignature<'hir>> =
+        let mut constants: BTreeMap<&'hir str, &'hir HirStructConstSignature<'hir>> =
             BTreeMap::new();
         for constant in node.constants.iter() {
             let ty = self.visit_ty(constant.ty)?;
@@ -264,7 +257,7 @@ where
             };
             constants.insert(
                 name,
-                self.arena.intern(HirClassConstSignature {
+                self.arena.intern(HirStructConstSignature {
                     span: constant.span.clone(),
                     vis: node.vis.into(),
                     name,
@@ -276,20 +269,7 @@ where
             );
         }
 
-        let constructor = self.visit_constructor(node.constructor, &fields)?;
-        let destructor = self.visit_destructor(node.destructor)?;
-        let constructor_signature = HirClassConstructorSignature {
-            span: node.span.clone(),
-            params: constructor.params.to_vec(),
-            type_params: constructor.type_params.to_vec(),
-        };
-        let destructor_signature = HirClassConstructorSignature {
-            span: node.span.clone(),
-            params: destructor.params.to_vec(),
-            type_params: destructor.type_params.to_vec(),
-        };
-
-        let signature = self.arena.intern(HirClassSignature {
+        let signature = self.arena.intern(HirStructSignature {
             span: node.span.clone(),
             vis: node.vis.into(),
             name,
@@ -309,19 +289,15 @@ where
             },
             operators,
             constants,
-            constructor: constructor_signature,
-            destructor: destructor_signature,
         });
 
-        Ok(HirClass {
+        Ok(HirStruct {
             span: node.span.clone(),
             name,
             name_span: node.name.span.clone(),
             signature,
             methods,
             fields,
-            constructor,
-            destructor,
         })
     }
 
@@ -342,9 +318,9 @@ where
         let body = self.visit_block(node.body)?;
         let signature = self.arena.intern(HirClassMethodSignature {
             modifier: match node.modifier {
-                AstMethodModifier::Const => HirClassMethodModifier::Const,
-                AstMethodModifier::Static => HirClassMethodModifier::Static,
-                AstMethodModifier::None => HirClassMethodModifier::None,
+                AstMethodModifier::Const => HirStructMethodModifier::Const,
+                AstMethodModifier::Static => HirStructMethodModifier::Static,
+                AstMethodModifier::None => HirStructMethodModifier::None,
             },
             span: node.span.clone(),
             vis: node.vis.into(),
@@ -365,131 +341,16 @@ where
         Ok(method)
     }
 
-    fn visit_constructor(
-        &self,
-        constructor: Option<&'ast AstConstructor<'ast>>,
-        fields: &[HirClassFieldSignature<'hir>],
-    ) -> HirResult<HirClassConstructor<'hir>> {
-        if constructor.is_none() {
-            let mut params: Vec<&'hir HirFunctionParameterSignature<'hir>> = Vec::new();
-            for field in fields.iter() {
-                let ty = field.ty;
-                let name = field.name;
-                params.push(self.arena.intern(HirFunctionParameterSignature {
-                    span: field.span.clone(),
-                    name,
-                    name_span: field.name_span.clone(),
-                    ty,
-                    ty_span: field.ty_span.clone(),
-                }));
-            }
-            let mut type_params: Vec<&'hir HirTypeParameterItemSignature<'hir>> = Vec::new();
-            for type_param in params.iter() {
-                type_params.push(self.arena.intern(HirTypeParameterItemSignature {
-                    span: type_param.span.clone(),
-                    name: type_param.name,
-                    name_span: type_param.name_span.clone(),
-                }));
-            }
-            let hir = HirClassConstructor {
-                span: logos::Span::default(),
-                params,
-                type_params,
-                body: HirBlock {
-                    span: logos::Span::default(),
-                    statements: Vec::new(),
-                },
-            };
-            return Ok(hir);
-        }
-        let constructor = constructor.unwrap();
-        let mut params: Vec<&'hir HirFunctionParameterSignature<'hir>> = Vec::new();
-        for param in constructor.args.iter() {
-            let ty = self.visit_ty(param.ty)?;
-            let name = self.arena.names().get(param.name.name);
-            params.push(self.arena.intern(HirFunctionParameterSignature {
-                span: param.span.clone(),
-                name,
-                name_span: param.name.span.clone(),
-                ty,
-                ty_span: param.ty.span(),
-            }));
-        }
-
-        let mut type_params: Vec<&'hir HirTypeParameterItemSignature<'hir>> = Vec::new();
-        for type_param in params.iter() {
-            type_params.push(self.arena.intern(HirTypeParameterItemSignature {
-                span: type_param.span.clone(),
-                name: type_param.name,
-                name_span: type_param.name_span.clone(),
-            }));
-        }
-        let hir = HirClassConstructor {
-            span: constructor.span.clone(),
-            params,
-            type_params,
-            body: self.visit_block(constructor.body)?,
-        };
-        Ok(hir)
-    }
-
-    fn visit_destructor(
-        &self,
-        destructor: Option<&'ast AstDestructor<'ast>>,
-    ) -> HirResult<HirClassConstructor<'hir>> {
-        if destructor.is_none() {
-            let hir = HirClassConstructor {
-                span: logos::Span::default(),
-                params: Vec::new(),
-                type_params: Vec::new(),
-                body: HirBlock {
-                    span: logos::Span::default(),
-                    statements: Vec::new(),
-                },
-            };
-            return Ok(hir);
-        }
-        let destructor = destructor.unwrap();
-        let mut params: Vec<&'hir HirFunctionParameterSignature<'hir>> = Vec::new();
-        for param in destructor.args.iter() {
-            let ty = self.visit_ty(param.ty)?;
-            let name = self.arena.names().get(param.name.name);
-            params.push(self.arena.intern(HirFunctionParameterSignature {
-                span: param.span.clone(),
-                name,
-                name_span: param.name.span.clone(),
-                ty,
-                ty_span: param.ty.span(),
-            }));
-        }
-
-        let mut type_params: Vec<&'hir HirTypeParameterItemSignature<'hir>> = Vec::new();
-        for type_param in params.iter() {
-            type_params.push(self.arena.intern(HirTypeParameterItemSignature {
-                span: type_param.span.clone(),
-                name: type_param.name,
-                name_span: type_param.name_span.clone(),
-            }));
-        }
-        let hir = HirClassConstructor {
-            span: destructor.span.clone(),
-            params,
-            type_params,
-            body: self.visit_block(destructor.body)?,
-        };
-        Ok(hir)
-    }
-
     //This needs to be generalized
     fn visit_import(&self, node: &'ast AstImport<'ast>) -> HirResult<HirModule<'hir>> {
         match node.path.split("/").last().unwrap() {
             "io" => {
                 let ast: AstProgram<'ast> = parse(
-                    "atlas_stdlib/io.atlas",
+                    "atlas_lib/std/io.atlas",
                     self.ast_arena,
                     IO_ATLAS.to_string(),
                 )
-                .unwrap();
+                    .unwrap();
                 let allocated_ast = self.ast_arena.alloc(ast);
                 let hir = self.arena.intern(AstSyntaxLoweringPass::<'ast, 'hir>::new(
                     self.arena,
@@ -513,11 +374,11 @@ where
             }
             "math" => {
                 let ast: AstProgram<'ast> = parse(
-                    "atlas_stdlib/math.atlas",
+                    "atlas_lib/std/io/math.atlas",
                     self.ast_arena,
                     MATH_ATLAS.to_string(),
                 )
-                .unwrap();
+                    .unwrap();
                 let allocated_ast = self.ast_arena.alloc(ast);
                 let hir = self.arena.intern(AstSyntaxLoweringPass::<'ast, 'hir>::new(
                     self.arena,
@@ -539,11 +400,11 @@ where
             }
             "file" => {
                 let ast: AstProgram<'ast> = parse(
-                    "atlas_stdlib/fs.atlas",
+                    "atlas_lib/std/io/fs.atlas",
                     self.ast_arena,
                     FILE_ATLAS.to_string(),
                 )
-                .unwrap();
+                    .unwrap();
                 let allocated_ast = self.ast_arena.alloc(ast);
                 let hir = self.arena.intern(AstSyntaxLoweringPass::<'ast, 'hir>::new(
                     self.arena,
@@ -555,11 +416,11 @@ where
             }
             "list" => {
                 let ast: AstProgram<'ast> = parse(
-                    "atlas_stdlib/list.atlas",
+                    "atlas_lib/std/io/list.atlas",
                     self.ast_arena,
                     ARRAY_ATLAS.to_string(),
                 )
-                .unwrap();
+                    .unwrap();
                 let allocated_ast = self.ast_arena.alloc(ast);
                 let hir = self.arena.intern(AstSyntaxLoweringPass::<'ast, 'hir>::new(
                     self.arena,
@@ -582,11 +443,11 @@ where
             }
             "string" => {
                 let ast: AstProgram<'ast> = parse(
-                    "atlas_stdlib/string.atlas",
+                    "atlas_lib/std/io/string.atlas",
                     self.ast_arena,
                     STRING_ATLAS.to_string(),
                 )
-                .unwrap();
+                    .unwrap();
                 let allocated_ast = self.ast_arena.alloc(ast);
                 let hir = self.arena.intern(AstSyntaxLoweringPass::<'ast, 'hir>::new(
                     self.arena,
@@ -611,11 +472,11 @@ where
             }
             "time" => {
                 let ast: AstProgram<'ast> = parse(
-                    "atlas_stdlib/time.atlas",
+                    "atlas_lib/std/io/time.atlas",
                     self.ast_arena,
                     STRING_ATLAS.to_string(),
                 )
-                .unwrap();
+                    .unwrap();
                 let allocated_ast = self.ast_arena.alloc(ast);
                 let hir = self.arena.intern(AstSyntaxLoweringPass::<'ast, 'hir>::new(
                     self.arena,
@@ -721,14 +582,6 @@ where
                 });
                 Ok(hir)
             }
-            AstStatement::Break(b) => {
-                let hir = HirStatement::Break(b.span.clone());
-                Ok(hir)
-            }
-            AstStatement::Continue(c) => {
-                let hir = HirStatement::Continue(c.span.clone());
-                Ok(hir)
-            }
             //The parser really need a bit of work
             AstStatement::Return(r) => {
                 let expr = self.visit_expr(r.value)?;
@@ -811,17 +664,6 @@ where
                 });
                 Ok(hir)
             }
-            AstExpr::Indexing(c) => {
-                let target = self.visit_expr(c.target)?;
-                let index = self.visit_expr(c.index)?;
-                let hir = HirExpr::Indexing(HirIndexingExpr {
-                    span: node.span(),
-                    target: Box::new(target.clone()),
-                    index: Box::new(index.clone()),
-                    ty: self.arena.types().get_uninitialized_ty(),
-                });
-                Ok(hir)
-            }
             AstExpr::Call(c) => {
                 let callee = self.visit_expr(c.callee)?;
                 let args = c
@@ -844,37 +686,6 @@ where
                     name: self.arena.names().get(i.name),
                     span: i.span.clone(),
                     ty: self.arena.types().get_uninitialized_ty(),
-                });
-                Ok(hir)
-            }
-            AstExpr::NewArray(a) => {
-                let hir = HirExpr::NewArray(HirNewArrayExpr {
-                    span: node.span(),
-                    ty: self.visit_ty(a.ty)?,
-                    size: Box::new(self.visit_expr(a.size)?),
-                });
-                Ok(hir)
-            }
-            AstExpr::Delete(d) => {
-                let hir = HirExpr::Delete(HirDeleteExpr {
-                    span: node.span(),
-                    expr: Box::new(self.visit_expr(d.target)?),
-                });
-                Ok(hir)
-            }
-            AstExpr::NewObj(obj) => {
-                let hir = HirExpr::NewObj(HirNewObjExpr {
-                    span: node.span(),
-                    ty: self
-                        .arena
-                        .types()
-                        .get_named_ty(obj.ty.name, obj.ty.span.clone()),
-                    args: obj
-                        .args
-                        .iter()
-                        .map(|arg| self.visit_expr(arg))
-                        .collect::<HirResult<Vec<_>>>()?,
-                    args_ty: Vec::new(),
                 });
                 Ok(hir)
             }
@@ -902,7 +713,7 @@ where
                             ty: self.arena.types().get_uint64_ty(),
                         })
                     }
-                    AstLiteral::SelfLiteral(_) => HirExpr::SelfLiteral(HirSelfLiteral {
+                    AstLiteral::SelfLiteral(_) => HirExpr::ThisLiteral(HirThisLiteral {
                         span: l.span(),
                         ty: self.arena.types().get_uninitialized_ty(),
                     }),
@@ -924,18 +735,6 @@ where
                         value: s.value,
                         ty: self.arena.types().get_str_ty(),
                     }),
-                    AstLiteral::List(l) => {
-                        let elements = l
-                            .items
-                            .iter()
-                            .map(|e| self.visit_expr(e))
-                            .collect::<HirResult<Vec<_>>>()?;
-                        HirExpr::ListLiteral(HirListLiteralExpr {
-                            span: l.span.clone(),
-                            items: elements,
-                            ty: self.arena.types().get_uninitialized_ty(),
-                        })
-                    }
                 };
                 Ok(hir)
             }
@@ -965,7 +764,23 @@ where
                 });
                 Ok(hir)
             }
-
+            AstExpr::Constructor(c) => {
+                let fields = c.fields.iter().map(|f| HirFieldInit {
+                    ty: self.arena.types().get_uninitialized_ty(),
+                    name: Box::new(HirIdentExpr {
+                        ty: self.arena.types().get_uninitialized_ty(),
+                        span: f.name.span.clone(),
+                        name: self.arena.names().get(f.name.name),
+                    }),
+                    span: f.span.clone(),
+                }).collect::<Vec<_>>();
+                let hir = HirExpr::Constructor(HirConstructorExpr {
+                    span: node.span(),
+                    fields,
+                    ty: self.arena.types().get_named_ty(c.ty.name, c.ty.span.clone()),
+                });
+                Ok(hir)
+            }
             _ => {
                 //todo: if/else as an expression
                 Err(HirError::UnsupportedExpr(UnsupportedExpr {
@@ -1100,7 +915,7 @@ where
                 self.arena.types().get_readonly_ty(ty)
             }
             //The self ty is replaced during the type checking phase
-            AstType::SelfTy(_) => self.arena.types().get_uninitialized_ty(),
+            AstType::ThisTy(_) => self.arena.types().get_uninitialized_ty(),
             _ => {
                 return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                     span: SourceSpan::new(

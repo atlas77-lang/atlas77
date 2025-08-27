@@ -12,14 +12,14 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct HirModuleSignature<'hir> {
     pub functions: BTreeMap<&'hir str, &'hir HirFunctionSignature<'hir>>,
-    pub classes: BTreeMap<&'hir str, &'hir HirClassSignature<'hir>>,
+    pub structs: BTreeMap<&'hir str, &'hir HirStructSignature<'hir>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 /// As of now, classes don't inherit from other classes or extend interfaces.
 ///
 /// Generic classes are not supported yet.
-pub struct HirClassSignature<'hir> {
+pub struct HirStructSignature<'hir> {
     pub span: Span,
     pub vis: HirVisibility,
     pub name: &'hir str,
@@ -27,9 +27,7 @@ pub struct HirClassSignature<'hir> {
     pub fields: BTreeMap<&'hir str, HirClassFieldSignature<'hir>>,
     /// This is enough to know if the class implement them or not
     pub operators: Vec<HirBinaryOp>,
-    pub constants: BTreeMap<&'hir str, &'hir HirClassConstSignature<'hir>>,
-    pub constructor: HirClassConstructorSignature<'hir>,
-    pub destructor: HirClassConstructorSignature<'hir>,
+    pub constants: BTreeMap<&'hir str, &'hir HirStructConstSignature<'hir>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -52,15 +50,7 @@ impl From<AstVisibility> for HirVisibility {
 }
 
 #[derive(Debug, Clone, Serialize)]
-//Also used for the destructor
-pub struct HirClassConstructorSignature<'hir> {
-    pub span: Span,
-    pub params: Vec<&'hir HirFunctionParameterSignature<'hir>>,
-    pub type_params: Vec<&'hir HirTypeParameterItemSignature<'hir>>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct HirClassConstSignature<'hir> {
+pub struct HirStructConstSignature<'hir> {
     pub span: Span,
     pub vis: HirVisibility,
     pub name: &'hir str,
@@ -91,13 +81,6 @@ impl TryFrom<HirExpr<'_>> for ConstantValue {
             HirExpr::FloatLiteral(f) => Ok(ConstantValue::Float(f.value)),
             HirExpr::StringLiteral(s) => Ok(ConstantValue::String(String::from(s.value))),
             HirExpr::BooleanLiteral(b) => Ok(ConstantValue::Bool(b.value)),
-            HirExpr::ListLiteral(l) => {
-                let mut list = Vec::new();
-                for expr in l.items {
-                    list.push(ConstantValue::try_from(expr)?);
-                }
-                Ok(ConstantValue::List(list))
-            }
             HirExpr::Unary(u) => {
                 if u.op == Some(HirUnaryOp::Neg) {
                     match *u.expr {
@@ -133,7 +116,7 @@ pub struct HirClassFieldSignature<'hir> {
 pub struct HirClassMethodSignature<'hir> {
     pub span: Span,
     pub vis: HirVisibility,
-    pub modifier: HirClassMethodModifier,
+    pub modifier: HirStructMethodModifier,
     pub params: Vec<&'hir HirFunctionParameterSignature<'hir>>,
     pub generics: Option<Vec<&'hir HirTypeParameterItemSignature<'hir>>>,
     pub type_params: Vec<&'hir HirTypeParameterItemSignature<'hir>>,
@@ -142,7 +125,7 @@ pub struct HirClassMethodSignature<'hir> {
 }
 
 #[derive(Debug, Default, Clone, Serialize, PartialEq)]
-pub enum HirClassMethodModifier {
+pub enum HirStructMethodModifier {
     Static,
     Const,
     #[default]

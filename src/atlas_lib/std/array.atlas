@@ -1,5 +1,3 @@
-package collections;
-
 /// ===============================
 /// FFI bindings (implemented in Rust)
 /// ===============================
@@ -46,7 +44,7 @@ extern arr_get[T](ptr: externptr, index: Int64): T;
 @public
 struct Array[T] {
     @private
-    var handle: externptr
+    let handle: externptr
 
     /// Creates a new, empty array.
     fun init(): Array[T] {
@@ -61,7 +59,7 @@ struct Array[T] {
 
     /// Returns a slice of the array between `start` (inclusive) and `end` (exclusive).
     fun slice(this, start: Int64, end: Int64): Array[T] {
-        let h = arr_slice(this.handle, start, end);
+        const h = arr_slice(this.handle, start, end);
         Array { handle = h }
     }
 

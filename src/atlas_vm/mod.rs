@@ -143,7 +143,7 @@ impl<'run> Atlas77VM<'run> {
                 self.pc += 1;
             }
             Instruction::NewObj { class_descriptor } => {
-                let class = &self.program.classes[class_descriptor];
+                let class = &self.program.structs[class_descriptor];
                 let nb_fields = class.fields.len();
                 let fields = self
                     .runtime_arena

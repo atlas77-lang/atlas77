@@ -10,17 +10,17 @@ declare_error_type! {
         UnexpectedEndOfFile(UnexpectedEndOfFileError),
         UnexpectedToken(UnexpectedTokenError),
         OnlyOneConstructorAllowed(OnlyOneConstructorAllowedError),
-        NoFieldInClass(NoFieldInClassError),
+        NoFieldInStruct(NoFieldInStructError),
     }
 }
 
 pub type ParseResult<T> = Result<T, ParseError>;
 
 #[derive(Error, Diagnostic, Debug)]
-#[diagnostic(code(syntax::no_field_in_class), help("Add fields to the class"))]
-#[error("No fields in class")]
-pub struct NoFieldInClassError {
-    #[label = "no fields in class"]
+#[diagnostic(code(syntax::no_field_in_class), help("Add fields to the struct"))]
+#[error("No fields in struct")]
+pub struct NoFieldInStructError {
+    #[label = "no fields in struct"]
     pub span: SourceSpan,
     #[source_code]
     pub src: String,

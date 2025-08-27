@@ -1,35 +1,33 @@
 import "std/io"
 
-public class Fibonacci {
-    public:
-        nth: const int64;
-    public:
-        Fibonacci(number: int64) {
-            self.nth = number;
+struct Fibonacci {
+    let nth: Int64;
+    fun init(number: Int64): Fibonacci {
+        return Fibonacci { nth = number };
+    }
+    fun iterative_fib(this): Int64 {
+        let a = 0;
+        let b = 1;
+        let i = 0;
+        while i < this.nth {
+            let temp = a;
+            a = b;
+            b = temp + b;
+            i = i + 1;
         }
-        func iterative_fib(self) -> int64 {
-            let a = 0;
-            let b = 1;
-            let i = 0;
-            while i < self.nth {
-                let temp = a;
-                a = b;
-                b = temp + b;
-                i = i + 1;
-            }
-            return a;
+        return a;
+    }
+    fun recursive_fib(this, nth: Int64): Int64 {
+        if nth <= 1 {
+            return nth;
+        } else {
+            return this.recursive_fib(nth - 1) + this.recursive_fib(nth - 2);
         }
-        func recursive_fib(self, nth: int64) -> int64 {
-            if nth <= 1 {
-                return nth;
-            } else {
-                return self.recursive_fib(nth - 1) + self.recursive_fib(nth - 2);
-            }
-        }
+    }
 }
 
-func main()  {
-    let fibonacci = new Fibonacci(5);
+fun main() {
+    let fibonacci = Fibonacci { nth = 5 };
     let n = fibonacci.nth;
     let res_iterative = fibonacci.iterative_fib();
     print("Iterative Fib: ");
@@ -39,7 +37,7 @@ func main()  {
     println(res_recursive);
 }
 
-func recursive_fib(n: int64) -> int64 {
+fun recursive_fib(n: Int64): Int64 {
     if n <= 1 {
         return n;
     } else {
@@ -47,7 +45,7 @@ func recursive_fib(n: int64) -> int64 {
     }
 }
 
-func iterative_fib(blabla: int64) -> int64 {
+fun iterative_fib(blabla: Int64): Int64 {
     let a = 0;
     let b = 1;
     let i = 0;

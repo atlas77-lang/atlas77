@@ -1,26 +1,24 @@
-package std::vector;
-
-public struct Vector<T> {
+public class Vector<T> {
     private:
         data: [T];
     public:
         length: uint64;
         capacity: uint64;
 
-    Vector([T] data) {
-        self.length = std::list::len(data);
+    Vector(data: [T]) {
+        self.length = len(data);
         self.capacity = self.length;
         self.data = data;
     }
     ~Vector() {
-        delete self.data;
         self.data = 0;
         self.length = 0;
+        delete self.data;
     }
 
     /// A function that doesn't have a "self" parameter is a static function
     /// static functions are called like this: "Vector::<T>::function_name()"
-    fn with_capacity(capacity: uint64) -> Vector<T> {
+    func with_capacity(capacity: uint64) -> Vector<T> {
         return new Vector::<T>(new [T; capacity]);
     }
 

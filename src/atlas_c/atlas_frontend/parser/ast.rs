@@ -16,32 +16,26 @@ pub struct AstProgram<'ast> {
 //todo: Add classes and a trait-ish stuff
 pub enum AstItem<'ast> {
     Import(AstImport<'ast>),
-    Enum(AstEnum<'ast>),
-    Class(AstClass<'ast>),
     Struct(AstStruct<'ast>),
     ExternFunction(AstExternFunction<'ast>),
-    Func(AstFunction<'ast>),
+    Function(AstFunction<'ast>),
 }
 
 impl AstItem<'_> {
     pub fn set_vis(&mut self, vis: AstVisibility) {
         match self {
             AstItem::Import(_) => {}
-            AstItem::Enum(v) => v.vis = vis,
-            AstItem::Class(v) => v.vis = vis,
             AstItem::Struct(v) => v.vis = vis,
             AstItem::ExternFunction(v) => v.vis = vis,
-            AstItem::Func(v) => v.vis = vis,
+            AstItem::Function(v) => v.vis = vis,
         }
     }
     pub fn span(&self) -> Span {
         match self {
             AstItem::Import(v) => v.span.clone(),
-            AstItem::Enum(v) => v.span.clone(),
-            AstItem::Class(v) => v.span.clone(),
             AstItem::Struct(v) => v.span.clone(),
             AstItem::ExternFunction(v) => v.span.clone(),
-            AstItem::Func(v) => v.span.clone(),
+            AstItem::Function(v) => v.span.clone(),
         }
     }
 }
@@ -49,14 +43,12 @@ impl AstItem<'_> {
 /// And ASTGeneric carries the name of the generic type as well as the constraints
 ///
 /// Example:
-/// ```cpp
-/// public class Foo<T: Display + Debug> {
-///     public:
-///         x: T;
-///     public:
-///         func print(self) {
-///            println(x);
-///        }
+/// ```
+/// struct Foo[T: Display + Debug] {
+///     var x: T;
+///     fun print(self) {
+///         println(x);
+///     }
 /// }
 /// ```
 #[derive(Debug, Clone, Serialize)]
@@ -79,16 +71,15 @@ pub enum AstVisibility {
     Private,
 }
 #[derive(Debug, Clone, Serialize)]
-pub struct AstClass<'ast> {
+pub struct AstStruct<'ast> {
     pub span: Span,
     pub name: &'ast AstIdentifier<'ast>,
     pub name_span: Span,
     pub vis: AstVisibility,
     pub fields: &'ast [&'ast AstObjField<'ast>],
     pub field_span: Span,
-    pub constructor: Option<&'ast AstConstructor<'ast>>,
-    pub destructor: Option<&'ast AstDestructor<'ast>>,
     pub generics: &'ast [&'ast AstGeneric<'ast>],
+    /// Will be ignored until we add support for traits
     pub operators: &'ast [&'ast AstOperatorOverload<'ast>],
     pub constants: &'ast [&'ast AstConst<'ast>],
     //todo: Add support for methods (AstFunction -> AstMethod)
@@ -104,26 +95,13 @@ pub enum AstMethodModifier {
 }
 
 #[derive(Debug, Clone, Serialize)]
+/// Will be used when we add support for traits
 pub struct AstOperatorOverload<'ast> {
     pub span: Span,
     pub op: AstBinaryOp,
     pub args: &'ast [&'ast AstObjField<'ast>],
     pub body: &'ast AstBlock<'ast>,
     pub ret: &'ast AstType<'ast>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct AstConstructor<'ast> {
-    pub span: Span,
-    pub args: &'ast [&'ast AstObjField<'ast>],
-    pub body: &'ast AstBlock<'ast>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct AstDestructor<'ast> {
-    pub span: Span,
-    pub args: &'ast [&'ast AstObjField<'ast>],
-    pub body: &'ast AstBlock<'ast>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -147,42 +125,6 @@ pub struct AstFunction<'ast> {
     pub vis: AstVisibility,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct AstUnionVariant<'ast> {
-    pub span: Span,
-    pub name: &'ast AstIdentifier<'ast>,
-    pub fields: &'ast [&'ast AstObjField<'ast>],
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct AstEnum<'ast> {
-    pub span: Span,
-    pub name: &'ast AstIdentifier<'ast>,
-    pub variants: &'ast [&'ast AstEnumVariant<'ast>],
-    pub vis: AstVisibility,
-}
-
-#[derive(Debug, Clone, Serialize)]
-/// Enums currently don't support associated values
-pub struct AstEnumVariant<'ast> {
-    pub span: Span,
-    ///todo: Maybe change from [``AstIdentifier``] to &'ast str
-    pub name: &'ast AstIdentifier<'ast>,
-    /// Some(i32) if the user specified a value for the variant
-    ///
-    /// None if the user didn't specify a value
-    ///
-    /// During ast lowering, the compiler will assign a value to the variant
-    pub val: Option<i32>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct AstStruct<'ast> {
-    pub span: Span,
-    pub name: &'ast AstIdentifier<'ast>,
-    pub fields: &'ast [&'ast AstObjField<'ast>],
-    pub vis: AstVisibility,
-}
 
 #[derive(Debug, Clone, Serialize)]
 ///todo: Rename because it's also used by functions
@@ -220,10 +162,9 @@ pub enum AstStatement<'ast> {
     Block(AstBlock<'ast>),
     While(AstWhileExpr<'ast>),
     Expr(AstExpr<'ast>),
-    Break(AstBreakStmt),
-    Continue(AstContinueStmt),
     Return(AstReturnStmt<'ast>),
-    _InnerFunc(AstFunction<'ast>),
+    #[deprecated]
+    InnerFunc(AstFunction<'ast>),
 }
 
 impl AstStatement<'_> {
@@ -232,25 +173,13 @@ impl AstStatement<'_> {
             AstStatement::Let(e) => e.span.clone(),
             AstStatement::Const(e) => e.span.clone(),
             AstStatement::IfElse(e) => e.span.clone(),
-            AstStatement::_InnerFunc(e) => e.span.clone(),
+            AstStatement::InnerFunc(e) => e.span.clone(),
             AstStatement::Block(e) => e.span.clone(),
             AstStatement::While(e) => e.span.clone(),
             AstStatement::Expr(e) => e.span(),
-            AstStatement::Break(e) => e.span.clone(),
-            AstStatement::Continue(e) => e.span.clone(),
             AstStatement::Return(e) => e.span.clone(),
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct AstContinueStmt {
-    pub span: Span,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct AstBreakStmt {
-    pub span: Span,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -277,58 +206,49 @@ pub struct AstAssignExpr<'ast> {
 
 #[derive(Debug, Clone, Serialize)]
 pub enum AstExpr<'ast> {
-    _Lambda(AstLambdaExpr<'ast>),
-    _CompTime(AstCompTimeExpr<'ast>),
+    #[deprecated]
+    Lambda(AstLambdaExpr<'ast>),
+    #[deprecated]
+    CompTime(AstCompTimeExpr<'ast>),
     IfElse(AstIfElseExpr<'ast>),
     BinaryOp(AstBinaryOpExpr<'ast>),
     UnaryOp(AstUnaryOpExpr<'ast>),
     Call(AstCallExpr<'ast>),
     Literal(AstLiteral<'ast>),
     Identifier(AstIdentifier<'ast>),
-    Indexing(AstIndexingExpr<'ast>),
     FieldAccess(AstFieldAccessExpr<'ast>),
     StaticAccess(AstStaticAccessExpr<'ast>),
     NewObj(AstNewObjExpr<'ast>),
-    Delete(AstDeleteObjExpr<'ast>),
-    NewArray(AstNewArrayExpr<'ast>),
     _Block(AstBlock<'ast>),
     Assign(AstAssignExpr<'ast>),
     Casting(AstCastingExpr<'ast>),
-    //Tuple(AstTupleExpr<'ast>),
+    Constructor(AstConstructorExpr<'ast>),
 }
 
 impl AstExpr<'_> {
     pub(crate) fn span(&self) -> Span {
         match self {
-            AstExpr::_Lambda(e) => e.span.clone(),
-            AstExpr::_CompTime(e) => e.span.clone(),
+            AstExpr::Lambda(e) => e.span.clone(),
+            AstExpr::CompTime(e) => e.span.clone(),
             AstExpr::IfElse(e) => e.span.clone(),
             AstExpr::BinaryOp(e) => e.span.clone(),
             AstExpr::UnaryOp(e) => e.span.clone(),
             AstExpr::Call(e) => e.span.clone(),
             AstExpr::Literal(e) => e.span(),
             AstExpr::Identifier(e) => e.span.clone(),
-            AstExpr::Indexing(e) => e.span.clone(),
             AstExpr::FieldAccess(e) => e.span.clone(),
             AstExpr::StaticAccess(e) => e.span.clone(),
             AstExpr::NewObj(e) => e.span.clone(),
-            AstExpr::Delete(e) => e.span.clone(),
-            AstExpr::NewArray(e) => e.span.clone(),
             AstExpr::_Block(e) => e.span.clone(),
             AstExpr::Assign(e) => e.span.clone(),
             AstExpr::Casting(e) => e.span.clone(),
+            AstExpr::Constructor(e) => e.span.clone(),
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct AstDeleteObjExpr<'ast> {
-    pub span: Span,
-    pub target: &'ast AstExpr<'ast>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-/// i.e. ``5 as f64``
+/// i.e. ``5 as Float64``
 pub struct AstCastingExpr<'ast> {
     pub span: Span,
     pub ty: &'ast AstType<'ast>,
@@ -347,18 +267,20 @@ pub struct AstBlock<'ast> {
     pub stmts: &'ast [&'ast AstStatement<'ast>],
 }
 
+/// The default constructor has the form `Foo { bar = 5, baz = "hello" }`
 #[derive(Debug, Clone, Serialize)]
+pub struct AstConstructorExpr<'ast> {
+    pub span: Span,
+    pub ty: &'ast AstIdentifier<'ast>,
+    pub fields: &'ast [&'ast AstFieldInit<'ast>],
+}
+#[derive(Debug, Clone, Serialize)]
+// This will need a lot of rework, because we dropped the "new" keyword
+// We also introduced a TypeName { field = value, ... } syntax
 pub struct AstNewObjExpr<'ast> {
     pub span: Span,
     pub ty: &'ast AstIdentifier<'ast>,
     pub args: &'ast [&'ast AstExpr<'ast>],
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct AstNewArrayExpr<'ast> {
-    pub span: Span,
-    pub ty: &'ast AstType<'ast>,
-    pub size: &'ast AstExpr<'ast>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -383,17 +305,11 @@ pub struct AstFieldAccessExpr<'ast> {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct AstIndexingExpr<'ast> {
-    pub span: Span,
-    pub target: &'ast AstExpr<'ast>,
-    pub index: &'ast AstExpr<'ast>,
-}
-
-#[derive(Debug, Clone, Serialize)]
 pub struct AstCallExpr<'ast> {
     pub span: Span,
     pub callee: &'ast AstExpr<'ast>,
     pub args: &'ast [&'ast AstExpr<'ast>],
+    pub generics: &'ast [&'ast AstType<'ast>],
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -499,7 +415,6 @@ pub enum AstLiteral<'ast> {
     SelfLiteral(AstSelfLiteral),
     String(AstStringLiteral<'ast>),
     Boolean(AstBooleanLiteral),
-    List(AstListLiteral<'ast>),
     None(AstNoneLiteral),
 }
 
@@ -514,7 +429,6 @@ impl AstLiteral<'_> {
             AstLiteral::SelfLiteral(l) => l.span.clone(),
             AstLiteral::String(l) => l.span.clone(),
             AstLiteral::Boolean(l) => l.span.clone(),
-            AstLiteral::List(l) => l.span.clone(),
             AstLiteral::None(l) => l.span.clone(),
         }
     }
@@ -539,12 +453,6 @@ pub struct AstCharLiteral {
 #[derive(Debug, Clone, Serialize)]
 pub struct AstUnitLiteral {
     pub span: Span,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct AstListLiteral<'ast> {
-    pub span: Span,
-    pub items: &'ast [&'ast AstExpr<'ast>],
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -585,7 +493,7 @@ pub enum AstType<'ast> {
     Float(AstFloatType),
     UnsignedInteger(AstUnsignedIntegerType),
     Char(AstCharType),
-    SelfTy(AstSelfType),
+    ThisTy(AstThisType),
     String(AstStringType),
     Named(AstNamedType<'ast>),
     Pointer(AstPointerType<'ast>),
@@ -606,7 +514,7 @@ impl AstType<'_> {
             AstType::Float(t) => t.span.clone(),
             AstType::UnsignedInteger(t) => t.span.clone(),
             AstType::Char(t) => t.span.clone(),
-            AstType::SelfTy(t) => t.span.clone(),
+            AstType::ThisTy(t) => t.span.clone(),
             AstType::String(t) => t.span.clone(),
             AstType::Named(t) => t.span.clone(),
             AstType::Pointer(t) => t.span.clone(),
@@ -645,18 +553,19 @@ pub struct AstCharType {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct AstSelfType {
+pub struct AstThisType {
     pub span: Span,
 }
 
 #[derive(Debug, Clone, Serialize)]
-/// A generic type in atlas as the form of `@T`
 pub struct AstGenericType<'ast> {
     pub span: Span,
     pub name: &'ast AstIdentifier<'ast>,
+    pub inner_types: &'ast [AstType<'ast>],
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[deprecated]
 ///A List type in atlas as the form of `[T]`
 pub struct AstListType<'ast> {
     pub span: Span,

@@ -1,4 +1,4 @@
-use super::ty::{HirTy, HirUnitTy};
+use super::ty::HirTy;
 use logos::Span;
 use serde::Serialize;
 
@@ -13,24 +13,20 @@ pub enum HirExpr<'hir> {
     Casting(HirCastExpr<'hir>),
     FloatLiteral(HirFloatLiteralExpr<'hir>),
     CharLiteral(HirCharLiteralExpr<'hir>),
-    Indexing(HirIndexingExpr<'hir>),
     IntegerLiteral(HirIntegerLiteralExpr<'hir>),
     UnitLiteral(HirUnitLiteralExpr<'hir>),
     BooleanLiteral(HirBooleanLiteralExpr<'hir>),
     UnsignedIntegerLiteral(HirUnsignedIntegerLiteralExpr<'hir>),
-    SelfLiteral(HirSelfLiteral<'hir>),
+    ThisLiteral(HirThisLiteral<'hir>),
     NoneLiteral(HirNoneLiteral<'hir>),
     StringLiteral(HirStringLiteralExpr<'hir>),
-    ListLiteral(HirListLiteralExpr<'hir>),
-    NewArray(HirNewArrayExpr<'hir>),
-    NewObj(HirNewObjExpr<'hir>),
-    Delete(HirDeleteExpr<'hir>),
     FieldAccess(HirFieldAccessExpr<'hir>),
     StaticAccess(HirStaticAccessExpr<'hir>),
+    Constructor(HirConstructorExpr<'hir>),
 }
 
 pub fn is_self_access(field_access_expr: &HirFieldAccessExpr) -> bool {
-    matches!(field_access_expr.target.as_ref(), HirExpr::SelfLiteral(_))
+    matches!(field_access_expr.target.as_ref(), HirExpr::ThisLiteral(_))
 }
 
 impl HirExpr<'_> {
@@ -43,21 +39,17 @@ impl HirExpr<'_> {
             HirExpr::FloatLiteral(expr) => expr.span.clone(),
             HirExpr::CharLiteral(expr) => expr.span.clone(),
             HirExpr::UnitLiteral(expr) => expr.span.clone(),
-            HirExpr::SelfLiteral(expr) => expr.span.clone(),
+            HirExpr::ThisLiteral(expr) => expr.span.clone(),
             HirExpr::NoneLiteral(expr) => expr.span.clone(),
             HirExpr::Unary(expr) => expr.span.clone(),
             HirExpr::Casting(expr) => expr.span.clone(),
-            HirExpr::Indexing(expr) => expr.span.clone(),
             HirExpr::HirBinaryOp(expr) => expr.span.clone(),
             HirExpr::Call(expr) => expr.span.clone(),
             HirExpr::Assign(expr) => expr.span.clone(),
             HirExpr::StringLiteral(expr) => expr.span.clone(),
-            HirExpr::ListLiteral(expr) => expr.span.clone(),
-            HirExpr::NewArray(expr) => expr.span.clone(),
-            HirExpr::NewObj(expr) => expr.span.clone(),
-            HirExpr::Delete(expr) => expr.span.clone(),
             HirExpr::FieldAccess(expr) => expr.span.clone(),
             HirExpr::StaticAccess(expr) => expr.span.clone(),
+            HirExpr::Constructor(expr) => expr.span.clone(),
         }
     }
 }
@@ -72,23 +64,33 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::FloatLiteral(expr) => expr.ty,
             HirExpr::CharLiteral(expr) => expr.ty,
             HirExpr::UnitLiteral(expr) => expr.ty,
-            HirExpr::SelfLiteral(expr) => expr.ty,
+            HirExpr::ThisLiteral(expr) => expr.ty,
             HirExpr::NoneLiteral(expr) => expr.ty,
             HirExpr::Unary(expr) => expr.ty,
             HirExpr::Casting(expr) => expr.ty,
-            HirExpr::Indexing(expr) => expr.ty,
             HirExpr::HirBinaryOp(expr) => expr.ty,
             HirExpr::Call(expr) => expr.ty,
             HirExpr::Assign(expr) => expr.ty,
             HirExpr::StringLiteral(expr) => expr.ty,
-            HirExpr::ListLiteral(expr) => expr.ty,
-            HirExpr::NewArray(expr) => expr.ty,
-            HirExpr::NewObj(expr) => expr.ty,
-            HirExpr::Delete(_) => &HirTy::Unit(HirUnitTy {}),
             HirExpr::FieldAccess(expr) => expr.ty,
             HirExpr::StaticAccess(expr) => expr.ty,
+            HirExpr::Constructor(expr) => expr.ty,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HirConstructorExpr<'hir> {
+    pub span: Span,
+    pub ty: &'hir HirTy<'hir>,
+    pub fields: Vec<HirFieldInit<'hir>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HirFieldInit<'hir> {
+    pub span: Span,
+    pub name: Box<HirIdentExpr<'hir>>,
+    pub ty: &'hir HirTy<'hir>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -98,7 +100,7 @@ pub struct HirNoneLiteral<'hir> {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct HirSelfLiteral<'hir> {
+pub struct HirThisLiteral<'hir> {
     pub span: Span,
     pub ty: &'hir HirTy<'hir>,
 }
@@ -120,20 +122,6 @@ pub struct HirFieldAccessExpr<'hir> {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct HirDeleteExpr<'hir> {
-    pub span: Span,
-    pub expr: Box<HirExpr<'hir>>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct HirNewObjExpr<'hir> {
-    pub span: Span,
-    pub ty: &'hir HirTy<'hir>,
-    pub args: Vec<HirExpr<'hir>>,
-    pub args_ty: Vec<&'hir HirTy<'hir>>,
-}
-
-#[derive(Debug, Clone, Serialize)]
 pub struct HirCharLiteralExpr<'hir> {
     pub value: char,
     pub span: Span,
@@ -147,24 +135,9 @@ pub struct HirUnitLiteralExpr<'hir> {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct HirNewArrayExpr<'hir> {
-    pub span: Span,
-    pub ty: &'hir HirTy<'hir>,
-    pub size: Box<HirExpr<'hir>>,
-}
-
-#[derive(Debug, Clone, Serialize)]
 pub struct HirListLiteralExpr<'hir> {
     pub span: Span,
     pub items: Vec<HirExpr<'hir>>,
-    pub ty: &'hir HirTy<'hir>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct HirIndexingExpr<'hir> {
-    pub span: Span,
-    pub target: Box<HirExpr<'hir>>,
-    pub index: Box<HirExpr<'hir>>,
     pub ty: &'hir HirTy<'hir>,
 }
 
