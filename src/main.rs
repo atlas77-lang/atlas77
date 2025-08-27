@@ -6,7 +6,7 @@ use clap::{Parser, command};
 #[command(
     bin_name = "atlas_77",
     author = "atlas77-lang",
-    version("v0.5.1 Phoenix"),
+    version("v0.6.0-alpha1 To be determined"),
     about = "Programming language made in Rust",
     long_about = "Atlas77 is a programming language made in Rust. It is a statically typed language with a focus on being cool and useful for me (Gipson62) at least."
 )]

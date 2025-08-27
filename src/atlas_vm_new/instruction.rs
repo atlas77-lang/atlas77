@@ -1,4 +1,8 @@
-pub enum Instruction<'run> {
+use crate::atlas_vm::runtime::instruction::Type;
+
+
+#[derive(Debug)]
+pub enum Instruction {
     // === Literals & constants ===
     PushInt(i64),       // Push integer (signed, covers chars + unsigned at type-level)
     PushFloat(f64),     // Push float

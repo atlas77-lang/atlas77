@@ -21,7 +21,7 @@ use crate::atlas_c::atlas_frontend::{
 
 const FILE_ATLAS: &str = include_str!("../../../atlas_lib/std/fs.atlas");
 const IO_ATLAS: &str = include_str!("../../../atlas_lib/std/io.atlas");
-const LIST_ATLAS: &str = include_str!("../../../atlas_lib/std/list.atlas");
+const ARRAY_ATLAS: &str = include_str!("../../../atlas_lib/std/array.atlas");
 const MATH_ATLAS: &str = include_str!("../../../atlas_lib/std/math.atlas");
 const STRING_ATLAS: &str = include_str!("../../../atlas_lib/std/string.atlas");
 
@@ -557,7 +557,7 @@ where
                 let ast: AstProgram<'ast> = parse(
                     "atlas_stdlib/list.atlas",
                     self.ast_arena,
-                    LIST_ATLAS.to_string(),
+                    ARRAY_ATLAS.to_string(),
                 )
                 .unwrap();
                 let allocated_ast = self.ast_arena.alloc(ast);
@@ -565,7 +565,7 @@ where
                     self.arena,
                     allocated_ast,
                     self.ast_arena,
-                    LIST_ATLAS.to_string(),
+                    ARRAY_ATLAS.to_string(),
                 ));
                 let mut lower = hir.lower()?;
 
