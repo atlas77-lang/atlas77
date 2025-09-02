@@ -40,7 +40,7 @@ clap = { version = "4.5.26", features = ["derive"] }
 bumpalo = "3.16.0"
 # For pretty printing of errors
 miette = { version = "7.4.0", features = ["fancy"] }
-ron = "0.8.1"
+ron = "0.11.0"
 thiserror = "2.0.11"
 logos = "0.15.0"
 serde = { version = "1.0.217", features = ["derive"] }
