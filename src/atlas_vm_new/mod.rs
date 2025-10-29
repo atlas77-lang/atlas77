@@ -4,5 +4,5 @@ mod stack;
 mod state;
 mod vm_data;
 mod runtime;
-mod instruction;
+pub mod instruction;
 

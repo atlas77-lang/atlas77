@@ -4,4 +4,3 @@
 .VSCodeCounter
 .idea
 # No need to track that file, it's constantly changing
-output.atlasc

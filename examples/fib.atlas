@@ -2,9 +2,6 @@ import "std/io"
 
 struct Fibonacci {
     let nth: Int64;
-    fun init(number: Int64): Fibonacci {
-        return Fibonacci { nth = number };
-    }
     fun iterative_fib(this): Int64 {
         let a = 0;
         let b = 1;

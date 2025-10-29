@@ -25,10 +25,7 @@ const STRING_ATLAS: &str = include_str!("../../../atlas_lib/std/string.atlas");
 use crate::atlas_c::atlas_hir::error::NonConstantValueError;
 use crate::atlas_c::atlas_hir::expr::{HirCastExpr, HirCharLiteralExpr, HirConstructorExpr, HirFieldAccessExpr, HirFieldInit, HirNoneLiteral, HirStaticAccessExpr, HirStringLiteralExpr, HirThisLiteral, HirUnitLiteralExpr};
 use crate::atlas_c::atlas_hir::item::{HirClassMethod, HirStruct};
-use crate::atlas_c::atlas_hir::signature::{
-    ConstantValue, HirClassFieldSignature, HirClassMethodSignature, HirStructConstSignature,
-    HirStructMethodModifier, HirStructSignature,
-};
+use crate::atlas_c::atlas_hir::signature::{ConstantValue, HirClassFieldSignature, HirClassMethodSignature, HirStructConstSignature, HirStructMethodModifier, HirStructSignature, HirVisibility};
 use crate::atlas_c::atlas_hir::syntax_lowering_pass::case::Case;
 use crate::atlas_c::atlas_hir::{
     arena::HirArena, error::{HirError, HirResult, UnsupportedExpr, UnsupportedStatement}, expr::{
@@ -224,7 +221,8 @@ where
             let name = self.arena.names().get(field.name.name);
             fields.push(HirClassFieldSignature {
                 span: field.span.clone(),
-                vis: field.vis.into(),
+                //TODO: PLACEHOLDER FOR NOW. NEED TO HANDLE VISIBILITY MODIFIERS IN STRUCT FIELDS
+                vis: HirVisibility::Public,
                 name,
                 name_span: field.name.span.clone(),
                 ty,
@@ -323,7 +321,8 @@ where
                 AstMethodModifier::None => HirStructMethodModifier::None,
             },
             span: node.span.clone(),
-            vis: node.vis.into(),
+            //TODO: PLACEHOLDER FOR NOW. NEED TO HANDLE VISIBILITY MODIFIERS IN METHODS
+            vis: HirVisibility::Public,
             params: parameters?,
             //Generics aren't supported yet for normal functions
             generics: None,
@@ -721,51 +720,51 @@ where
                         span: l.span(),
                         ty: self.arena.types().get_none_ty(),
                     }),
-                    AstLiteral::Char(c) => HirExpr::CharLiteral(HirCharLiteralExpr {
+                    AstLiteral::Char(ast_char) => HirExpr::CharLiteral(HirCharLiteralExpr {
                         span: l.span(),
-                        value: c.value,
+                        value: ast_char.value,
                         ty: self.arena.types().get_char_ty(),
                     }),
                     AstLiteral::Unit(_) => HirExpr::UnitLiteral(HirUnitLiteralExpr {
                         span: l.span(),
                         ty: self.arena.types().get_unit_ty(),
                     }),
-                    AstLiteral::String(s) => HirExpr::StringLiteral(HirStringLiteralExpr {
+                    AstLiteral::String(ast_string) => HirExpr::StringLiteral(HirStringLiteralExpr {
                         span: l.span(),
-                        value: s.value,
+                        value: ast_string.value,
                         ty: self.arena.types().get_str_ty(),
                     }),
                 };
                 Ok(hir)
             }
-            AstExpr::StaticAccess(s) => {
+            AstExpr::StaticAccess(ast_static_access) => {
                 let hir = HirExpr::StaticAccess(HirStaticAccessExpr {
                     span: node.span(),
-                    target: Box::new(self.visit_identifier(s.target)?),
+                    target: Box::new(self.visit_identifier(ast_static_access.target)?),
                     field: Box::new(HirIdentExpr {
-                        name: self.arena.names().get(s.field.name),
-                        span: s.field.span.clone(),
+                        name: self.arena.names().get(ast_static_access.field.name),
+                        span: ast_static_access.field.span.clone(),
                         ty: self.arena.types().get_uninitialized_ty(),
                     }),
                     ty: self.arena.types().get_uninitialized_ty(),
                 });
                 Ok(hir)
             }
-            AstExpr::FieldAccess(f) => {
+            AstExpr::FieldAccess(ast_field_access) => {
                 let hir = HirExpr::FieldAccess(HirFieldAccessExpr {
                     span: node.span(),
-                    target: Box::new(self.visit_expr(f.target)?),
+                    target: Box::new(self.visit_expr(ast_field_access.target)?),
                     field: Box::new(HirIdentExpr {
-                        name: self.arena.names().get(f.field.name),
-                        span: f.field.span.clone(),
+                        name: self.arena.names().get(ast_field_access.field.name),
+                        span: ast_field_access.field.span.clone(),
                         ty: self.arena.types().get_uninitialized_ty(),
                     }),
                     ty: self.arena.types().get_uninitialized_ty(),
                 });
                 Ok(hir)
             }
-            AstExpr::Constructor(c) => {
-                let fields = c.fields.iter().map(|f| HirFieldInit {
+            AstExpr::Constructor(ast_constructor) => {
+                let fields = ast_constructor.fields.iter().map(|f| Ok(HirFieldInit {
                     ty: self.arena.types().get_uninitialized_ty(),
                     name: Box::new(HirIdentExpr {
                         ty: self.arena.types().get_uninitialized_ty(),
@@ -773,11 +772,13 @@ where
                         name: self.arena.names().get(f.name.name),
                     }),
                     span: f.span.clone(),
-                }).collect::<Vec<_>>();
+                    value: Box::new(self.visit_expr(f.value)?),
+                })).collect::<HirResult<Vec<_>>>()?;
                 let hir = HirExpr::Constructor(HirConstructorExpr {
+                    name: self.arena.names().get(ast_constructor.ty.name),
                     span: node.span(),
                     fields,
-                    ty: self.arena.types().get_named_ty(c.ty.name, c.ty.span.clone()),
+                    ty: self.arena.types().get_named_ty(ast_constructor.ty.name, ast_constructor.ty.span.clone()),
                 });
                 Ok(hir)
             }

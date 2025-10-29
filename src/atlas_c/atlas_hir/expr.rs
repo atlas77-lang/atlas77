@@ -81,6 +81,7 @@ impl<'hir> HirExpr<'hir> {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct HirConstructorExpr<'hir> {
+    pub name: &'hir str,
     pub span: Span,
     pub ty: &'hir HirTy<'hir>,
     pub fields: Vec<HirFieldInit<'hir>>,
@@ -91,6 +92,7 @@ pub struct HirFieldInit<'hir> {
     pub span: Span,
     pub name: Box<HirIdentExpr<'hir>>,
     pub ty: &'hir HirTy<'hir>,
+    pub value: Box<HirExpr<'hir>>,
 }
 
 #[derive(Debug, Clone, Serialize)]

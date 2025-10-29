@@ -20,6 +20,7 @@ use crate::atlas_c::atlas_hir::item::{HirClassMethod, HirStruct};
 use crate::atlas_c::atlas_hir::signature::{
     HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier, HirVisibility,
 };
+use crate::atlas_c::atlas_hir::ty::HirNamedTy;
 use logos::Span;
 use miette::{SourceOffset, SourceSpan};
 use std::collections::HashMap;
@@ -803,7 +804,39 @@ impl<'hir> TypeChecker<'hir> {
                 }
             }
             HirExpr::Constructor(constructor) => {
-                todo!("check_constructor")
+                let struct_ty: &HirNamedTy;
+                let struct_signature = if let HirTy::Named(n) = constructor.ty {
+                    struct_ty = n;
+                    let tmp = match self.signature.structs.get(n.name) {
+                        Some(c) => c,
+                        None => {
+                            return Err(HirError::UnknownType(UnknownTypeError {
+                                name: n.name.to_string(),
+                                span: SourceSpan::new(
+                                    SourceOffset::from(constructor.span.start),
+                                    constructor.span.end - constructor.span.start,
+                                ),
+                                src: self.src.clone(),
+                            }));
+                        }
+                    };
+                    *tmp
+                } else {
+                    return Err(HirError::TypeMismatch(TypeMismatchError {
+                        actual_type: format!("{}", constructor.ty),
+                        actual_loc: SourceSpan::new(
+                            SourceOffset::from(constructor.span.start),
+                            constructor.span.end - constructor.span.start,
+                        ),
+                        expected_type: String::from("Named"),
+                        expected_loc: SourceSpan::new(
+                            SourceOffset::from(constructor.span.start),
+                            constructor.span.end - constructor.span.start,
+                        ),
+                        src: self.src.clone(),
+                    }));
+                };
+                Ok(constructor.ty)
             }
         }
     }
