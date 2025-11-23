@@ -60,6 +60,9 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
         }
     }
 
+    /// - TODO: Refactor the whole codegen thingy to output and atlas_asm::program::Program
+    ///
+    /// - TODO: Add LoadConst instruction & remove all the Push_XXX instructions
     pub fn compile(&mut self) -> CodegenResult<ProgramDescriptor> {
         let mut labels: Vec<Label> = Vec::new();
         for (struct_name, hir_struct) in self.hir.body.structs.clone() {

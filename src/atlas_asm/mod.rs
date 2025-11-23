@@ -3,6 +3,7 @@ use crate::atlas_vm_new::instruction::Instruction;
 use crate::atlas_vm_new::instruction::ProgramDescriptor;
 pub mod asm;
 mod error;
+mod program;
 
 pub struct Assembler {}
 
@@ -14,97 +15,91 @@ impl Assembler {
     pub fn new() -> Self {
         Self {}
     }
-    pub fn asm_from_instruction(&self, source: ProgramDescriptor) -> ASMResult<Vec<u8>> {
-        let mut bytecode: Vec<u8> = vec![];
+    fn make_instruction(&self, byte: u8) -> u32 {
+        (byte as u32) << 24
+    }
+    pub fn asm_from_instruction(&self, source: ProgramDescriptor) -> ASMResult<Vec<u32>> {
+        let mut bytecode: Vec<u32> = vec![];
         let mut i = 0;
         while (i < source.len()) {
             let instr = &source[i];
             match instr {
-                Instruction::PushInt(i) => {
-                    bytecode.push(asm::PUSH_INT);
-                    bytecode.extend(&i.to_le_bytes());
-                }
-                Instruction::PushFloat(f) => {
-                    bytecode.push(asm::PUSH_FLOAT);
-                    bytecode.extend(&f.to_le_bytes());
-                }
-                Instruction::PushBool(b) => {
-                    bytecode.push(asm::PUSH_BOOL);
-                    bytecode.push(if *b { 1 } else { 0 });
-                }
-                Instruction::PushStr(idx) => {
-                    bytecode.push(asm::PUSH_STR);
-                    bytecode.extend(&idx.to_le_bytes());
-                }
-                Instruction::PushList(idx) => {
-                    bytecode.push(asm::PUSH_LIST);
-                    bytecode.extend(&idx.to_le_bytes());
-                }
-                Instruction::PushUnit => {
-                    bytecode.push(asm::PUSH_UNIT);
+                Instruction::LoadConst(idx) => {
+                    //This assumes idx fits in 24 bits
+                    let instruction = self.make_instruction(asm::LOAD_CONST);
+                    instruction | (*idx);
+                    bytecode.push(instruction);
                 }
                 Instruction::Pop => {
-                    bytecode.push(asm::POP);
+                    bytecode.push(self.make_instruction(asm::POP));
                 }
                 Instruction::Dup => {
-                    bytecode.push(asm::DUP);
+                    bytecode.push(self.make_instruction(asm::DUP));
                 }
                 Instruction::Swap => {
-                    bytecode.push(asm::SWAP);
+                    bytecode.push(self.make_instruction(asm::SWAP));
                 }
                 Instruction::StoreVar(idx) => {
-                    bytecode.push(asm::STORE_VAR);
-                    bytecode.extend(&idx.to_le_bytes());
+                    //This assumes idx fits in 24 bits
+                    let instruction = self.make_instruction(asm::STORE_VAR);
+                    instruction | (*idx as u32);
+                    bytecode.push(instruction);
                 }
                 Instruction::LoadVar(idx) => {
-                    bytecode.push(asm::LOAD_VAR);
-                    bytecode.extend(&idx.to_le_bytes());
+                    let instruction = self.make_instruction(asm::LOAD_VAR);
+                    instruction | (*idx as u32);
+                    bytecode.push(instruction);
                 }
                 Instruction::IndexLoad => {
-                    bytecode.push(asm::INDEX_LOAD);
+                    bytecode.push(self.make_instruction(asm::INDEX_LOAD));
                 }
                 Instruction::IndexStore => {
-                    bytecode.push(asm::INDEX_STORE);
+                    bytecode.push(self.make_instruction(asm::INDEX_STORE));
                 }
                 Instruction::NewList => {
-                    bytecode.push(asm::NEW_LIST);
+                    bytecode.push(self.make_instruction(asm::NEW_LIST));
                 }
                 Instruction::Add => {
-                    bytecode.push(asm::ADD);
+                    bytecode.push(self.make_instruction(asm::ADD));
                 }
                 Instruction::Sub => {
-                    bytecode.push(asm::SUB);
+                    bytecode.push(self.make_instruction(asm::SUB));
                 }
                 Instruction::Mul => {
-                    bytecode.push(asm::MUL);
+                    bytecode.push(self.make_instruction(asm::MUL));
                 }
                 Instruction::Div => {
-                    bytecode.push(asm::DIV);
+                    bytecode.push(self.make_instruction(asm::DIV));
                 }
                 Instruction::Mod => {
-                    bytecode.push(asm::MOD);
+                    bytecode.push(self.make_instruction(asm::MOD));
                 }
                 Instruction::Eq => {
-                    bytecode.push(asm::EQUAL);
+                    bytecode.push(self.make_instruction(asm::EQUAL));
                 }
                 Instruction::Neq => {
-                    bytecode.push(asm::NOT_EQUAL);
+                    bytecode.push(self.make_instruction(asm::NOT_EQUAL));
                 }
                 Instruction::Gt => {
-                    bytecode.push(asm::GREATER_THAN);
+                    bytecode.push(self.make_instruction(asm::GREATER_THAN));
                 }
                 Instruction::Gte => {
-                    bytecode.push(asm::GREATER_THAN_OR_EQUAL);
+                    bytecode.push(self.make_instruction(asm::GREATER_THAN_OR_EQUAL));
                 }
                 Instruction::Lt => {
-                    bytecode.push(asm::LESS_THAN);
+                    bytecode.push(self.make_instruction(asm::LESS_THAN));
                 }
                 Instruction::Lte => {
-                    bytecode.push(asm::LESS_THAN_OR_EQUAL);
+                    bytecode.push(self.make_instruction(asm::LESS_THAN_OR_EQUAL));
                 }
                 Instruction::Jmp { pos } => {
-                    bytecode.push(asm::JUMP);
-                    bytecode.extend(&pos.to_le_bytes());
+                    //WARNING: This assumes pos fits in 16 bits, so the program can't be longer than 65k instructions
+                    //This should be fine for now
+                    let mut instruction = self.make_instruction(asm::JUMP);
+                    //Relative jump, so we need to keep the sign
+                    let pos = *pos as i16 as u16 as u32;
+                    instruction | pos;
+                    bytecode.push(instruction);
                 }
                 Instruction::JmpZ { pos } => {
                     bytecode.push(asm::JUMP_IF_FALSE);
@@ -167,6 +162,9 @@ impl Assembler {
                 Instruction::Halt => {
                     bytecode.push(asm::HALT);
                 }
+                _ => {
+                    return Err(ASMError::WeirdStuff(WeirdStuffError { details: "Unimplemented instruction in assembler".to_string() }));
+                }
             }
             i += 1;
         }
@@ -181,7 +179,6 @@ impl Assembler {
         let mut text = String::new();
         let mut i = 0;
         while i < asm.len() {
-            println!("{text}");
             match asm[i] {
                 asm::PUSH_UNIT => text.push_str("PUSH_UNIT\n"),
                 asm::PUSH_INT => {

@@ -157,8 +157,6 @@ pub struct ImportedLibrary {
     pub is_std: bool,
 }
 
-///todo: Make the program serializable and deserializable
-/// This will allow the program to be saved and loaded from a file
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ProgramDescriptor<'run> {
     pub labels: Vec<Label<'run>>,
@@ -215,7 +213,6 @@ impl ProgramDescriptor<'_> {
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Serialize)]
 pub struct ConstantPool<'run> {
-    //todo: Vec<T> -> &'run [T]
     pub string_pool: &'run [&'run str],
     pub list_pool: &'run [ConstantValue],
     pub function_pool: &'run [usize],

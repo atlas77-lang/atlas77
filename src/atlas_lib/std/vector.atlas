@@ -1,4 +1,4 @@
-public class Vector<T> {
+public struct Vector[T] {
     private:
         data: [T];
     public:
@@ -18,7 +18,7 @@ public class Vector<T> {
 
     /// A function that doesn't have a "self" parameter is a static function
     /// static functions are called like this: "Vector::<T>::function_name()"
-    func with_capacity(capacity: uint64) -> Vector<T> {
+    fn with_capacity(capacity: uint64) -> Vector<T> {
         return new Vector::<T>(new [T; capacity]);
     }
 

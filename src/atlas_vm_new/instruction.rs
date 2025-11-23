@@ -10,6 +10,7 @@ use std::ops::Index;
 /// Something akin to a ``[u32; N]`` representation
 pub enum Instruction {
     // === Literals & constants ===
+    LoadConst(u32),     // Load constant from constant pool
     PushInt(i64),       // Push integer (signed, covers chars + unsigned at type-level)
     PushFloat(f64),     // Push float
     PushBool(bool),     // Push boolean

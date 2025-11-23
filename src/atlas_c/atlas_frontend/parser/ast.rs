@@ -55,6 +55,7 @@ impl AstItem<'_> {
 pub struct AstGeneric<'ast> {
     pub span: Span,
     pub name: &'ast AstIdentifier<'ast>,
+    //TODO: Constraints should be somewhere else (e.g. "where" keywords like in Rust).
     pub constraints: &'ast [&'ast AstGenericConstraint<'ast>],
 }
 

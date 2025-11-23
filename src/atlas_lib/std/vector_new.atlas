@@ -1,0 +1,179 @@
+/// vector.atlas
+/// Atlas77 0.6 - Vector<T>
+/// -------------------------------
+/// FFI primitives (implemented in Rust / host)
+/// -------------------------------
+/// These must be provided by the runtime host.
+extern arr_len(arr: [T]) -> uint64;
+extern alloc_array[T](count: uint64) -> externptr<T>;
+extern free_array[T](ptr: externptr<T>) -> Unit;
+extern memcpy(dst: externptr, src: externptr, bytes: uint64) -> Unit;
+extern sizeof<T>() -> uint64;            // returns size in bytes of T (host-provided)
+extern panic(msg: string) -> Unit;
+
+/// -------------------------------
+/// Vector<T>
+/// -------------------------------
+/// A dynamic, growable sequence type that exposes its memory layout
+/// while providing ergonomic methods and safety by convention.
+///
+/// Implementation notes:
+/// - Internally owns a raw buffer allocated via alloc_array<T>.
+/// - `new [T; capacity]` is sugar for calling alloc_array<T>(capacity).
+/// - The destructor (~Vector) frees the backing buffer with free_array.
+/// - All raw pointer / mem operations are confined to this implementation.
+///
+
+public class Vector<T> {
+    private:
+        /// Fixed-size array
+        data: [T];
+        length: uint64;
+        capacity: uint64;
+
+    /// Constructor from an existing raw unsized array slice.
+    /// The caller transfers ownership of `data` to the Vector.
+    Vector(data: [T]) {
+        this.data = data;
+        this.length = arr_len(data);
+        this.capacity = arr_len(data);
+        if this.capacity == 0 {
+            //TODO: allow zero-capacity allocation
+            panic("Vector: zero-capacity allocation is not allowed");
+        }
+    }
+
+    /// Convenience constructor: build from a fixed-size allocation
+    /// such as `new [T; capacity]` (syntactic sugar).
+    fun with_capacity(cap: uint64) -> Vector<T> {
+        if cap == 0 {
+            return new Vector<T>(new [T; 1]);  // avoid zero-capacity allocations
+        }
+        return new Vector<T>(new [T; cap]);
+        //No need for the turbo fish operator here because the "new" keyword provide enough context
+    }
+
+    /// Destructor - called when the instance is explicitly freed or
+    /// when module unload/runtime decide to run destructor hooks.
+    ~Vector() {
+        this.length = 0;
+        this.capacity = 0;
+        delete this.data;
+    }
+
+    /// Return the number of elements.
+    fun len(this) -> uint64 {
+        return this.length;
+    }
+
+    /// Return capacity.
+    fun cap(this) -> uint64 {
+        return this.capacity;
+    }
+
+    /// Push value to the end (grow as needed).
+    fun push(this, val: T) -> Unit {
+        if this.length >= this.capacity {
+            /// grow strategy: double capacity (min 1)
+            let new_cap = if this.capacity == 0 { 1 } else { this.capacity * 2 };
+            this._grow(new_cap);
+        }
+        /// Write value into buffer at index `length`.
+        /// We treat the underlying buffer as raw bytes and memcpy the value.
+        unsafe {
+            let elt_size = sizeof<T>();
+            let dst = externptr_add(this.data, this.length * elt_size);
+            memcpy(dst, &val, elt_size);           // &val is address-of local value (pseudo)
+        }
+        this.length = this.length + 1;
+    }
+
+    /// Pop and return last value. Panic on empty.
+    fun pop(this) -> T {
+        if this.length == 0 {
+            panic("Vector::pop: empty");
+        }
+        this.length = this.length - 1;
+        unsafe {
+            let elt_size = sizeof<T>();
+            let src = externptr_add(this.data, this.length * elt_size);
+            var tmp: T;                            // stack-local
+            memcpy(&tmp, src, elt_size);
+            return tmp;
+        }
+    }
+
+    /// Return a reference-like copy of element (by value).
+    fun get(this, index: uint64) -> T {
+        if index >= this.length {
+            panic("Vector::get: index out of bounds");
+        }
+        unsafe {
+            let elt_size = sizeof<T>();
+            let src = externptr_add(this.data, index * elt_size);
+            var tmp: T;
+            memcpy(&tmp, src, elt_size);
+            return tmp;
+        }
+    }
+
+    /// Remove element at index, shifting following elements left.
+    fun remove(this, index: uint64) -> Unit {
+        if index >= this.length {
+            panic("Vector::remove: index out of bounds");
+        }
+        unsafe {
+            let elt_size = sizeof<T>();
+            let src = externptr_add(this.data, (index + 1) * elt_size);
+            let dst = externptr_add(this.data, index * elt_size);
+            let tail_count = (this.length - index - 1) * elt_size;
+            if tail_count > 0 {
+                memcpy(dst, src, tail_count);
+            }
+        }
+        this.length = this.length - 1;
+    }
+
+    /// Reserve at least `new_cap` capacity. If new_cap <= capacity, no-op.
+    fun reserve(this, new_cap: uint64) -> Unit {
+        if new_cap <= this.capacity {
+            return;
+        }
+        this._grow(new_cap);
+    }
+
+    /// Private helper to reallocate buffer to requested capacity.
+    private fun _grow(this, new_cap: uint64) -> Unit {
+        let old_ptr = this.data;
+        let old_cap = this.capacity;
+        let old_len = this.length;
+
+        let new_ptr = alloc_array<T>(new_cap);
+
+        if old_ptr != 0 && old_len > 0 {
+            unsafe {
+                let bytes = old_len * sizeof<T>();
+                memcpy(new_ptr, old_ptr, bytes);
+            }
+        }
+
+        this.data = new_ptr;
+        this.capacity = new_cap;
+
+        if old_ptr != 0 {
+            free_array<T>(old_ptr);
+        }
+    }
+
+    /// Convert into a raw buffer + metadata and relinquish ownership.
+    /// After call, this Vector is empty and its destructor will be no-op.
+    fun into_raw(this) -> (externptr<T>, uint64, uint64) {
+        let out_ptr = this.data;
+        let out_len = this.length;
+        let out_cap = this.capacity;
+        this.data = 0;
+        this.length = 0;
+        this.capacity = 0;
+        return (out_ptr, out_len, out_cap);
+    }
+}

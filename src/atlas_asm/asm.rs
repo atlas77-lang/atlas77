@@ -1,13 +1,9 @@
-pub const PUSH_UNIT: u8 = 0x01;
-pub const PUSH_INT: u8 = 0x02;
-pub const PUSH_FLOAT: u8 = 0x03;
-///Not in use yet
-pub const PUSH_UINT: u8 = 0x04;
-pub const PUSH_BOOL: u8 = 0x05;
-///Not in use yet
-pub const PUSH_CHAR: u8 = 0x06;
-pub const PUSH_STR: u8 = 0x07;
-pub const PUSH_LIST: u8 = 0x08;
+/// Push a constant #index from a constant pool 
+/// (``(u)int``, ``float``, ``bool``, ``extern_ptr``, `char`, ``string``, `struct`, ``list``) 
+/// onto the stack
+/// NB: if the constant is an object (defined as ``struct``, ``list``, ``string``),
+/// a new heap object will be created and a reference to it will be pushed onto the stack
+pub const LOAD_CONST: u8 = 0x01;
 
 pub const POP: u8 = 0x10;
 pub const DUP: u8 = 0x11;
