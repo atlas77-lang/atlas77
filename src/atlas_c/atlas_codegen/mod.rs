@@ -1,6 +1,7 @@
 /// Contains the definition of the CodeGenArena
 pub mod arena;
 mod table;
+mod program;
 
 use crate::atlas_c::atlas_hir::{
     error::{HirResult, UnsupportedExpr, UnsupportedStatement},
@@ -63,6 +64,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
     /// - TODO: Refactor the whole codegen thingy to output and atlas_asm::program::Program
     ///
     /// - TODO: Add LoadConst instruction & remove all the Push_XXX instructions
+    #[deprecated]
     pub fn compile(&mut self) -> CodegenResult<ProgramDescriptor> {
         let mut labels: Vec<Label> = Vec::new();
         for (struct_name, hir_struct) in self.hir.body.structs.clone() {

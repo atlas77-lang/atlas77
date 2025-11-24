@@ -11,11 +11,17 @@ use std::ops::Index;
 pub enum Instruction {
     // === Literals & constants ===
     LoadConst(u32),     // Load constant from constant pool
+    #[deprecated]
     PushInt(i64),       // Push integer (signed, covers chars + unsigned at type-level)
+    #[deprecated]
     PushFloat(f64),     // Push float
+    #[deprecated]
     PushBool(bool),     // Push boolean
+    #[deprecated]
     PushStr(usize),     // Push string from constant pool (returns pointer)
+    #[deprecated]
     PushList(usize),    // Push list from constant pool (returns pointer)
+    #[deprecated]
     PushUnit,           // Push unit value ()
 
     // === Stack manipulation ===
@@ -106,6 +112,7 @@ pub struct ImportedLibrary {
 ///todo: Make the program serializable and deserializable
 /// This will allow the program to be saved and loaded from a file
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[deprecated]
 pub struct ProgramDescriptor<'run> {
     pub labels: Vec<Label<'run>>,
     pub entry_point: String,
@@ -119,7 +126,6 @@ pub struct ProgramDescriptor<'run> {
 impl<'run> Index<usize> for ProgramDescriptor<'run> {
     type Output = Instruction;
 
-    /// Inefficient implementation
     /// THIS SHOULD REALLY BE REPLACED BY A `[u32; N]` REPRESENTATION
     ///
     /// Right now we are iterating through all labels and their bodies to find the instruction at the given index.

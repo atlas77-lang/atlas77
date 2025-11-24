@@ -1,6 +1,6 @@
 import "std/io"
 
-func main() {
+fun main() {
     let a = 0;
     let b = 1;
     let i = 0;
@@ -13,7 +13,7 @@ func main() {
     print(a);
 }
 
-func fib(n: int64) -> int64 {
+fun fib(n: int64) -> int64 {
     if n <= 1 {
         return n;
     } else {

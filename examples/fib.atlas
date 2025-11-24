@@ -1,8 +1,8 @@
 import "std/io"
 
-struct Fibonacci[T] {
-    let nth: Int64;
-    fun iterative_fib(this): Int64 {
+struct Fibonacci<T> {
+    nth: int64;
+    fun iterative_fib(this) -> int64 {
         let a = 0;
         let b = 1;
         let i = 0;
@@ -14,7 +14,7 @@ struct Fibonacci[T] {
         }
         return a;
     }
-    fun recursive_fib(this, nth: Int64): Int64 {
+    fun recursive_fib(this, nth: int64) -> int64 {
         if nth <= 1 {
             return nth;
         } else {
@@ -34,7 +34,7 @@ fun main() {
     println(res_recursive);
 }
 
-fun recursive_fib(n: Int64): Int64 {
+fun recursive_fib(n: int64) -> int64 {
     if n <= 1 {
         return n;
     } else {
@@ -42,7 +42,7 @@ fun recursive_fib(n: Int64): Int64 {
     }
 }
 
-fun iterative_fib(blabla: Int64): Int64 {
+fun iterative_fib(blabla: int64) -> int64 {
     let a = 0;
     let b = 1;
     let i = 0;

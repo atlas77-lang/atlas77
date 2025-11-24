@@ -36,8 +36,10 @@
 
 ## About The Project
 
-Atlas77 is an experimental **statically typed systems language** designed around a **small core** and **strong interop with Rust**.  
-It runs on a **custom VM** and aims to provide a clear, minimal foundation for building higher-level abstractions in libraries rather than in the compiler itself.  
+Atlas77 is an experimental **statically typed systems language** designed around a **small core** and **strong interop
+with Rust**.  
+It runs on a **custom VM** and aims to provide a clear, minimal foundation for building higher-level abstractions in
+libraries rather than in the compiler itself.
 
 The philosophy is simple: **keep the core language tiny, make everything else userland.**
 
@@ -75,12 +77,21 @@ Or directly from their website: [Rust](https://www.rust-lang.org/tools/install)
 
 ## Usage
 
+### Hello World
+
+```
+import "std/io"
+fun main() {
+    println("Hello, World!");
+}
+```
+
 ### Fibonacci Example
 
 ```
 import "std/io"
 
-fun fib(n: i64) -> i64 {
+fun fib(n: int64) -> int64 {
     if n <= 1 {
         return n;
     }
@@ -88,7 +99,7 @@ fun fib(n: i64) -> i64 {
 }
 
 fun main() {
-    let n: i64 = 10;
+    let n: int64 = 10;
     print(fib(n));
 }
 ```
@@ -98,6 +109,10 @@ _For more examples, see the [examples folder](./examples/README.MD)_
 <!-- ROADMAP -->
 
 ## Roadmap
+
+### v0.1 & v0.2
+
+There never was any official v0.1 or v0.2 releases, they were just internal milestones.
 
 ### v0.3 "Foundation"
 
@@ -114,62 +129,59 @@ _For more examples, see the [examples folder](./examples/README.MD)_
 
 ### v0.5 "Phoenix"
 
-The v0.5 was supposed to be a complete rewrite of Atlas77, but because of some major design issues in syntax, semantic, memory management, compiler and everything it got scraped after the v0.5.2 (which is still accessible).
+The v0.5 was a complete rewrite of Atlas77, but because of some major design issues in syntax, semantic, memory
+management, compiler and everything it didn't get any more updates after the v0.5.2 (which is still accessible).
 
 > Deprecated, if you want to know more about the v0.5.x, check the releases page.
 
 - [v0.5 "Phoenix"](https://github.com/atlas77-lang/Atlas77/tag/v0.5)
 - [v0.5.1](https://github.com/atlas77-lang/Atlas77/tag/v0.5.1)
-- [v0.5](https://github.com/atlas77-lang/Atlas77/tag/v0.5.2)
+- [v0.5.2](https://github.com/atlas77-lang/Atlas77/tag/v0.5.2)
 
-### v0.6.x No Codename yet
+### v0.6.x "Bastion"
 
-The **complete rewrite** of Atlas77 with a much smaller core, designed for correctness and long-term maintainability.
+This version will take the v0.5's good parts, but reimplement the VM,
+codegen & memory management from scratch, while still adding new features.
 
 The runtime focuses on a simple GC (refcount + cycle breaking) and Rust-backed interop.
 
-| Feature               | Status | Notes                                                 |
-| --------------------- | ------ | ----------------------------------------------------- |
-| Functions             | ✅      | First-class, user-defined functions                   |
-| Variables             | ✅      | Immutable (`let`) and mutable (`var`)                 |
-| Control Flow          | ✅      | `if/else`, `while`                                    |
-| Imports               | ✅      | Only `std` imports for now                            |
-| Basic `std`           | ✅      | IO, string, math, time, collections                   |
-| Structs               | 🔧     | User-defined data types                               |
-| Enums / Result\[T, E] | 🔧     | Lightweight ADTs for error handling                   |
-| Generics              | 🔧     | Type parameters for reusable code                     |
-| Arrays                | 🔧     | Core mutable collection with variadic initialization  |
-| GC                    | ✅      | Reference counting + cycle detection                  |
-| Rust FFI              | 🔧     | Core of the "everything else in libraries" philosophy |
+| Feature              | Status | Notes                                                 |
+|----------------------|:------:|-------------------------------------------------------|
+| Functions            |   ✅    | Functions...                                          |
+| Variables            |   ✅    | Immutable (`const`) and mutable (`let`)               |
+| Control Flow         |   ✅    | `if/else`, `while`                                    |
+| Imports              |   ✅    | Only `std` imports for now                            |
+| Basic Types          |   ✅    | `int64`, `float64`, `bool`, `char`,                   |
+| Basic `std`          |   ✅    | I/O, string, math, time, vector, file                 |
+| Structs              |   🔧   | User-defined data types                               |
+| Enums                |   🔧   | C-like enumerator                                     |
+| Algebraic Data Types |   🔧   | Sum types with pattern matching                       |
+| Generics             |   🔧   | Type parameters for reusable code                     |
+| GC                   |   🔧   | Reference counting + cycle detection                  |
+| Rust FFI             |   🔧   | Core of the "everything else in libraries" philosophy |
 
 > NB: This is not really up to date as the rewrite is still taking place
 
 ### Later (post v0.6.x)
 
-- Package manager
-- LSP integration
-- Cranelift JIT
-- Trait/typeclasses for shared behaviour
+- Making a Brainfuck interpreter in Atlas77
+- Bootstrapping the compiler in Atlas77 itself
 
 #### Stability and Refinement
 
 > As the language is still in alpha (not 1.0 yet), I won't make "alpha"/"beta" build, it doesn't really make sense.
 
-The beta phase (aka after 0.6.x and beyond) will focus on stabilizing the language. All features will be finalized, tested extensively, and optimized for real-world use. This phase will serve as a release candidate.
+The beta phase (aka after 0.6.x and beyond) will focus on stabilizing the language. All features will be finalized,
+tested extensively, and optimized for real-world use. This phase will serve as a release candidate.
 
-See the [open issues](https://github.com/atlas77-lang/Atlas77/issues) for a full list of proposed features (and known issues).
-
+See the [open issues](https://github.com/atlas77-lang/Atlas77/issues) for a full list of proposed features (and known
+issues).
 
 ### Philosophy
 
-Atlas77 is not about shipping a huge feature set in the compiler.
+I am making this language for myself, to learn more about programming languages, compilers, VMs and all that stuff.
 
-It’s about:
-
-- Small core — only functions, variables, control flow, and basic types are truly built-in.
-- Interop-first — everything else (collections, advanced types, game engine bindings, etc.) is either written in Atlas77 or delegated to Rust libraries.
-- Pragmatic runtime — safety and performance without overengineering (simple GC, direct Rust calls).
-- Game dev friendly — language design guided by the needs of writing a simple ECS and game engine in Atlas77.
+I'll try to make it easy to use, but still a bit "cringey". I hope I can at least hit one of the long-term goals.
 
 ### Long-Term Goals
 
@@ -177,6 +189,7 @@ It’s about:
 - Building a minimal ECS in pure Atlas77
 - Building a simple game engine with Vulkan bindings
 - Providing a package manager written in Atlas77
+- LSP support for editors
 - Ahead-of-time compilation with Cranelift
 
 <!-- CONTRIBUTING -->

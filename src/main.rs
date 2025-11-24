@@ -1,12 +1,12 @@
-use atlas_77::{CompilationFlag, build, run};
-use clap::{Parser, command};
+use atlas_77::{build, run, CompilationFlag};
+use clap::{command, Parser};
 
 #[derive(Parser)] // requires `derive` feature
 #[command(name = "Atlas77")]
 #[command(
     bin_name = "atlas_77",
     author = "atlas77-lang",
-    version("v0.6.0-alpha1 To be determined"),
+    version("v0.6.0-alpha1 Bastion To be determined"),
     about = "Programming language made in Rust",
     long_about = "Atlas77 is a programming language made in Rust. It is a statically typed language with a focus on being cool and useful for me (Gipson62) at least."
 )]

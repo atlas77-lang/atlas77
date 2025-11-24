@@ -270,10 +270,10 @@
         ),
     ],
     functions: {
+        "iterative_fib": 0,
         "Fibonacci.recursive_fib": 116,
+        "Fibonacci.iterative_fib": 82,
         "recursive_fib": 63,
         "main": 33,
-        "iterative_fib": 0,
-        "Fibonacci.iterative_fib": 82,
     },
 )

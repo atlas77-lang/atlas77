@@ -229,21 +229,21 @@ pub enum TokenKind {
     //Primitive Types
     #[token("extern_ptr")]
     ExternPtr,
-    #[token("Int64")]
+    #[token("int64")]
     Int64Ty,
-    #[token("Float64")]
+    #[token("float64")]
     Float64Ty,
-    #[token("UInt64")]
+    #[token("uint64")]
     UInt64Ty,
-    #[token("Unit")]
+    #[token("unit")]
     UnitTy,
-    #[token("Char")]
+    #[token("char")]
     CharTy,
-    #[token("Bool")]
+    #[token("bool")]
     BoolTy,
     #[token("This")]
     ThisTy,
-    #[token("Str")]
+    #[token("str")]
     StrTy,
     EoI,
 }
