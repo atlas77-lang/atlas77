@@ -195,19 +195,11 @@ pub enum TokenKind {
     KwImport,
     //Visibility
     #[token("public")]
-    #[deprecated]
     KwPublic,
     #[token("private")]
-    #[deprecated]
     KwPrivate,
-    #[token("@public")]
-    AtPublic,
-    #[token("@private")]
-    AtPrivate,
-    #[token("@inline")]
-    AtInline,
-    #[token("@deprecated")]
-    AtDeprecated,
+    #[token("protected")]
+    KwProtected,
     //Control Flow
     #[token("if")]
     KwIf,

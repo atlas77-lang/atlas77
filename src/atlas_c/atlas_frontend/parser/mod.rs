@@ -7,10 +7,7 @@ use std::path::PathBuf;
 
 use miette::{SourceOffset, SourceSpan};
 
-use crate::atlas_c::atlas_frontend::parser::error::{
-    NoFieldInStructError, ParseError, ParseResult,
-    UnexpectedTokenError,
-};
+use crate::atlas_c::atlas_frontend::parser::error::{NoFieldInStructError, OnlyOneConstructorAllowedError, ParseError, ParseResult, UnexpectedTokenError};
 use ast::{
     AstAssignExpr, AstBinaryOp, AstBinaryOpExpr, AstBlock, AstBooleanLiteral, AstBooleanType,
     AstCallExpr, AstConst, AstExpr, AstExternFunction,
@@ -25,7 +22,7 @@ use crate::atlas_c::atlas_frontend::lexer::{
     token::{Token, TokenKind}, Spanned,
     TokenVec,
 };
-use crate::atlas_c::atlas_frontend::parser::ast::{AstCastingExpr, AstCharLiteral, AstCharType, AstConstructorExpr, AstFieldInit, AstGeneric, AstGenericConstraint, AstGenericType, AstListType, AstMethod, AstMethodModifier, AstNewObjExpr, AstNoneLiteral, AstNullType, AstNullableType, AstOperatorOverload, AstReadOnlyType, AstSelfLiteral, AstStaticAccessExpr, AstStruct, AstThisType, AstUnitLiteral, AstVisibility};
+use crate::atlas_c::atlas_frontend::parser::ast::{AstCastingExpr, AstCharLiteral, AstCharType, AstConstructor, AstConstructorExpr, AstDeleteObjExpr, AstDestructor, AstFieldInit, AstGeneric, AstGenericConstraint, AstGenericType, AstIndexingExpr, AstListType, AstMethod, AstMethodModifier, AstNewArrayExpr, AstNewObjExpr, AstNoneLiteral, AstNullType, AstNullableType, AstOperatorOverload, AstReadOnlyType, AstSelfLiteral, AstStaticAccessExpr, AstStruct, AstThisType, AstUnitLiteral, AstVisibility};
 use arena::AstArena;
 use logos::Span;
 
@@ -173,18 +170,58 @@ impl<'ast> Parser<'ast> {
         }
     }
 
+    fn parse_constructor(&mut self, class_name: String) -> ParseResult<AstConstructor<'ast>> {
+        self.expect(TokenKind::Identifier(class_name))?;
+        self.expect(TokenKind::LParen)?;
+        let mut params = vec![];
+        while self.current().kind() != TokenKind::RParen {
+            params.push(self.parse_obj_field()?);
+            if self.current().kind() == TokenKind::Comma {
+                let _ = self.advance();
+            }
+        }
+        self.expect(TokenKind::RParen)?;
+        let body = self.parse_block()?;
+        let node = AstConstructor {
+            span: Span::union_span(&params.first().unwrap().span, &body.span),
+            args: self.arena.alloc_vec(params),
+            body: self.arena.alloc(body),
+        };
+        Ok(node)
+    }
+    fn parse_destructor(&mut self, class_name: String) -> ParseResult<AstDestructor<'ast>> {
+        self.expect(TokenKind::Tilde)?;
+        self.expect(TokenKind::Identifier(class_name))?;
+        self.expect(TokenKind::LParen)?;
+        let mut params = vec![];
+        while self.current().kind() != TokenKind::RParen {
+            params.push(self.parse_obj_field()?);
+            if self.current().kind() == TokenKind::Comma {
+                let _ = self.advance();
+            }
+        }
+        self.expect(TokenKind::RParen)?;
+        let body = self.parse_block()?;
+        let node = AstDestructor {
+            span: Span::union_span(&body.span, &body.span),
+            args: self.arena.alloc_vec(params),
+            body: self.arena.alloc(body),
+        };
+        Ok(node)
+    }
+
     fn parse_struct(&mut self) -> ParseResult<AstStruct<'ast>> {
         self.expect(TokenKind::KwStruct)?;
-        let struct_name = self.parse_identifier()?;
+        let struct_identifier = self.parse_identifier()?;
 
         let generics = self.eat_if(
-            TokenKind::LBracket,
+            TokenKind::LAngle,
             |p| {
-                let value = p.eat_until(TokenKind::RBracket, |parser| {
+                let value = p.eat_until(TokenKind::RAngle, |parser| {
                     parser.eat_if(TokenKind::Comma, |_| Ok(()), ())?;
                     parser.parse_generic()
                 });
-                p.expect(TokenKind::RBracket)?;
+                p.expect(TokenKind::RAngle)?;
                 value
             },
             vec![],
@@ -192,6 +229,8 @@ impl<'ast> Parser<'ast> {
 
         self.expect(TokenKind::LBrace)?;
         let mut fields = vec![];
+        let mut constructor: Option<&'ast AstConstructor<'ast>> = None;
+        let mut destructor: Option<&'ast AstDestructor<'ast>> = None;
         let mut methods = vec![];
         let mut operators = vec![];
         let mut constants = vec![];
@@ -199,16 +238,9 @@ impl<'ast> Parser<'ast> {
         while self.current().kind() != TokenKind::RBrace {
             curr_vis = self.parse_current_vis(curr_vis)?;
             match self.current().kind() {
-                //TODO: Add const functions (i.e. `const func foo() { ... }`)
                 TokenKind::KwConst => {
+                    //TODO: Add const functions (i.e. `const func foo() { ... }`)
                     constants.push(self.parse_const()?);
-                    self.expect(TokenKind::Semicolon)?;
-                }
-                TokenKind::KwLet => {
-                    self.expect(TokenKind::KwLet)?;
-                    let mut obj_field = self.parse_obj_field()?;
-                    obj_field.vis = curr_vis;
-                    fields.push(obj_field);
                     self.expect(TokenKind::Semicolon)?;
                 }
                 TokenKind::KwOperator => {
@@ -218,6 +250,43 @@ impl<'ast> Parser<'ast> {
                     let mut method = self.parse_method()?;
                     method.vis = curr_vis;
                     methods.push(method);
+                }
+                TokenKind::Identifier(s) => {
+                    if s == struct_identifier.name {
+                        if constructor.is_none() {
+                            constructor = Some(self.arena.alloc(self.parse_constructor(struct_identifier.name.to_owned())?));
+                        } else {
+                            //We still parse it so we can give a better error message and recover later
+                            let bad_constructor = self.parse_constructor(struct_identifier.name.to_owned())?;
+                            return Err(ParseError::OnlyOneConstructorAllowed(OnlyOneConstructorAllowedError {
+                                span: SourceSpan::new(
+                                    SourceOffset::from(bad_constructor.span.start),
+                                    bad_constructor.span.end - bad_constructor.span.start,
+                                ),
+                                src: self.src.clone(),
+                            }));
+                        }
+                    } else {
+                        let mut obj_field = self.parse_obj_field()?;
+                        obj_field.vis = curr_vis;
+                        fields.push(obj_field);
+                        self.expect(TokenKind::Semicolon)?;
+                    }
+                }
+                TokenKind::Tilde => {
+                    if destructor.is_none() {
+                        destructor = Some(self.arena.alloc(self.parse_destructor(struct_identifier.name.to_owned())?));
+                    } else {
+                        //We still parse it so we can give a better error message and recover later
+                        let bad_destructor = self.parse_destructor(struct_identifier.name.to_owned())?;
+                        return Err(ParseError::OnlyOneConstructorAllowed(OnlyOneConstructorAllowedError {
+                            span: SourceSpan::new(
+                                SourceOffset::from(bad_destructor.span.start),
+                                bad_destructor.span.end - bad_destructor.span.start,
+                            ),
+                            src: self.src.clone(),
+                        }));
+                    }
                 }
                 _ => {
                     return Err(ParseError::UnexpectedToken(UnexpectedTokenError {
@@ -238,22 +307,24 @@ impl<'ast> Parser<'ast> {
         if fields.is_empty() {
             return Err(ParseError::NoFieldInStruct(NoFieldInStructError {
                 span: SourceSpan::new(
-                    SourceOffset::from(struct_name.span.start),
-                    end.end - struct_name.span.start,
+                    SourceOffset::from(struct_identifier.span.start),
+                    end.end - struct_identifier.span.start,
                 ),
                 src: self.src.clone(),
             }));
         }
 
         let node = AstStruct {
-            span: Span::union_span(&struct_name.span, &self.current().span()),
-            name_span: struct_name.span.clone(),
-            name: self.arena.alloc(struct_name),
+            span: Span::union_span(&struct_identifier.span, &self.current().span()),
+            name_span: struct_identifier.span.clone(),
+            name: self.arena.alloc(struct_identifier),
             field_span: Span::union_span(
                 &fields.first().unwrap().span,
                 &fields.last().unwrap().span,
             ),
             fields: self.arena.alloc_vec(fields),
+            constructor,
+            destructor,
             generics: self.arena.alloc_vec(generics),
             methods: self.arena.alloc_vec(methods),
             operators: self.arena.alloc_vec(operators),
@@ -305,7 +376,7 @@ impl<'ast> Parser<'ast> {
         let mut ret_ty = AstType::Unit(AstUnitType {
             span: Span::default(),
         });
-        if self.current().kind() == TokenKind::Colon {
+        if self.current().kind() == TokenKind::RArrow {
             let _ = self.advance();
             ret_ty = self.parse_type()?;
         }
@@ -477,7 +548,7 @@ impl<'ast> Parser<'ast> {
         let mut ret_ty = AstType::Unit(AstUnitType {
             span: Span::default(),
         });
-        if self.current().kind() == TokenKind::Colon {
+        if self.current().kind() == TokenKind::RArrow {
             let _ = self.advance();
             ret_ty = self.parse_type()?;
         }
@@ -788,6 +859,12 @@ impl<'ast> Parser<'ast> {
                 let _ = self.advance();
                 node
             }
+            TokenKind::KwNew => {
+                self.parse_new_obj()?
+            }
+            TokenKind::KwDelete => {
+                self.parse_delete_obj()?
+            }
             TokenKind::KwThis => {
                 let node =
                     AstExpr::Literal(AstLiteral::SelfLiteral(AstSelfLiteral { span: tok.span() }));
@@ -819,7 +896,17 @@ impl<'ast> Parser<'ast> {
         Ok(node)
     }
 
-    fn parse_constructor(&mut self, struct_name: AstIdentifier<'ast>) -> ParseResult<AstConstructorExpr<'ast>> {
+    fn parse_delete_obj(&mut self) -> ParseResult<AstExpr<'ast>> {
+        let start = self.advance();
+        let expr = self.parse_expr()?;
+        let node: AstExpr<'_> = AstExpr::Delete(AstDeleteObjExpr {
+            span: Span::union_span(&start.span(), &expr.span()),
+            target: self.arena.alloc(expr),
+        });
+        Ok(node)
+    }
+
+    fn parse_constructor_expr(&mut self, struct_name: AstIdentifier<'ast>) -> ParseResult<AstConstructorExpr<'ast>> {
         self.expect(TokenKind::LBrace)?;
         let mut fields = vec![];
         while self.current().kind() != TokenKind::RBrace {
@@ -848,8 +935,11 @@ impl<'ast> Parser<'ast> {
         let mut node = origin;
         while self.peek().is_some() {
             match self.current().kind() {
-                TokenKind::LParen | TokenKind::LBracket => {
+                TokenKind::LParen => {
                     node = AstExpr::Call(self.parse_fn_call(node)?);
+                }
+                TokenKind::LBracket => {
+                    node = AstExpr::Indexing(self.parse_indexing(node)?);
                 }
                 //Struct base constructor, i.e.: `Foo { bar = 42, baz = 69 }`
                 TokenKind::LBrace => {
@@ -859,7 +949,7 @@ impl<'ast> Parser<'ast> {
                         if !ident.name.chars().next().unwrap().is_uppercase() {
                             break;
                         }
-                        node = AstExpr::Constructor(self.parse_constructor(ident)?);
+                        node = AstExpr::Constructor(self.parse_constructor_expr(ident)?);
                     } else {
                         //Just a break because it's not a parse error, just not a constructor
                         break;
@@ -913,7 +1003,7 @@ impl<'ast> Parser<'ast> {
         self.expect(TokenKind::KwNew)?;
         match self.current().kind() {
             TokenKind::Identifier(_) => {
-                let name = self.parse_identifier()?;
+                let ty = self.parse_type()?;
 
                 self.expect(TokenKind::LParen)?;
                 let mut args = vec![];
@@ -927,11 +1017,27 @@ impl<'ast> Parser<'ast> {
                 }
                 self.expect(TokenKind::RParen)?;
                 let node = AstExpr::NewObj(AstNewObjExpr {
-                    span: Span::union_span(&name.span, &self.current().span()),
-                    ty: self.arena.alloc(name),
+                    span: Span::union_span(&ty.span(), &self.current().span()),
+                    ty: self.arena.alloc(ty),
                     args: self.arena.alloc_vec(args),
                 });
 
+                Ok(node)
+            }
+            TokenKind::LBracket => {
+                self.expect(TokenKind::LBracket)?;
+                let ty = self.parse_type()?;
+                self.expect(TokenKind::Semicolon)?;
+                let size = self.parse_expr()?;
+                self.expect(TokenKind::RBracket)?;
+                let node = AstExpr::NewArray(AstNewArrayExpr {
+                    span: Span::union_span(&ty.span(), &size.span()),
+                    ty: self.arena.alloc(AstType::List(AstListType {
+                        span: ty.span(),
+                        inner: self.arena.alloc(ty),
+                    })),
+                    size: self.arena.alloc(size),
+                });
                 Ok(node)
             }
             _ => Err(ParseError::UnexpectedToken(UnexpectedTokenError {
@@ -1165,15 +1271,19 @@ impl<'ast> Parser<'ast> {
 
     fn parse_fn_call(&mut self, callee: AstExpr<'ast>) -> ParseResult<AstCallExpr<'ast>> {
         let mut generic_types = vec![];
-        if self.current().kind == TokenKind::LBracket {
-            let _ = self.advance();
-            while self.current().kind != TokenKind::RBracket {
-                generic_types.push(self.parse_type()?);
-                if self.current().kind == TokenKind::Comma {
-                    let _ = self.advance();
+        //Turbo fish operator (i.e. `Vector::<i32>()`)
+        if self.current().kind == TokenKind::DoubleColon {
+            self.expect(TokenKind::DoubleColon)?;
+            if self.current().kind == TokenKind::LAngle {
+                let _ = self.advance();
+                while self.current().kind != TokenKind::RAngle {
+                    generic_types.push(self.parse_type()?);
+                    if self.current().kind == TokenKind::Comma {
+                        let _ = self.advance();
+                    }
                 }
+                self.expect(TokenKind::RAngle)?;
             }
-            self.expect(TokenKind::RBracket)?;
         }
         self.expect(TokenKind::LParen)?;
 
@@ -1191,6 +1301,21 @@ impl<'ast> Parser<'ast> {
             callee: self.arena.alloc(callee),
             args: self.arena.alloc_vec(args),
             generics: self.arena.alloc_vec(generic_types),
+        };
+        Ok(node)
+    }
+
+    fn parse_indexing(&mut self, target: AstExpr<'ast>) -> ParseResult<AstIndexingExpr<'ast>> {
+        self.expect(TokenKind::LBracket)?;
+
+        let index = self.parse_expr()?;
+
+        self.expect(TokenKind::RBracket)?;
+
+        let node = AstIndexingExpr {
+            span: Span::union_span(&target.span(), &self.current().span()),
+            target: self.arena.alloc(target),
+            index: self.arena.alloc(index),
         };
         Ok(node)
     }
@@ -1290,10 +1415,10 @@ impl<'ast> Parser<'ast> {
             TokenKind::Identifier(_) => {
                 let name = self.parse_identifier()?;
                 eprintln!("Named type found: {:?}", name);
-                let node = if self.current().kind == TokenKind::LBracket { //Manage generics i.e. `Foo[T, E, Array[B, T], ...]`
-                    let _ = self.advance();
+                let node = if self.current().kind == TokenKind::LAngle { //Manage generics i.e. `Foo[T, E, Array[B, T], ...]`
+                    self.expect(TokenKind::LAngle)?;
                     let mut inner_types = vec![];
-                    while self.current().kind() != TokenKind::RBracket {
+                    while self.current().kind() != TokenKind::RAngle {
                         println!("Hello, infinite loop");
                         inner_types.push(self.parse_type()?);
                         if self.current().kind() == TokenKind::Comma {
@@ -1390,92 +1515,60 @@ mod tests {
     #[test]
     fn test_parse_struct() -> Result<()> {
         let input = r#"
-/// ===============================
-/// FFI bindings (implemented in Rust)
-/// ===============================
-/// These are thin external functions providing the actual
-/// array operations. The `Array[T]` type below is just a
-/// safe wrapper around them.
+public struct Vector<T> {
+    private:
+        data: [T];
+    public:
+        length: uint64;
+        capacity: uint64;
 
-extern arr_new[T](): externptr;
-extern arr_reserve[T](ptr: externptr, cap: Int64): Unit;
-extern arr_len[T](ptr: externptr): Int64;
-extern arr_slice[T](ptr: externptr, start: Int64, end: Int64): externptr;
-extern arr_pop[T](ptr: externptr): T;
-extern arr_push[T](ptr: externptr, val: T): Unit;
-extern arr_remove[T](ptr: externptr, index: Int64): Unit;
-extern arr_get[T](ptr: externptr, index: Int64): T;
-
-
-/// ===============================
-/// Array[T]
-/// ===============================
-/// A mutable, growable array of elements of type `T`.
-/// This is a thin wrapper around the Rust FFI functions.
-///
-/// # Syntax Sugar
-/// The expression:
-///
-/// ```
-/// Array(1, 2, 3)
-/// ```
-///
-/// is *not* a literal. It is syntactic sugar that lowers to:
-///
-/// ```atlas77
-/// let __arr: Array[Int64] = Array[Int64].init()
-/// collections::arr_reserve(__arr.handle, 3)
-/// __arr.push(1)
-/// __arr.push(2)
-/// __arr.push(3)
-/// __arr
-/// ```
-///
-/// This lowering happens after type and access-modifier checks.
-///
-
-struct Array[T] {
-    let handle: externptr;
-
-    /// Creates a new, empty array.
-    fun init(): Array[T] {
-        const h: externptr = arr_new[T]();
-        return Array { handle = h };
+    Vector(data: [T]) {
+        this.length = len(data);
+        this.capacity = self.length;
+        this.data = data;
+    }
+    ~Vector() {
+        this.data = 0;
+        this.length = 0;
+        delete this.data;
     }
 
-    /// Returns the number of elements currently in the array.
-    fun len(this): Int64 {
-        arr_len(this.handle);
+    /// A function that doesn't have a "self" parameter is a static function
+    /// static functions are called like this: "Vector::<T>::function_name()"
+    fun with_capacity(capacity: uint64) -> Vector<T> {
+        return new Vector<T>(new [T; capacity]);
     }
 
-    /// Returns a slice of the array between `start` (inclusive) and `end` (exclusive).
-    fun slice(this, start: Int64, end: Int64): Array[T] {
-        const h: externptr = arr_slice(this.handle, start, end);
-        Array { handle = h };
+    /// A function that has a "self" parameter is a method of the struct
+    /// and is called like this: "vector_instance.function_name()"
+    fun push(this, val: T) {
+        if this.capacity <= self.length {
+            let new_capacity = this.capacity * 2;
+
+            let new_data = new [T; new_capacity];
+            let i = 0;
+            while i < this.length {
+                new_data[i] = this.data[i];
+                i = i + 1;
+            }
+            let data_to_delete = this.data;
+            this.data = new_data;
+            this.capacity = new_capacity;
+
+            delete data_to_delete;
+        }
+        this.data[self.length] = val;
+        this.length = this.length + 1;
     }
 
-    /// Removes and returns the last element of the array.
-    fun pop(this): T {
-        arr_pop(this.handle);
+    fun pop(this) -> T {
+        if this.length == 0 {
+            std::panic("Cannot pop from an empty vector");
+        }
+        this.length = this.length - 1;
+        return this.data[this.length];
     }
-
-    /// Appends an element to the end of the array.
-    fun push(this, value: T): Unit {
-        arr_push(this.handle, value);
-    }
-
-    /// Removes the element at the given index.
-    fun remove(this, index: Int64): Unit {
-        arr_remove(this.handle, index);
-    }
-
-    /// Returns the element at the given index.
-    fun get(this, index: Int64): T {
-        arr_get(this.handle, index);
-    }
-}
-
-"#
+}"#
             .to_string();
         let mut lexer = AtlasLexer::new("<stdin>", input.clone());
         //lexer.set_source(input.to_string());

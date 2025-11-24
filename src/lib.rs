@@ -96,7 +96,7 @@ pub fn run(path: String, _flag: CompilationFlag) -> miette::Result<()> {
     let assembler = atlas_asm::Assembler::new();
     let asm = assembler.asm_from_instruction(program)?;
     let mut file = std::fs::File::create("output.atlas_asm").unwrap();
-    file.write_all(assembler.display_asm(&asm).as_bytes()).unwrap();
+    //file.write_all(assembler.display_asm(&asm).as_bytes()).unwrap();
     //WARNING: The VM is currently disabled
     /*
     //run

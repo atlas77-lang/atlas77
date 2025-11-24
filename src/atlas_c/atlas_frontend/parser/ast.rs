@@ -79,6 +79,8 @@ pub struct AstStruct<'ast> {
     pub vis: AstVisibility,
     pub fields: &'ast [&'ast AstObjField<'ast>],
     pub field_span: Span,
+    pub constructor: Option<&'ast AstConstructor<'ast>>,
+    pub destructor: Option<&'ast AstDestructor<'ast>>,
     pub generics: &'ast [&'ast AstGeneric<'ast>],
     /// Will be ignored until we add support for traits
     pub operators: &'ast [&'ast AstOperatorOverload<'ast>],
@@ -103,6 +105,20 @@ pub struct AstOperatorOverload<'ast> {
     pub args: &'ast [&'ast AstObjField<'ast>],
     pub body: &'ast AstBlock<'ast>,
     pub ret: &'ast AstType<'ast>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AstConstructor<'ast> {
+    pub span: Span,
+    pub args: &'ast [&'ast AstObjField<'ast>],
+    pub body: &'ast AstBlock<'ast>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AstDestructor<'ast> {
+    pub span: Span,
+    pub args: &'ast [&'ast AstObjField<'ast>],
+    pub body: &'ast AstBlock<'ast>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -217,9 +233,12 @@ pub enum AstExpr<'ast> {
     Call(AstCallExpr<'ast>),
     Literal(AstLiteral<'ast>),
     Identifier(AstIdentifier<'ast>),
+    Indexing(AstIndexingExpr<'ast>),
     FieldAccess(AstFieldAccessExpr<'ast>),
     StaticAccess(AstStaticAccessExpr<'ast>),
     NewObj(AstNewObjExpr<'ast>),
+    Delete(AstDeleteObjExpr<'ast>),
+    NewArray(AstNewArrayExpr<'ast>),
     _Block(AstBlock<'ast>),
     Assign(AstAssignExpr<'ast>),
     Casting(AstCastingExpr<'ast>),
@@ -237,15 +256,25 @@ impl AstExpr<'_> {
             AstExpr::Call(e) => e.span.clone(),
             AstExpr::Literal(e) => e.span(),
             AstExpr::Identifier(e) => e.span.clone(),
+            AstExpr::Indexing(e) => e.span.clone(),
+
             AstExpr::FieldAccess(e) => e.span.clone(),
             AstExpr::StaticAccess(e) => e.span.clone(),
             AstExpr::NewObj(e) => e.span.clone(),
+            AstExpr::Delete(e) => e.span.clone(),
+            AstExpr::NewArray(e) => e.span.clone(),
             AstExpr::_Block(e) => e.span.clone(),
             AstExpr::Assign(e) => e.span.clone(),
             AstExpr::Casting(e) => e.span.clone(),
             AstExpr::Constructor(e) => e.span.clone(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AstDeleteObjExpr<'ast> {
+    pub span: Span,
+    pub target: &'ast AstExpr<'ast>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -276,12 +305,17 @@ pub struct AstConstructorExpr<'ast> {
     pub fields: &'ast [&'ast AstFieldInit<'ast>],
 }
 #[derive(Debug, Clone, Serialize)]
-// This will need a lot of rework, because we dropped the "new" keyword
-// We also introduced a TypeName { field = value, ... } syntax
 pub struct AstNewObjExpr<'ast> {
     pub span: Span,
-    pub ty: &'ast AstIdentifier<'ast>,
+    pub ty: &'ast AstType<'ast>,
     pub args: &'ast [&'ast AstExpr<'ast>],
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AstNewArrayExpr<'ast> {
+    pub span: Span,
+    pub ty: &'ast AstType<'ast>,
+    pub size: &'ast AstExpr<'ast>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -303,6 +337,13 @@ pub struct AstFieldAccessExpr<'ast> {
     pub span: Span,
     pub target: &'ast AstExpr<'ast>,
     pub field: &'ast AstIdentifier<'ast>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AstIndexingExpr<'ast> {
+    pub span: Span,
+    pub target: &'ast AstExpr<'ast>,
+    pub index: &'ast AstExpr<'ast>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -566,7 +607,6 @@ pub struct AstGenericType<'ast> {
 }
 
 #[derive(Debug, Clone, Serialize)]
-#[deprecated]
 ///A List type in atlas as the form of `[T]`
 pub struct AstListType<'ast> {
     pub span: Span,
