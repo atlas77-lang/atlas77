@@ -21,6 +21,7 @@ const NULLABLE_TY_ID: u8 = 0x40;
 const READONLY_TY_ID: u8 = 0x41;
 const UNINITIALIZED_TY_ID: u8 = 0x50;
 const NAMED_TY_ID: u8 = 0x60;
+const GENERIC_TY_ID: u8 = 0x70;
 
 impl HirTyId {
     pub fn compute_null_ty_id() -> Self {
@@ -89,6 +90,7 @@ impl HirTyId {
         Self(hasher.finish())
     }
 
+    /// Not used in type system yet.
     pub fn compute_readonly_ty_id(inner: &HirTyId) -> Self {
         let mut hasher = DefaultHasher::new();
         (READONLY_TY_ID, inner).hash(&mut hasher);
@@ -104,6 +106,12 @@ impl HirTyId {
     pub fn compute_name_ty_id(name: &str) -> Self {
         let mut hasher = DefaultHasher::new();
         (NAMED_TY_ID, name).hash(&mut hasher);
+        Self(hasher.finish())
+    }
+
+    pub fn compute_generic_ty_id(name: &str, params: &[HirTyId]) -> Self {
+        let mut hasher = DefaultHasher::new();
+        (GENERIC_TY_ID, name, params).hash(&mut hasher);
         Self(hasher.finish())
     }
 }
@@ -124,6 +132,10 @@ impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
             HirTy::Uninitialized(_) => Self::compute_uninitialized_ty_id(),
             HirTy::Nullable(ty) => HirTyId::compute_nullable_ty_id(&HirTyId::from(ty.inner)),
             HirTy::Const(ty) => HirTyId::compute_readonly_ty_id(&HirTyId::from(ty.inner)),
+            HirTy::Generic(g) => {
+                let params = g.inner.iter().map(HirTyId::from).collect::<Vec<_>>();
+                HirTyId::compute_generic_ty_id(g.name, &params)
+            }
             HirTy::_Function(f) => {
                 let parameters = f.params.iter().map(HirTyId::from).collect::<Vec<_>>();
                 let ret_ty = HirTyId::from(f.ret_ty);
@@ -148,7 +160,7 @@ pub enum HirTy<'hir> {
     Uninitialized(HirUninitializedTy),
     Nullable(HirNullableTy<'hir>),
     Const(HirConstTy<'hir>),
-
+    Generic(HirGenericTy<'hir>),
     _Function(HirFunctionTy<'hir>),
 }
 
@@ -168,12 +180,25 @@ impl fmt::Display for HirTy<'_> {
             HirTy::Char(_) => write!(f, "char"),
             HirTy::Unit(_) => write!(f, "unit"),
             HirTy::Boolean(_) => write!(f, "bool"),
-            HirTy::String(_) => write!(f, "str"),
+            HirTy::String(_) => write!(f, "string"),
             HirTy::List(ty) => write!(f, "[{}]", ty),
             HirTy::Named(ty) => write!(f, "{}", ty.name),
             HirTy::Uninitialized(_) => write!(f, "uninitialized"),
             HirTy::Nullable(ty) => write!(f, "{}?", ty.inner),
             HirTy::Const(ty) => write!(f, "const {}", ty.inner),
+            HirTy::Generic(ty) => {
+                if ty.inner.is_empty() {
+                    write!(f, "{}", ty.name)
+                } else {
+                    let params = ty
+                        .inner
+                        .iter()
+                        .map(|p| format!("{}", p))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    write!(f, "{}<{}>", ty.name, params)
+                }
+            }
             HirTy::_Function(func) => {
                 let params = func
                     .params
@@ -242,6 +267,12 @@ pub struct HirStringTy {}
 pub struct HirFunctionTy<'hir> {
     pub ret_ty: &'hir HirTy<'hir>,
     pub params: Vec<HirTy<'hir>>,
+}
+
+#[derive(Debug, Clone, Serialize, Eq, Hash, PartialEq)]
+pub struct HirGenericTy<'hir> {
+    pub name: &'hir str,
+    pub inner: Vec<HirTy<'hir>>,
 }
 
 #[derive(Debug, Clone, Serialize, Eq, Hash, PartialEq)]

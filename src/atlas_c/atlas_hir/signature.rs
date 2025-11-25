@@ -23,11 +23,15 @@ pub struct HirStructSignature<'hir> {
     pub span: Span,
     pub vis: HirVisibility,
     pub name: &'hir str,
-    pub methods: BTreeMap<&'hir str, &'hir HirClassMethodSignature<'hir>>,
-    pub fields: BTreeMap<&'hir str, HirClassFieldSignature<'hir>>,
+    pub methods: BTreeMap<&'hir str, HirStructMethodSignature<'hir>>,
+    pub fields: BTreeMap<&'hir str, HirStructFieldSignature<'hir>>,
+    /// Generic type parameter names
+    pub generics: Vec<&'hir str>,
     /// This is enough to know if the class implement them or not
     pub operators: Vec<HirBinaryOp>,
-    pub constants: BTreeMap<&'hir str, &'hir HirStructConstSignature<'hir>>,
+    pub constants: BTreeMap<&'hir str, &'hir HirStructConstantSignature<'hir>>,
+    pub constructor: HirStructConstructorSignature<'hir>,
+    pub destructor: HirStructConstructorSignature<'hir>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -50,7 +54,15 @@ impl From<AstVisibility> for HirVisibility {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct HirStructConstSignature<'hir> {
+//Also used for the destructor
+pub struct HirStructConstructorSignature<'hir> {
+    pub span: Span,
+    pub params: Vec<HirFunctionParameterSignature<'hir>>,
+    pub type_params: Vec<HirTypeParameterItemSignature<'hir>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HirStructConstantSignature<'hir> {
     pub span: Span,
     pub vis: HirVisibility,
     pub name: &'hir str,
@@ -103,7 +115,7 @@ impl TryFrom<HirExpr<'_>> for ConstantValue {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct HirClassFieldSignature<'hir> {
+pub struct HirStructFieldSignature<'hir> {
     pub span: Span,
     pub vis: HirVisibility,
     pub name: &'hir str,
@@ -113,14 +125,14 @@ pub struct HirClassFieldSignature<'hir> {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct HirClassMethodSignature<'hir> {
+pub struct HirStructMethodSignature<'hir> {
     pub span: Span,
     pub vis: HirVisibility,
     pub modifier: HirStructMethodModifier,
-    pub params: Vec<&'hir HirFunctionParameterSignature<'hir>>,
+    pub params: Vec<HirFunctionParameterSignature<'hir>>,
     pub generics: Option<Vec<&'hir HirTypeParameterItemSignature<'hir>>>,
     pub type_params: Vec<&'hir HirTypeParameterItemSignature<'hir>>,
-    pub return_ty: &'hir HirTy<'hir>,
+    pub return_ty: HirTy<'hir>,
     pub return_ty_span: Option<Span>,
 }
 
@@ -136,11 +148,11 @@ pub enum HirStructMethodModifier {
 pub struct HirFunctionSignature<'hir> {
     pub span: Span,
     pub vis: HirVisibility,
-    pub params: Vec<&'hir HirFunctionParameterSignature<'hir>>,
+    pub params: Vec<HirFunctionParameterSignature<'hir>>,
     pub generics: Option<Vec<&'hir HirTypeParameterItemSignature<'hir>>>,
     pub type_params: Vec<&'hir HirTypeParameterItemSignature<'hir>>,
     /// The user can declare a function without a return type, in which case the return type is `()`.
-    pub return_ty: &'hir HirTy<'hir>,
+    pub return_ty: HirTy<'hir>,
     /// The span of the return type, if it exists.
     pub return_ty_span: Option<Span>,
     pub is_external: bool,
@@ -154,7 +166,7 @@ impl Default for HirFunctionSignature<'_> {
             params: Vec::new(),
             generics: None,
             type_params: Vec::new(),
-            return_ty: &HirTy::Unit(HirUnitTy {}),
+            return_ty: HirTy::Unit(HirUnitTy {}),
             return_ty_span: None,
             is_external: false,
         }

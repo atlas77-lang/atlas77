@@ -1,6 +1,6 @@
 use super::{signature::HirFunctionSignature, stmt::HirBlock};
 use crate::atlas_c::atlas_hir::signature::{
-    HirClassFieldSignature, HirClassMethodSignature, HirFunctionParameterSignature,
+    HirFunctionParameterSignature, HirStructFieldSignature, HirStructMethodSignature,
     HirStructSignature, HirTypeParameterItemSignature,
 };
 use logos::Span;
@@ -32,24 +32,26 @@ pub struct HirStruct<'hir> {
     pub name: &'hir str,
     pub name_span: Span,
     pub signature: &'hir HirStructSignature<'hir>,
-    pub methods: Vec<HirClassMethod<'hir>>,
-    pub fields: Vec<HirClassFieldSignature<'hir>>,
+    pub methods: Vec<HirStructMethod<'hir>>,
+    pub fields: Vec<HirStructFieldSignature<'hir>>,
+    pub constructor: HirStructConstructor<'hir>,
+    pub destructor: HirStructConstructor<'hir>,
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct HirClassMethod<'hir> {
+pub struct HirStructMethod<'hir> {
     pub span: Span,
     pub name: &'hir str,
     pub name_span: Span,
-    pub signature: &'hir HirClassMethodSignature<'hir>,
+    pub signature: &'hir HirStructMethodSignature<'hir>,
     pub body: HirBlock<'hir>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 /// Also used for the destructor
-pub struct HirClassConstructor<'hir> {
+pub struct HirStructConstructor<'hir> {
     pub span: Span,
-    pub params: Vec<&'hir HirFunctionParameterSignature<'hir>>,
-    pub type_params: Vec<&'hir HirTypeParameterItemSignature<'hir>>,
+    pub params: Vec<HirFunctionParameterSignature<'hir>>,
+    pub type_params: Vec<HirTypeParameterItemSignature<'hir>>,
     pub body: HirBlock<'hir>,
 }

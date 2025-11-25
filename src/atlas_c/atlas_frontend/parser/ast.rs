@@ -457,6 +457,7 @@ pub enum AstLiteral<'ast> {
     SelfLiteral(AstSelfLiteral),
     String(AstStringLiteral<'ast>),
     Boolean(AstBooleanLiteral),
+    List(AstListLiteral<'ast>),
     None(AstNoneLiteral),
 }
 
@@ -471,6 +472,7 @@ impl AstLiteral<'_> {
             AstLiteral::SelfLiteral(l) => l.span.clone(),
             AstLiteral::String(l) => l.span.clone(),
             AstLiteral::Boolean(l) => l.span.clone(),
+            AstLiteral::List(l) => l.span.clone(),
             AstLiteral::None(l) => l.span.clone(),
         }
     }
@@ -495,6 +497,12 @@ pub struct AstCharLiteral {
 #[derive(Debug, Clone, Serialize)]
 pub struct AstUnitLiteral {
     pub span: Span,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AstListLiteral<'ast> {
+    pub span: Span,
+    pub items: &'ast [&'ast AstExpr<'ast>],
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -566,6 +574,43 @@ impl AstType<'_> {
             AstType::Null(t) => t.span.clone(),
             AstType::List(t) => t.span.clone(),
             AstType::Generic(t) => t.span.clone(),
+        }
+    }
+}
+
+impl<'ast> AstType<'ast> {
+    pub fn name(&self) -> String {
+        match self {
+            AstType::Unit(_) => "unit".to_owned(),
+            AstType::Boolean(_) => "bool".to_owned(),
+            AstType::Integer(_) => "int64".to_owned(),
+            AstType::Float(_) => "float64".to_owned(),
+            AstType::UnsignedInteger(_) => "uint64".to_owned(),
+            AstType::Char(_) => "char".to_owned(),
+            AstType::ThisTy(_) => "This".to_owned(),
+            AstType::String(_) => "string".to_owned(),
+            AstType::Named(t) => t.name.name.to_owned(),
+            AstType::Pointer(t) => format!("&{}", t.inner.name()),
+            AstType::Nullable(t) => format!("{}?", t.inner.name()),
+            AstType::ReadOnly(r) => format!("const {}", r.inner.name()),
+            AstType::Null(_) => "none".to_owned(),
+            AstType::List(t) => format!("[{}]", t.inner.name()),
+            AstType::Generic(t) => {
+                if t.inner_types.is_empty() {
+                    t.name.name.to_owned()
+                } else {
+                    let params = t
+                        .inner_types
+                        .iter()
+                        .map(|p| p.name())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("{}<{}>", t.name.name, params)
+                }
+            }
+            _ => {
+                panic!("Type does not have a name yet")
+            }
         }
     }
 }

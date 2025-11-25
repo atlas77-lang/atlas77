@@ -243,7 +243,7 @@ pub enum TokenKind {
     BoolTy,
     #[token("This")]
     ThisTy,
-    #[token("str")]
+    #[token("string")]
     StrTy,
     EoI,
 }

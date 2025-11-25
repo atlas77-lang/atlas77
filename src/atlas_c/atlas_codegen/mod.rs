@@ -785,7 +785,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
 
     fn generate_bytecode_args(
         &mut self,
-        args: Vec<&HirFunctionParameterSignature<'hir>>,
+        args: Vec<HirFunctionParameterSignature<'hir>>,
         bytecode: &mut Vec<Instruction>,
         //The index of the first arguments
         base_index: u8,

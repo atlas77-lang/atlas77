@@ -14,6 +14,7 @@ declare_error_type! {
         FunctionTypeMismatch(FunctionTypeMismatchError),
         UnsupportedStatement(UnsupportedStatement),
         UnsupportedExpr(UnsupportedExpr),
+        UnsupportedType(UnsupportedTypeError),
         TryingToNegateUnsigned(TryingToNegateUnsignedError),
         TryingToMutateImmutableVariable(TryingToMutateImmutableVariableError),
         EmptyListLiteral(EmptyListLiteralError),
@@ -132,6 +133,17 @@ pub struct UnsupportedExpr {
 }
 
 #[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::unsupported_type))]
+#[error("{ty} isn't supported yet")]
+pub struct UnsupportedTypeError {
+    #[label = "unsupported type"]
+    pub span: Span,
+    pub ty: String,
+    #[source_code]
+    pub src: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::unsupported_stmt))]
 #[error("{stmt} isn't supported yet")]
 pub struct UnsupportedStatement {
@@ -144,7 +156,7 @@ pub struct UnsupportedStatement {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::unknown_type))]
-#[error("{name} does not name a known type")]
+#[error("{name} is not a known type")]
 pub struct UnknownTypeError {
     pub name: String,
     #[label = "could not find type {name}"]

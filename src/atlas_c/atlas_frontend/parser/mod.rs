@@ -22,7 +22,7 @@ use crate::atlas_c::atlas_frontend::lexer::{
     token::{Token, TokenKind}, Spanned,
     TokenVec,
 };
-use crate::atlas_c::atlas_frontend::parser::ast::{AstCastingExpr, AstCharLiteral, AstCharType, AstConstructor, AstConstructorExpr, AstDeleteObjExpr, AstDestructor, AstFieldInit, AstGeneric, AstGenericConstraint, AstGenericType, AstIndexingExpr, AstListType, AstMethod, AstMethodModifier, AstNewArrayExpr, AstNewObjExpr, AstNoneLiteral, AstNullType, AstNullableType, AstOperatorOverload, AstReadOnlyType, AstSelfLiteral, AstStaticAccessExpr, AstStruct, AstThisType, AstUnitLiteral, AstVisibility};
+use crate::atlas_c::atlas_frontend::parser::ast::{AstCastingExpr, AstCharLiteral, AstCharType, AstConstructor, AstConstructorExpr, AstDeleteObjExpr, AstDestructor, AstFieldInit, AstGeneric, AstGenericConstraint, AstGenericType, AstIndexingExpr, AstListLiteral, AstListType, AstMethod, AstMethodModifier, AstNewArrayExpr, AstNewObjExpr, AstNoneLiteral, AstNullType, AstNullableType, AstOperatorOverload, AstReadOnlyType, AstSelfLiteral, AstStaticAccessExpr, AstStruct, AstThisType, AstUnitLiteral, AstVisibility};
 use arena::AstArena;
 use logos::Span;
 
@@ -865,6 +865,22 @@ impl<'ast> Parser<'ast> {
             TokenKind::KwDelete => {
                 self.parse_delete_obj()?
             }
+            TokenKind::LBracket => {
+                let start = self.advance();
+                let mut elements = vec![];
+                while self.current().kind() != TokenKind::RBracket {
+                    elements.push(self.parse_expr()?);
+                    if self.current().kind() == TokenKind::Comma {
+                        let _ = self.advance();
+                    }
+                }
+                self.expect(TokenKind::RBracket)?;
+                let node = AstExpr::Literal(AstLiteral::List(AstListLiteral {
+                    span: start.span(),
+                    items: self.arena.alloc_vec(elements),
+                }));
+                node
+            }
             TokenKind::KwThis => {
                 let node =
                     AstExpr::Literal(AstLiteral::SelfLiteral(AstSelfLiteral { span: tok.span() }));
@@ -1109,10 +1125,10 @@ impl<'ast> Parser<'ast> {
 
         let mut generics = None;
         //Start of generic with `fn foo<T>() -> T`
-        if self.current().kind == TokenKind::LBracket {
-            self.expect(TokenKind::LBracket)?;
+        if self.current().kind == TokenKind::LAngle {
+            self.expect(TokenKind::LAngle)?;
             let mut generic_names = vec![];
-            while self.current().kind != TokenKind::RBracket {
+            while self.current().kind != TokenKind::RAngle {
                 let generic_name = self.parse_identifier()?;
                 generic_names.push(AstNamedType {
                     span: self.current().span(),
@@ -1122,7 +1138,7 @@ impl<'ast> Parser<'ast> {
                     let _ = self.advance();
                 }
             }
-            self.expect(TokenKind::RBracket)?;
+            self.expect(TokenKind::RAngle)?;
             generics = Some(self.arena.alloc_vec(generic_names));
         }
 
@@ -1414,12 +1430,10 @@ impl<'ast> Parser<'ast> {
             }
             TokenKind::Identifier(_) => {
                 let name = self.parse_identifier()?;
-                eprintln!("Named type found: {:?}", name);
                 let node = if self.current().kind == TokenKind::LAngle { //Manage generics i.e. `Foo[T, E, Array[B, T], ...]`
                     self.expect(TokenKind::LAngle)?;
                     let mut inner_types = vec![];
                     while self.current().kind() != TokenKind::RAngle {
-                        println!("Hello, infinite loop");
                         inner_types.push(self.parse_type()?);
                         if self.current().kind() == TokenKind::Comma {
                             let _ = self.advance();
@@ -1515,6 +1529,8 @@ mod tests {
     #[test]
     fn test_parse_struct() -> Result<()> {
         let input = r#"
+import "std/io"
+
 public struct Vector<T> {
     private:
         data: [T];
@@ -1568,7 +1584,14 @@ public struct Vector<T> {
         this.length = this.length - 1;
         return this.data[this.length];
     }
-}"#
+}
+fun main() {
+    let vec = new Vector<int64>([1, 2, 3, 4, 5]);
+    vec.push(6);
+    let val = vec.pop();
+    print("Popped value: " + val);
+}
+"#
             .to_string();
         let mut lexer = AtlasLexer::new("<stdin>", input.clone());
         //lexer.set_source(input.to_string());

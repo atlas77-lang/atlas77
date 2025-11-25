@@ -5,11 +5,7 @@ use std::{
     rc::Rc,
 };
 
-use super::ty::{
-    HirBooleanTy, HirCharTy, HirConstTy, HirFloatTy, HirIntegerTy, HirListTy, HirNamedTy,
-    HirNullTy, HirNullableTy, HirStringTy, HirTy, HirTyId, HirUninitializedTy, HirUnitTy,
-    HirUnsignedIntTy,
-};
+use super::ty::{HirBooleanTy, HirCharTy, HirConstTy, HirFloatTy, HirGenericTy, HirIntegerTy, HirListTy, HirNamedTy, HirNullTy, HirNullableTy, HirStringTy, HirTy, HirTyId, HirUninitializedTy, HirUnitTy, HirUnsignedIntTy};
 use bumpalo::Bump;
 use logos::Span;
 
@@ -192,6 +188,24 @@ impl<'arena> TypeArena<'arena> {
         self.intern.borrow_mut().entry(id).or_insert_with(|| {
             self.allocator
                 .alloc(HirTy::Named(HirNamedTy { name, span }))
+        })
+    }
+
+    pub fn get_generic_ty(
+        &'arena self,
+        name: &'arena str,
+        inner: Vec<&'arena HirTy<'arena>>,
+    ) -> &'arena HirTy<'arena> {
+        // compute stable id from name + inner types
+        let param_ids = inner.iter().map(|t| HirTyId::from(*t)).collect::<Vec<_>>();
+        let id = HirTyId::compute_generic_ty_id(name, &param_ids);
+        self.intern.borrow_mut().entry(id).or_insert_with(|| {
+            // clone inner hir types to store inside the owned Vec
+            let inner_owned = inner.iter().map(|t| (*t).clone()).collect::<Vec<_>>();
+            self.allocator.alloc(HirTy::Generic(HirGenericTy {
+                name,
+                inner: inner_owned,
+            }))
         })
     }
 }
