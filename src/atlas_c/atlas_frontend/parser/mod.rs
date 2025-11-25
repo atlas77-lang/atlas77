@@ -518,12 +518,12 @@ impl<'ast> Parser<'ast> {
     fn parse_current_vis(&mut self, previous_vis: AstVisibility) -> ParseResult<AstVisibility> {
         match self.current().kind() {
             TokenKind::KwPublic => {
-                let _ = self.advance();
+                self.expect(TokenKind::KwPublic)?;
                 self.expect(TokenKind::Colon)?;
                 Ok(AstVisibility::Public)
             }
             TokenKind::KwPrivate => {
-                let _ = self.advance();
+                self.expect(TokenKind::KwPrivate)?;
                 self.expect(TokenKind::Colon)?;
                 Ok(AstVisibility::Private)
             }
@@ -1195,7 +1195,7 @@ impl<'ast> Parser<'ast> {
                 }));
             }
         };
-        let _ = self.advance();
+        let end = self.advance();
 
         if let TokenKind::KwAs = self.current().kind() {
             let _ = self.advance();
@@ -1208,7 +1208,7 @@ impl<'ast> Parser<'ast> {
             Ok(node)
         } else {
             let node = AstImport {
-                span: Span::union_span(&start.span(), &start.span()),
+                span: Span::union_span(&start.span(), &end.span()),
                 path: self.arena.alloc(path),
                 alias: None,
             };

@@ -20,9 +20,10 @@ pub struct HirModuleSignature<'hir> {
 ///
 /// Generic classes are not supported yet.
 pub struct HirStructSignature<'hir> {
-    pub span: Span,
+    pub declaration_span: Span,
     pub vis: HirVisibility,
     pub name: &'hir str,
+    pub name_span: Span,
     pub methods: BTreeMap<&'hir str, HirStructMethodSignature<'hir>>,
     pub fields: BTreeMap<&'hir str, HirStructFieldSignature<'hir>>,
     /// Generic type parameter names

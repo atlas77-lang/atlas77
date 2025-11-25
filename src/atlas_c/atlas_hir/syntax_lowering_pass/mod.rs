@@ -1,9 +1,5 @@
 pub mod case;
 
-use heck::{ToPascalCase, ToSnakeCase};
-use miette::{SourceOffset, SourceSpan};
-use std::collections::BTreeMap;
-
 use crate::atlas_c::atlas_frontend::parser::ast::{AstConstructor, AstDestructor, AstIdentifier, AstMethod, AstMethodModifier, AstNamedType, AstStruct};
 use crate::atlas_c::atlas_frontend::{
     parse,
@@ -15,6 +11,11 @@ use crate::atlas_c::atlas_frontend::{
         },
     },
 };
+use heck::{ToPascalCase, ToSnakeCase};
+use logos::Span;
+use miette::{SourceOffset, SourceSpan};
+use std::cmp::PartialEq;
+use std::collections::BTreeMap;
 
 const FILE_ATLAS: &str = include_str!("../../../atlas_lib/std/fs.atlas");
 const IO_ATLAS: &str = include_str!("../../../atlas_lib/std/io.atlas");
@@ -22,11 +23,13 @@ const ARRAY_ATLAS: &str = include_str!("../../../atlas_lib/std/array.atlas");
 const MATH_ATLAS: &str = include_str!("../../../atlas_lib/std/math.atlas");
 const STRING_ATLAS: &str = include_str!("../../../atlas_lib/std/string.atlas");
 
-use crate::atlas_c::atlas_hir::error::{NonConstantValueError, UnsupportedTypeError};
+use crate::atlas_c::atlas_hir::error::HirError::UnknownType;
+use crate::atlas_c::atlas_hir::error::{NonConstantValueError, NotEnoughGenericsError, UnknownFileImportError, UnknownTypeError, UnsupportedTypeError};
 use crate::atlas_c::atlas_hir::expr::{HirCastExpr, HirCharLiteralExpr, HirConstructorExpr, HirDeleteExpr, HirFieldAccessExpr, HirFieldInit, HirIndexingExpr, HirListLiteralExpr, HirNewArrayExpr, HirNewObjExpr, HirNoneLiteral, HirStaticAccessExpr, HirStringLiteralExpr, HirThisLiteral, HirUnitLiteralExpr};
 use crate::atlas_c::atlas_hir::item::{HirStruct, HirStructConstructor, HirStructMethod};
 use crate::atlas_c::atlas_hir::signature::{ConstantValue, HirStructConstantSignature, HirStructConstructorSignature, HirStructFieldSignature, HirStructMethodModifier, HirStructMethodSignature, HirStructSignature, HirVisibility};
 use crate::atlas_c::atlas_hir::syntax_lowering_pass::case::Case;
+use crate::atlas_c::atlas_hir::ty::{HirGenericTy, HirListTy, HirNamedTy};
 use crate::atlas_c::atlas_hir::{
     arena::HirArena, error::{HirError, HirResult, UnsupportedExpr, UnsupportedStatement}, expr::{
         HirAssignExpr, HirBinaryOp, HirBinaryOpExpr, HirBooleanLiteralExpr, HirExpr,
@@ -53,6 +56,9 @@ pub struct AstSyntaxLoweringPass<'ast, 'hir> {
     ast_arena: &'ast AstArena<'ast>,
     //source code
     src: String,
+    generic_structs_pool: BTreeMap<&'hir str, HirStruct<'hir>>,
+    module_body: HirModuleBody<'hir>,
+    module_signature: HirModuleSignature<'hir>,
 }
 
 impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
@@ -67,31 +73,27 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             ast,
             ast_arena,
             src,
+            generic_structs_pool: BTreeMap::new(),
+            module_body: HirModuleBody::default(),
+            module_signature: HirModuleSignature::default(),
         }
     }
 }
 
-impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir>
-where
-    'ast: 'hir,
-{
-    pub fn lower(&self) -> HirResult<HirModule> {
-        let mut module_body = HirModuleBody::default();
-        let mut module_signature = HirModuleSignature::default();
-
+impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
+    pub fn lower(&mut self) -> HirResult<&'hir mut HirModule<'hir>> {
         let mut items = Vec::new();
         for item in self.ast.items {
-            items.push(self.visit_item(&mut module_body, &mut module_signature, item)?);
+            items.push(self.visit_item(item)?);
         }
-        Ok(HirModule {
-            body: module_body,
-            signature: module_signature,
-        })
+        Ok(self.arena.intern(HirModule {
+            //TODO: Clone removal
+            body: self.module_body.clone(),
+            signature: self.module_signature.clone(),
+        }))
     }
     pub fn visit_item(
-        &self,
-        module_body: &mut HirModuleBody<'hir>,
-        module_signature: &mut HirModuleSignature<'hir>,
+        &mut self,
         item: &'ast AstItem<'ast>,
     ) -> HirResult<()> {
         match item {
@@ -105,23 +107,27 @@ where
                         name.to_snake_case()
                     );
                 }
-                module_signature.functions.insert(name, fun.signature);
-                module_body.functions.insert(name, fun);
+                self.module_signature.functions.insert(name, fun.signature);
+                self.module_body.functions.insert(name, fun);
             }
-            //todo: add support for classes
             AstItem::Struct(c) => {
                 let class = self.visit_struct(c)?;
-                module_signature.structs.insert(class.name, class.signature);
-                module_body.structs.insert(class.name, class);
+                //Only insert non generics structs into the module signature
+                if class.signature.generics.is_empty() {
+                    self.module_signature.structs.insert(class.name, self.arena.intern(class.signature.clone()));
+                    self.module_body.structs.insert(class.name, class);
+                } else {
+                    self.generic_structs_pool.insert(class.name, class);
+                }
             }
             AstItem::Import(i) => {
                 let hir = self.visit_import(i)?;
                 let allocated_hir: &'hir HirModule<'hir> = self.arena.intern(hir);
                 for (name, signature) in allocated_hir.signature.functions.iter() {
-                    module_signature.functions.insert(name, *signature);
+                    self.module_signature.functions.insert(name, *signature);
                 }
                 allocated_hir.body.imports.iter().for_each(|i| {
-                    module_body.imports.push(i);
+                    self.module_body.imports.push(i);
                 });
             }
             AstItem::ExternFunction(e) => {
@@ -178,9 +184,8 @@ where
                     return_ty_span: Some(e.ret.span()),
                     is_external: true,
                 });
-                module_signature.functions.insert(name, hir);
+                self.module_signature.functions.insert(name, hir);
             }
-            _ => {}
         }
         Ok(())
     }
@@ -199,7 +204,7 @@ where
         Ok(hir)
     }
 
-    fn visit_struct(&self, node: &'ast AstStruct<'ast>) -> HirResult<HirStruct<'hir>> {
+    fn visit_struct(&mut self, node: &'ast AstStruct<'ast>) -> HirResult<HirStruct<'hir>> {
         let name = self.arena.names().get(node.name.name);
         if !name.is_pascal_case() {
             eprintln!("Warning: {} is not pascal case", name);
@@ -215,10 +220,10 @@ where
             methods.push(fun);
         }
 
-        let mut generics = Vec::new();
+        let mut generics: Vec<&'hir str> = Vec::new();
         if !node.generics.is_empty() {
             for generic in node.generics.iter() {
-                generics.push(generic.name.name);
+                generics.push(self.arena.intern(generic.name.name.to_owned()));
             }
         }
 
@@ -228,7 +233,7 @@ where
             let name = self.arena.names().get(field.name.name);
             fields.push(HirStructFieldSignature {
                 span: field.span.clone(),
-                vis: node.vis.into(),
+                vis: HirVisibility::from(field.vis),
                 name,
                 name_span: field.name.span.clone(),
                 ty,
@@ -287,8 +292,9 @@ where
             type_params: destructor.type_params.to_vec(),
         };
 
-        let signature = self.arena.intern(HirStructSignature {
-            span: node.span.clone(),
+        let signature = HirStructSignature {
+            declaration_span: node.span.clone(),
+            name_span: node.name.span.clone(),
             vis: node.vis.into(),
             name,
             methods: {
@@ -310,7 +316,7 @@ where
             generics,
             constructor: constructor_signature,
             destructor: destructor_signature,
-        });
+        };
 
         Ok(HirStruct {
             span: node.span.clone(),
@@ -324,7 +330,7 @@ where
         })
     }
 
-    fn visit_method(&self, node: &'ast AstMethod<'ast>) -> HirResult<HirStructMethod<'hir>> {
+    fn visit_method(&mut self, node: &'ast AstMethod<'ast>) -> HirResult<HirStructMethod<'hir>> {
         let type_parameters = node
             .args
             .iter()
@@ -347,7 +353,7 @@ where
             },
             span: node.span.clone(),
             //TODO: PLACEHOLDER FOR NOW. NEED TO HANDLE VISIBILITY MODIFIERS IN METHODS
-            vis: HirVisibility::Public,
+            vis: node.vis.into(),
             params: parameters?,
             //Generics aren't supported yet for normal functions
             generics: None,
@@ -365,7 +371,7 @@ where
         Ok(method)
     }
 
-    fn visit_constructor(&self, constructor: Option<&'ast AstConstructor<'ast>>, fields: &[HirStructFieldSignature<'hir>]) -> HirResult<HirStructConstructor<'hir>> {
+    fn visit_constructor(&mut self, constructor: Option<&'ast AstConstructor<'ast>>, fields: &[HirStructFieldSignature<'hir>]) -> HirResult<HirStructConstructor<'hir>> {
         if constructor.is_none() {
             let mut params: Vec<HirFunctionParameterSignature<'hir>> = Vec::new();
             for field in fields.iter() {
@@ -388,11 +394,11 @@ where
                 });
             }
             let hir = HirStructConstructor {
-                span: logos::Span::default(),
+                span: Span::default(),
                 params,
                 type_params,
                 body: HirBlock {
-                    span: logos::Span::default(),
+                    span: Span::default(),
                     statements: Vec::new(),
                 },
             };
@@ -429,7 +435,7 @@ where
         Ok(hir)
     }
 
-    fn visit_destructor(&self, destructor: Option<&'ast AstDestructor<'ast>>) -> HirResult<HirStructConstructor<'hir>> {
+    fn visit_destructor(&mut self, destructor: Option<&'ast AstDestructor<'ast>>) -> HirResult<HirStructConstructor<'hir>> {
         if destructor.is_none() {
             let hir = HirStructConstructor {
                 span: logos::Span::default(),
@@ -474,8 +480,9 @@ where
     }
 
     //This needs to be generalized
-    fn visit_import(&self, node: &'ast AstImport<'ast>) -> HirResult<HirModule<'hir>> {
-        match node.path.split("/").last().unwrap() {
+    fn visit_import(&mut self, node: &'ast AstImport<'ast>) -> HirResult<&'hir HirModule<'hir>> {
+        let file_name = node.path.split("/").last().unwrap();
+        match file_name {
             "io" => {
                 let ast: AstProgram<'ast> = parse(
                     "atlas_lib/std/io.atlas",
@@ -483,26 +490,33 @@ where
                     IO_ATLAS.to_string(),
                 )
                     .unwrap();
-                let allocated_ast = self.ast_arena.alloc(ast);
-                let hir = self.arena.intern(AstSyntaxLoweringPass::<'ast, 'hir>::new(
+                let allocated_ast: &'ast AstProgram = self.ast_arena.alloc(ast);
+                let mut ast_lowering_pass = AstSyntaxLoweringPass::<'ast, 'hir>::new(
                     self.arena,
                     allocated_ast,
                     self.ast_arena,
-                    IO_ATLAS.to_string(),
-                ));
-                let mut lower = hir.lower()?;
-
-                let hir_import: &'hir HirImport<'_> = self.arena.intern(HirImport {
+                    IO_ATLAS.to_owned(),
+                );
+                let mut hir = ast_lowering_pass.lower()?;
+                let path: &'hir str = self.arena.names().get(node.path);
+                let hir_import: &'hir HirImport<'hir> = self.arena.intern(HirImport {
                     span: node.span.clone(),
-                    path: node.path,
+                    path,
                     path_span: node.span.clone(),
                     alias: None,
                     alias_span: None,
                 });
 
-                lower.body.imports.push(hir_import);
+                let new_hir = self.arena.intern(HirModule {
+                    body: {
+                        let mut body = hir.body.clone();
+                        body.imports.push(hir_import);
+                        body
+                    },
+                    signature: hir.signature.clone(),
+                });
 
-                Ok(lower)
+                Ok(new_hir)
             }
             "math" => {
                 let ast: AstProgram<'ast> = parse(
@@ -512,23 +526,31 @@ where
                 )
                     .unwrap();
                 let allocated_ast = self.ast_arena.alloc(ast);
-                let hir = self.arena.intern(AstSyntaxLoweringPass::<'ast, 'hir>::new(
+                let mut hir = AstSyntaxLoweringPass::<'ast, 'hir>::new(
                     self.arena,
                     allocated_ast,
                     self.ast_arena,
                     MATH_ATLAS.to_string(),
-                ));
-                let mut lower = hir.lower()?;
-                let hir_import: &'hir HirImport<'_> = self.arena.intern(HirImport {
+                ).lower()?;
+                let path: &'hir str = self.arena.names().get(node.path);
+                let hir_import: &'hir HirImport<'hir> = self.arena.intern(HirImport {
                     span: node.span.clone(),
-                    path: node.path,
+                    path,
                     path_span: node.span.clone(),
                     alias: None,
                     alias_span: None,
                 });
 
-                lower.body.imports.push(hir_import);
-                Ok(lower)
+                let new_hir = self.arena.intern(HirModule {
+                    body: {
+                        let mut body = hir.body.clone();
+                        body.imports.push(hir_import);
+                        body
+                    },
+                    signature: hir.signature.clone(),
+                });
+
+                Ok(new_hir)
             }
             "file" => {
                 let ast: AstProgram<'ast> = parse(
@@ -538,13 +560,16 @@ where
                 )
                     .unwrap();
                 let allocated_ast = self.ast_arena.alloc(ast);
-                let hir = self.arena.intern(AstSyntaxLoweringPass::<'ast, 'hir>::new(
+                let mut hir = AstSyntaxLoweringPass::<'ast, 'hir>::new(
                     self.arena,
                     allocated_ast,
                     self.ast_arena,
                     FILE_ATLAS.to_string(),
-                ));
-                hir.lower()
+                ).lower()?;
+
+                let hir = self.arena.intern(hir);
+
+                Ok(hir)
             }
             "list" => {
                 let ast: AstProgram<'ast> = parse(
@@ -554,24 +579,31 @@ where
                 )
                     .unwrap();
                 let allocated_ast = self.ast_arena.alloc(ast);
-                let hir = self.arena.intern(AstSyntaxLoweringPass::<'ast, 'hir>::new(
+                let mut hir = AstSyntaxLoweringPass::<'ast, 'hir>::new(
                     self.arena,
                     allocated_ast,
                     self.ast_arena,
                     ARRAY_ATLAS.to_string(),
-                ));
-                let mut lower = hir.lower()?;
-
-                let hir_import: &'hir HirImport<'_> = self.arena.intern(HirImport {
+                ).lower()?;
+                let path: &'hir str = self.arena.names().get(node.path);
+                let hir_import: &'hir HirImport<'hir> = self.arena.intern(HirImport {
                     span: node.span.clone(),
-                    path: node.path,
+                    path,
                     path_span: node.span.clone(),
                     alias: None,
                     alias_span: None,
                 });
 
-                lower.body.imports.push(hir_import);
-                Ok(lower)
+                let new_hir = self.arena.intern(HirModule {
+                    body: {
+                        let mut body = hir.body.clone();
+                        body.imports.push(hir_import);
+                        body
+                    },
+                    signature: hir.signature.clone(),
+                });
+
+                Ok(new_hir)
             }
             "string" => {
                 let ast: AstProgram<'ast> = parse(
@@ -581,26 +613,31 @@ where
                 )
                     .unwrap();
                 let allocated_ast = self.ast_arena.alloc(ast);
-                let hir = self.arena.intern(AstSyntaxLoweringPass::<'ast, 'hir>::new(
+                let mut hir = AstSyntaxLoweringPass::<'ast, 'hir>::new(
                     self.arena,
                     allocated_ast,
                     self.ast_arena,
                     STRING_ATLAS.to_string(),
-                ));
-
-                let mut lower = hir.lower()?;
-
-                let hir_import: &'hir HirImport<'_> = self.arena.intern(HirImport {
+                ).lower()?;
+                let path: &'hir str = self.arena.names().get(node.path);
+                let hir_import: &'hir HirImport<'hir> = self.arena.intern(HirImport {
                     span: node.span.clone(),
-                    path: node.path,
+                    path,
                     path_span: node.span.clone(),
                     alias: None,
                     alias_span: None,
                 });
 
-                lower.body.imports.push(hir_import);
+                let new_hir = self.arena.intern(HirModule {
+                    body: {
+                        let mut body = hir.body.clone();
+                        body.imports.push(hir_import);
+                        body
+                    },
+                    signature: hir.signature.clone(),
+                });
 
-                Ok(lower)
+                Ok(new_hir)
             }
             "time" => {
                 let ast: AstProgram<'ast> = parse(
@@ -610,26 +647,29 @@ where
                 )
                     .unwrap();
                 let allocated_ast = self.ast_arena.alloc(ast);
-                let hir = self.arena.intern(AstSyntaxLoweringPass::<'ast, 'hir>::new(
+                let hir = AstSyntaxLoweringPass::<'ast, 'hir>::new(
                     self.arena,
                     allocated_ast,
                     self.ast_arena,
                     IO_ATLAS.to_string(),
-                ));
-                hir.lower()
+                ).lower()?;
+
+                let hir = self.arena.intern(hir);
+
+                Ok(hir)
             }
-            _ => Err(HirError::UnsupportedStatement(UnsupportedStatement {
+            _ => Err(HirError::UnknownFileImport(UnknownFileImportError {
                 span: SourceSpan::new(
                     SourceOffset::from(node.span.start),
                     node.span.end - node.span.start,
                 ),
-                stmt: format!("{:?}", node),
+                file_name: file_name.to_string(),
                 src: self.src.clone(),
             })),
         }
     }
 
-    fn visit_block(&self, node: &'ast AstBlock<'ast>) -> HirResult<HirBlock<'hir>> {
+    fn visit_block(&mut self, node: &'ast AstBlock<'ast>) -> HirResult<HirBlock<'hir>> {
         let statements = node
             .stmts
             .iter()
@@ -641,7 +681,7 @@ where
         })
     }
 
-    fn visit_stmt(&self, node: &'ast AstStatement<'ast>) -> HirResult<HirStatement<'hir>> {
+    fn visit_stmt(&mut self, node: &'ast AstStatement<'ast>) -> HirResult<HirStatement<'hir>> {
         match node {
             AstStatement::While(w) => {
                 let condition = self.visit_expr(w.condition)?;
@@ -732,7 +772,7 @@ where
                 });
                 Ok(hir)
             }
-            _ => Err(super::error::HirError::UnsupportedStatement(
+            _ => Err(HirError::UnsupportedStatement(
                 UnsupportedStatement {
                     span: SourceSpan::new(
                         SourceOffset::from(node.span().start),
@@ -745,7 +785,7 @@ where
         }
     }
 
-    fn visit_expr(&self, node: &'ast AstExpr<'ast>) -> HirResult<HirExpr<'hir>> {
+    fn visit_expr(&mut self, node: &'ast AstExpr<'ast>) -> HirResult<HirExpr<'hir>> {
         match node {
             AstExpr::Assign(a) => {
                 let target = self.visit_expr(a.target)?;
@@ -822,14 +862,10 @@ where
                 Ok(hir)
             }
             AstExpr::NewObj(obj) => {
-                let ty_name = self.arena.names().get(&obj.ty.name());
+                let ty = self.visit_ty(obj.ty)?;
                 let hir = HirExpr::NewObj(HirNewObjExpr {
                     span: node.span(),
-                    ty: if let AstType::Generic(g) = obj.ty {
-                        self.visit_ty(obj.ty)?
-                    } else {
-                        self.arena.types().get_named_ty(ty_name, obj.ty.span())
-                    },
+                    ty: self.whatever_for_now(ty, obj.span.clone())?,
                     args: obj
                         .args
                         .iter()
@@ -908,7 +944,7 @@ where
                     }),
                     AstLiteral::String(ast_string) => HirExpr::StringLiteral(HirStringLiteralExpr {
                         span: l.span(),
-                        value: ast_string.value,
+                        value: self.arena.intern(ast_string.value.to_owned()),
                         ty: self.arena.types().get_str_ty(),
                     }),
                     AstLiteral::List(l) => {
@@ -922,16 +958,6 @@ where
                             items: elements,
                             ty: self.arena.types().get_uninitialized_ty(),
                         })
-                    }
-                    _ => {
-                        return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                            span: SourceSpan::new(
-                                SourceOffset::from(l.span().start),
-                                l.span().end - l.span().start,
-                            ),
-                            expr: format!("1{:?}", l),
-                            src: self.src.clone(),
-                        }));
                     }
                 };
                 Ok(hir)
@@ -973,11 +999,12 @@ where
                     span: f.span.clone(),
                     value: Box::new(self.visit_expr(f.value)?),
                 })).collect::<HirResult<Vec<_>>>()?;
-                let hir = HirExpr::Constructor(HirConstructorExpr {
+                let constructor_name: &'hir mut str = self.arena.intern(ast_constructor.ty.name.to_owned());
+                let hir = HirExpr::ConstructorExpr(HirConstructorExpr {
                     name: self.arena.names().get(ast_constructor.ty.name),
                     span: node.span(),
                     fields,
-                    ty: self.arena.types().get_named_ty(ast_constructor.ty.name, ast_constructor.ty.span.clone()),
+                    ty: self.arena.types().get_named_ty(constructor_name, ast_constructor.ty.span.clone()),
                 });
                 Ok(hir)
             }
@@ -992,6 +1019,34 @@ where
                     src: self.src.clone(),
                 }))
             }
+        }
+    }
+
+    //TODO: Find a better name for this function. It's responsible for monomorphizing or not every `new Struct<T>()` expression.
+    //TODO: e.g. if `T` is also a generic type, we can't monomorphize it yet.
+    //What should I name it?
+    fn whatever_for_now(&mut self, ty: &'hir HirTy<'hir>, span: Span) -> HirResult<&'hir HirTy<'hir>> {
+        if let HirTy::Generic(g) = ty {
+            let mut can_monomorphize = true;
+            for inner_ty in g.inner.iter() {
+                if let HirTy::Named(n) = inner_ty {
+                    //If the inner type is a single letter, we assume it's a generic type parameter
+                    can_monomorphize = n.name.len() != 1;
+                } else if let HirTy::Generic(g) = inner_ty {
+                    self.whatever_for_now(inner_ty, span.clone())?;
+                }
+                if !can_monomorphize {
+                    break;
+                }
+            }
+            if can_monomorphize {
+                let monomorphized_ty = self.monomorphize_struct(g, &span)?;
+                Ok(monomorphized_ty)
+            } else {
+                Ok(ty)
+            }
+        } else {
+            Ok(ty)
         }
     }
 
@@ -1021,7 +1076,7 @@ where
         Ok(op)
     }
 
-    fn visit_func(&self, node: &'ast AstFunction<'ast>) -> HirResult<HirFunction<'hir>> {
+    fn visit_func(&mut self, node: &'ast AstFunction<'ast>) -> HirResult<HirFunction<'hir>> {
         let type_parameters = node
             .args
             .iter()
@@ -1058,7 +1113,7 @@ where
     }
 
     fn visit_func_param(
-        &self,
+        &mut self,
         node: &'ast AstObjField<'ast>,
     ) -> HirResult<HirFunctionParameterSignature<'hir>> {
         let name = self.arena.names().get(node.name.name);
@@ -1088,7 +1143,7 @@ where
         Ok(hir)
     }
 
-    fn visit_ty(&self, node: &'ast AstType<'ast>) -> HirResult<&'hir HirTy<'hir>> {
+    fn visit_ty(&mut self, node: &'ast AstType<'ast>) -> HirResult<&'hir HirTy<'hir>> {
         let ty = match node {
             AstType::Boolean(_) => self.arena.types().get_boolean_ty(),
             AstType::Integer(_) => self.arena.types().get_integer64_ty(),
@@ -1121,7 +1176,8 @@ where
                     .map(|inner_ast_ty| self.visit_ty(inner_ast_ty))
                     .collect::<HirResult<Vec<_>>>()?;
                 let name = self.arena.names().get(g.name.name);
-                self.arena.types().get_generic_ty(name, inner_types)
+                let ty = self.arena.types().get_generic_ty(name, inner_types);
+                self.whatever_for_now(ty, node.span())?
             }
             //The self ty is replaced during the type checking phase
             AstType::ThisTy(_) => self.arena.types().get_uninitialized_ty(),
@@ -1139,3 +1195,343 @@ where
         Ok(ty)
     }
 }
+
+impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
+    /// Returns the mangled type name after monomorphization.
+    pub fn monomorphize_struct(&mut self, actual_type: &'hir HirGenericTy<'hir>, span: &Span) -> HirResult<&'hir HirTy<'hir>> {
+        let mangled_name = self.mangle_generic_struct_name(actual_type);
+        if self.module_body.structs.contains_key(&mangled_name) {
+            //Already monomorphized
+            return Ok(self.arena.types().get_named_ty(mangled_name, span.clone()));
+        }
+
+        let base_name = actual_type.name;
+        let template = match self.generic_structs_pool.contains_key(base_name) {
+            true => self.generic_structs_pool.get(base_name).unwrap(),
+            false => {
+                return Err(UnknownType(UnknownTypeError {
+                    name: base_name.to_string(),
+                    span: SourceSpan::new(
+                        SourceOffset::from(span.start),
+                        span.end - span.start,
+                    ),
+                    src: self.src.clone(),
+                }));
+            }
+        };
+
+        let mut new_struct = template.clone();
+        //Collect generic names
+        let generic_names = template.signature.generics.clone();
+        if generic_names.len() != actual_type.inner.len() {
+            let declaration_span = template.name_span.clone();
+            return Err(HirError::NotEnoughGenerics(NotEnoughGenericsError {
+                ty_name: base_name.to_string(),
+                expected: generic_names.len(),
+                found: actual_type.inner.len(),
+                declaration_span: SourceSpan::new(
+                    SourceOffset::from(declaration_span.start),
+                    declaration_span.end - declaration_span.start,
+                ),
+                error_span: SourceSpan::new(
+                    SourceOffset::from(span.start),
+                    span.end - span.start,
+                ),
+                src: self.src.clone(),
+            }));
+        }
+
+        //TODO: Right now we can't have nested generics (i.e. Box<T> -> Vector<Box<int64>>)
+        //TODO: Add a bunch of helper functions for that
+        //TODO: NB: This would require calling the "monomorphize_struct" function recursively.
+        //TODO: I'll do it once the basic monomorphization is working and stable enough.
+
+        for (_, field_signature) in new_struct.signature.fields.iter_mut() {
+            for (i, generic_name) in generic_names.iter().enumerate() {
+                field_signature.ty = self.change_inner_type(field_signature.ty, generic_name, actual_type.inner[i].clone());
+            }
+        }
+
+        for (i, arg) in new_struct.signature.constructor.params.clone().iter().enumerate() {
+            for (j, generic_name) in generic_names.iter().enumerate() {
+                let new_ty = self.change_inner_type(arg.ty, generic_name, actual_type.inner[j].clone());
+                let new_ty = if let HirTy::Generic(g) = new_ty {
+                    self.arena.intern(HirTy::Named(HirNamedTy {
+                        name: self.mangle_generic_struct_name(self.arena.intern(g)),
+                        span: arg.span.clone(),
+                    }))
+                } else {
+                    new_ty
+                };
+                if new_ty != arg.ty {
+                    new_struct.signature.constructor.params[i] = HirFunctionParameterSignature {
+                        name: arg.name,
+                        name_span: arg.name_span.clone(),
+                        span: arg.span.clone(),
+                        ty: new_ty,
+                        ty_span: arg.ty_span.clone(),
+                    };
+                }
+            }
+        }
+
+        for (_, func) in new_struct.signature.methods.iter_mut() {
+            //args:
+            for param in func.params.iter_mut() {
+                for (i, generic_name) in generic_names.iter().enumerate() {
+                    let type_to_change = self.arena.intern(param.ty.clone());
+                    let new_ty = self.change_inner_type(type_to_change, generic_name, actual_type.inner[i].clone()).clone();
+                    let new_ty = if let HirTy::Generic(g) = new_ty {
+                        HirTy::Named(HirNamedTy {
+                            name: self.mangle_generic_struct_name(self.arena.intern(g)),
+                            span: param.span.clone(),
+                        })
+                    } else {
+                        new_ty
+                    };
+                    param.ty = self.arena.intern(new_ty);
+                }
+            }
+
+            //ret_type:
+            for (i, generic_name) in generic_names.iter().enumerate() {
+                let type_to_change = self.arena.intern(func.return_ty.clone());
+                func.return_ty = self.change_inner_type(type_to_change, generic_name, actual_type.inner[i].clone()).clone();
+            }
+            func.generics = None;
+        }
+
+        //At this point the signature is fully monomorphized, but the actual struct itself isn't.
+        //We still need to change the new_struct.fields/new_struct.methods/new_struct.constructor
+
+        for (i, field) in new_struct.fields.clone().iter().enumerate() {
+            new_struct.fields[i] = new_struct.signature.fields.get(field.name).unwrap().clone();
+        }
+        for (i, method) in new_struct.methods.clone().iter().enumerate() {
+            new_struct.methods[i].signature = self.arena.intern(new_struct.signature.methods.get(method.name).unwrap().clone());
+        }
+        for (i, _) in new_struct.constructor.params.clone().iter().enumerate() {
+            new_struct.constructor.params[i] = new_struct.signature.constructor.params[i].clone();
+        }
+
+        //And lastly, we need to update the statements inside the constructor and methods to reflect the new types.
+        //It's mostly changing the name of every `new Struct<Generic>` to `new __atlas77__Struct__actual_types`
+
+        let type_to_change: Vec<(&'hir str, &'hir HirTy<'hir>)> = generic_names
+            .iter()
+            .enumerate()
+            .map(|(i, generic_name)| (*generic_name, self.arena.intern(actual_type.inner[i].clone()) as &'hir HirTy<'hir>))
+            .collect::<Vec<(&'hir str, &'hir HirTy<'hir>)>>();
+
+        for method in new_struct.methods.iter_mut() {
+            for statement in method.body.statements.iter_mut() {
+                self.monomorphize_statement(statement, type_to_change.clone())?;
+            }
+        }
+
+        new_struct.signature.generics = vec![];
+        new_struct.name = mangled_name;
+        new_struct.signature.name = mangled_name;
+
+        self.module_signature.structs.insert(mangled_name, self.arena.intern(new_struct.signature.clone()));
+        self.module_body.structs.insert(mangled_name, new_struct);
+
+        Ok(self.arena.types().get_named_ty(mangled_name, span.clone()))
+    }
+
+    fn monomorphize_statement(&mut self, statement: &mut HirStatement<'hir>, types_to_change: Vec<(&'hir str, &'hir HirTy<'hir>)>) -> HirResult<()> {
+        match statement {
+            HirStatement::Expr(expr_stmt) => {
+                self.monomorphize_expression(&mut expr_stmt.expr, types_to_change)?;
+            }
+            HirStatement::Let(let_stmt) => {
+                self.monomorphize_expression(&mut let_stmt.value, types_to_change)?;
+            }
+            HirStatement::While(while_stmt) => {
+                for stmt in while_stmt.body.statements.iter_mut() {
+                    self.monomorphize_statement(stmt, types_to_change.clone())?;
+                }
+                self.monomorphize_expression(&mut while_stmt.condition, types_to_change)?;
+            }
+            HirStatement::IfElse(if_else_stmt) => {
+                for stmt in if_else_stmt.then_branch.statements.iter_mut() {
+                    self.monomorphize_statement(stmt, types_to_change.clone())?;
+                }
+                if let Some(else_branch) = &mut if_else_stmt.else_branch {
+                    for stmt in else_branch.statements.iter_mut() {
+                        self.monomorphize_statement(stmt, types_to_change.clone())?;
+                    }
+                }
+                self.monomorphize_expression(&mut if_else_stmt.condition, types_to_change)?;
+            }
+            HirStatement::Return(return_stmt) => {
+                self.monomorphize_expression(&mut return_stmt.value, types_to_change)?;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn monomorphize_expression(&mut self, expr: &mut HirExpr<'hir>, types_to_change: Vec<(&'hir str, &'hir HirTy<'hir>)>) -> HirResult<()> {
+        match expr {
+            HirExpr::NewObj(new_obj_expr) => {
+                if let HirTy::Generic(_) = new_obj_expr.ty {
+                    let monomorphized_ty = self.swap_generic_types_in_ty(new_obj_expr.ty, types_to_change.clone());
+                    let monomorphized_ty = if let HirTy::Generic(g) = monomorphized_ty {
+                        self.arena.intern(HirTy::Named(HirNamedTy {
+                            name: self.mangle_generic_struct_name(g),
+                            span: new_obj_expr.span.clone(),
+                        }))
+                    } else {
+                        monomorphized_ty
+                    };
+                    new_obj_expr.ty = monomorphized_ty;
+                }
+            }
+            HirExpr::Indexing(idx_expr) => {
+                self.monomorphize_expression(&mut idx_expr.target, types_to_change.clone())?;
+                self.monomorphize_expression(&mut idx_expr.index, types_to_change)?;
+            }
+            HirExpr::Assign(assign_expr) => {
+                self.monomorphize_expression(&mut assign_expr.lhs, types_to_change.clone())?;
+                self.monomorphize_expression(&mut assign_expr.rhs, types_to_change)?;
+            }
+            HirExpr::Unary(unary_expr) => {
+                self.monomorphize_expression(&mut unary_expr.expr, types_to_change)?;
+            }
+            HirExpr::HirBinaryOp(binary_expr) => {
+                self.monomorphize_expression(&mut binary_expr.lhs, types_to_change.clone())?;
+                self.monomorphize_expression(&mut binary_expr.rhs, types_to_change)?;
+            }
+            HirExpr::Call(call_expr) => {
+                for arg in call_expr.args.iter_mut() {
+                    self.monomorphize_expression(arg, types_to_change.clone())?;
+                }
+                self.monomorphize_expression(&mut call_expr.callee, types_to_change)?;
+            }
+            HirExpr::Casting(casting_expr) => {
+                self.monomorphize_expression(&mut casting_expr.expr, types_to_change)?;
+            }
+            HirExpr::Delete(delete_expr) => {
+                self.monomorphize_expression(&mut delete_expr.expr, types_to_change)?;
+            }
+            HirExpr::ListLiteral(list_expr) => {
+                for item in list_expr.items.iter_mut() {
+                    self.monomorphize_expression(item, types_to_change.clone())?;
+                }
+            }
+            HirExpr::NewArray(new_array_expr) => {
+                if let HirTy::Generic(g) = new_array_expr.ty {
+                    match self.monomorphize_struct(g, &new_array_expr.span) {
+                        Ok(monomorphized_ty) => {
+                            new_array_expr.ty = monomorphized_ty;
+                        }
+                        Err(e) => {
+                            eprintln!("Error during monomorphization: {:?}", e);
+                        }
+                    }
+                }
+                self.monomorphize_expression(&mut new_array_expr.size, types_to_change)?;
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+
+    //This function swaps generic types in a given type according to the provided mapping.
+    //It does not mangle the name, it just replaces the generic types with the actual types.
+    fn swap_generic_types_in_ty(&self, ty: &'hir HirTy<'hir>, types_to_change: Vec<(&'hir str, &'hir HirTy<'hir>)>) -> &'hir HirTy<'hir> {
+        println!("Swapping in type: {}. types_to_change: {:?}", ty, types_to_change);
+        match ty {
+            HirTy::Named(n) => {
+                for (generic_name, actual_ty) in types_to_change.iter() {
+                    if n.name == *generic_name {
+                        return actual_ty;
+                    }
+                }
+                ty
+            }
+            HirTy::List(l) => {
+                let new_inner = self.swap_generic_types_in_ty(l.inner, types_to_change);
+                self.arena.intern(HirTy::List(HirListTy {
+                    inner: new_inner,
+                }))
+            }
+            HirTy::Generic(g) => {
+                let new_inner_types: Vec<HirTy<'hir>> = g
+                    .inner
+                    .iter()
+                    .map(|inner_ty| self.swap_generic_types_in_ty(inner_ty, types_to_change.clone()).clone())
+                    .collect();
+                self.arena.intern(HirTy::Generic(HirGenericTy {
+                    name: g.name,
+                    inner: new_inner_types,
+                }))
+            }
+            _ => ty,
+        }
+    }
+
+    /// Produce a stable mangled name for a generic instantiation.
+    ///
+    /// Format: __atlas77__<base_name>__<type1>_<type2>_..._<typeN>
+    #[inline]
+    fn mangle_generic_struct_name(&self, generic: &'hir HirGenericTy<'hir>) -> &'hir str {
+        let parts: Vec<String> = generic
+            .inner
+            .iter()
+            .map(|t| {
+                match t {
+                    HirTy::Generic(g) => self.mangle_generic_struct_name(g).to_string(),
+                    _ => format!("{}", t),
+                }
+            })
+            .collect();
+        let name = format!("__atlas77__struct__{}__{}", generic.name, parts.join("_"));
+        self.arena.intern(name)
+    }
+
+    /// Compute a stable mangled name for a monomorphized function given its base name
+    /// and the actual type arguments.
+    #[inline]
+    fn mangle_function_name(&self, base_name: &str, actual_tys: &[&'hir HirTy<'hir>]) -> String {
+        let parts: Vec<String> = actual_tys
+            .iter()
+            .map(|t| format!("{}", t))
+            .collect();
+        format!("__atlas77__fun__{}__{}", base_name, parts.join("_"))
+    }
+
+    /// Add a new struct signature to the module signature.
+    ///
+    /// The name of the new struct will be `__atlas77__StructType_actual_type_names`, so it's actually mangled.
+
+    /// Helper function to change the inner type of generic type recursively if matches.
+    fn change_inner_type(&self, type_to_change: &'hir HirTy<'hir>, generic_name: &'hir str, new_type: HirTy<'hir>) -> &'hir HirTy<'hir> {
+        match type_to_change {
+            HirTy::Named(n) => {
+                if n.name == generic_name {
+                    self.arena.intern(new_type)
+                } else {
+                    type_to_change
+                }
+            }
+            HirTy::List(l) => {
+                self.arena.intern(HirTy::List(HirListTy {
+                    inner: self.change_inner_type(l.inner, generic_name, new_type),
+                }))
+            }
+            HirTy::Generic(g) => {
+                self.arena.intern(HirTy::Named(HirNamedTy {
+                    name: self.arena.intern(self.mangle_generic_struct_name(g)),
+                    span: Span::default(),
+                }))
+            }
+            _ => {
+                type_to_change
+            }
+        }
+    }
+}
+

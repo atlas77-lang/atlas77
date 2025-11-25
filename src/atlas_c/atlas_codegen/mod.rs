@@ -33,7 +33,7 @@ pub struct CodeGenUnit<'hir, 'codegen>
 where
     'codegen: 'hir,
 {
-    hir: HirModule<'hir>,
+    hir: &'hir HirModule<'hir>,
     program: ProgramDescriptor<'codegen>,
     arena: CodeGenArena<'codegen>,
     //simulate a var_map so the codegen can translate it into stack operations
@@ -48,7 +48,7 @@ where
 
 impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
     /// Create a new CodeGenUnit
-    pub fn new(hir: HirModule<'hir>, arena: CodeGenArena<'codegen>, src: String) -> Self {
+    pub fn new(hir: &'hir HirModule<'hir>, arena: CodeGenArena<'codegen>, src: String) -> Self {
         Self {
             hir,
             program: ProgramDescriptor::new(),
@@ -749,7 +749,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             HirExpr::NoneLiteral(_) => {
                 bytecode.push(Instruction::PushUnit);
             }
-            HirExpr::Constructor(constructor) => {
+            HirExpr::ConstructorExpr(constructor) => {
                 bytecode.push(Instruction::NewObj {
                     obj_descriptor:
                     self.struct_pool.iter().position(|s| s.name == constructor.name).unwrap() //TODO: handle error

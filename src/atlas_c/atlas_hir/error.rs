@@ -7,6 +7,8 @@ use thiserror::Error;
 declare_error_type! {
     #[error("semantic error: {0}")]
     pub enum HirError {
+        UnknownFileImport(UnknownFileImportError),
+        NotEnoughGenerics(NotEnoughGenericsError),
         UnknownType(UnknownTypeError),
         BreakOutsideLoop(BreakOutsideLoopError),
         ContinueOutsideLoop(ContinueOutsideLoopError),
@@ -27,6 +29,34 @@ declare_error_type! {
 
 /// Handy type alias for all HIR-related errors.
 pub type HirResult<T> = Result<T, HirError>;
+
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::unknown_file_import))]
+#[error("imported file {file_name} could not be found")]
+pub struct UnknownFileImportError {
+    pub file_name: String,
+    #[label = "could not find import file {file_name}"]
+    pub span: Span,
+    #[source_code]
+    pub src: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::not_enough_generics))]
+#[error("not enough generics provided {ty_name} requires {expected} generics, but only {found} were provided"
+)]
+pub struct NotEnoughGenericsError {
+    pub ty_name: String,
+    pub expected: usize,
+    pub found: usize,
+    #[label = "type declared here"]
+    pub declaration_span: Span,
+    #[label = "here"]
+    pub error_span: Span,
+    #[source_code]
+    pub src: String,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::const_ty_to_non_const_ty))]

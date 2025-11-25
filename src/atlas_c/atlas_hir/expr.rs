@@ -27,7 +27,7 @@ pub enum HirExpr<'hir> {
     FieldAccess(HirFieldAccessExpr<'hir>),
     Indexing(HirIndexingExpr<'hir>),
     StaticAccess(HirStaticAccessExpr<'hir>),
-    Constructor(HirConstructorExpr<'hir>),
+    ConstructorExpr(HirConstructorExpr<'hir>),
 }
 
 pub fn is_self_access(field_access_expr: &HirFieldAccessExpr) -> bool {
@@ -59,7 +59,7 @@ impl HirExpr<'_> {
             HirExpr::FieldAccess(expr) => expr.span.clone(),
             HirExpr::Indexing(expr) => expr.span.clone(),
             HirExpr::StaticAccess(expr) => expr.span.clone(),
-            HirExpr::Constructor(expr) => expr.span.clone(),
+            HirExpr::ConstructorExpr(expr) => expr.span.clone(),
         }
     }
 }
@@ -89,12 +89,21 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::FieldAccess(expr) => expr.ty,
             HirExpr::Indexing(expr) => expr.ty,
             HirExpr::StaticAccess(expr) => expr.ty,
-            HirExpr::Constructor(expr) => expr.ty,
+            HirExpr::ConstructorExpr(expr) => expr.ty,
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize)]
+/// Represents the default C-like constructor expression for structs.
+///
+/// Example:
+/// ```
+/// Point {
+///    x: 10,
+///    y: 20,
+/// }
+/// ```
 pub struct HirConstructorExpr<'hir> {
     pub name: &'hir str,
     pub span: Span,

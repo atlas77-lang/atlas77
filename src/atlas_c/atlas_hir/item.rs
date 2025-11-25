@@ -31,7 +31,7 @@ pub struct HirStruct<'hir> {
     pub span: Span,
     pub name: &'hir str,
     pub name_span: Span,
-    pub signature: &'hir HirStructSignature<'hir>,
+    pub signature: HirStructSignature<'hir>,
     pub methods: Vec<HirStructMethod<'hir>>,
     pub fields: Vec<HirStructFieldSignature<'hir>>,
     pub constructor: HirStructConstructor<'hir>,

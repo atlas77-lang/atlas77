@@ -22,6 +22,7 @@ pub mod item;
 pub mod signature;
 pub mod stmt;
 pub mod ty;
+pub mod monomorphization_pass;
 
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct HirModuleBody<'hir> {

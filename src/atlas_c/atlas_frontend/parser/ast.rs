@@ -65,7 +65,7 @@ pub enum AstGenericConstraint<'ast> {
     Operator(AstBinaryOp),
 }
 
-#[derive(Debug, Clone, Serialize, Default, Copy)]
+#[derive(Debug, Clone, Serialize, Default, Copy, PartialEq, Eq)]
 pub enum AstVisibility {
     Public,
     #[default]

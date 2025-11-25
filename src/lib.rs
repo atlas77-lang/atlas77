@@ -45,12 +45,12 @@ pub fn build(path: String, _flag: CompilationFlag) -> miette::Result<()> {
 
     //hir
     let hir_arena = HirArena::new();
-    let lower = AstSyntaxLoweringPass::new(&hir_arena, &program, &ast_arena, source.clone());
+    let mut lower = AstSyntaxLoweringPass::new(&hir_arena, &program, &ast_arena, source.clone());
     let mut hir = lower.lower()?;
 
     //type-check
     let mut type_checker = TypeChecker::new(&hir_arena, source.clone());
-    type_checker.check(&mut hir)?;
+    type_checker.check(hir)?;
 
     //codegen
     let bump = Bump::new();
@@ -76,7 +76,7 @@ pub fn run(path: String, _flag: CompilationFlag) -> miette::Result<()> {
 
     //hir
     let hir_arena = HirArena::new();
-    let lower = AstSyntaxLoweringPass::new(&hir_arena, &program, &ast_arena, source.clone());
+    let mut lower = AstSyntaxLoweringPass::new(&hir_arena, &program, &ast_arena, source.clone());
     let mut hir = lower.lower()?;
 
     //type-check

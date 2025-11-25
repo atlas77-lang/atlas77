@@ -1,6 +1,6 @@
 import "std/io"
 
-public struct Vector<T> {
+struct Vector<T> {
     private:
         data: [T];
     public:
@@ -18,24 +18,24 @@ public struct Vector<T> {
         delete this.data;
     }
 
-    /// A function that doesn't have a "self" parameter is a static function
+    /// A function that doesn't have a "this" parameter is a static function
     /// static functions are called like this: "Vector::<T>::function_name()"
     fun with_capacity(capacity: uint64) -> Vector<T> {
         let data = new [T; capacity];
         return new Vector<T>(data);
     }
 
-    /// A function that has a "self" parameter is a method of the struct
+    /// A function that has a "this" parameter is a method of the struct
     /// and is called like this: "vector_instance.function_name()"
     fun push(this, val: T) {
         if this.capacity <= this.length {
-            let new_capacity = this.capacity * 2 as uint64;
+            let new_capacity = this.capacity * 2;
 
             let new_data = new [T; new_capacity];
-            let i = 0 as uint64;
+            let i = 0;
             while i < this.length {
                 new_data[i] = this.data[i];
-                i = i + 1 as uint64;
+                i = i + 1;
             }
             let data_to_delete = this.data;
             this.data = new_data;
@@ -44,21 +44,37 @@ public struct Vector<T> {
             delete data_to_delete;
         }
         this.data[this.length] = val;
-        this.length = this.length + 1 as uint64;
+        this.length = this.length + 1;
     }
 
     fun pop(this) -> T {
-        if this.length == 0 as uint64 {
+        if this.length == 0 {
             panic("Cannot pop from an empty vector");
         }
-        this.length = this.length - 1 as uint64;
+        this.length = this.length - 1;
         return this.data[this.length];
     }
 }
 
-fun int64_vector_example() -> Vector<int64> {
-    let vec: __atlas77__struct__Vector__int64 = new Vector<int64>([1, 2, 3, 4, 5]);
-    return vec;
+/// A simple generic Box struct to hold a value of any type
+struct Box<T> {
+    value: T;
+
+    Box(value: T) {
+        self.value = value;
+    }
+
+    ~Box() {
+        delete value;
+    }
+    public:
+        fun get(this) -> T {
+            return this.value;
+        }
+
+        fun set(this, value: T) {
+            this.value = value;
+        }
 }
 
 fun main() {
@@ -66,9 +82,11 @@ fun main() {
     vec.push(6);
     let val: int64 = vec.pop();
     print("Popped value: " + val as string);
+
+    let vec_of_box = new Vector<Box<int64>>([new Box<int64>(10),  new Box<int64>(20)]);
+    vec_of_box.push(new Box<int64>(30));
+    let box_val: Box<int64> = vec_of_box.pop();
+    print("Popped Box value: " + box_val.get() as string);
 }
 
-fun test(val: T) -> Vector<T> {
-    let vec = new Vector<T>([val]);
-    return vec;
-}
+

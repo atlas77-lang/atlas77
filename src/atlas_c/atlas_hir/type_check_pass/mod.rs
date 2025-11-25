@@ -15,7 +15,7 @@ use crate::atlas_c::atlas_hir::error::{AccessingClassFieldOutsideClassError, Acc
 use crate::atlas_c::atlas_hir::expr::{HirFunctionCallExpr, HirIdentExpr};
 use crate::atlas_c::atlas_hir::item::{HirStruct, HirStructMethod};
 use crate::atlas_c::atlas_hir::signature::{HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier, HirVisibility};
-use crate::atlas_c::atlas_hir::ty::{HirGenericTy, HirListTy, HirNamedTy};
+use crate::atlas_c::atlas_hir::ty::HirNamedTy;
 use logos::Span;
 use miette::{SourceOffset, SourceSpan};
 use std::collections::HashMap;
@@ -408,7 +408,7 @@ impl<'hir> TypeChecker<'hir> {
                 let self_ty = self
                     .arena
                     .types()
-                    .get_named_ty(class.name, class.span.clone());
+                    .get_named_ty(class.name, class.declaration_span.clone());
                 s.ty = self_ty;
                 Ok(self_ty)
             }
@@ -564,37 +564,12 @@ impl<'hir> TypeChecker<'hir> {
                 let struct_ty;
                 let struct_signature = if let HirTy::Named(n) = obj.ty {
                     struct_ty = n;
+                    println!("all known struct names: {}", self.signature.structs.keys().cloned().collect::<Vec<&str>>().join(", "));
                     let tmp = match self.signature.structs.get(n.name) {
                         Some(c) => c,
                         None => {
-                            println!("Something ain't working here");
                             return Err(HirError::UnknownType(UnknownTypeError {
                                 name: n.name.to_string(),
-                                span: SourceSpan::new(
-                                    SourceOffset::from(obj.span.start),
-                                    obj.span.end - obj.span.start,
-                                ),
-                                src: self.src.clone(),
-                            }));
-                        }
-                    };
-                    *tmp
-                } else if let HirTy::Generic(g) = obj.ty {
-                    let mangled_name = self.monomorphize_struct(g, &obj.span)?;
-                    struct_ty = self.arena.intern(HirNamedTy {
-                        name: mangled_name,
-                        span: obj.span.clone(),
-                    });
-                    let tmp = match self.signature.structs.get(mangled_name) {
-                        Some(c) => {
-                            println!("Searched for: {}", mangled_name);
-                            println!("Found: {:#?}", c);
-                            c
-                        }
-                        None => {
-                            println!("Something ain't working here");
-                            return Err(HirError::UnknownType(UnknownTypeError {
-                                name: struct_ty.name.to_string(),
                                 span: SourceSpan::new(
                                     SourceOffset::from(obj.span.start),
                                     obj.span.end - obj.span.start,
@@ -846,7 +821,7 @@ impl<'hir> TypeChecker<'hir> {
                             static_access.target.ty = self
                                 .arena
                                 .types()
-                                .get_named_ty(class.name, class.span.clone());
+                                .get_named_ty(class.name, class.declaration_span.clone());
                             static_access.field.ty = self.arena.intern(method_signature.return_ty.clone());
 
                             Ok(func_expr.ty)
@@ -954,7 +929,7 @@ impl<'hir> TypeChecker<'hir> {
                     static_access.target.ty = self
                         .arena
                         .types()
-                        .get_named_ty(class.name, class.span.clone());
+                        .get_named_ty(class.name, class.declaration_span.clone());
                     static_access.field.ty = const_signature.ty;
                     static_access.ty = const_signature.ty;
                     Ok(const_signature.ty)
@@ -966,7 +941,7 @@ impl<'hir> TypeChecker<'hir> {
                     ))
                 }
             }
-            HirExpr::Constructor(constructor) => {
+            HirExpr::ConstructorExpr(constructor) => {
                 let struct_ty: &HirNamedTy;
                 let struct_signature = if let HirTy::Named(n) = constructor.ty {
                     struct_ty = n;
@@ -1157,6 +1132,9 @@ impl<'hir> TypeChecker<'hir> {
                 ),
                 src: self.src.clone(),
             })),
+            (HirTy::Int64(_), HirTy::UInt64(_)) | (HirTy::UInt64(_), HirTy::Int64(_)) => {
+                Ok(())
+            }
             (_, HirTy::Const(r2)) => self.is_equivalent_ty(ty1, ty1_span, r2.inner, ty2_span),
             (HirTy::Nullable(_), HirTy::Null(_)) | (HirTy::Null(_), HirTy::Nullable(_)) => Ok(()),
             (HirTy::Nullable(n1), _) => {
@@ -1172,21 +1150,6 @@ impl<'hir> TypeChecker<'hir> {
                 );
                 eprintln!("ty1: {:?} ty2: {:?}", ty1, n2.inner);
                 self.is_equivalent_ty(ty1, ty1_span, n2.inner, ty2_span)
-            }
-            //TODO: This is used to circumvent the fact we only monomorphize struct signatures, not the structs themselves
-            //TODO: FIX THIS
-            (HirTy::Named(n), HirTy::Generic(g)) | (HirTy::Generic(g), HirTy::Named(n)) => {
-                if n.name == self.mangle_generic_struct_name(g) {
-                    Ok(())
-                } else {
-                    Err(Self::type_mismatch_err(
-                        &format!("{}", ty1),
-                        &ty1_span,
-                        &format!("{}", ty2),
-                        &ty2_span,
-                        self.src.clone(),
-                    ))
-                }
             }
             _ => {
                 if HirTyId::from(ty1) == HirTyId::from(ty2) {
@@ -1234,154 +1197,5 @@ impl<'hir> TypeChecker<'hir> {
             span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
             src,
         })
-    }
-
-    /// Produce a stable mangled name for a generic instantiation.
-    /// Format: __atlas77__<base_name>__<tyid_hex>_<tyid_hex>...
-    #[inline]
-    fn mangle_generic_struct_name(&self, generic: &'hir HirGenericTy<'hir>) -> &'hir str {
-        let parts: Vec<String> = generic
-            .inner
-            .iter()
-            .map(|t| {
-                format!("{}", t)
-            })
-            .collect();
-        let name = format!("__atlas77__struct__{}__{}", generic.name, parts.join("_"));
-        self.arena.intern(name)
-    }
-
-    /// Compute a stable mangled name for a monomorphized function given its base name
-    /// and the actual type arguments.
-    #[inline]
-    fn mangle_function_name(&self, base_name: &str, actual_tys: &[&'hir HirTy<'hir>]) -> String {
-        let parts: Vec<String> = actual_tys
-            .iter()
-            .map(|t| format!("{}", t))
-            .collect();
-        format!("__atlas77__fun__{}__{}", base_name, parts.join("_"))
-    }
-
-    /// Add a new struct signature to the module signature.
-    ///
-    /// The name of the new struct will be `__atlas77__StructType_actual_type_names`, so it's actually mangled.
-    fn monomorphize_struct(&mut self, actual_ty: &'hir HirGenericTy<'hir>, span: &Span) -> HirResult<&'hir str> {
-        let mangled_name: &'hir str = self.arena.intern(self.mangle_generic_struct_name(actual_ty));
-        if self.signature.structs.contains_key(mangled_name) {
-            return Ok(mangled_name);
-        }
-
-        let base_name = actual_ty.name;
-        let template = match self.signature.structs.get(base_name) {
-            Some(t) => *t,
-            None => {
-                return Err(Self::unknown_type_err(
-                    base_name,
-                    span,
-                    self.src.clone(),
-                ));
-            }
-        };
-
-        // TODO: clone `template` into a new struct signature
-        // - replace generic occurrences:
-        //     * in fields' types: substitute generic parameter names with actual_ty.inner types
-        //     * in constructor params: same substitution
-        //     * in method signatures and bodies: monomorphize method signatures (you may need to
-        //       call monomorphize_function for method generics)
-        // - rename the struct to `mangled` (so it becomes a distinct named type)
-        // - intern any newly-created signatures/types into `self.arena` (use the arena.intern pattern)
-        // - insert the new struct into `self.signature.structs` with key `mangled.as_str()`
-        //
-        // Example high-level pseudo-steps:
-        // let mut new_struct = template.clone(); // ensure deep clone of types/signatures
-        // new_struct.name = arena.names().get(mangled.as_str()); // intern the mangled name into name arena
-        // substitute_generic_types_in_struct(&mut new_struct, &actual_ty.inner);
-        // let interned_struct: &'hir HirStruct<'hir> = self.arena.intern(new_struct);
-        // self.signature.structs.insert(interned_struct.name, interned_struct);
-        //
-        // Note: use `HirTyId::from` or your `get_generic_ty` helpers to build concrete inner types
-        // and ensure deterministic `HirTyId` values are used when computing names/ids.
-
-        // For now the function returns after computing the mangled name; implement the TODO section
-        // using your concrete HirStruct type, arena.intern calls and substitution utilities.
-
-        let mut new_struct = self.arena.intern(template.clone());
-        //Collect generic names
-        let generic_names = template.generics.clone();
-
-        //TODO: Right now we can't have nested generics (i.e. Box<T> -> Box<Vector<int64>>)
-        //TODO: Add a bunch of helper functions for that
-
-        for (_, field_signature) in new_struct.fields.iter_mut() {
-            for (i, generic_name) in generic_names.iter().enumerate() {
-                field_signature.ty = self.change_inner_type(field_signature.ty, generic_name, actual_ty.inner[i].clone());
-            }
-        }
-
-        for (i, arg) in new_struct.constructor.params.clone().iter().enumerate() {
-            println!("Constructor param before: {}: {:?}", arg.name, arg.ty);
-            for (j, generic_name) in generic_names.iter().enumerate() {
-                let new_ty = self.change_inner_type(arg.ty, generic_name, actual_ty.inner[j].clone());
-                new_struct.constructor.params[i] = HirFunctionParameterSignature {
-                    name: arg.name,
-                    name_span: arg.name_span.clone(),
-                    span: arg.span.clone(),
-                    ty: new_ty,
-                    ty_span: arg.ty_span.clone(),
-                };
-                println!("Constructor param after: {}: {:?}", arg.name, arg.ty);
-            }
-        }
-
-        for (_, func) in new_struct.methods.iter_mut() {
-            //args:
-            for param in func.params.iter_mut() {
-                for (i, generic_name) in generic_names.iter().enumerate() {
-                    let type_to_change = self.arena.intern(param.ty.clone());
-                    param.ty = self.arena.intern(self.change_inner_type(type_to_change, generic_name, actual_ty.inner[i].clone()).clone());
-                }
-            }
-
-            //ret_type:
-            for (i, generic_name) in generic_names.iter().enumerate() {
-                let type_to_change = self.arena.intern(func.return_ty.clone());
-                func.return_ty = self.change_inner_type(type_to_change, generic_name, actual_ty.inner[i].clone()).clone();
-            }
-            func.generics = None;
-        }
-
-        new_struct.name = mangled_name;
-        new_struct.generics = vec![];
-        self.signature.structs.insert(mangled_name, new_struct);
-
-        Ok(mangled_name)
-    }
-
-    /// Helper function to change the inner type of generic type recursively if matches.
-    fn change_inner_type(&self, type_to_change: &'hir HirTy<'hir>, generic_name: &'hir str, new_type: HirTy<'hir>) -> &'hir HirTy<'hir> {
-        match type_to_change {
-            HirTy::Named(n) => {
-                if n.name == generic_name {
-                    self.arena.intern(new_type)
-                } else {
-                    type_to_change
-                }
-            }
-            HirTy::List(l) => {
-                self.arena.intern(HirTy::List(HirListTy {
-                    inner: self.change_inner_type(l.inner, generic_name, new_type),
-                }))
-            }
-            HirTy::Generic(g) => {
-                self.arena.intern(HirTy::Named(HirNamedTy {
-                    name: self.arena.intern(self.mangle_generic_struct_name(g)),
-                    span: Span::default(),
-                }))
-            }
-            _ => {
-                type_to_change
-            }
-        }
     }
 }

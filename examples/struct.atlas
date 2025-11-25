@@ -1,18 +1,21 @@
-//Should work in Atlas v0.5.x
+import "std/io"
 
-struct Vector3 {
-    x: float64;
-    y: float64;
-    z: float64;
+struct Pair<T, U> {
+    public:
+        first: T;
+    public:
+        second: U;
+
+    Pair(first: T, second: U) {
+        self.first = first;
+        self.second = second;
+    }
+
+    fun swap(this) -> Pair<U, T> {
+        return new Pair<U, T>(this.second, this.first);
+    }
 }
-
-func main() {
-    let my_vector: Vector3 = Vector3 {
-        x: 1.0,
-        y: 2.0,
-        z: 3.0
-    };
-    println(my_vector.x);
-    println(my_vector.y);
-    println(my_vector.z);
+fun main() {
+    let p: Pair<int64, string> = new Pair<int64, string>(42, "Hello");
+    print("Pair: (" + p.first as string + ", " + p.second + ")");
 }
