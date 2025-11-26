@@ -15,7 +15,18 @@ struct Pair<T, U> {
         return new Pair<U, T>(this.second, this.first);
     }
 }
+
+struct Box<T> {
+    public:
+        value: T;
+
+    Box(value: T) {
+        self.value = value;
+    }
+}
+
 fun main() {
     let p: Pair<int64, string> = new Pair<int64, string>(42, "Hello");
+    let p_boxed: Pair<Box<int64>, Box<string>> = new Pair<Box<int64>, Box<string>>(new Box<int64>(p.first), new Box<string>(p.second));
     print("Pair: (" + p.first as string + ", " + p.second + ")");
 }

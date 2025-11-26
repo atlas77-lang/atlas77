@@ -1,3 +1,5 @@
+package std::vector;
+
 public struct Vector<T> {
     private:
         let data: [T];
@@ -19,7 +21,7 @@ public struct Vector<T> {
     /// A function that doesn't have a "self" parameter is a static function
     /// static functions are called like this: "Vector::<T>::function_name()"
     fun with_capacity(capacity: uint64) -> Vector<T> {
-        return new Vector::<T>(new [T; capacity]);
+        return new Vector<T>(new [T; capacity]);
     }
 
     /// A function that has a "self" parameter is a method of the struct

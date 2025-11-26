@@ -1,40 +1,46 @@
 package std::option;
 
+import "std/io"
+
 public struct Option<T> {
     private:
         data: T?;
-    public:
         Option(data: T?) {
             self.data = data;
         }
-        ~Option() {}
-        func some(data: T) -> Option<T> {
-            return new Option(data);
+    public:
+        ~Option() {
+            if this.is_some() {
+                delete this.data;
+            }
         }
-        func none() -> Option<T> {
-            return new Option(null);
+        fun some(data: T) -> Option<T> {
+            return new Option<T>(data);
         }
-        func is_some(self) -> bool {
+        fun none() -> Option<T> {
+            return new Option<T>(null);
+        }
+        fun is_some(self) -> bool {
             return self.data != null;
         }
-        func is_none(self) -> bool {
+        fun is_none(self) -> bool {
             return self.data == null;
         }
-        func unwrap(self) -> T {
+        fun unwrap(self) -> T {
             if self.is_some() {
                 return self.data;
             } else {
-                panic("called `Option<T>::unwrap()` on a `None` value");
+                panic("Called `Option<T>::unwrap()` on a `None` value");
             }
         }
-        func unwrap_or(self, def: T) -> T {
+        fun unwrap_or(self, def: T) -> T {
             if self.is_some() {
                 return self.data;
             } else {
                 return def;
             }
         }
-        func expect(self, msg: str) -> T {
+        fun expect(self, msg: str) -> T {
             if self.is_some() {
                 return self.data;
             } else {
