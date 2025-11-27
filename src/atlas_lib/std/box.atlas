@@ -1,22 +1,24 @@
-package std::box;
+//package std;
 
 /// A box is a container that holds a single value of a specific type.
 /// Useful for passing around values that need to be shared and mutated.
-public class Box<T> {
-    public:
+public struct Box<T> {
+    private:
         data: T;
     public:
         Box(data: T) {
-            self.data = data;
+            this.data = data;
         }
-        ~Box() {}
+        ~Box() {
+            delete this.data;
+        }
         /// Returns the value of the box.
-        func get(self) -> T {
-            return self.data;
+        fun get(this) -> T {
+            return this.data;
         }
         /// Sets the value of the box.
-        func set(self, data: T) -> unit {
-            self.data = data;
+        fun set(this, data: T) {
+            this.data = data;
             return;
         }
 }

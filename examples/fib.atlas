@@ -1,31 +1,32 @@
 import "std/io"
 
-struct Fibonacci<T> {
-    nth: int64;
-    fun iterative_fib(this) -> int64 {
-        let a = 0;
-        let b = 1;
-        let i = 0;
-        while i < this.nth {
-            let temp = a;
-            a = b;
-            b = temp + b;
-            i = i + 1;
+struct Fibonacci {
+    public:
+        nth: int64;
+        fun iterative_fib(this) -> int64 {
+            let a = 0;
+            let b = 1;
+            let i = 0;
+            while i < this.nth {
+                let temp = a;
+                a = b;
+                b = temp + b;
+                i = i + 1;
+            }
+            return a;
         }
-        return a;
-    }
-    fun recursive_fib(this, nth: int64) -> int64 {
-        if nth <= 1 {
-            return nth;
-        } else {
-            return this.recursive_fib(nth - 1) + this.recursive_fib(nth - 2);
+        fun recursive_fib(this, nth: int64) -> int64 {
+            if nth <= 1 {
+                return nth;
+            } else {
+                return this.recursive_fib(nth - 1) + this.recursive_fib(nth - 2);
+            }
         }
-    }
 }
 
 fun main() {
-    let fibonacci = Fibonacci { nth = 5 };
-    let n = fibonacci.nth;
+    let fibonacci = new Fibonacci(10);
+    let n: int64 = fibonacci.nth;
     let res_iterative = fibonacci.iterative_fib();
     print("Iterative Fib: ");
     println(res_iterative);
@@ -42,11 +43,11 @@ fun recursive_fib(n: int64) -> int64 {
     }
 }
 
-fun iterative_fib(blabla: int64) -> int64 {
+fun iterative_fib(n: int64) -> int64 {
     let a = 0;
     let b = 1;
     let i = 0;
-    while i < blabla {
+    while i < n {
         let temp = a;
         a = b;
         b = temp + b;

@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 
 const FILE_ATLAS: &str = include_str!("../../../atlas_lib/std/fs.atlas");
 const IO_ATLAS: &str = include_str!("../../../atlas_lib/std/io.atlas");
-const ARRAY_ATLAS: &str = include_str!("../../../atlas_lib/std/array.atlas");
+const VECTOR_ATLAS: &str = include_str!("../../../atlas_lib/std/vector.atlas");
 const MATH_ATLAS: &str = include_str!("../../../atlas_lib/std/math.atlas");
 const STRING_ATLAS: &str = include_str!("../../../atlas_lib/std/string.atlas");
 
@@ -575,7 +575,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 let ast: AstProgram<'ast> = parse(
                     "atlas_lib/std/io/list.atlas",
                     self.ast_arena,
-                    ARRAY_ATLAS.to_string(),
+                    VECTOR_ATLAS.to_string(),
                 )
                     .unwrap();
                 let allocated_ast = self.ast_arena.alloc(ast);
@@ -583,7 +583,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     self.arena,
                     allocated_ast,
                     self.ast_arena,
-                    ARRAY_ATLAS.to_string(),
+                    VECTOR_ATLAS.to_string(),
                 ).lower()?;
                 let path: &'hir str = self.arena.names().get(node.path);
                 let hir_import: &'hir HirImport<'hir> = self.arena.intern(HirImport {
