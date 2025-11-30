@@ -4,9 +4,8 @@ use crate::atlas_c::atlas_hir::signature::{
     HirStructSignature, HirTypeParameterItemSignature,
 };
 use logos::Span;
-use serde::Serialize;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirFunction<'hir> {
     pub span: Span,
     pub name: &'hir str,
@@ -16,7 +15,7 @@ pub struct HirFunction<'hir> {
 }
 
 /// Used by the type checker to import the API Signature of a module.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirImport<'hir> {
     pub span: Span,
     pub path: &'hir str,
@@ -26,7 +25,7 @@ pub struct HirImport<'hir> {
     pub alias: Option<&'hir str>,
     pub alias_span: Option<Span>,
 }
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirStruct<'hir> {
     pub span: Span,
     pub name: &'hir str,
@@ -38,7 +37,7 @@ pub struct HirStruct<'hir> {
     pub destructor: HirStructConstructor<'hir>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirStructMethod<'hir> {
     pub span: Span,
     pub name: &'hir str,
@@ -47,7 +46,7 @@ pub struct HirStructMethod<'hir> {
     pub body: HirBlock<'hir>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 /// Also used for the destructor
 pub struct HirStructConstructor<'hir> {
     pub span: Span,
@@ -56,7 +55,7 @@ pub struct HirStructConstructor<'hir> {
     pub body: HirBlock<'hir>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 /// Represents a package path declaration like `package my_project::my_module;`
 pub struct HirPackage<'hir> {
     pub span: Span,

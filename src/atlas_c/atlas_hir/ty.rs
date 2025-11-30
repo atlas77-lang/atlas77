@@ -1,10 +1,9 @@
 use logos::Span;
-use serde::Serialize;
 use std::fmt;
 use std::fmt::Formatter;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Copy)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
 pub struct HirTyId(u64);
 
 const NULL_TY_ID: u8 = 0x00;
@@ -145,7 +144,7 @@ impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub enum HirTy<'hir> {
     Null(HirNullTy),
     Int64(HirIntegerTy),
@@ -212,15 +211,15 @@ impl fmt::Display for HirTy<'_> {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct HirConstTy<'hir> {
     pub inner: &'hir HirTy<'hir>,
 }
 
-#[derive(Debug, Clone, Serialize, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct HirNullTy {}
 
-#[derive(Debug, Clone, Serialize, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct HirNullableTy<'hir> {
     pub inner: &'hir HirTy<'hir>,
 }
@@ -228,10 +227,10 @@ pub struct HirNullableTy<'hir> {
 /// The char type is a 32-bit Unicode code point.
 ///
 /// It can be considered as a 4-byte integer.
-#[derive(Debug, Clone, Serialize, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct HirCharTy {}
 
-#[derive(Debug, Clone, Serialize, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct HirListTy<'hir> {
     pub inner: &'hir HirTy<'hir>,
 }
@@ -242,41 +241,41 @@ impl fmt::Display for HirListTy<'_> {
 }
 
 // all the types should hold a span
-#[derive(Debug, Clone, Serialize, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct HirUninitializedTy {}
 
-#[derive(Debug, Clone, Serialize, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct HirIntegerTy {}
 
-#[derive(Debug, Clone, Serialize, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct HirFloatTy {}
 
-#[derive(Debug, Clone, Serialize, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct HirUnsignedIntTy {}
 
-#[derive(Debug, Clone, Serialize, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct HirUnitTy {}
 
-#[derive(Debug, Clone, Serialize, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct HirBooleanTy {}
 
-#[derive(Debug, Clone, Serialize, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct HirStringTy {}
 
-#[derive(Debug, Clone, Serialize, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct HirFunctionTy<'hir> {
     pub ret_ty: &'hir HirTy<'hir>,
     pub params: Vec<HirTy<'hir>>,
 }
 
-#[derive(Debug, Clone, Serialize, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct HirGenericTy<'hir> {
     pub name: &'hir str,
     pub inner: Vec<HirTy<'hir>>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone, Serialize, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct HirNamedTy<'hir> {
     pub name: &'hir str,
     /// Span of the name declaration.

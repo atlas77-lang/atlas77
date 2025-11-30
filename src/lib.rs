@@ -62,9 +62,6 @@ pub fn build(path: String, _flag: CompilationFlag) -> miette::Result<()> {
     let arena = CodeGenArena::new(&bump);
     let mut codegen = CodeGenUnit::new(hir, arena, source);
     let program = codegen.compile()?;
-    let output = ron::ser::to_string_pretty(&program, Default::default()).unwrap();
-    let mut file = std::fs::File::create("output.atlasc").unwrap();
-    file.write_all(output.as_bytes()).unwrap();
 
     Ok(())
 }
@@ -98,9 +95,6 @@ pub fn run(path: String, _flag: CompilationFlag) -> miette::Result<()> {
     let arena = CodeGenArena::new(&bump);
     let mut codegen = CodeGenUnit::new(hir, arena, source);
     let program = codegen.compile()?;
-    let output = ron::ser::to_string_pretty(&program, Default::default()).unwrap();
-    let mut file = std::fs::File::create("output.atlasc").unwrap();
-    file.write_all(output.as_bytes()).unwrap();
 
     //asm
     let assembler = atlas_asm::Assembler::new();

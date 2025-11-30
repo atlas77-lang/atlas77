@@ -1,6 +1,4 @@
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct Program {
     pub instructions: Vec<u32>,
     /// A constant can be an (unsigned) integer, float, boolean, extern_ptr, string, list or object
@@ -8,7 +6,7 @@ pub struct Program {
     pub function_pool: Vec<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum ConstantValue {
     Integer(i64),
     UnsignedInteger(u64),

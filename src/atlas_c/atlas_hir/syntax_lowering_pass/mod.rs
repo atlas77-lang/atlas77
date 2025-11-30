@@ -43,7 +43,10 @@ use crate::atlas_c::atlas_hir::signature::{
 use crate::atlas_c::atlas_hir::syntax_lowering_pass::case::Case;
 use crate::atlas_c::atlas_hir::ty::HirGenericTy;
 use crate::atlas_c::atlas_hir::{
-    arena::HirArena, error::{HirError, HirResult, UnsupportedExpr, UnsupportedStatement}, expr::{
+    HirImport, HirModule, HirModuleBody,
+    arena::HirArena,
+    error::{HirError, HirResult, UnsupportedExpr, UnsupportedStatement},
+    expr::{
         HirAssignExpr, HirBinaryOp, HirBinaryOpExpr, HirBooleanLiteralExpr, HirExpr,
         HirFloatLiteralExpr, HirFunctionCallExpr, HirIdentExpr, HirIntegerLiteralExpr, HirUnaryOp,
         HirUnsignedIntegerLiteralExpr, UnaryOpExpr,
@@ -57,9 +60,6 @@ use crate::atlas_c::atlas_hir::{
         HirBlock, HirExprStmt, HirIfElseStmt, HirLetStmt, HirReturn, HirStatement, HirWhileStmt,
     },
     ty::HirTy,
-    HirImport,
-    HirModule,
-    HirModuleBody,
 };
 
 pub struct AstSyntaxLoweringPass<'ast, 'hir> {
@@ -516,7 +516,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     self.ast_arena,
                     IO_ATLAS.to_string(),
                 )
-                    .unwrap();
+                .unwrap();
                 let allocated_ast: &'ast AstProgram = self.ast_arena.alloc(ast);
                 let mut ast_lowering_pass = AstSyntaxLoweringPass::<'ast, 'hir>::new(
                     self.arena,
@@ -550,7 +550,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     self.ast_arena,
                     MATH_ATLAS.to_string(),
                 )
-                    .unwrap();
+                .unwrap();
                 let allocated_ast = self.ast_arena.alloc(ast);
                 let mut ast_lowering_pass = AstSyntaxLoweringPass::<'ast, 'hir>::new(
                     self.arena,
@@ -585,7 +585,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     self.ast_arena,
                     FILE_ATLAS.to_string(),
                 )
-                    .unwrap();
+                .unwrap();
                 let allocated_ast = self.ast_arena.alloc(ast);
                 let mut ast_lowering_pass = AstSyntaxLoweringPass::<'ast, 'hir>::new(
                     self.arena,
@@ -621,7 +621,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     self.ast_arena,
                     VECTOR_ATLAS.to_string(),
                 )
-                    .unwrap();
+                .unwrap();
                 let allocated_ast = self.ast_arena.alloc(ast);
                 let mut ast_lowering_pass = AstSyntaxLoweringPass::<'ast, 'hir>::new(
                     self.arena,
@@ -656,7 +656,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     self.ast_arena,
                     STRING_ATLAS.to_string(),
                 )
-                    .unwrap();
+                .unwrap();
                 let allocated_ast = self.ast_arena.alloc(ast);
                 let mut ast_lowering_pass = AstSyntaxLoweringPass::<'ast, 'hir>::new(
                     self.arena,
@@ -691,7 +691,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     self.ast_arena,
                     STRING_ATLAS.to_string(),
                 )
-                    .unwrap();
+                .unwrap();
                 let allocated_ast = self.ast_arena.alloc(ast);
                 let mut ast_lowering_pass = AstSyntaxLoweringPass::<'ast, 'hir>::new(
                     self.arena,
@@ -945,9 +945,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
             AstExpr::NewObj(obj) => {
                 let ty = match self.visit_ty(obj.ty)? {
-                    HirTy::Generic(ty) => {
-                        self.register_generic_type(ty)
-                    }
+                    HirTy::Generic(ty) => self.register_generic_type(ty),
                     other => other,
                 };
                 let hir = HirExpr::NewObj(HirNewObjExpr {

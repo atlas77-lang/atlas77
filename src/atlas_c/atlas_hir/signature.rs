@@ -3,19 +3,18 @@ use crate::atlas_c::atlas_frontend::parser::ast::AstVisibility;
 use crate::atlas_c::atlas_hir::expr::HirUnaryOp;
 use crate::atlas_c::atlas_hir::expr::{HirBinaryOp, HirExpr};
 use logos::Span;
-use serde::Serialize;
 use std::collections::BTreeMap;
 
 /// An HirModuleSignature represents the API of a module.
 ///
 /// Currently only functions exist in the language.
-#[derive(Debug, Clone, Serialize, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct HirModuleSignature<'hir> {
     pub functions: BTreeMap<&'hir str, &'hir HirFunctionSignature<'hir>>,
     pub structs: BTreeMap<&'hir str, &'hir HirStructSignature<'hir>>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 /// As of now, structs don't inherit concepts.
 pub struct HirStructSignature<'hir> {
     pub declaration_span: Span,
@@ -33,7 +32,7 @@ pub struct HirStructSignature<'hir> {
     pub destructor: HirStructConstructorSignature<'hir>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum HirVisibility {
     Public,
     Private,
@@ -52,7 +51,7 @@ impl From<AstVisibility> for HirVisibility {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 //Also used for the destructor
 pub struct HirStructConstructorSignature<'hir> {
     pub span: Span,
@@ -60,7 +59,7 @@ pub struct HirStructConstructorSignature<'hir> {
     pub type_params: Vec<HirTypeParameterItemSignature<'hir>>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirStructConstantSignature<'hir> {
     pub span: Span,
     pub vis: HirVisibility,
@@ -71,7 +70,7 @@ pub struct HirStructConstantSignature<'hir> {
     pub value: &'hir ConstantValue,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum ConstantValue {
     Int(i64),
     Float(f64),
@@ -113,7 +112,7 @@ impl TryFrom<HirExpr<'_>> for ConstantValue {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirStructFieldSignature<'hir> {
     pub span: Span,
     pub vis: HirVisibility,
@@ -123,7 +122,7 @@ pub struct HirStructFieldSignature<'hir> {
     pub ty_span: Span,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirStructMethodSignature<'hir> {
     pub span: Span,
     pub vis: HirVisibility,
@@ -135,7 +134,7 @@ pub struct HirStructMethodSignature<'hir> {
     pub return_ty_span: Option<Span>,
 }
 
-#[derive(Debug, Default, Clone, Serialize, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub enum HirStructMethodModifier {
     Static,
     Const,
@@ -143,7 +142,7 @@ pub enum HirStructMethodModifier {
     None,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirFunctionSignature<'hir> {
     pub span: Span,
     pub vis: HirVisibility,
@@ -172,14 +171,14 @@ impl Default for HirFunctionSignature<'_> {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirTypeParameterItemSignature<'hir> {
     pub span: Span,
     pub name: &'hir str,
     pub name_span: Span,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirFunctionParameterSignature<'hir> {
     pub span: Span,
     pub name: &'hir str,

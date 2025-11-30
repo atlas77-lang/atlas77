@@ -1,9 +1,8 @@
 use crate::atlas_c::atlas_hir::signature::ConstantValue;
-use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Index;
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 ///**TODO**: Those instructions should be lowered to an asm-ish set later on.
 ///
 /// Something akin to a ``[u32; N]`` representation
@@ -105,7 +104,7 @@ pub enum Instruction {
 }
 
 #[repr(u8)]
-#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum Type {
     Integer,
     Float,
@@ -116,7 +115,7 @@ pub enum Type {
 }
 
 /// Read by the VM before execution to import the related functions
-#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct ImportedLibrary {
     pub name: String,
     pub is_std: bool,
@@ -124,7 +123,7 @@ pub struct ImportedLibrary {
 
 ///todo: Make the program serializable and deserializable
 /// This will allow the program to be saved and loaded from a file
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq)]
 #[deprecated]
 pub struct ProgramDescriptor<'run> {
     pub labels: Vec<Label<'run>>,
@@ -181,7 +180,7 @@ impl ProgramDescriptor<'_> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct ConstantPool<'run> {
     //todo: Vec<T> -> &'run [T]
     pub string_pool: &'run [&'run str],
@@ -189,14 +188,14 @@ pub struct ConstantPool<'run> {
     pub function_pool: &'run [usize],
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct StructDescriptor<'run> {
     pub name: &'run str,
     pub fields: Vec<&'run str>,
     pub constants: BTreeMap<&'run str, ConstantValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Serialize)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 //todo: This should be dropped cuz it's slow
 pub struct Label<'run> {
     pub name: &'run str,

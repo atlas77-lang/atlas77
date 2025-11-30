@@ -1,12 +1,11 @@
 use super::{expr::HirExpr, ty::HirTy};
 use logos::Span;
-use serde::Serialize;
 
 /// Most of the statements could actually be replaced with
 ///
 /// Statement::Expr(HirExpr)
 /// Only the HirBlock & HirReturn is useful
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub enum HirStatement<'hir> {
     _Block(HirBlock<'hir>),
     Return(HirReturn<'hir>),
@@ -36,19 +35,19 @@ impl HirStatement<'_> {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirExprStmt<'hir> {
     pub span: Span,
     pub expr: HirExpr<'hir>,
 }
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirWhileStmt<'hir> {
     pub span: Span,
     pub condition: HirExpr<'hir>,
     pub body: HirBlock<'hir>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirLetStmt<'hir> {
     pub span: Span,
     pub name: &'hir str,
@@ -58,20 +57,20 @@ pub struct HirLetStmt<'hir> {
     pub value: HirExpr<'hir>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirIfElseStmt<'hir> {
     pub span: Span,
     pub condition: HirExpr<'hir>,
     pub then_branch: HirBlock<'hir>,
     pub else_branch: Option<HirBlock<'hir>>,
 }
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirReturn<'hir> {
     pub span: Span,
     pub value: HirExpr<'hir>,
     pub ty: &'hir HirTy<'hir>,
 }
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirBlock<'hir> {
     pub span: Span,
     pub statements: Vec<HirStatement<'hir>>,

@@ -1,3 +1,4 @@
+use crate::atlas_c::atlas_hir::HirModule;
 use crate::atlas_c::atlas_hir::arena::HirArena;
 use crate::atlas_c::atlas_hir::error::HirError::UnknownType;
 use crate::atlas_c::atlas_hir::error::{
@@ -8,7 +9,6 @@ use crate::atlas_c::atlas_hir::generic_pool::HirGenericPool;
 use crate::atlas_c::atlas_hir::signature::HirFunctionParameterSignature;
 use crate::atlas_c::atlas_hir::stmt::HirStatement;
 use crate::atlas_c::atlas_hir::ty::{HirGenericTy, HirListTy, HirNamedTy, HirTy};
-use crate::atlas_c::atlas_hir::HirModule;
 use logos::Span;
 use miette::{SourceOffset, SourceSpan};
 
@@ -39,7 +39,10 @@ impl<'hir> MonomorphizationPass<'hir> {
             module.signature.structs.remove(instance.name);
         }
 
-        println!("Module Body struct names: {:#?}", module.body.structs.keys());
+        println!(
+            "Module Body struct names: {:#?}",
+            module.body.structs.keys()
+        );
 
         for (function_name, _) in self.generic_pool.functions.iter() {
             module.body.functions.remove(function_name);
@@ -50,9 +53,15 @@ impl<'hir> MonomorphizationPass<'hir> {
     pub fn monomorphize(&mut self, module: &mut HirModule<'hir>) -> HirResult<()> {
         println!("Starting monomorphization pass... {:?}", self.generic_pool);
         //1. Generate only the signatures of the generic structs and functions
-        println!("self.generic_pool.structs.len() BEFORE = {}", self.generic_pool.structs.len());
+        println!(
+            "self.generic_pool.structs.len() BEFORE = {}",
+            self.generic_pool.structs.len()
+        );
         while !self.just_do_it(module)? {}
-        println!("self.generic_pool.structs.len() AFTER = {}", self.generic_pool.structs.len());
+        println!(
+            "self.generic_pool.structs.len() AFTER = {}",
+            self.generic_pool.structs.len()
+        );
         //println!("After generating struct signatures: {:#?}", module.signature.structs);
         //2. If you encounter a generic struct or function instantiation (e.g. in the return type), register it to the pool
         //3. Generate the actual bodies of the structs & functions in the pool, if you encounter new instantiations while generating, register them too
