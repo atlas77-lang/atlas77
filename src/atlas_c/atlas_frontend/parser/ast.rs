@@ -142,7 +142,6 @@ pub struct AstFunction<'ast> {
     pub vis: AstVisibility,
 }
 
-
 #[derive(Debug, Clone, Serialize)]
 ///todo: Rename because it's also used by functions
 pub struct AstObjField<'ast> {

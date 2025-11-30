@@ -30,7 +30,6 @@ declare_error_type! {
 /// Handy type alias for all HIR-related errors.
 pub type HirResult<T> = Result<T, HirError>;
 
-
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::unknown_file_import))]
 #[error("imported file {file_name} could not be found")]
@@ -44,7 +43,8 @@ pub struct UnknownFileImportError {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::not_enough_generics))]
-#[error("not enough generics provided {ty_name} requires {expected} generics, but only {found} were provided"
+#[error(
+    "not enough generics provided {ty_name} requires {expected} generics, but only {found} were provided"
 )]
 pub struct NotEnoughGenericsError {
     pub ty_name: String,

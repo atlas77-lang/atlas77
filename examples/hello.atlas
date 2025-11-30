@@ -1,5 +1,22 @@
+//package main;
+
 import "std/io"
 
 fun main() {
+    let boxed_int: Box<int64> = new Box<int64>(42);
     println("Hello, World!");
+}
+
+struct Box<T> {
+    private:
+        val: T;
+    Box(value: T) {
+        this.val = value;
+    }
+    fun get(this) -> T {
+        return this.val;
+    }
+    fun set(this, value: T) {
+        this.val = value;
+    }
 }

@@ -16,9 +16,7 @@ pub struct HirModuleSignature<'hir> {
 }
 
 #[derive(Debug, Clone, Serialize)]
-/// As of now, classes don't inherit from other classes or extend interfaces.
-///
-/// Generic classes are not supported yet.
+/// As of now, structs don't inherit concepts.
 pub struct HirStructSignature<'hir> {
     pub declaration_span: Span,
     pub vis: HirVisibility,

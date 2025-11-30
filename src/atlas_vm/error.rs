@@ -1,5 +1,5 @@
-use crate::atlas_vm::memory::vm_data::VMTag;
-use crate::atlas_vm::runtime::instruction::Type;
+use crate::atlas_vm::instruction::Type;
+use crate::atlas_vm::vm_data::VMTag;
 
 pub type RuntimeResult<T> = Result<T, RuntimeError>;
 

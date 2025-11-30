@@ -8,7 +8,6 @@ pub struct Program {
     pub function_pool: Vec<usize>,
 }
 
-
 #[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum ConstantValue {
     Integer(i64),

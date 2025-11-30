@@ -5,11 +5,16 @@ use std::{
     rc::Rc,
 };
 
-use super::ty::{HirBooleanTy, HirCharTy, HirConstTy, HirFloatTy, HirGenericTy, HirIntegerTy, HirListTy, HirNamedTy, HirNullTy, HirNullableTy, HirStringTy, HirTy, HirTyId, HirUninitializedTy, HirUnitTy, HirUnsignedIntTy};
+use super::ty::{
+    HirBooleanTy, HirCharTy, HirConstTy, HirFloatTy, HirGenericTy, HirIntegerTy, HirListTy,
+    HirNamedTy, HirNullTy, HirNullableTy, HirStringTy, HirTy, HirTyId, HirUninitializedTy,
+    HirUnitTy, HirUnsignedIntTy,
+};
 use bumpalo::Bump;
 use logos::Span;
 
 //todo: Implement my own Arenas (maybe)
+
 pub struct HirArena<'arena> {
     allocator: Rc<Bump>,
     type_arena: TypeArena<'arena>,
@@ -195,6 +200,7 @@ impl<'arena> TypeArena<'arena> {
         &'arena self,
         name: &'arena str,
         inner: Vec<&'arena HirTy<'arena>>,
+        span: Span,
     ) -> &'arena HirTy<'arena> {
         // compute stable id from name + inner types
         let param_ids = inner.iter().map(|t| HirTyId::from(*t)).collect::<Vec<_>>();
@@ -205,6 +211,7 @@ impl<'arena> TypeArena<'arena> {
             self.allocator.alloc(HirTy::Generic(HirGenericTy {
                 name,
                 inner: inner_owned,
+                span,
             }))
         })
     }

@@ -147,22 +147,23 @@ The runtime focuses on a simple GC (refcount + cycle breaking) and Rust-backed i
 
 | Feature              | Status | Notes                                                 |
 |----------------------|:------:|-------------------------------------------------------|
-| Functions            |   ✅    | Functions...                                          |
+| Functions            |   ✅    | Self descriptive I would say                          |
 | Variables            |   ✅    | Immutable (`const`) and mutable (`let`)               |
 | Control Flow         |   ✅    | `if/else`, `while`                                    |
-| Imports              |   ✅    | Only `std` imports for now                            |
-| Basic Types          |   ✅    | `int64`, `float64`, `bool`, `char`,                   |
+| Imports & Packages   |   🔧   | Multi module projects                                 |
+| Basic Types          |   ✅    | `int64`, `float64`, `bool`, `char`, `string`          |
 | Basic `std`          |   ✅    | I/O, string, math, time, vector, file                 |
 | Structs              |   🔧   | User-defined data types                               |
 | Enums                |   🔧   | C-like enumerator                                     |
 | Algebraic Data Types |   🔧   | Sum types with pattern matching                       |
 | Generics             |   🔧   | Type parameters for reusable code                     |
 | GC                   |   🔧   | Reference counting + cycle detection                  |
+| Type System          |   🔧   | Static, strong, inferred                              |
 | Rust FFI             |   🔧   | Core of the "everything else in libraries" philosophy |
 
 > NB: This is not really up to date as the rewrite is still taking place
 
-### Later (post v0.6.x)
+### Later (post v0.6 release)
 
 - Making a Brainfuck interpreter in Atlas77
 - Bootstrapping the compiler in Atlas77 itself
@@ -216,6 +217,15 @@ Don't forget to give the project a star! Thanks again!
 </a>
 
 Made with [contrib.rocks](https://contrib.rocks).
+
+## Special thanks
+
+Here is a list of repositories that helped me a lot while making Atlas77:
+> I either used them as inspiration, reference or learning material.
+
+- [Margarine](https://github.com/todaymare/margarine)
+- [Nova-Lang](https://github.com/pyrotek45/nova-lang/tree/main)
+- [Rust](https://github.com/rust-lang/rust)
 
 <!-- LICENSE -->
 

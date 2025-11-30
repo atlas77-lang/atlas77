@@ -2,29 +2,29 @@ import "std/string"
 import "std/io"
 import "std/list"
 
-public class Vec<T> {
+public struct Vec<T> {
     public:
         data: [T];
 }
 
-public class TestChars {
+public struct TestChars {
     public:
         chars: [char];
     public:
         TestChars(chars: [char]) {
-            self.chars = chars;            
+            this.chars = chars;            
         }
-        func get(self, i: int64) -> char {
-            return self.chars[i];
+        fun get(this, i: int64) -> char {
+            return this.chars[i];
         }
-        func set(self, i: int64, c: char) -> unit {
-            self.chars[i] = c;
+        fun set(this, i: int64, c: char) -> unit {
+            this.chars[i] = c;
             return;
         }
 }
 
 
-func main() {
+fun main() {
     let test_chars = test();
     let i = 0;
     while i < 10 {
@@ -32,7 +32,7 @@ func main() {
         i = i + 1;
     }
 }
-func test() -> TestChars{
+fun test() -> TestChars{
     let chars: [char] = ['T', 'e', 's', 't'];
     let test_chars = new TestChars(chars);
     test_chars.set(0, 'X');

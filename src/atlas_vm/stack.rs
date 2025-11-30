@@ -1,4 +1,4 @@
-use crate::atlas_vm_new::vm_data::VMData;
+use crate::atlas_vm::vm_data::VMData;
 
 const STACK_SIZE: usize = 1024;
 

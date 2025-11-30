@@ -55,3 +55,10 @@ pub struct HirStructConstructor<'hir> {
     pub type_params: Vec<HirTypeParameterItemSignature<'hir>>,
     pub body: HirBlock<'hir>,
 }
+
+#[derive(Debug, Clone, Serialize)]
+/// Represents a package path declaration like `package my_project::my_module;`
+pub struct HirPackage<'hir> {
+    pub span: Span,
+    pub path: &'hir [&'hir str],
+}

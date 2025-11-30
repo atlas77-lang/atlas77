@@ -1,11 +1,10 @@
 pub mod atlas_asm;
 pub mod atlas_c;
 pub mod atlas_lib;
-pub mod atlas_vm;
-mod atlas_vm_new;
+mod atlas_vm;
 
 use atlas_c::{
-    atlas_codegen::{arena::CodeGenArena, CodeGenUnit},
+    atlas_codegen::{CodeGenUnit, arena::CodeGenArena},
     atlas_frontend::{parse, parser::arena::AstArena},
     atlas_hir::{
         arena::HirArena, syntax_lowering_pass::AstSyntaxLoweringPass, type_check_pass::TypeChecker,
@@ -13,6 +12,7 @@ use atlas_c::{
 };
 use bumpalo::Bump;
 
+use crate::atlas_c::atlas_hir::monomorphization_pass::MonomorphizationPass;
 use std::{io::Write, path::PathBuf};
 //todo: The pipeline of the compiler should be more straightforward and should include the "debug" and "release" modes
 //todo: There should also be a function for each stage of the pipeline
@@ -46,7 +46,12 @@ pub fn build(path: String, _flag: CompilationFlag) -> miette::Result<()> {
     //hir
     let hir_arena = HirArena::new();
     let mut lower = AstSyntaxLoweringPass::new(&hir_arena, &program, &ast_arena, source.clone());
-    let mut hir = lower.lower()?;
+    let hir = lower.lower()?;
+
+    //monomorphize
+    let mut monomorphizer =
+        MonomorphizationPass::new(&hir_arena, lower.generic_pool, source.clone());
+    monomorphizer.monomorphize(hir)?;
 
     //type-check
     let mut type_checker = TypeChecker::new(&hir_arena, source.clone());
@@ -78,6 +83,11 @@ pub fn run(path: String, _flag: CompilationFlag) -> miette::Result<()> {
     let hir_arena = HirArena::new();
     let mut lower = AstSyntaxLoweringPass::new(&hir_arena, &program, &ast_arena, source.clone());
     let mut hir = lower.lower()?;
+
+    //monomorphize
+    let mut monomorphizer =
+        MonomorphizationPass::new(&hir_arena, lower.generic_pool, source.clone());
+    monomorphizer.monomorphize(hir)?;
 
     //type-check
     let mut type_checker = TypeChecker::new(&hir_arena, source.clone());

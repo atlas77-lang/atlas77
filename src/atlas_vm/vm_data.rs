@@ -1,4 +1,4 @@
-use crate::atlas_vm_new::object::ObjectIndex;
+use crate::atlas_vm::object::ObjectIndex;
 use std::fmt::Formatter;
 use std::{
     fmt,

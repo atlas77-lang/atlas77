@@ -1,20 +1,22 @@
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 
-use crate::atlas_c::atlas_frontend::lexer::token::Token;
+use crate::atlas_c::atlas_frontend::lexer::TokenVec;
+use crate::atlas_c::atlas_frontend::lexer::token::{LexingError, Token};
 use crate::declare_error_type;
 
 declare_error_type! {
     #[error("Parse error: {0}")]
-    pub enum ParseError {
+    pub enum SyntaxError {
         UnexpectedEndOfFile(UnexpectedEndOfFileError),
         UnexpectedToken(UnexpectedTokenError),
         OnlyOneConstructorAllowed(OnlyOneConstructorAllowedError),
         NoFieldInStruct(NoFieldInStructError),
+        InvalidCharacter(InvalidCharacterError),
     }
 }
 
-pub type ParseResult<T> = Result<T, ParseError>;
+pub type ParseResult<T> = Result<T, SyntaxError>;
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(syntax::no_field_in_class), help("Add fields to the struct"))]
@@ -57,9 +59,20 @@ pub struct UnexpectedEndOfFileError {
 #[error("Found unexpected token during parsing")]
 pub struct UnexpectedTokenError {
     pub token: Token,
-    pub expected: crate::atlas_c::atlas_frontend::lexer::TokenVec,
+    pub expected: TokenVec,
     #[label("was not expecting to find '{token}' in this position, expected one of: {expected}")]
     pub span: SourceSpan,
     #[source_code]
     pub src: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(lexer::invalid_character))]
+#[error("invalid stuff {kind:?} found during lexing")]
+pub struct InvalidCharacterError {
+    #[source_code]
+    pub src: String,
+    #[label("invalid character found here")]
+    pub span: SourceSpan,
+    pub kind: LexingError,
 }

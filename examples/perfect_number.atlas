@@ -1,18 +1,18 @@
 import "std/io"
 
-func check_perfect_number(n: int64) -> unit {
+fun check_perfect_number(n: int64) -> unit {
     let sum: int64 = sum_of_divisors(n, n - 1, 0);
     if n == sum {
-        print(sum as str);
+        print(sum as string);
     }
     return;
 }
 
-func main() {
+fun main() {
     test_numbers(500);
 }
 
-func sum_of_divisors(n: int64, divisor: int64, sum: int64) -> int64 {
+fun sum_of_divisors(n: int64, divisor: int64, sum: int64) -> int64 {
     if divisor == 0 {
         return sum;
     }
@@ -23,7 +23,7 @@ func sum_of_divisors(n: int64, divisor: int64, sum: int64) -> int64 {
     return sum_of_divisors(n, divisor - 1, sum);
 }
 
-func test_numbers(n: int64) {
+fun test_numbers(n: int64) {
     if n == 0 {
         return;
     }

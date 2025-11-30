@@ -1,7 +1,6 @@
-use crate::atlas_vm::RuntimeResult;
-use crate::atlas_vm::errors::RuntimeError;
-use crate::atlas_vm_new::object::{Object, ObjectIndex, ObjectKind, Structure};
-use crate::atlas_vm_new::vm_data::VMTag;
+use crate::atlas_vm::error::{RuntimeError, RuntimeResult};
+use crate::atlas_vm::object::{Object, ObjectIndex, ObjectKind, Structure};
+use crate::atlas_vm::vm_data::VMTag;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 

@@ -1,5 +1,5 @@
-/// Push a constant #index from a constant pool 
-/// (``(u)int``, ``float``, ``bool``, ``extern_ptr``, `char`, ``string``, `struct`, ``list``) 
+/// Push a constant #index from a constant pool
+/// (``(u)int``, ``float``, ``bool``, ``extern_ptr``, `char`, ``string``, `struct`, ``list``)
 /// onto the stack
 /// NB: if the constant is an object (defined as ``struct``, ``list``, ``string``),
 /// a new heap object will be created and a reference to it will be pushed onto the stack

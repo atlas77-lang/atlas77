@@ -1,7 +1,7 @@
 import "std/math"
 import "std/io"
 
-func main() {
+fun main() {
     println("🎮 Welcome to the Guessing Game!");
     println("I'm thinking of a number between 1 and 100...");
 

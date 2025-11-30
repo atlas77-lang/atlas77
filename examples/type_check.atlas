@@ -3,16 +3,16 @@
 // Define constants and variables
 
 // Function definitions
-func add(a: int64, b: int64) -> int64 {
+fun add(a: int64, b: int64) -> int64 {
     return a + b; // Valid addition of int64
 }
 
-func negate(a: u64) -> u64 {
-    // Attempt to negate a u64 - this should fail type checking
-    return -a; // Invalid: u64 cannot be negated
+fun negate(a: uint64) -> uint64 {
+    // Attempt to negate a uint64 - this should fail type checking
+    return -a; // Invalid: uint64 cannot be negated
 }
 
-func test_consts() -> int64 {
+fun test_consts() -> int64 {
     const a: int64 = 10; // Constant int64
     // Attempt to mutate a const - this should fail type checking
     a = 15.0; // Invalid: 'a' is a constant
@@ -20,7 +20,7 @@ func test_consts() -> int64 {
 }
 
 // If-else block with type checking
-func conditional_check(a: int64) -> bool {
+fun conditional_check(a: int64) -> bool {
     if a > 10 {
         return true;
     } else {
@@ -29,7 +29,7 @@ func conditional_check(a: int64) -> bool {
 }
 
 // While loop with type checking
-func sum_until(limit: int64) -> int64 {
+fun sum_until(limit: int64) -> int64 {
     let sum: int64 = 0;
     let counter: int64 = 0;
 
@@ -41,15 +41,15 @@ func sum_until(limit: int64) -> int64 {
     return sum;
 }
 
-func add_i_f(a: int64, b: f64) -> int64 {
+fun add_i_f(a: int64, b: float64) -> int64 {
     return a + b; // Invalid: int64 + f64
 }
 
 // Main function for testing
-func main() -> int64 {
+fun main() -> int64 {
     let valid_sum: int64 = add(10, 20); // Valid function call
 
-    let invalid_negate: u64 = negate(5_u64); // This should trigger a type-checking error
+    let invalid_negate: uint64 = negate(5); // This should trigger a type-checking error
 
     let const_mutation: int64 = test_consts(); // This should trigger a type-checking error
 

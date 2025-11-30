@@ -273,6 +273,7 @@ pub struct HirFunctionTy<'hir> {
 pub struct HirGenericTy<'hir> {
     pub name: &'hir str,
     pub inner: Vec<HirTy<'hir>>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, Serialize, Eq, Hash, PartialEq)]

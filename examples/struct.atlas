@@ -3,16 +3,32 @@ import "std/io"
 struct Pair<T, U> {
     public:
         first: T;
-    public:
         second: U;
 
     Pair(first: T, second: U) {
-        self.first = first;
-        self.second = second;
+        this.first = first;
+        this.second = second;
     }
 
     fun swap(this) -> Pair<U, T> {
         return new Pair<U, T>(this.second, this.first);
+    }
+
+    fun fn_first(this) -> T {
+        return this.first;
+    }
+
+    fun fn_second(this) -> U {
+        return this.second;
+    }
+
+    fun get(this) -> Pair<T, U> {
+        return this;
+    }
+
+    fun test() -> Pair<T, Box<float64>> {
+        let boxed_value: Box<float64> = new Box<float64>(3.14);
+        return new Pair<T, Box<float64>>(this.first, boxed_value);
     }
 }
 
@@ -21,12 +37,18 @@ struct Box<T> {
         value: T;
 
     Box(value: T) {
-        self.value = value;
+        this.value = value;
     }
 }
 
 fun main() {
     let p: Pair<int64, string> = new Pair<int64, string>(42, "Hello");
+    let p_get: Pair<int64, string> = p.get();
+    let first: int64 = p.fn_first();
+    let second: string = p.fn_second();
+    let swapped: Pair<string, int64> = p.swap();
     let p_boxed: Pair<Box<int64>, Box<string>> = new Pair<Box<int64>, Box<string>>(new Box<int64>(p.first), new Box<string>(p.second));
     print("Pair: (" + p.first as string + ", " + p.second + ")");
+
+    let maybe_pair: Pair<int64, int64>? = null;
 }

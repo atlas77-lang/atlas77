@@ -1,7 +1,7 @@
 import "std/io"
 
 //Same program as in perfect_number.atlas but using while loops instead of recursion
-func main() {
+fun main() {
     let sum = 0;
     let num = 500;
     let i = 1;

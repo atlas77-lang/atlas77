@@ -10,7 +10,6 @@ extern to_chars(s: Str): Array[Char]
 extern from_chars(s: [Char]): Str
 
 
-@public
 struct String {
     var s: Str
     var len: UInt64

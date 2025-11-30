@@ -3,41 +3,40 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Index;
 
-
 #[derive(Debug, Clone, PartialEq, PartialOrd, Serialize)]
 ///**TODO**: Those instructions should be lowered to an asm-ish set later on.
 ///
 /// Something akin to a ``[u32; N]`` representation
 pub enum Instruction {
     // === Literals & constants ===
-    LoadConst(u32),     // Load constant from constant pool
+    LoadConst(u32), // Load constant from constant pool
     #[deprecated]
-    PushInt(i64),       // Push integer (signed, covers chars + unsigned at type-level)
+    PushInt(i64), // Push integer (signed, covers chars + unsigned at type-level)
     #[deprecated]
-    PushFloat(f64),     // Push float
+    PushFloat(f64), // Push float
     #[deprecated]
-    PushBool(bool),     // Push boolean
+    PushBool(bool), // Push boolean
     #[deprecated]
-    PushStr(usize),     // Push string from constant pool (returns pointer)
+    PushStr(usize), // Push string from constant pool (returns pointer)
     #[deprecated]
-    PushList(usize),    // Push list from constant pool (returns pointer)
+    PushList(usize), // Push list from constant pool (returns pointer)
     #[deprecated]
-    PushUnit,           // Push unit value ()
+    PushUnit, // Push unit value ()
 
     // === Stack manipulation ===
-    Pop,                // Discard top of stack
-    Dup,                // Duplicate top value
-    Swap,               // Swap top two values
+    Pop,  // Discard top of stack
+    Dup,  // Duplicate top value
+    Swap, // Swap top two values
 
     // === Variables ===
-    StoreVar(usize),    // Store TOS in local slot
-    LoadVar(usize),     // Load local slot onto TOS
+    StoreVar(usize), // Store TOS in local slot
+    LoadVar(usize),  // Load local slot onto TOS
 
     // === Collections & indexing ===
-    IndexLoad,          // [ContainerPtr, Index] -> [Value]
-    IndexStore,         // [ContainerPtr, Index, Value] -> []
+    IndexLoad,  // [ContainerPtr, Index] -> [Value]
+    IndexStore, // [ContainerPtr, Index, Value] -> []
 
-    NewList,            // [Size] -> [ListPtr]
+    NewList, // [Size] -> [ListPtr]
 
     // === Arithmetic & comparisons ===
     Add,
@@ -53,11 +52,17 @@ pub enum Instruction {
     Lte,
 
     // === Control flow ===
-    Jmp { pos: isize },   // Relative unconditional jump
-    JmpZ { pos: isize },  // Jump if TOS == false/0
+    Jmp {
+        pos: isize,
+    }, // Relative unconditional jump
+    JmpZ {
+        pos: isize,
+    }, // Jump if TOS == false/0
 
     // === Functions ===
-    LocalSpace { nb_vars: u8 },   // Reserve local slots
+    LocalSpace {
+        nb_vars: u8,
+    }, // Reserve local slots
     Call {
         func_id: String,
         nb_args: u8,
@@ -76,19 +81,27 @@ pub enum Instruction {
     // - Remaining bits encode the actual function index
     // - `nb_args` is the number of arguments to pop from the stack and pass to the function
     // Stack effect: [arg1, arg2, ..., argN] -> [return_value]
-    LoadArg { index: u8 },        // Load function argument
-    Return,                       // Return from function
+    LoadArg {
+        index: u8,
+    }, // Load function argument
+    Return, // Return from function
 
     // === Objects ===
-    NewObj { obj_descriptor: usize }, // Create object
-    GetField { field: usize },          // [ObjPtr] -> [Value]
-    SetField { field: usize },          // [ObjPtr, Value] -> []
+    NewObj {
+        obj_descriptor: usize,
+    }, // Create object
+    GetField {
+        field: usize,
+    }, // [ObjPtr] -> [Value]
+    SetField {
+        field: usize,
+    }, // [ObjPtr, Value] -> []
 
     // === Type ops ===
-    CastTo(Type),    // Explicit type coercion (if kept)
+    CastTo(Type), // Explicit type coercion (if kept)
 
     // === Misc ===
-    Halt,            // Stop execution
+    Halt, // Stop execution
 }
 
 #[repr(u8)]

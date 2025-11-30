@@ -1,17 +1,17 @@
 /// Contains the definition of the CodeGenArena
 pub mod arena;
-mod table;
 mod program;
+mod table;
 
 use crate::atlas_c::atlas_hir::{
+    HirModule,
     error::{HirResult, UnsupportedExpr, UnsupportedStatement},
     expr::HirExpr,
     signature::HirFunctionParameterSignature,
     stmt::{HirBlock, HirStatement},
     ty::HirTy,
-    HirModule,
 };
-use crate::atlas_vm_new::instruction::{
+use crate::atlas_vm::instruction::{
     ImportedLibrary, Instruction, Label, ProgramDescriptor, StructDescriptor, Type,
 };
 use std::collections::{BTreeMap, HashMap};
@@ -751,8 +751,11 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
             HirExpr::ConstructorExpr(constructor) => {
                 bytecode.push(Instruction::NewObj {
-                    obj_descriptor:
-                    self.struct_pool.iter().position(|s| s.name == constructor.name).unwrap() //TODO: handle error
+                    obj_descriptor: self
+                        .struct_pool
+                        .iter()
+                        .position(|s| s.name == constructor.name)
+                        .unwrap(), //TODO: handle error
                 });
                 //Now we need to set the fields
                 for field_init in &constructor.fields {

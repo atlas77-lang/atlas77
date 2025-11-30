@@ -1,4 +1,4 @@
-use crate::atlas_vm_new::vm_data::VMData;
+use crate::atlas_vm::vm_data::VMData;
 use std::borrow::Borrow;
 use std::fmt;
 use std::fmt::{Display, Formatter};

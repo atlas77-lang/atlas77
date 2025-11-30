@@ -46,7 +46,7 @@ public struct Vector<T> {
         this.data[this.length] = val;
         this.length = this.length + 1;
     }
-    
+
     fun pop(this) -> T {
         if this.length == 0 {
             std::panic("Cannot pop from an empty vector");
@@ -54,4 +54,8 @@ public struct Vector<T> {
         this.length = this.length - 1;
         return this.data[this.length];
     }
+}
+
+fun main() {
+  let my_vec = new Vector<int64>([0, 1, 2, 3, 4]);
 }

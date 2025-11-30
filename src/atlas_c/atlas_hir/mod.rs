@@ -18,11 +18,23 @@ pub mod arena;
 pub mod error;
 //todo: The Hir needs a little rework to correctly define what is an item, a statement, an expression, a type, etc.
 pub mod expr;
+mod generic_pool;
 pub mod item;
+pub mod monomorphization_pass;
+mod scope;
 pub mod signature;
 pub mod stmt;
 pub mod ty;
-pub mod monomorphization_pass;
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct HirModuleGraph<'hir> {
+    pub modules: BTreeMap<HirModuleId<'hir>, HirModule<'hir>>,
+}
+
+#[derive(Debug, Clone, Serialize, Hash, Eq, PartialEq)]
+pub struct HirModuleId<'hir> {
+    pub name: &'hir str,
+}
 
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct HirModuleBody<'hir> {
@@ -32,6 +44,7 @@ pub struct HirModuleBody<'hir> {
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
+/// A module is
 pub struct HirModule<'hir> {
     pub body: HirModuleBody<'hir>,
     pub signature: HirModuleSignature<'hir>,
