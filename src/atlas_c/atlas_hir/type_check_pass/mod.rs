@@ -869,7 +869,6 @@ impl<'hir> TypeChecker<'hir> {
             }
             HirExpr::Ident(i) => {
                 let ctx_var = self.get_ident_ty(i)?;
-                println!("Ident '{}' has type '{}'", i.name, ctx_var.ty);
                 Ok(ctx_var.ty)
             }
             HirExpr::FieldAccess(field_access) => {

@@ -22,8 +22,8 @@ use ast::{
 };
 
 use crate::atlas_c::atlas_frontend::lexer::{
-    Spanned, TokenVec,
-    token::{Token, TokenKind},
+    token::{Token, TokenKind}, Spanned,
+    TokenVec,
 };
 use crate::atlas_c::atlas_frontend::parser::ast::{
     AstCastingExpr, AstCharLiteral, AstCharType, AstConstructor, AstConstructorExpr,
@@ -1193,7 +1193,7 @@ impl<'ast> Parser<'ast> {
             generics,
             args_name: self.arena.alloc_vec(args_name),
             args_ty: self.arena.alloc_vec(args_ty),
-            ret: self.arena.alloc(ret_ty),
+            ret_ty: self.arena.alloc(ret_ty),
             vis: AstVisibility::default(),
         };
         Ok(node)
@@ -1615,7 +1615,7 @@ fun main() {
     print("Popped value: " + val);
 }
 "#
-        .to_string();
+            .to_string();
         let mut lexer = AtlasLexer::new("<stdin>".into(), input.clone());
         //lexer.set_source(input.to_string());
         let tokens = match lexer.tokenize() {
@@ -1667,7 +1667,7 @@ fun main() {
                                     .zip(e.args_ty.iter())
                                     .map(|(name, ty)| format!("{:?}: {:?}", name, ty))
                                     .collect::<String>(),
-                                e.ret
+                                e.ret_ty
                             );
                         }
                         AstItem::Function(f) => {

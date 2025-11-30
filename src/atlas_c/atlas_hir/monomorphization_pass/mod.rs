@@ -5,6 +5,7 @@ use crate::atlas_c::atlas_hir::error::{
 };
 use crate::atlas_c::atlas_hir::expr::HirExpr;
 use crate::atlas_c::atlas_hir::generic_pool::HirGenericPool;
+use crate::atlas_c::atlas_hir::item::HirStruct;
 use crate::atlas_c::atlas_hir::signature::HirFunctionParameterSignature;
 use crate::atlas_c::atlas_hir::stmt::HirStatement;
 use crate::atlas_c::atlas_hir::ty::{HirGenericTy, HirListTy, HirNamedTy, HirTy};
@@ -47,15 +48,6 @@ impl<'hir> MonomorphizationPass<'hir> {
                 module.body.structs.remove(name);
             }
         }
-        println!(
-            "All struct names in signature after monomorphization: {:#?}",
-            module.signature.structs.keys()
-        );
-
-        println!(
-            "Module Body struct names: {:#?}",
-            module.body.structs.keys()
-        );
 
         for (function_name, _) in self.generic_pool.functions.iter() {
             module.body.functions.remove(function_name);
@@ -64,18 +56,8 @@ impl<'hir> MonomorphizationPass<'hir> {
     }
 
     pub fn monomorphize(&mut self, module: &mut HirModule<'hir>) -> HirResult<()> {
-        println!("Starting monomorphization pass... {:?}", self.generic_pool);
         //1. Generate only the signatures of the generic structs and functions
-        println!(
-            "self.generic_pool.structs.len() BEFORE = {}",
-            self.generic_pool.structs.len()
-        );
-        while !self.just_do_it(module)? {}
-        println!(
-            "self.generic_pool.structs.len() AFTER = {}",
-            self.generic_pool.structs.len()
-        );
-        //println!("After generating struct signatures: {:#?}", module.signature.structs);
+        while !self.process_pending_generics(module)? {}
         //2. If you encounter a generic struct or function instantiation (e.g. in the return type), register it to the pool
         //3. Generate the actual bodies of the structs & functions in the pool, if you encounter new instantiations while generating, register them too
         //4. Clear the generic structs & functions from the module body and signature
@@ -84,12 +66,11 @@ impl<'hir> MonomorphizationPass<'hir> {
         Ok(())
     }
 
-    fn just_do_it(&mut self, module: &mut HirModule<'hir>) -> HirResult<bool> {
+    fn process_pending_generics(&mut self, module: &mut HirModule<'hir>) -> HirResult<bool> {
         let mut is_done = true;
         let mut generic_pool_clone = self.generic_pool.structs.clone();
-        for (name, instance) in generic_pool_clone.iter_mut() {
+        for (_, instance) in generic_pool_clone.iter_mut() {
             if !instance.is_done {
-                println!("1. NAME: {} & IS_DONE: {}", name, instance.is_done);
                 let generic_ty = self.arena.intern(HirGenericTy {
                     name: instance.name,
                     inner: instance.args.clone(),
@@ -97,7 +78,6 @@ impl<'hir> MonomorphizationPass<'hir> {
                 });
                 self.monomorphize_struct(module, generic_ty, instance.span.clone())?;
                 instance.is_done = true;
-                println!("2. NAME: {} & IS_DONE: {}", name, instance.is_done);
                 is_done = false;
             }
         }
@@ -152,20 +132,19 @@ impl<'hir> MonomorphizationPass<'hir> {
             }));
         }
 
-        //TODO: Right now we can't have nested generics (i.e. Box<T> -> Vector<Box<int64>>)
-        //TODO: Add a bunch of helper functions for that
-        //TODO: NB: This would require calling the "monomorphize_struct" function recursively.
-        //TODO: I'll do it once the basic monomorphization is working and stable enough.
+        
+        let types_to_change: Vec<(&'hir str, &'hir HirTy<'hir>)> = generic_names
+            .iter()
+            .enumerate()
+            .map(|(i, generic_name)| {
+                (
+                    *generic_name,
+                    self.arena.intern(actual_type.inner[i].clone()) as &'hir HirTy<'hir>,
+                )
+            })
+            .collect::<Vec<(&'hir str, &'hir HirTy<'hir>)>>();
 
-        for (_, field_signature) in new_struct.signature.fields.iter_mut() {
-            for (i, generic_name) in generic_names.iter().enumerate() {
-                field_signature.ty = self.change_inner_type(
-                    field_signature.ty,
-                    generic_name,
-                    actual_type.inner[i].clone(),
-                );
-            }
-        }
+        self.monomorphize_fields(&mut new_struct, &generic_names, actual_type)?;
 
         for (i, arg) in new_struct
             .signature
@@ -189,6 +168,7 @@ impl<'hir> MonomorphizationPass<'hir> {
                 } else {
                     new_ty
                 };
+                //Update only if changed
                 if new_ty != arg.ty {
                     new_struct.signature.constructor.params[i] = HirFunctionParameterSignature {
                         name: arg.name,
@@ -261,20 +241,10 @@ impl<'hir> MonomorphizationPass<'hir> {
         //And lastly, we need to update the statements inside the constructor and methods to reflect the new types.
         //It's mostly changing the name of every `new Struct<Generic>` to `new __atlas77__Struct__actual_types`
 
-        let type_to_change: Vec<(&'hir str, &'hir HirTy<'hir>)> = generic_names
-            .iter()
-            .enumerate()
-            .map(|(i, generic_name)| {
-                (
-                    *generic_name,
-                    self.arena.intern(actual_type.inner[i].clone()) as &'hir HirTy<'hir>,
-                )
-            })
-            .collect::<Vec<(&'hir str, &'hir HirTy<'hir>)>>();
 
         for method in new_struct.methods.iter_mut() {
             for statement in method.body.statements.iter_mut() {
-                self.monomorphize_statement(module, statement, type_to_change.clone())?;
+                self.monomorphize_statement(module, statement, types_to_change.clone())?;
             }
         }
 
@@ -289,6 +259,24 @@ impl<'hir> MonomorphizationPass<'hir> {
         module.body.structs.insert(mangled_name, new_struct);
 
         Ok(self.arena.types().get_named_ty(mangled_name, span.clone()))
+    }
+
+    fn monomorphize_fields(
+        &mut self,
+        new_struct: &mut HirStruct<'hir>,
+        generic_names: &Vec<&'hir str>,
+        actual_type: &'hir HirGenericTy<'hir>,
+    ) -> HirResult<()> {
+        for (_, field_signature) in new_struct.signature.fields.iter_mut() {
+            for (i, generic_name) in generic_names.iter().enumerate() {
+                field_signature.ty = self.change_inner_type(
+                    field_signature.ty,
+                    generic_name,
+                    actual_type.inner[i].clone(),
+                );
+            }
+        }
+        Ok(())
     }
 
     fn monomorphize_statement(
@@ -397,17 +385,12 @@ impl<'hir> MonomorphizationPass<'hir> {
                 }
             }
             HirExpr::NewArray(new_array_expr) => {
-                println!("NewArray BEFORE monomorphization: {:?}", new_array_expr.ty);
                 if let HirTy::List(l) = new_array_expr.ty {
                     if let HirTy::Generic(g) = l.inner {
                         self.generic_pool.register_struct_instance(g.clone());
                     } else if let HirTy::Named(n) = l.inner {
                         if n.name.len() == 1 {
                             for (generic_name, actual_ty) in types_to_change.iter() {
-                                println!(
-                                    "Current Type to change: {} is {}",
-                                    generic_name, actual_ty
-                                );
                                 if n.name == *generic_name {
                                     new_array_expr.ty = actual_ty;
                                 }
@@ -415,7 +398,6 @@ impl<'hir> MonomorphizationPass<'hir> {
                         }
                     }
                 }
-                println!("NewArray AFTER monomorphization: {:?}", new_array_expr.ty);
                 self.monomorphize_expression(module, &mut new_array_expr.size, types_to_change)?;
             }
             _ => {}
@@ -431,10 +413,6 @@ impl<'hir> MonomorphizationPass<'hir> {
         ty: &'hir HirTy<'hir>,
         types_to_change: Vec<(&'hir str, &'hir HirTy<'hir>)>,
     ) -> &'hir HirTy<'hir> {
-        println!(
-            "Swapping in type: {}. types_to_change: {:?}",
-            ty, types_to_change
-        );
         match ty {
             HirTy::Named(n) => {
                 for (generic_name, actual_ty) in types_to_change.iter() {

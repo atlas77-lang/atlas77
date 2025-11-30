@@ -2,8 +2,8 @@
 #![deny(clippy::redundant_clone)]
 #![deny(clippy::unwrap_used)]
 
-use atlas_77::{CompilationFlag, build, run};
-use clap::{Parser, command};
+use atlas_77::{build, run, CompilationFlag};
+use clap::{command, Parser};
 
 #[derive(Parser)] // requires `derive` feature
 #[command(name = "Atlas77")]
@@ -16,12 +16,22 @@ use clap::{Parser, command};
 )]
 enum AtlasRuntimeCLI {
     #[command(
-        arg_required_else_help = true,
         about = "Compile then run a local package",
         long_about = "Compile then run a local package. The output will be written to the current directory."
     )]
     Run {
-        file_path: String,
+        file_path: Option<String>,
+        #[arg(short = 'r', long)]
+        release: bool,
+        #[arg(short = 'd', long)]
+        debug: bool,
+    },
+    #[command(
+        about = "Compile a local package and all of its dependencies",
+        long_about = "Compile a local package and all of its dependencies. The output will be written to the current directory as `output.atlas_c`. NB: That output file is not executable."
+    )]
+    Build {
+        file_path: Option<String>,
         #[arg(short = 'r', long)]
         release: bool,
         #[arg(short = 'd', long)]
@@ -29,15 +39,12 @@ enum AtlasRuntimeCLI {
     },
     #[command(
         arg_required_else_help = true,
-        about = "Compile a local package and all of its dependencies",
-        long_about = "Compile a local package and all of its dependencies. The output will be written to the current directory as `output.atlas_c`. NB: That output file is not executable."
+        about = "Initialize a new Atlas77 project",
+        long_about = "Initialize a new Atlas77 project in the current directory"
     )]
-    Build {
-        file_path: String,
-        #[arg(short = 'r', long)]
-        release: bool,
-        #[arg(short = 'd', long)]
-        debug: bool,
+    Init {
+        //Always required
+        name: Option<String>,
     },
 }
 
@@ -52,14 +59,29 @@ fn main() -> miette::Result<()> {
                 eprintln!("Cannot run in both release and debug mode");
                 std::process::exit(1);
             }
-            run(
-                file_path,
-                if release {
-                    CompilationFlag::Release
-                } else {
-                    CompilationFlag::Debug
-                },
-            )
+            match file_path {
+                Some(file_path) => {
+                    run(
+                        file_path,
+                        if release {
+                            CompilationFlag::Release
+                        } else {
+                            CompilationFlag::Debug
+                        },
+                    )
+                }
+                None => {
+                    //We need to find the src/main.atlas or return an error
+                    run(
+                        "src/main.atlas".to_string(),
+                        if release {
+                            CompilationFlag::Release
+                        } else {
+                            CompilationFlag::Debug
+                        },
+                    )
+                }
+            }
         }
         AtlasRuntimeCLI::Build {
             file_path,
@@ -67,17 +89,43 @@ fn main() -> miette::Result<()> {
             debug,
         } => {
             if release && debug {
-                eprintln!("Cannot run in both release and debug mode");
+                eprintln!("Cannot build in both release and debug mode");
                 std::process::exit(1);
             }
-            build(
-                file_path,
-                if release {
-                    CompilationFlag::Release
-                } else {
-                    CompilationFlag::Debug
-                },
-            )
+            match file_path {
+                Some(file_path) => {
+                    build(
+                        file_path,
+                        if release {
+                            CompilationFlag::Release
+                        } else {
+                            CompilationFlag::Debug
+                        },
+                    )
+                }
+                None => {
+                    //We need to find the src/main.atlas or return an error
+                    build(
+                        "src/main.atlas".to_string(),
+                        if release {
+                            CompilationFlag::Release
+                        } else {
+                            CompilationFlag::Debug
+                        },
+                    )
+                }
+            }
+        }
+        AtlasRuntimeCLI::Init { name } => {
+            match name {
+                Some(name) => {
+                    atlas_77::init(name);
+                }
+                None => {
+                    atlas_77::init("my_awesome_atlas77_project".to_owned());
+                }
+            }
+            Ok(())
         }
     }
 }

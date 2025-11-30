@@ -25,7 +25,11 @@ impl Default for Span {
 /// will need to be updated to handle that.
 ///
 pub fn get_file_content(path: &str) -> Result<String, std::io::Error> {
-    let path = path.to_owned() + ".atlas";
+    let path = if path.ends_with(".atlas") {
+        path.to_string()
+    } else {
+        format!("{}.atlas", path)
+    };
     if path.starts_with("std/") {
         let file_name = path.split("/").last().unwrap();
         match STD_LIB_DIR.get_file(file_name) {

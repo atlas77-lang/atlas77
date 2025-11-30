@@ -158,7 +158,7 @@ pub struct AstExternFunction<'ast> {
     pub generics: Option<&'ast [&'ast AstNamedType<'ast>]>,
     pub args_name: &'ast [&'ast AstIdentifier<'ast>],
     pub args_ty: &'ast [&'ast AstType<'ast>],
-    pub ret: &'ast AstType<'ast>,
+    pub ret_ty: &'ast AstType<'ast>,
     pub vis: AstVisibility,
 }
 

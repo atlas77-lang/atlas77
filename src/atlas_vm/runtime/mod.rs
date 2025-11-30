@@ -21,10 +21,6 @@ pub struct AtlasRuntime<'run> {
 }
 
 impl<'run> AtlasRuntime<'run> {
-    fn get_next_32_bits(&mut self) -> u32 {
-        self.pc += 1;
-        0
-    }
     pub fn execute_instruction(&mut self, instr: Instruction) -> RuntimeResult<()> {
         match instr {
             _ => unimplemented!("{:?}", instr),

@@ -88,23 +88,20 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
 impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     pub fn lower(&mut self) -> HirResult<&'hir mut HirModule<'hir>> {
-        let mut items = Vec::new();
         for item in self.ast.items {
-            items.push(self.visit_item(item)?);
+            self.visit_item(item)?;
         }
 
-        //dbg!("Generic Pool: {:?}", &self.generic_pool.structs);
 
         Ok(self.arena.intern(HirModule {
-            //TODO: Clone removal
             body: self.module_body.clone(),
             signature: self.module_signature.clone(),
         }))
     }
-    pub fn visit_item(&mut self, item: &'ast AstItem<'ast>) -> HirResult<()> {
-        match item {
+    pub fn visit_item(&mut self, ast_item: &'ast AstItem<'ast>) -> HirResult<()> {
+        match ast_item {
             AstItem::Function(f) => {
-                let fun = self.visit_func(f)?;
+                let hir_func = self.visit_func(f)?;
                 let name = self.arena.names().get(f.name.name);
                 if !name.is_snake_case() {
                     eprintln!("Warning: {} is not snake case", name);
@@ -113,34 +110,33 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         name.to_snake_case()
                     );
                 }
-                self.module_signature.functions.insert(name, fun.signature);
-                self.module_body.functions.insert(name, fun);
+                self.module_signature.functions.insert(name, hir_func.signature);
+                self.module_body.functions.insert(name, hir_func);
             }
-            AstItem::Struct(c) => {
-                let class = self.visit_struct(c)?;
+            AstItem::Struct(ast_struct) => {
+                let class = self.visit_struct(ast_struct)?;
                 self.module_signature
                     .structs
                     .insert(class.name, self.arena.intern(class.signature.clone()));
                 self.module_body.structs.insert(class.name, class);
             }
-            AstItem::Import(i) => {
-                match self.visit_import(i) {
-                    Ok(mut hir) => {
-                        let allocated_hir: &'hir HirModule<'hir> = self.arena.intern(hir.0);
+            AstItem::Import(ast_import) => {
+                match self.visit_import(ast_import) {
+                    Ok((hir_module, mut generic_pool)) => {
+                        let allocated_hir: &'hir HirModule<'hir> = self.arena.intern(hir_module);
                         for (name, signature) in allocated_hir.signature.functions.iter() {
                             self.module_signature.functions.insert(name, *signature);
                         }
                         for (name, signature) in allocated_hir.signature.structs.iter() {
-                            println!("Inserting struct: {}", name);
                             self.module_signature.structs.insert(name, *signature);
                         }
-                        for body in allocated_hir.body.structs.iter() {
-                            self.module_body.structs.insert(body.0, body.1.clone());
+                        for (name, hir_struct) in allocated_hir.body.structs.iter() {
+                            self.module_body.structs.insert(name, hir_struct.clone());
                         }
-                        for body in allocated_hir.body.functions.iter() {
-                            self.module_body.functions.insert(body.0, body.1.clone());
+                        for (name, hir_func) in allocated_hir.body.functions.iter() {
+                            self.module_body.functions.insert(name, hir_func.clone());
                         }
-                        self.generic_pool.structs.append(&mut hir.1.structs);
+                        self.generic_pool.structs.append(&mut generic_pool.structs);
                     }
                     Err(e) => match e {
                         HirError::UselessError(_) => {}
@@ -148,8 +144,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     },
                 }
             }
-            AstItem::ExternFunction(e) => {
-                let name = self.arena.names().get(e.name.name);
+            AstItem::ExternFunction(ast_extern_func) => {
+                let name = self.arena.names().get(ast_extern_func.name.name);
                 if !name.is_snake_case() {
                     eprintln!("Warning: {} is not snake case", name);
                     eprintln!(
@@ -157,14 +153,14 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         name.to_snake_case()
                     );
                 }
-                let ty = self.visit_ty(e.ret)?.clone();
+                let ty = self.visit_ty(ast_extern_func.ret_ty)?.clone();
 
                 let mut params: Vec<HirFunctionParameterSignature<'hir>> = Vec::new();
-                let mut type_params: Vec<&HirTypeParameterItemSignature<'_>> = Vec::new();
+                let mut type_params: Vec<&'hir HirTypeParameterItemSignature<'hir>> = Vec::new();
 
-                let generics = if e.generics.is_some() {
+                let generics = if ast_extern_func.generics.is_some() {
                     Some(
-                        e.generics
+                        ast_extern_func.generics
                             .unwrap()
                             .iter()
                             .map(|g| self.visit_generic(g))
@@ -174,7 +170,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     None
                 };
 
-                for (arg_name, arg_ty) in e.args_name.iter().zip(e.args_ty.iter()) {
+                for (arg_name, arg_ty) in ast_extern_func.args_name.iter().zip(ast_extern_func.args_ty.iter()) {
                     let hir_arg_ty = self.visit_ty(arg_ty)?;
                     let hir_arg_name = self.arena.names().get(arg_name.name);
 
@@ -193,13 +189,13 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     }));
                 }
                 let hir = self.arena.intern(HirFunctionSignature {
-                    span: e.span.clone(),
-                    vis: e.vis.into(),
+                    span: ast_extern_func.span.clone(),
+                    vis: ast_extern_func.vis.into(),
                     params,
                     generics,
                     type_params,
                     return_ty: ty,
-                    return_ty_span: Some(e.ret.span()),
+                    return_ty_span: Some(ast_extern_func.ret_ty.span()),
                     is_external: true,
                 });
                 self.module_signature.functions.insert(name, hir);
@@ -224,6 +220,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
     fn visit_struct(&mut self, node: &'ast AstStruct<'ast>) -> HirResult<HirStruct<'hir>> {
         let name = self.arena.names().get(node.name.name);
+        //TODO: Replace that with a miette Warning
         if !name.is_pascal_case() {
             eprintln!("Warning: {} is not pascal case", name);
             eprintln!(
@@ -234,8 +231,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
         let mut methods = Vec::new();
         for method in node.methods.iter() {
-            let fun = self.visit_method(method)?;
-            methods.push(fun);
+            let hir_method = self.visit_method(method)?;
+            methods.push(hir_method);
         }
 
         let mut generics: Vec<&'hir str> = Vec::new();

@@ -14,6 +14,12 @@ struct Pair<T, U> {
         return new Pair<U, T>(this.second, this.first);
     }
 
+    fun inner_swap(this) {
+        let temp = this.first;
+        this.first = this.second;
+        this.second = temp;
+    }
+
     fun fn_first(this) -> T {
         return this.first;
     }

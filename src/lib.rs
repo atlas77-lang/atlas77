@@ -37,8 +37,10 @@ fn get_path(path: &str) -> PathBuf {
 pub fn build(path: String, _flag: CompilationFlag) -> miette::Result<()> {
     let path_buf = get_path(&path);
 
-    let source = std::fs::read_to_string(path).unwrap();
-    //parse
+    let source = std::fs::read_to_string(&path).unwrap_or_else(|_| {
+        eprintln!("Failed to read source file at path: {}", path);
+        std::process::exit(1);
+    });    //parse
     let bump = Bump::new();
     let ast_arena = AstArena::new(&bump);
     let file_path = path_buf.to_str().unwrap();
@@ -79,7 +81,10 @@ pub fn build(path: String, _flag: CompilationFlag) -> miette::Result<()> {
 pub fn run(path: String, _flag: CompilationFlag) -> miette::Result<()> {
     let path_buf = get_path(&path);
 
-    let source = std::fs::read_to_string(path).unwrap();
+    let source = std::fs::read_to_string(&path).unwrap_or_else(|_| {
+        eprintln!("Failed to read source file at path: {}", path);
+        std::process::exit(1);
+    });
     //parse
     let bump = Bump::new();
     let ast_arena = AstArena::new(&bump);
@@ -143,3 +148,27 @@ pub fn run(path: String, _flag: CompilationFlag) -> miette::Result<()> {
 
     Ok(())
 }
+
+pub const DEFAULT_INIT_CODE: &str = r#"
+import "std/io";
+
+fun main() {
+    print("Hello, Atlas!");
+}
+"#;
+
+/// Initializes a new Atlas project by creating a src/ directory and a main.atlas file with default code.
+pub fn init(name: String) {
+    let path_buf = get_path(&name);
+    let project_dir = path_buf.join("src");
+    if !project_dir.exists() {
+        std::fs::create_dir_all(&project_dir).unwrap();
+    }
+    let main_file_path = project_dir.join("main.atlas");
+    if !main_file_path.exists() {
+        let mut file = std::fs::File::create(&main_file_path).unwrap();
+        file.write_all(DEFAULT_INIT_CODE.as_bytes()).unwrap();
+    }
+}
+
+
