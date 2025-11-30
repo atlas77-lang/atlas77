@@ -20,15 +20,7 @@ use miette::{NamedSource, SourceOffset, SourceSpan};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-const FILE_ATLAS: &str = include_str!("../../../../stdlib/fs.atlas");
-const IO_ATLAS: &str = include_str!("../../../../stdlib/io.atlas");
-const VECTOR_ATLAS: &str = include_str!("../../../../stdlib/vector.atlas");
-const MATH_ATLAS: &str = include_str!("../../../../stdlib/math.atlas");
-const STRING_ATLAS: &str = include_str!("../../../../stdlib/string.atlas");
-
-use crate::atlas_c::atlas_hir::error::{
-    NonConstantValueError, UnsupportedTypeError,
-};
+use crate::atlas_c::atlas_hir::error::{NonConstantValueError, UnsupportedTypeError, UselessError};
 use crate::atlas_c::atlas_hir::expr::{
     HirCastExpr, HirCharLiteralExpr, HirConstructorExpr, HirDeleteExpr, HirFieldAccessExpr,
     HirFieldInit, HirIndexingExpr, HirListLiteralExpr, HirNewArrayExpr, HirNewObjExpr,
@@ -70,6 +62,10 @@ pub struct AstSyntaxLoweringPass<'ast, 'hir> {
     pub generic_pool: HirGenericPool<'hir>,
     module_body: HirModuleBody<'hir>,
     module_signature: HirModuleSignature<'hir>,
+    /// Keep track of already imported modules to avoid duplicate imports
+    ///
+    /// It's a map so the lookups are faster
+    pub already_imported: BTreeMap<&'hir str, ()>,
 }
 
 impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
@@ -85,6 +81,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             generic_pool: HirGenericPool::new(arena),
             module_body: HirModuleBody::default(),
             module_signature: HirModuleSignature::default(),
+            already_imported: BTreeMap::new(),
         }
     }
 }
@@ -127,22 +124,29 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 self.module_body.structs.insert(class.name, class);
             }
             AstItem::Import(i) => {
-                let mut hir = self.visit_import(i)?;
-                let allocated_hir: &'hir HirModule<'hir> = self.arena.intern(hir.0);
-                for (name, signature) in allocated_hir.signature.functions.iter() {
-                    self.module_signature.functions.insert(name, *signature);
+                match self.visit_import(i) {
+                    Ok(mut hir) => {
+                        let allocated_hir: &'hir HirModule<'hir> = self.arena.intern(hir.0);
+                        for (name, signature) in allocated_hir.signature.functions.iter() {
+                            self.module_signature.functions.insert(name, *signature);
+                        }
+                        for (name, signature) in allocated_hir.signature.structs.iter() {
+                            println!("Inserting struct: {}", name);
+                            self.module_signature.structs.insert(name, *signature);
+                        }
+                        for body in allocated_hir.body.structs.iter() {
+                            self.module_body.structs.insert(body.0, body.1.clone());
+                        }
+                        for body in allocated_hir.body.functions.iter() {
+                            self.module_body.functions.insert(body.0, body.1.clone());
+                        }
+                        self.generic_pool.structs.append(&mut hir.1.structs);
+                    }
+                    Err(e) => match e {
+                        HirError::UselessError(_) => {}
+                        _ => return Err(e),
+                    },
                 }
-                for (name, signature) in allocated_hir.signature.structs.iter() {
-                    println!("Inserting struct: {}", name);
-                    self.module_signature.structs.insert(name, *signature);
-                }
-                for body in allocated_hir.body.structs.iter() {
-                    self.module_body.structs.insert(body.0, body.1.clone());
-                }
-                for body in allocated_hir.body.functions.iter() {
-                    self.module_body.functions.insert(body.0, body.1.clone());
-                }
-                self.generic_pool.structs.append(&mut hir.1.structs);
             }
             AstItem::ExternFunction(e) => {
                 let name = self.arena.names().get(e.name.name);
@@ -508,39 +512,46 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         node: &'ast AstImport<'ast>,
     ) -> HirResult<(&'hir HirModule<'hir>, HirGenericPool<'hir>)> {
         //TODO: Handle errors properly
-        let src = crate::atlas_c::utils::get_file_content(node.path).unwrap();
-        let ast: AstProgram<'ast> = parse(
-            PathBuf::from(node.path),
-            self.ast_arena,
-            src,
-        )
-            .unwrap();
-        let allocated_ast = self.ast_arena.alloc(ast);
-        let mut ast_lowering_pass = AstSyntaxLoweringPass::<'ast, 'hir>::new(
-            self.arena,
-            allocated_ast,
-            self.ast_arena,
-        );
-        let mut hir = ast_lowering_pass.lower()?;
-        let path: &'hir str = self.arena.names().get(node.path);
-        let hir_import: &'hir HirImport<'hir> = self.arena.intern(HirImport {
-            span: node.span.clone(),
-            path,
-            path_span: node.span.clone(),
-            alias: None,
-            alias_span: None,
-        });
+        if !self.already_imported.contains_key(node.path) {
+            self.already_imported.insert(self.arena.intern(node.path.to_owned()), ());
+            let src = crate::atlas_c::utils::get_file_content(node.path).unwrap();
+            let ast: AstProgram<'ast> = parse(
+                PathBuf::from(node.path),
+                self.ast_arena,
+                src,
+            )
+                .unwrap();
+            let allocated_ast = self.ast_arena.alloc(ast);
+            let mut ast_lowering_pass = AstSyntaxLoweringPass::<'ast, 'hir>::new(
+                self.arena,
+                allocated_ast,
+                self.ast_arena,
+            );
+            ast_lowering_pass.already_imported.append(&mut self.already_imported);
+            let hir = ast_lowering_pass.lower()?;
+            self.already_imported.append(&mut ast_lowering_pass.already_imported);
+            let path: &'hir str = self.arena.names().get(node.path);
+            let hir_import: &'hir HirImport<'hir> = self.arena.intern(HirImport {
+                span: node.span.clone(),
+                path,
+                path_span: node.span.clone(),
+                alias: None,
+                alias_span: None,
+            });
 
-        let new_hir = self.arena.intern(HirModule {
-            body: {
-                let mut body = hir.body.clone();
-                body.imports.push(hir_import);
-                body
-            },
-            signature: hir.signature.clone(),
-        });
+            let new_hir = self.arena.intern(HirModule {
+                body: {
+                    let mut body = hir.body.clone();
+                    body.imports.push(hir_import);
+                    body
+                },
+                signature: hir.signature.clone(),
+            });
 
-        Ok((new_hir, ast_lowering_pass.generic_pool))
+            Ok((new_hir, ast_lowering_pass.generic_pool))
+        } else {
+            Err(HirError::UselessError(UselessError {}))
+        }
     }
 
     fn visit_block(&mut self, node: &'ast AstBlock<'ast>) -> HirResult<HirBlock<'hir>> {

@@ -1,4 +1,5 @@
 import "std/io"
+import "std/vector"
 
 //package std::vector;
 public extern len<T>(data: [T]) -> uint64;

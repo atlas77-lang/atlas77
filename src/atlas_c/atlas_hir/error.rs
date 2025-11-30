@@ -26,11 +26,17 @@ declare_error_type! {
         ConstTyToNonConstTy(ConstTyToNonConstTyError),
         CanOnlyConstructStructs(CanOnlyConstructStructsError),
         TryingToIndexNonIndexableType(TryingToIndexNonIndexableTypeError),
+        UselessError(UselessError),
     }
 }
 
 /// Handy type alias for all HIR-related errors.
 pub type HirResult<T> = Result<T, HirError>;
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::this_should_not_appear))]
+#[error("This is just a useless error that should not appear")]
+pub struct UselessError {}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::trying_to_index_non_indexable_type))]

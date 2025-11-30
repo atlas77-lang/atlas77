@@ -1,5 +1,4 @@
 import "std/vector"
-
 // Miscellaneous functions for raw strings
 public extern str_len(s: string) -> uint64;
 public extern trim(s: string) -> string;
