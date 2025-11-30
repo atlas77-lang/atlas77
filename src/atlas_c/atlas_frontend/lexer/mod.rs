@@ -1,25 +1,41 @@
 use crate::atlas_c::atlas_frontend::lexer::token::{LexingError, Token, TokenKind};
-use logos::{Logos, Span};
+use logos::Logos;
+use std::path::PathBuf;
 
+use crate::atlas_c::utils::Span;
 pub mod token;
 
 #[derive(Debug)]
-pub struct AtlasLexer<'lex> {
-    _path: &'lex str,
+pub struct AtlasLexer {
+    path: PathBuf,
     pub source: String,
 }
 
-impl<'lex> AtlasLexer<'lex> {
-    pub fn new(_path: &'lex str, source: String) -> Self {
-        AtlasLexer { _path, source }
+impl AtlasLexer {
+    pub fn new(path: PathBuf, source: String) -> Self {
+        AtlasLexer { path, source }
     }
     pub fn tokenize(&mut self) -> Result<Vec<Token>, (LexingError, Span)> {
         let lex = TokenKind::lexer(&self.source);
         let mut res: Vec<Result<Token, (LexingError, Span)>> = lex
             .spanned()
             .map(|(kind, span)| match kind {
-                Ok(kind) => Ok(Token::new(span, kind)),
-                Err(e) => Err((e, span)),
+                Ok(kind) => Ok(Token::new(
+                    Span {
+                        start: span.start,
+                        end: span.end,
+                        path: self.path.clone().to_str().unwrap().to_string(),
+                    },
+                    kind,
+                )),
+                Err(e) => Err((
+                    e,
+                    Span {
+                        start: span.start,
+                        end: span.end,
+                        path: self.path.clone().to_str().unwrap().to_string(),
+                    },
+                )),
             })
             .collect::<Vec<_>>();
         res.push(Ok(Token::new(Span::default(), TokenKind::EoI)));
@@ -59,7 +75,7 @@ struct Result<T, E> {
         panic("Unwrap called on an Err"); 
       } 
 }"#;
-        let mut lexer = super::AtlasLexer::new("test.atlas", source.to_string());
+        let mut lexer = super::AtlasLexer::new("test.atlas".into(), source.to_string());
         let tokens = match lexer.tokenize() {
             Ok(tokens) => tokens,
             Err((e, span)) => {
@@ -77,10 +93,14 @@ pub trait Spanned {
 }
 
 impl Spanned for Span {
+    /// Returns a new Span that covers both self and other
+    ///
+    /// If the paths are different, the path of self is used
     fn union_span(&self, other: &Span) -> Span {
         Span {
             start: self.start.min(other.start),
             end: self.end.max(other.end),
+            path: self.path.clone(),
         }
     }
 }

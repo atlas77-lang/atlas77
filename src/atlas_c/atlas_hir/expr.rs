@@ -1,5 +1,5 @@
 use super::ty::{HirTy, HirUnitTy};
-use logos::Span;
+use crate::atlas_c::utils::Span;
 
 #[derive(Debug, Clone)]
 //todo: Add arrays/struct & class init literal
@@ -26,6 +26,7 @@ pub enum HirExpr<'hir> {
     FieldAccess(HirFieldAccessExpr<'hir>),
     Indexing(HirIndexingExpr<'hir>),
     StaticAccess(HirStaticAccessExpr<'hir>),
+    #[deprecated]
     ConstructorExpr(HirConstructorExpr<'hir>),
 }
 

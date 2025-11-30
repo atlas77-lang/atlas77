@@ -1,5 +1,5 @@
 use crate::declare_error_type;
-use miette::{Diagnostic, SourceSpan as Span};
+use miette::{Diagnostic, NamedSource, SourceSpan};
 use std::fmt;
 use std::fmt::Formatter;
 use thiserror::Error;
@@ -24,6 +24,8 @@ declare_error_type! {
         AccessingPrivateField(AccessingPrivateFieldError),
         NonConstantValue(NonConstantValueError),
         ConstTyToNonConstTy(ConstTyToNonConstTyError),
+        CanOnlyConstructStructs(CanOnlyConstructStructsError),
+        TryingToIndexNonIndexableType(TryingToIndexNonIndexableTypeError),
     }
 }
 
@@ -31,14 +33,35 @@ declare_error_type! {
 pub type HirResult<T> = Result<T, HirError>;
 
 #[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::trying_to_index_non_indexable_type))]
+#[error("trying to index a non-indexable type {ty}")]
+pub struct TryingToIndexNonIndexableTypeError {
+    #[label = "type {ty} is not indexable"]
+    pub span: SourceSpan,
+    pub ty: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::not_valid_struct_construction))]
+#[error("You cannot construct non-struct types")]
+pub struct CanOnlyConstructStructsError {
+    #[label = "only struct types can be constructed"]
+    pub span: SourceSpan,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::unknown_file_import))]
 #[error("imported file {file_name} could not be found")]
 pub struct UnknownFileImportError {
     pub file_name: String,
     #[label = "could not find import file {file_name}"]
-    pub span: Span,
+    pub span: SourceSpan,
     #[source_code]
-    pub src: String,
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -51,11 +74,11 @@ pub struct NotEnoughGenericsError {
     pub expected: usize,
     pub found: usize,
     #[label = "type declared here"]
-    pub declaration_span: Span,
+    pub declaration_span: SourceSpan,
     #[label = "here"]
-    pub error_span: Span,
+    pub error_span: SourceSpan,
     #[source_code]
-    pub src: String,
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -63,13 +86,13 @@ pub struct NotEnoughGenericsError {
 #[error("Can't assign a constant type to a non constant type")]
 pub struct ConstTyToNonConstTyError {
     #[label("This is of type {const_type} which is a constant type")]
-    pub const_val: Span,
+    pub const_val: SourceSpan,
     pub const_type: String,
     #[label("This is of type {non_const_type} which is not a constant type")]
-    pub non_const_val: Span,
+    pub non_const_val: SourceSpan,
     pub non_const_type: String,
     #[source_code]
-    pub src: String,
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -77,9 +100,9 @@ pub struct ConstTyToNonConstTyError {
 #[error("You can't assign a non-constant value to a constant field")]
 pub struct NonConstantValueError {
     #[label("Trying to assign a non-constant value to a constant field")]
-    pub span: Span,
+    pub span: SourceSpan,
     #[source_code]
-    pub src: String,
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -87,10 +110,10 @@ pub struct NonConstantValueError {
 #[error("Can't access fields of self outside of a class")]
 pub struct AccessingPrivateFieldError {
     #[label("Trying to access a private {kind}")]
-    pub span: Span,
+    pub span: SourceSpan,
     pub kind: FieldKind,
     #[source_code]
-    pub src: String,
+    pub src: NamedSource<String>,
 }
 
 #[derive(Debug)]
@@ -114,18 +137,18 @@ impl fmt::Display for FieldKind {
 #[error("Can't access fields of self outside of a class")]
 pub struct AccessingClassFieldOutsideClassError {
     #[label("Trying to access a class field from `self` while outside of a class")]
-    pub span: Span,
+    pub span: SourceSpan,
     #[source_code]
-    pub src: String,
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::empty_list_literal))]
 #[error("empty list literals are not allowed")]
 pub struct EmptyListLiteralError {
-    pub span: Span,
+    pub span: SourceSpan,
     #[source_code]
-    pub src: String,
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -133,12 +156,12 @@ pub struct EmptyListLiteralError {
 #[error("trying to mutate an immutable variable")]
 pub struct TryingToMutateImmutableVariableError {
     #[label = "{var_name} is immutable, try to use `let` instead"]
-    pub const_loc: Span,
+    pub const_loc: SourceSpan,
     pub var_name: String,
     #[label = "cannot mutate an immutable variable"]
-    pub span: Span,
+    pub span: SourceSpan,
     #[source_code]
-    pub src: String,
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -146,9 +169,9 @@ pub struct TryingToMutateImmutableVariableError {
 #[error("trying to negate an unsigned integer")]
 pub struct TryingToNegateUnsignedError {
     #[label = "unsigned integers cannot be negated"]
-    pub span: Span,
+    pub span: SourceSpan,
     #[source_code]
-    pub src: String,
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -156,10 +179,10 @@ pub struct TryingToNegateUnsignedError {
 #[error("{expr} isn't supported yet")]
 pub struct UnsupportedExpr {
     #[label = "unsupported expr"]
-    pub span: Span,
+    pub span: SourceSpan,
     pub expr: String,
     #[source_code]
-    pub src: String,
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -167,10 +190,10 @@ pub struct UnsupportedExpr {
 #[error("{ty} isn't supported yet")]
 pub struct UnsupportedTypeError {
     #[label = "unsupported type"]
-    pub span: Span,
+    pub span: SourceSpan,
     pub ty: String,
     #[source_code]
-    pub src: String,
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -178,10 +201,10 @@ pub struct UnsupportedTypeError {
 #[error("{stmt} isn't supported yet")]
 pub struct UnsupportedStatement {
     #[label = "unsupported statement"]
-    pub span: Span,
+    pub span: SourceSpan,
     pub stmt: String,
     #[source_code]
-    pub src: String,
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -190,9 +213,9 @@ pub struct UnsupportedStatement {
 pub struct UnknownTypeError {
     pub name: String,
     #[label = "could not find type {name}"]
-    pub span: Span,
+    pub span: SourceSpan,
     #[source_code]
-    pub src: String,
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -200,9 +223,9 @@ pub struct UnknownTypeError {
 #[error("break statement outside of loop")]
 pub struct BreakOutsideLoopError {
     #[label = "there is no enclosing loop"]
-    pub span: Span,
+    pub span: SourceSpan,
     #[source_code]
-    pub src: String,
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -210,23 +233,23 @@ pub struct BreakOutsideLoopError {
 #[error("continue statement outside of loop")]
 pub struct ContinueOutsideLoopError {
     #[label = "there is no enclosing loop"]
-    pub span: Span,
+    pub span: SourceSpan,
     #[source_code]
-    pub src: String,
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::type_mismatch))]
-#[error("type mismatch")]
+#[error("type mismatch: expected {expected_type}, found {actual_type}")]
 pub struct TypeMismatchError {
     pub actual_type: String,
     pub expected_type: String,
     #[label = "the expression has type {actual_type}"]
-    pub actual_loc: Span,
+    pub actual_loc: SourceSpan,
     #[label = "expected type {expected_type}"]
-    pub expected_loc: Span,
+    pub expected_loc: SourceSpan,
     #[source_code]
-    pub src: String,
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -235,7 +258,7 @@ pub struct TypeMismatchError {
 pub struct FunctionTypeMismatchError {
     pub expected_ty: String,
     #[label = "the function has type {expected_ty}"]
-    pub span: Span,
+    pub span: SourceSpan,
     #[source_code]
-    pub src: String,
+    pub src: NamedSource<String>,
 }

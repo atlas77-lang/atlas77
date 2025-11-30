@@ -1,6 +1,5 @@
 import "std/string"
 import "std/io"
-import "std/list"
 
 public struct Vec<T> {
     public:
@@ -31,6 +30,8 @@ fun main() {
         new TestChars(['T', 'e', 's', 't']);
         i = i + 1;
     }
+    let my_vector = new Vector<int64>([0, 1, 2, 3, 4]);
+
 }
 fun test() -> TestChars{
     let chars: [char] = ['T', 'e', 's', 't'];

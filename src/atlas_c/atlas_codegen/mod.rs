@@ -3,27 +3,27 @@ pub mod arena;
 mod program;
 mod table;
 
-use crate::atlas_c::atlas_hir::{
-    HirModule,
-    error::{HirResult, UnsupportedExpr, UnsupportedStatement},
-    expr::HirExpr,
-    signature::HirFunctionParameterSignature,
-    stmt::{HirBlock, HirStatement},
-    ty::HirTy,
-};
-use crate::atlas_vm::instruction::{
-    ImportedLibrary, Instruction, Label, ProgramDescriptor, StructDescriptor, Type,
-};
-use std::collections::{BTreeMap, HashMap};
-
 use crate::atlas_c::atlas_codegen::table::Table;
 use crate::atlas_c::atlas_hir;
 use crate::atlas_c::atlas_hir::error::HirError;
 use crate::atlas_c::atlas_hir::expr::HirUnaryOp;
 use crate::atlas_c::atlas_hir::item::HirStruct;
 use crate::atlas_c::atlas_hir::signature::{ConstantValue, HirStructMethodModifier};
+use crate::atlas_c::atlas_hir::{
+    error::{HirResult, UnsupportedExpr, UnsupportedStatement},
+    expr::HirExpr,
+    signature::HirFunctionParameterSignature,
+    stmt::{HirBlock, HirStatement},
+    ty::HirTy,
+    HirModule,
+};
+use crate::atlas_vm::instruction::{
+    ImportedLibrary, Instruction, Label, ProgramDescriptor, StructDescriptor, Type,
+};
 use arena::CodeGenArena;
-use miette::{SourceOffset, SourceSpan};
+use miette::{NamedSource, SourceOffset, SourceSpan};
+use std::collections::{BTreeMap, HashMap};
+use std::path::PathBuf;
 
 /// Result of codegen
 pub type CodegenResult<T> = Result<T, HirError>;
@@ -282,13 +282,16 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 bytecode.push(Instruction::Pop);
             }
             _ => {
+                let path = stmt.span().path.clone();
+                let src = std::fs::read_to_string(PathBuf::from(&path))
+                    .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                 return Err(HirError::UnsupportedStatement(UnsupportedStatement {
                     span: SourceSpan::new(
                         SourceOffset::from(stmt.span().start),
                         stmt.span().end - stmt.span().start,
                     ),
                     stmt: format!("{:?}", stmt),
-                    src: src.clone(),
+                    src: NamedSource::new(path, src),
                 }));
             }
         }
@@ -319,6 +322,9 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         let struct_name = match field_access.target.ty() {
                             HirTy::Named(struct_name) => struct_name,
                             _ => {
+                                let path = expr.span().path.clone();
+                                let src = std::fs::read_to_string(PathBuf::from(&path))
+                                    .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                                 return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                     span: SourceSpan::new(
                                         SourceOffset::from(expr.span().start),
@@ -328,7 +334,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                         "No field access for {:?}",
                                         field_access.target.ty()
                                     ),
-                                    src,
+                                    src: NamedSource::new(path, src),
                                 }));
                             }
                         };
@@ -350,13 +356,16 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         bytecode.push(Instruction::SetField { field })
                     }
                     _ => {
+                        let path = expr.span().path.clone();
+                        let src = std::fs::read_to_string(PathBuf::from(&path))
+                            .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                         return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                             span: SourceSpan::new(
                                 SourceOffset::from(expr.span().start),
                                 expr.span().end - expr.span().start,
                             ),
                             expr: format!("{:?}", expr),
-                            src,
+                            src: NamedSource::new(path, src),
                         }));
                     }
                 }
@@ -399,6 +408,9 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                     bytecode.push(Instruction::PushInt(0));
                                 }
                                 _ => {
+                                    let path = u.span.path.clone();
+                                    let src = std::fs::read_to_string(PathBuf::from(&path))
+                                        .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                                     return Err(atlas_hir::error::HirError::UnsupportedExpr(
                                         UnsupportedExpr {
                                             span: SourceSpan::new(
@@ -406,7 +418,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                                 expr.span().end - expr.span().start,
                                             ),
                                             expr: format!("Can't negate: {:?}", expr),
-                                            src,
+                                            src: NamedSource::new(path, src),
                                         },
                                     ));
                                 }
@@ -419,13 +431,16 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                 bytecode.push(Instruction::PushBool(false));
                                 bytecode.push(Instruction::Eq);
                             } else {
+                                let path = u.span.path.clone();
+                                let src = std::fs::read_to_string(PathBuf::from(&path))
+                                    .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                                 return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                     span: SourceSpan::new(
                                         SourceOffset::from(expr.span().start),
                                         expr.span().end - expr.span().start,
                                     ),
                                     expr: format!("Can't negate: {:?}", expr),
-                                    src,
+                                    src: NamedSource::new(path, src),
                                 }));
                             }
                         }
@@ -454,14 +469,17 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         bytecode.push(Instruction::CastTo(Type::Char));
                     }
                     _ => {
-                        return Err(atlas_hir::error::HirError::UnsupportedExpr(
+                        let path = c.span.path.clone();
+                        let src = std::fs::read_to_string(PathBuf::from(&path))
+                            .unwrap_or_else(|_| panic!("{} is not a valid path", path));
+                        return Err(HirError::UnsupportedExpr(
                             UnsupportedExpr {
                                 span: SourceSpan::new(
                                     SourceOffset::from(expr.span().start),
                                     expr.span().end - expr.span().start,
                                 ),
                                 expr: format!("Can't cast: {:?}", expr),
-                                src,
+                                src: NamedSource::new(path, src),
                             },
                         ));
                     }
@@ -496,13 +514,16 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         let struct_name = match field_access.target.ty() {
                             HirTy::Named(struct_name) => struct_name,
                             _ => {
+                                let path = field_access.span.path.clone();
+                                let src = std::fs::read_to_string(PathBuf::from(&path))
+                                    .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                                 return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                     span: SourceSpan::new(
                                         SourceOffset::from(expr.span().start),
                                         expr.span().end - expr.span().start,
                                     ),
                                     expr: format!("Can't call from: {:?}", expr),
-                                    src,
+                                    src: NamedSource::new(path, src),
                                 }));
                             }
                         };
@@ -524,13 +545,16 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         })
                     }
                     _ => {
+                        let path = expr.span().path.clone();
+                        let src = std::fs::read_to_string(PathBuf::from(&path))
+                            .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                         return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                             span: SourceSpan::new(
                                 SourceOffset::from(expr.span().start),
                                 expr.span().end - expr.span().start,
                             ),
                             expr: format!("Can't call from: {:?}", expr),
-                            src: src.clone(),
+                            src: NamedSource::new(path, src),
                         }));
                     }
                 }
@@ -559,13 +583,16 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 let struct_name = match field_access.target.ty() {
                     HirTy::Named(struct_name) => struct_name,
                     _ => {
+                        let path = field_access.span.path.clone();
+                        let src = std::fs::read_to_string(PathBuf::from(&path))
+                            .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                         return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                             span: SourceSpan::new(
                                 SourceOffset::from(expr.span().start),
                                 expr.span().end - expr.span().start,
                             ),
                             expr: format!("No field access for {:?}", field_access.target.ty()),
-                            src: src.clone(),
+                            src: NamedSource::new(path, src),
                         }));
                     }
                 };
@@ -597,6 +624,9 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     {
                         ConstantValue::String(s) => String::from(s),
                         _ => {
+                            let path = static_access.span.path.clone();
+                            let src = std::fs::read_to_string(PathBuf::from(&path))
+                                .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                             return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                 span: SourceSpan::new(
                                     SourceOffset::from(expr.span().start),
@@ -606,7 +636,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                     "No string constant for {}",
                                     static_access.field.name
                                 ),
-                                src: src.clone(),
+                                src: NamedSource::new(path, src),
                             }));
                         }
                     };
@@ -629,13 +659,16 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     {
                         ConstantValue::Float(f) => *f,
                         _ => {
+                            let path = expr.span().path.clone();
+                            let src = std::fs::read_to_string(PathBuf::from(&path))
+                                .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                             return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                 span: SourceSpan::new(
                                     SourceOffset::from(expr.span().start),
                                     expr.span().end - expr.span().start,
                                 ),
                                 expr: format!("No float constant for {}", static_access.field.name),
-                                src: src.clone(),
+                                src: NamedSource::new(path, src),
                             }));
                         }
                     };
@@ -656,13 +689,16 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     {
                         ConstantValue::Int(i) => *i,
                         _ => {
+                            let path = expr.span().path.clone();
+                            let src = std::fs::read_to_string(PathBuf::from(&path))
+                                .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                             return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                 span: SourceSpan::new(
                                     SourceOffset::from(expr.span().start),
                                     expr.span().end - expr.span().start,
                                 ),
                                 expr: format!("No int constant for {}", static_access.field.name),
-                                src: src.clone(),
+                                src: NamedSource::new(path, src),
                             }));
                         }
                     };
@@ -683,13 +719,16 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     {
                         ConstantValue::Char(c) => *c,
                         _ => {
+                            let path = expr.span().path.clone();
+                            let src = std::fs::read_to_string(PathBuf::from(&path))
+                                .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                             return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                 span: SourceSpan::new(
                                     SourceOffset::from(expr.span().start),
                                     expr.span().end - expr.span().start,
                                 ),
                                 expr: format!("No char constant for {}", static_access.field.name),
-                                src: src.clone(),
+                                src: NamedSource::new(path, src),
                             }));
                         }
                     };
@@ -710,19 +749,25 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     {
                         ConstantValue::UInt(u) => *u,
                         _ => {
+                            let path = expr.span().path.clone();
+                            let src = std::fs::read_to_string(PathBuf::from(&path))
+                                .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                             return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                 span: SourceSpan::new(
                                     SourceOffset::from(expr.span().start),
                                     expr.span().end - expr.span().start,
                                 ),
                                 expr: format!("No uint constant for {}", static_access.field.name),
-                                src: src.clone(),
+                                src: NamedSource::new(path, src),
                             }));
                         }
                     };
                     bytecode.push(Instruction::PushInt(value as i64));
                 }
                 HirTy::List(_) => {
+                    let path = expr.span().path.clone();
+                    let src = std::fs::read_to_string(PathBuf::from(&path))
+                        .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                     return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                         span: SourceSpan::new(
                             SourceOffset::from(expr.span().start),
@@ -732,17 +777,20 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                             "Lists aren't supported as constants for now {}",
                             static_access.field.name
                         ),
-                        src: src.clone(),
+                        src: NamedSource::new(path, src),
                     }));
                 }
                 _ => {
+                    let path = expr.span().path.clone();
+                    let src = std::fs::read_to_string(PathBuf::from(&path))
+                        .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                     return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                         span: SourceSpan::new(
                             SourceOffset::from(expr.span().start),
                             expr.span().end - expr.span().start,
                         ),
                         expr: format!("Unsupported type for now {}", static_access.field.name),
-                        src: src.clone(),
+                        src: NamedSource::new(path, src),
                     }));
                 }
             },

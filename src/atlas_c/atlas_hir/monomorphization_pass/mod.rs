@@ -1,4 +1,3 @@
-use crate::atlas_c::atlas_hir::HirModule;
 use crate::atlas_c::atlas_hir::arena::HirArena;
 use crate::atlas_c::atlas_hir::error::HirError::UnknownType;
 use crate::atlas_c::atlas_hir::error::{
@@ -9,13 +8,15 @@ use crate::atlas_c::atlas_hir::generic_pool::HirGenericPool;
 use crate::atlas_c::atlas_hir::signature::HirFunctionParameterSignature;
 use crate::atlas_c::atlas_hir::stmt::HirStatement;
 use crate::atlas_c::atlas_hir::ty::{HirGenericTy, HirListTy, HirNamedTy, HirTy};
-use logos::Span;
-use miette::{SourceOffset, SourceSpan};
+use crate::atlas_c::atlas_hir::HirModule;
+use crate::atlas_c::utils::Span;
+use miette::{NamedSource, SourceOffset, SourceSpan};
 
 //Maybe all the passes should share a common trait? Or be linked to a common context struct?
 pub struct MonomorphizationPass<'hir> {
     arena: &'hir HirArena<'hir>,
     generic_pool: HirGenericPool<'hir>,
+    file_path: String,
     //source code
     src: String,
 }
@@ -25,11 +26,13 @@ impl<'hir> MonomorphizationPass<'hir> {
         arena: &'hir HirArena<'hir>,
         generic_pool: HirGenericPool<'hir>,
         src: String,
+        file_path: String,
     ) -> Self {
         Self {
             arena,
             src,
             generic_pool,
+            file_path,
         }
     }
     /// Clears all the generic structs & functions from the module body and signature.
@@ -38,6 +41,16 @@ impl<'hir> MonomorphizationPass<'hir> {
             module.body.structs.remove(instance.name);
             module.signature.structs.remove(instance.name);
         }
+        for (name, signature) in module.signature.structs.clone().iter() {
+            if !signature.generics.is_empty() {
+                module.signature.structs.remove(name);
+                module.body.structs.remove(name);
+            }
+        }
+        println!(
+            "All struct names in signature after monomorphization: {:#?}",
+            module.signature.structs.keys()
+        );
 
         println!(
             "Module Body struct names: {:#?}",
@@ -109,10 +122,12 @@ impl<'hir> MonomorphizationPass<'hir> {
         let template = match module.body.structs.get(base_name) {
             Some(s) => s,
             None => {
+                let path = span.path.clone();
+                let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
                 return Err(UnknownType(UnknownTypeError {
                     name: base_name.to_string(),
                     span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
-                    src: self.src.clone(),
+                    src: NamedSource::new(path, src),
                 }));
             }
         };
@@ -122,6 +137,8 @@ impl<'hir> MonomorphizationPass<'hir> {
         let generic_names = template.signature.generics.clone();
         if generic_names.len() != actual_type.inner.len() {
             let declaration_span = template.name_span.clone();
+            let path = span.path.clone();
+            let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
             return Err(HirError::NotEnoughGenerics(NotEnoughGenericsError {
                 ty_name: base_name.to_string(),
                 expected: generic_names.len(),
@@ -131,7 +148,7 @@ impl<'hir> MonomorphizationPass<'hir> {
                     declaration_span.end - declaration_span.start,
                 ),
                 error_span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
-                src: self.src.clone(),
+                src: NamedSource::new(path, src),
             }));
         }
 
@@ -380,9 +397,25 @@ impl<'hir> MonomorphizationPass<'hir> {
                 }
             }
             HirExpr::NewArray(new_array_expr) => {
-                if let HirTy::Generic(g) = new_array_expr.ty {
-                    self.generic_pool.register_struct_instance(g.clone());
+                println!("NewArray BEFORE monomorphization: {:?}", new_array_expr.ty);
+                if let HirTy::List(l) = new_array_expr.ty {
+                    if let HirTy::Generic(g) = l.inner {
+                        self.generic_pool.register_struct_instance(g.clone());
+                    } else if let HirTy::Named(n) = l.inner {
+                        if n.name.len() == 1 {
+                            for (generic_name, actual_ty) in types_to_change.iter() {
+                                println!(
+                                    "Current Type to change: {} is {}",
+                                    generic_name, actual_ty
+                                );
+                                if n.name == *generic_name {
+                                    new_array_expr.ty = actual_ty;
+                                }
+                            }
+                        }
+                    }
                 }
+                println!("NewArray AFTER monomorphization: {:?}", new_array_expr.ty);
                 self.monomorphize_expression(module, &mut new_array_expr.size, types_to_change)?;
             }
             _ => {}

@@ -1,5 +1,5 @@
 use crate::atlas_c::atlas_frontend::lexer::token::TokenKind;
-use logos::Span;
+use crate::atlas_c::utils::Span;
 
 /// An `AstProgram` is the top-level node of the AST and contains all the items.
 #[derive(Debug, Clone, Copy)]

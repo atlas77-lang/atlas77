@@ -14,19 +14,20 @@ use crate::atlas_c::atlas_frontend::{
         },
     },
 };
+use crate::atlas_c::utils::Span;
 use heck::{ToPascalCase, ToSnakeCase};
-use logos::Span;
-use miette::{SourceOffset, SourceSpan};
+use miette::{NamedSource, SourceOffset, SourceSpan};
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
-const FILE_ATLAS: &str = include_str!("../../../atlas_lib/std/fs.atlas");
-const IO_ATLAS: &str = include_str!("../../../atlas_lib/std/io.atlas");
-const VECTOR_ATLAS: &str = include_str!("../../../atlas_lib/std/vector.atlas");
-const MATH_ATLAS: &str = include_str!("../../../atlas_lib/std/math.atlas");
-const STRING_ATLAS: &str = include_str!("../../../atlas_lib/std/string.atlas");
+const FILE_ATLAS: &str = include_str!("../../../../stdlib/fs.atlas");
+const IO_ATLAS: &str = include_str!("../../../../stdlib/io.atlas");
+const VECTOR_ATLAS: &str = include_str!("../../../../stdlib/vector.atlas");
+const MATH_ATLAS: &str = include_str!("../../../../stdlib/math.atlas");
+const STRING_ATLAS: &str = include_str!("../../../../stdlib/string.atlas");
 
 use crate::atlas_c::atlas_hir::error::{
-    NonConstantValueError, UnknownFileImportError, UnsupportedTypeError,
+    NonConstantValueError, UnsupportedTypeError,
 };
 use crate::atlas_c::atlas_hir::expr::{
     HirCastExpr, HirCharLiteralExpr, HirConstructorExpr, HirDeleteExpr, HirFieldAccessExpr,
@@ -43,10 +44,7 @@ use crate::atlas_c::atlas_hir::signature::{
 use crate::atlas_c::atlas_hir::syntax_lowering_pass::case::Case;
 use crate::atlas_c::atlas_hir::ty::HirGenericTy;
 use crate::atlas_c::atlas_hir::{
-    HirImport, HirModule, HirModuleBody,
-    arena::HirArena,
-    error::{HirError, HirResult, UnsupportedExpr, UnsupportedStatement},
-    expr::{
+    arena::HirArena, error::{HirError, HirResult, UnsupportedExpr, UnsupportedStatement}, expr::{
         HirAssignExpr, HirBinaryOp, HirBinaryOpExpr, HirBooleanLiteralExpr, HirExpr,
         HirFloatLiteralExpr, HirFunctionCallExpr, HirIdentExpr, HirIntegerLiteralExpr, HirUnaryOp,
         HirUnsignedIntegerLiteralExpr, UnaryOpExpr,
@@ -60,14 +58,15 @@ use crate::atlas_c::atlas_hir::{
         HirBlock, HirExprStmt, HirIfElseStmt, HirLetStmt, HirReturn, HirStatement, HirWhileStmt,
     },
     ty::HirTy,
+    HirImport,
+    HirModule,
+    HirModuleBody,
 };
 
 pub struct AstSyntaxLoweringPass<'ast, 'hir> {
     arena: &'hir HirArena<'hir>,
     ast: &'ast AstProgram<'ast>,
     ast_arena: &'ast AstArena<'ast>,
-    //source code
-    src: String,
     pub generic_pool: HirGenericPool<'hir>,
     module_body: HirModuleBody<'hir>,
     module_signature: HirModuleSignature<'hir>,
@@ -78,13 +77,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         arena: &'hir HirArena<'hir>,
         ast: &'ast AstProgram,
         ast_arena: &'ast AstArena<'ast>,
-        src: String,
     ) -> Self {
         Self {
             arena,
             ast,
             ast_arena,
-            src,
             generic_pool: HirGenericPool::new(arena),
             module_body: HirModuleBody::default(),
             module_signature: HirModuleSignature::default(),
@@ -272,12 +269,15 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             let value = match ConstantValue::try_from(const_expr) {
                 Ok(value) => value,
                 Err(_) => {
+                    let path = constant.value.span().path;
+                    let src = std::fs::read_to_string(PathBuf::from(&path))
+                        .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                     return Err(HirError::NonConstantValue(NonConstantValueError {
                         span: SourceSpan::new(
                             SourceOffset::from(constant.value.span().start),
                             constant.value.span().end - constant.value.span().start,
                         ),
-                        src: self.src.clone(),
+                        src: NamedSource::new(path, src),
                     }));
                 }
             };
@@ -462,11 +462,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     ) -> HirResult<HirStructConstructor<'hir>> {
         if destructor.is_none() {
             let hir = HirStructConstructor {
-                span: logos::Span::default(),
+                span: Span::default(),
                 params: Vec::new(),
                 type_params: Vec::new(),
                 body: HirBlock {
-                    span: logos::Span::default(),
+                    span: Span::default(),
                     statements: Vec::new(),
                 },
             };
@@ -503,232 +503,44 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         Ok(hir)
     }
 
-    //TODO: This needs to be generalized
     fn visit_import(
         &mut self,
         node: &'ast AstImport<'ast>,
     ) -> HirResult<(&'hir HirModule<'hir>, HirGenericPool<'hir>)> {
-        let file_name = node.path.split("/").last().unwrap();
-        match file_name {
-            "io" => {
-                let ast: AstProgram<'ast> = parse(
-                    "atlas_lib/std/io.atlas",
-                    self.ast_arena,
-                    IO_ATLAS.to_string(),
-                )
-                .unwrap();
-                let allocated_ast: &'ast AstProgram = self.ast_arena.alloc(ast);
-                let mut ast_lowering_pass = AstSyntaxLoweringPass::<'ast, 'hir>::new(
-                    self.arena,
-                    allocated_ast,
-                    self.ast_arena,
-                    IO_ATLAS.to_owned(),
-                );
-                let mut hir = ast_lowering_pass.lower()?;
-                let path: &'hir str = self.arena.names().get(node.path);
-                let hir_import: &'hir HirImport<'hir> = self.arena.intern(HirImport {
-                    span: node.span.clone(),
-                    path,
-                    path_span: node.span.clone(),
-                    alias: None,
-                    alias_span: None,
-                });
-                let new_hir = self.arena.intern(HirModule {
-                    body: {
-                        let mut body = hir.body.clone();
-                        body.imports.push(hir_import);
-                        body
-                    },
-                    signature: hir.signature.clone(),
-                });
+        //TODO: Handle errors properly
+        let src = crate::atlas_c::utils::get_file_content(node.path).unwrap();
+        let ast: AstProgram<'ast> = parse(
+            PathBuf::from(node.path),
+            self.ast_arena,
+            src,
+        )
+            .unwrap();
+        let allocated_ast = self.ast_arena.alloc(ast);
+        let mut ast_lowering_pass = AstSyntaxLoweringPass::<'ast, 'hir>::new(
+            self.arena,
+            allocated_ast,
+            self.ast_arena,
+        );
+        let mut hir = ast_lowering_pass.lower()?;
+        let path: &'hir str = self.arena.names().get(node.path);
+        let hir_import: &'hir HirImport<'hir> = self.arena.intern(HirImport {
+            span: node.span.clone(),
+            path,
+            path_span: node.span.clone(),
+            alias: None,
+            alias_span: None,
+        });
 
-                Ok((new_hir, ast_lowering_pass.generic_pool))
-            }
-            "math" => {
-                let ast: AstProgram<'ast> = parse(
-                    "atlas_lib/std/io/math.atlas",
-                    self.ast_arena,
-                    MATH_ATLAS.to_string(),
-                )
-                .unwrap();
-                let allocated_ast = self.ast_arena.alloc(ast);
-                let mut ast_lowering_pass = AstSyntaxLoweringPass::<'ast, 'hir>::new(
-                    self.arena,
-                    allocated_ast,
-                    self.ast_arena,
-                    MATH_ATLAS.to_string(),
-                );
-                let mut hir = ast_lowering_pass.lower()?;
-                let path: &'hir str = self.arena.names().get(node.path);
-                let hir_import: &'hir HirImport<'hir> = self.arena.intern(HirImport {
-                    span: node.span.clone(),
-                    path,
-                    path_span: node.span.clone(),
-                    alias: None,
-                    alias_span: None,
-                });
+        let new_hir = self.arena.intern(HirModule {
+            body: {
+                let mut body = hir.body.clone();
+                body.imports.push(hir_import);
+                body
+            },
+            signature: hir.signature.clone(),
+        });
 
-                let new_hir = self.arena.intern(HirModule {
-                    body: {
-                        let mut body = hir.body.clone();
-                        body.imports.push(hir_import);
-                        body
-                    },
-                    signature: hir.signature.clone(),
-                });
-
-                Ok((new_hir, ast_lowering_pass.generic_pool))
-            }
-            "file" => {
-                let ast: AstProgram<'ast> = parse(
-                    "atlas_lib/std/io/file.atlas",
-                    self.ast_arena,
-                    FILE_ATLAS.to_string(),
-                )
-                .unwrap();
-                let allocated_ast = self.ast_arena.alloc(ast);
-                let mut ast_lowering_pass = AstSyntaxLoweringPass::<'ast, 'hir>::new(
-                    self.arena,
-                    allocated_ast,
-                    self.ast_arena,
-                    FILE_ATLAS.to_string(),
-                );
-                let mut hir = ast_lowering_pass.lower()?;
-
-                let path: &'hir str = self.arena.names().get(node.path);
-                let hir_import: &'hir HirImport<'hir> = self.arena.intern(HirImport {
-                    span: node.span.clone(),
-                    path,
-                    path_span: node.span.clone(),
-                    alias: None,
-                    alias_span: None,
-                });
-
-                let new_hir = self.arena.intern(HirModule {
-                    body: {
-                        let mut body = hir.body.clone();
-                        body.imports.push(hir_import);
-                        body
-                    },
-                    signature: hir.signature.clone(),
-                });
-
-                Ok((new_hir, ast_lowering_pass.generic_pool))
-            }
-            "list" => {
-                let ast: AstProgram<'ast> = parse(
-                    "atlas_lib/std/io/list.atlas",
-                    self.ast_arena,
-                    VECTOR_ATLAS.to_string(),
-                )
-                .unwrap();
-                let allocated_ast = self.ast_arena.alloc(ast);
-                let mut ast_lowering_pass = AstSyntaxLoweringPass::<'ast, 'hir>::new(
-                    self.arena,
-                    allocated_ast,
-                    self.ast_arena,
-                    VECTOR_ATLAS.to_string(),
-                );
-                let mut hir = ast_lowering_pass.lower()?;
-                let path: &'hir str = self.arena.names().get(node.path);
-                let hir_import: &'hir HirImport<'hir> = self.arena.intern(HirImport {
-                    span: node.span.clone(),
-                    path,
-                    path_span: node.span.clone(),
-                    alias: None,
-                    alias_span: None,
-                });
-
-                let new_hir = self.arena.intern(HirModule {
-                    body: {
-                        let mut body = hir.body.clone();
-                        body.imports.push(hir_import);
-                        body
-                    },
-                    signature: hir.signature.clone(),
-                });
-
-                Ok((new_hir, ast_lowering_pass.generic_pool))
-            }
-            "string" => {
-                let ast: AstProgram<'ast> = parse(
-                    "atlas_lib/std/io/string.atlas",
-                    self.ast_arena,
-                    STRING_ATLAS.to_string(),
-                )
-                .unwrap();
-                let allocated_ast = self.ast_arena.alloc(ast);
-                let mut ast_lowering_pass = AstSyntaxLoweringPass::<'ast, 'hir>::new(
-                    self.arena,
-                    allocated_ast,
-                    self.ast_arena,
-                    STRING_ATLAS.to_string(),
-                );
-                let mut hir = ast_lowering_pass.lower()?;
-                let path: &'hir str = self.arena.names().get(node.path);
-                let hir_import: &'hir HirImport<'hir> = self.arena.intern(HirImport {
-                    span: node.span.clone(),
-                    path,
-                    path_span: node.span.clone(),
-                    alias: None,
-                    alias_span: None,
-                });
-
-                let new_hir = self.arena.intern(HirModule {
-                    body: {
-                        let mut body = hir.body.clone();
-                        body.imports.push(hir_import);
-                        body
-                    },
-                    signature: hir.signature.clone(),
-                });
-
-                Ok((new_hir, ast_lowering_pass.generic_pool))
-            }
-            "time" => {
-                let ast: AstProgram<'ast> = parse(
-                    "atlas_lib/std/io/time.atlas",
-                    self.ast_arena,
-                    STRING_ATLAS.to_string(),
-                )
-                .unwrap();
-                let allocated_ast = self.ast_arena.alloc(ast);
-                let mut ast_lowering_pass = AstSyntaxLoweringPass::<'ast, 'hir>::new(
-                    self.arena,
-                    allocated_ast,
-                    self.ast_arena,
-                    IO_ATLAS.to_string(),
-                );
-                let mut hir = ast_lowering_pass.lower()?;
-                let path: &'hir str = self.arena.names().get(node.path);
-                let hir_import: &'hir HirImport<'hir> = self.arena.intern(HirImport {
-                    span: node.span.clone(),
-                    path,
-                    path_span: node.span.clone(),
-                    alias: None,
-                    alias_span: None,
-                });
-
-                let new_hir = self.arena.intern(HirModule {
-                    body: {
-                        let mut body = hir.body.clone();
-                        body.imports.push(hir_import);
-                        body
-                    },
-                    signature: hir.signature.clone(),
-                });
-
-                Ok((new_hir, ast_lowering_pass.generic_pool))
-            }
-            _ => Err(HirError::UnknownFileImport(UnknownFileImportError {
-                span: SourceSpan::new(
-                    SourceOffset::from(node.span.start),
-                    node.span.end - node.span.start,
-                ),
-                file_name: file_name.to_string(),
-                src: self.src.clone(),
-            })),
-        }
+        Ok((new_hir, ast_lowering_pass.generic_pool))
     }
 
     fn visit_block(&mut self, node: &'ast AstBlock<'ast>) -> HirResult<HirBlock<'hir>> {
@@ -834,14 +646,18 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 });
                 Ok(hir)
             }
-            _ => Err(HirError::UnsupportedStatement(UnsupportedStatement {
-                span: SourceSpan::new(
-                    SourceOffset::from(node.span().start),
-                    node.span().end - node.span().start,
-                ),
-                stmt: format!("{:?}", node),
-                src: self.src.clone(),
-            })),
+            _ => {
+                let path = node.span().path;
+                let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+                Err(HirError::UnsupportedStatement(UnsupportedStatement {
+                    span: SourceSpan::new(
+                        SourceOffset::from(node.span().start),
+                        node.span().end - node.span().start,
+                    ),
+                    stmt: format!("{:?}", node),
+                    src: NamedSource::new(path, src),
+                }))
+            }
         }
     }
 
@@ -887,7 +703,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 let hir = HirExpr::HirBinaryOp(HirBinaryOpExpr {
                     span: node.span(),
                     op,
-                    op_span: 0..0,
+                    op_span: Span {
+                        start: lhs.span().end,
+                        end: rhs.span().start,
+                        path: b.span.path.clone(),
+                    },
                     lhs: Box::new(lhs.clone()),
                     rhs: Box::new(rhs.clone()),
                     ty: self.arena.types().get_uninitialized_ty(),
@@ -1107,13 +927,15 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
             _ => {
                 //todo: if/else as an expression
+                let path = node.span().path;
+                let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
                 Err(HirError::UnsupportedExpr(UnsupportedExpr {
                     span: SourceSpan::new(
                         SourceOffset::from(node.span().start),
                         node.span().end - node.span().start,
                     ),
                     expr: format!("2{:?}", node),
-                    src: self.src.clone(),
+                    src: NamedSource::new(path, src),
                 }))
             }
         }
@@ -1260,13 +1082,15 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             //The self ty is replaced during the type checking phase
             AstType::ThisTy(_) => self.arena.types().get_uninitialized_ty(),
             _ => {
+                let path = node.span().path;
+                let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
                 return Err(HirError::UnsupportedType(UnsupportedTypeError {
                     span: SourceSpan::new(
                         SourceOffset::from(node.span().start),
                         node.span().end - node.span().start,
                     ),
                     ty: format!("{:?}", node),
-                    src: self.src.clone(),
+                    src: NamedSource::new(path, src),
                 }));
             }
         };

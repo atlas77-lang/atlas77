@@ -1,4 +1,4 @@
-import "std/io"
+import "examples/string"
 
 struct Fibonacci {
     public:
@@ -28,11 +28,11 @@ fun main() {
     let fibonacci = new Fibonacci(10);
     let n: int64 = fibonacci.nth;
     let res_iterative = fibonacci.iterative_fib();
-    print("Iterative Fib: ");
-    println(res_iterative);
+    //print("Iterative Fib: ");
+    //println(res_iterative);
     let res_recursive = fibonacci.recursive_fib(fibonacci.nth);
-    print("Recursive Fib: ");
-    println(res_recursive);
+    //print("Recursive Fib: ");
+    //println(res_recursive);
 }
 
 fun recursive_fib(n: int64) -> int64 {

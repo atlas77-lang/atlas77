@@ -1,6 +1,8 @@
-use logos::{Logos, Span};
+use logos::Logos;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::ParseBoolError;
+
+use crate::atlas_c::utils::Span;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {

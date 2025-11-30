@@ -10,8 +10,8 @@ use super::ty::{
     HirNamedTy, HirNullTy, HirNullableTy, HirStringTy, HirTy, HirTyId, HirUninitializedTy,
     HirUnitTy, HirUnsignedIntTy,
 };
+use crate::atlas_c::utils::Span;
 use bumpalo::Bump;
-use logos::Span;
 
 //todo: Implement my own Arenas (maybe)
 

@@ -2,7 +2,7 @@ use super::ty::{HirTy, HirUnitTy};
 use crate::atlas_c::atlas_frontend::parser::ast::AstVisibility;
 use crate::atlas_c::atlas_hir::expr::HirUnaryOp;
 use crate::atlas_c::atlas_hir::expr::{HirBinaryOp, HirExpr};
-use logos::Span;
+use crate::atlas_c::utils::Span;
 use std::collections::BTreeMap;
 
 /// An HirModuleSignature represents the API of a module.

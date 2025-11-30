@@ -1,6 +1,6 @@
 use crate::atlas_c::atlas_hir::arena::HirArena;
 use crate::atlas_c::atlas_hir::ty::{HirGenericTy, HirTy};
-use logos::Span;
+use crate::atlas_c::utils::Span;
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 

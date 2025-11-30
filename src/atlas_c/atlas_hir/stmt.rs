@@ -1,6 +1,5 @@
 use super::{expr::HirExpr, ty::HirTy};
-use logos::Span;
-
+use crate::atlas_c::utils::Span;
 /// Most of the statements could actually be replaced with
 ///
 /// Statement::Expr(HirExpr)

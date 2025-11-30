@@ -33,8 +33,8 @@ use crate::atlas_c::atlas_frontend::parser::ast::{
     AstOperatorOverload, AstReadOnlyType, AstSelfLiteral, AstStaticAccessExpr, AstStruct,
     AstThisType, AstUnitLiteral, AstVisibility,
 };
+use crate::atlas_c::utils::Span;
 use arena::AstArena;
-use logos::Span;
 
 pub(crate) struct Parser<'ast> {
     arena: &'ast AstArena<'ast>,
@@ -1616,7 +1616,7 @@ fun main() {
 }
 "#
         .to_string();
-        let mut lexer = AtlasLexer::new("<stdin>", input.clone());
+        let mut lexer = AtlasLexer::new("<stdin>".into(), input.clone());
         //lexer.set_source(input.to_string());
         let tokens = match lexer.tokenize() {
             Ok(tokens) => tokens,

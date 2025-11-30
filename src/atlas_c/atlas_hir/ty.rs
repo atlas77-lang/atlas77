@@ -1,4 +1,4 @@
-use logos::Span;
+use crate::atlas_c::utils::Span;
 use std::fmt;
 use std::fmt::Formatter;
 use std::hash::{DefaultHasher, Hash, Hasher};

@@ -4,7 +4,7 @@ pub mod atlas_lib;
 mod atlas_vm;
 
 use atlas_c::{
-    atlas_codegen::{CodeGenUnit, arena::CodeGenArena},
+    atlas_codegen::{arena::CodeGenArena, CodeGenUnit},
     atlas_frontend::{parse, parser::arena::AstArena},
     atlas_hir::{
         arena::HirArena, syntax_lowering_pass::AstSyntaxLoweringPass, type_check_pass::TypeChecker,
@@ -41,20 +41,29 @@ pub fn build(path: String, _flag: CompilationFlag) -> miette::Result<()> {
     //parse
     let bump = Bump::new();
     let ast_arena = AstArena::new(&bump);
-    let program = parse(path_buf.to_str().unwrap(), &ast_arena, source.clone())?;
+    let file_path = path_buf.to_str().unwrap();
+    let program = parse(file_path.into(), &ast_arena, source.clone())?;
 
     //hir
     let hir_arena = HirArena::new();
-    let mut lower = AstSyntaxLoweringPass::new(&hir_arena, &program, &ast_arena, source.clone());
+    let mut lower = AstSyntaxLoweringPass::new(
+        &hir_arena,
+        &program,
+        &ast_arena,
+    );
     let hir = lower.lower()?;
 
     //monomorphize
-    let mut monomorphizer =
-        MonomorphizationPass::new(&hir_arena, lower.generic_pool, source.clone());
+    let mut monomorphizer = MonomorphizationPass::new(
+        &hir_arena,
+        lower.generic_pool,
+        source.clone(),
+        file_path.into(),
+    );
     monomorphizer.monomorphize(hir)?;
 
     //type-check
-    let mut type_checker = TypeChecker::new(&hir_arena, source.clone());
+    let mut type_checker = TypeChecker::new(&hir_arena, source.clone(), file_path.into());
     type_checker.check(hir)?;
 
     //codegen
@@ -74,21 +83,30 @@ pub fn run(path: String, _flag: CompilationFlag) -> miette::Result<()> {
     //parse
     let bump = Bump::new();
     let ast_arena = AstArena::new(&bump);
-    let program = parse(path_buf.to_str().unwrap(), &ast_arena, source.clone())?;
+    let file_path = path_buf.to_str().unwrap();
+    let program = parse(file_path.into(), &ast_arena, source.clone())?;
 
     //hir
     let hir_arena = HirArena::new();
-    let mut lower = AstSyntaxLoweringPass::new(&hir_arena, &program, &ast_arena, source.clone());
-    let mut hir = lower.lower()?;
+    let mut lower = AstSyntaxLoweringPass::new(
+        &hir_arena,
+        &program,
+        &ast_arena,
+    );
+    let hir = lower.lower()?;
 
     //monomorphize
-    let mut monomorphizer =
-        MonomorphizationPass::new(&hir_arena, lower.generic_pool, source.clone());
+    let mut monomorphizer = MonomorphizationPass::new(
+        &hir_arena,
+        lower.generic_pool,
+        source.clone(),
+        file_path.into(),
+    );
     monomorphizer.monomorphize(hir)?;
 
     //type-check
-    let mut type_checker = TypeChecker::new(&hir_arena, source.clone());
-    type_checker.check(&mut hir)?;
+    let mut type_checker = TypeChecker::new(&hir_arena, source.clone(), file_path.into());
+    type_checker.check(hir)?;
 
     //codegen
     let bump = Bump::new();

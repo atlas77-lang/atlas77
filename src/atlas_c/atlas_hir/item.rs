@@ -3,7 +3,7 @@ use crate::atlas_c::atlas_hir::signature::{
     HirFunctionParameterSignature, HirStructFieldSignature, HirStructMethodSignature,
     HirStructSignature, HirTypeParameterItemSignature,
 };
-use logos::Span;
+use crate::atlas_c::utils::Span;
 
 #[derive(Debug, Clone)]
 pub struct HirFunction<'hir> {
