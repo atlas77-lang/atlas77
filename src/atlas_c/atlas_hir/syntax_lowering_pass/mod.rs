@@ -54,6 +54,7 @@ use crate::atlas_c::atlas_hir::{
     HirModule,
     HirModuleBody,
 };
+use crate::atlas_c::atlas_hir::warning::{HirWarning, NullableTypesAreUnstableWarning};
 
 pub struct AstSyntaxLoweringPass<'ast, 'hir> {
     arena: &'hir HirArena<'hir>,
@@ -1061,6 +1062,13 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 self.arena.types().get_list_ty(ty)
             }
             AstType::Nullable(n) => {
+                eprintln!("{}", HirWarning::NullableTypesAreUnstable(NullableTypesAreUnstableWarning {
+                    src: crate::atlas_c::utils::get_file_content(&n.span.path).unwrap(),
+                    span: SourceSpan::new(
+                        SourceOffset::from(node.span().start),
+                        node.span().end - node.span().start,
+                    )
+                }));
                 let ty = self.visit_ty(n.inner)?;
                 self.arena.types().get_nullable_ty(ty)
             }
