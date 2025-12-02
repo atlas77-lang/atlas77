@@ -8,8 +8,22 @@ declare_warning_type!(
         NullableTypesAreUnstable(NullableTypesAreUnstableWarning),
         DeletingReferenceIsUnstable(DeletingReferenceIsUnstableWarning),
         NameShouldBeInDifferentCase(NameShouldBeInDifferentCaseWarning),
+        MultipleGenericParametersAreUnstable(MultipleGenericParametersAreUnstableWarning),
     }
 );
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::multiple_generic_parameters_are_unstable),
+    severity(warning)
+)]
+#[error("Multiple generic parameters are still unstable. They may lead to unexpected behavior.")]
+pub struct MultipleGenericParametersAreUnstableWarning {
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label = "Multiple generic parameters are still unstable. Use with caution."]
+    pub span: SourceSpan,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(

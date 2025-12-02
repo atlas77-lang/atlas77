@@ -1,4 +1,5 @@
 use crate::atlas_lib::STD_LIB_DIR;
+use miette::SourceSpan;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Span {
@@ -14,6 +15,12 @@ impl Default for Span {
             end: 0,
             path: "<stdin>".into(),
         }
+    }
+}
+
+impl From<Span> for SourceSpan {
+    fn from(span: Span) -> Self {
+        SourceSpan::new(span.start.into(), (span.end - span.start).into())
     }
 }
 

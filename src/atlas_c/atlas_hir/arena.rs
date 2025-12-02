@@ -13,8 +13,6 @@ use super::ty::{
 use crate::atlas_c::utils::Span;
 use bumpalo::Bump;
 
-//todo: Implement my own Arenas (maybe)
-
 pub struct HirArena<'arena> {
     allocator: Rc<Bump>,
     type_arena: TypeArena<'arena>,

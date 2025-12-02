@@ -1,4 +1,5 @@
 use crate::atlas_vm::object::ObjectIndex;
+use std::ffi::c_void;
 use std::fmt::Formatter;
 use std::{
     fmt,
@@ -25,6 +26,7 @@ pub union RawVMData {
     as_stack_ptr: [u32; 2],
     /// Pointer to a function
     as_fn_ptr: usize,
+    as_extern_ptr: *mut c_void,
     /// Pointer to an object in the object map
     as_object: ObjectIndex,
 }

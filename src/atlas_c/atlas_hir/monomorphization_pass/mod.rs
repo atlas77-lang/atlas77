@@ -20,19 +20,12 @@ use miette::{NamedSource, SourceOffset, SourceSpan};
 pub struct MonomorphizationPass<'hir> {
     arena: &'hir HirArena<'hir>,
     generic_pool: HirGenericPool<'hir>,
-    //source code
-    src: String,
 }
 
 impl<'hir> MonomorphizationPass<'hir> {
-    pub fn new(
-        arena: &'hir HirArena<'hir>,
-        generic_pool: HirGenericPool<'hir>,
-        src: String,
-    ) -> Self {
+    pub fn new(arena: &'hir HirArena<'hir>, generic_pool: HirGenericPool<'hir>) -> Self {
         Self {
             arena,
-            src,
             generic_pool,
         }
     }

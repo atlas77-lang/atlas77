@@ -1,8 +1,8 @@
 use miette::{Diagnostic, NamedSource, SourceSpan};
 use thiserror::Error;
 
-use crate::atlas_c::atlas_frontend::lexer::token::{LexingError, Token};
 use crate::atlas_c::atlas_frontend::lexer::TokenVec;
+use crate::atlas_c::atlas_frontend::lexer::token::{LexingError, Token};
 use crate::declare_error_type;
 
 declare_error_type! {
@@ -31,7 +31,8 @@ pub struct NoFieldInStructError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
     code(syntax::only_one_constructor_allowed),
-    help("Try removing that constructor/destructor or make it a static method (e.g. `fun init(...) -> Self)`"
+    help(
+        "Try removing that constructor/destructor or make it a static method (e.g. `fun init(...) -> Self)`"
     )
 )]
 #[error("Only one constructor or destructor is allowed per struct")]

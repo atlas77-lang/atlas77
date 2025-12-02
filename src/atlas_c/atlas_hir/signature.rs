@@ -4,6 +4,7 @@ use crate::atlas_c::atlas_hir::expr::HirUnaryOp;
 use crate::atlas_c::atlas_hir::expr::{HirBinaryOp, HirExpr};
 use crate::atlas_c::utils::Span;
 use std::collections::BTreeMap;
+use std::fmt::Display;
 
 /// An HirModuleSignature represents the API of a module.
 ///
@@ -71,7 +72,7 @@ pub struct HirStructConstantSignature<'hir> {
     pub value: &'hir ConstantValue,
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
 pub enum ConstantValue {
     Int(i64),
     Float(f64),
@@ -79,7 +80,27 @@ pub enum ConstantValue {
     String(String),
     Bool(bool),
     Char(char),
+    #[default]
+    Unit,
     List(Vec<ConstantValue>),
+}
+
+impl Display for ConstantValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConstantValue::Int(i) => write!(f, "{}_int64", i),
+            ConstantValue::Float(fl) => write!(f, "{}_float64", fl),
+            ConstantValue::UInt(u) => write!(f, "{}_uint64", u),
+            ConstantValue::String(s) => write!(f, "\"{}\"", s),
+            ConstantValue::Bool(b) => write!(f, "{}", b),
+            ConstantValue::Char(c) => write!(f, "'{}'", c),
+            ConstantValue::Unit => write!(f, "()"),
+            ConstantValue::List(l) => {
+                let elements: Vec<String> = l.iter().map(|elem| format!("{}", elem)).collect();
+                write!(f, "[{}]", elements.join(", "))
+            }
+        }
+    }
 }
 
 impl TryFrom<HirExpr<'_>> for ConstantValue {

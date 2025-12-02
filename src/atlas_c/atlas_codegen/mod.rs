@@ -40,7 +40,6 @@ where
     local_variables: Table<&'hir str>,
     //store the function position
     current_pos: usize,
-    string_pool: Vec<&'codegen str>,
     struct_pool: Vec<StructDescriptor<'codegen>>,
     //todo: Replace this with the path of the current module to be codegen
     src: String,
@@ -55,7 +54,6 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             arena,
             local_variables: Table::new(),
             current_pos: 0,
-            string_pool: Vec::new(),
             struct_pool: Vec::new(),
             src,
         }
@@ -64,8 +62,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
     /// - TODO: Refactor the whole codegen thingy to output and atlas_asm::program::Program
     ///
     /// - TODO: Add LoadConst instruction & remove all the Push_XXX instructions
-    #[deprecated]
-    pub fn compile(&mut self) -> CodegenResult<ProgramDescriptor> {
+    pub fn compile(&mut self) -> CodegenResult<ProgramDescriptor<'codegen>> {
         let mut labels: Vec<Label> = Vec::new();
         for (struct_name, hir_struct) in self.hir.body.structs.clone() {
             self.generate_struct_descriptor(struct_name, &hir_struct);
@@ -83,12 +80,15 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
 
             self.generate_bytecode_block(&function.body, &mut bytecode, self.src.clone())?;
-            bytecode.insert(
-                0,
-                Instruction::LocalSpace {
-                    nb_vars: self.local_variables.len() as u8,
-                },
-            );
+            //There is no need to reserve space for local variables if there is none
+            if self.local_variables.len() > 0 {
+                bytecode.insert(
+                    0,
+                    Instruction::LocalSpace {
+                        nb_vars: self.local_variables.len() as u8,
+                    },
+                );
+            }
 
             if func_name == "main" {
                 bytecode.push(Instruction::Halt);
@@ -120,7 +120,6 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
 
         self.program.entry_point = String::from("main");
         self.program.labels = labels;
-        self.program.global.string_pool = self.arena.alloc(self.string_pool.clone());
         self.program.structs = self.arena.alloc(self.struct_pool.clone());
         self.program.functions = functions;
         let libraries = self
@@ -369,7 +368,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         }));
                     }
                 }
-                bytecode.push(Instruction::PushUnit);
+                bytecode.push(Instruction::LoadConst(ConstantValue::Unit));
             }
             HirExpr::HirBinaryOp(b) => {
                 self.generate_bytecode_expr(&b.lhs, bytecode, src.clone())?;
@@ -398,14 +397,17 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         HirUnaryOp::Neg => {
                             match u.expr.ty() {
                                 HirTy::Int64(_) => {
-                                    bytecode.push(Instruction::PushInt(0));
+                                    bytecode.push(Instruction::LoadConst(ConstantValue::Int(0)));
                                 }
                                 HirTy::Float64(_) => {
-                                    bytecode.push(Instruction::PushFloat(0.0));
+                                    bytecode
+                                        .push(Instruction::LoadConst(ConstantValue::Float(0.0)));
                                 }
                                 // This won't really work, because you're subtracting a 32-bit char from a 64-bit integer
                                 HirTy::Char(_) => {
-                                    bytecode.push(Instruction::PushInt(0));
+                                    bytecode.push(Instruction::LoadConst(ConstantValue::Char(
+                                        0 as char,
+                                    )));
                                 }
                                 _ => {
                                     let path = u.span.path;
@@ -428,7 +430,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         }
                         HirUnaryOp::Not => {
                             if let HirTy::Boolean(_) = u.expr.ty() {
-                                bytecode.push(Instruction::PushBool(false));
+                                bytecode.push(Instruction::LoadConst(ConstantValue::Bool(false)));
                                 bytecode.push(Instruction::Eq);
                             } else {
                                 let path = u.span.path;
@@ -493,12 +495,12 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         let func = self.hir.signature.functions.get(i.name).unwrap();
                         if func.is_external {
                             bytecode.push(Instruction::ExternCall {
-                                func_id: i.name.to_string(),
+                                func_name: i.name.to_string(),
                                 nb_args: f.args.len() as u8,
                             });
                         } else {
                             bytecode.push(Instruction::Call {
-                                func_id: i.name.to_string(),
+                                func_name: i.name.to_string(),
                                 nb_args: f.args.len() as u8,
                             });
                         }
@@ -526,7 +528,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                             }
                         };
                         bytecode.push(Instruction::Call {
-                            func_id: format!("{}.{}", struct_name.name, field_access.field.name),
+                            func_name: format!("{}.{}", struct_name.name, field_access.field.name),
                             nb_args: f.args.len() as u8 + 1,
                         })
                     }
@@ -535,7 +537,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                             self.generate_bytecode_expr(arg, bytecode, src.clone())?;
                         }
                         bytecode.push(Instruction::Call {
-                            func_id: format!(
+                            func_name: format!(
                                 "{}::{}",
                                 static_access.target.name, static_access.field.name
                             ),
@@ -557,19 +559,25 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     }
                 }
             }
-            HirExpr::IntegerLiteral(i) => bytecode.push(Instruction::PushInt(i.value)),
-            HirExpr::FloatLiteral(f) => bytecode.push(Instruction::PushFloat(f.value)),
-            HirExpr::BooleanLiteral(b) => bytecode.push(Instruction::PushBool(b.value)),
-            HirExpr::CharLiteral(c) => bytecode.push(Instruction::PushInt(c.value as i64)),
-            HirExpr::UnitLiteral(_) => bytecode.push(Instruction::PushUnit),
+            HirExpr::IntegerLiteral(i) => {
+                bytecode.push(Instruction::LoadConst(ConstantValue::Int(i.value)))
+            }
+            HirExpr::FloatLiteral(f) => {
+                bytecode.push(Instruction::LoadConst(ConstantValue::Float(f.value)))
+            }
+            HirExpr::BooleanLiteral(b) => {
+                bytecode.push(Instruction::LoadConst(ConstantValue::Bool(b.value)))
+            }
+            HirExpr::CharLiteral(c) => {
+                bytecode.push(Instruction::LoadConst(ConstantValue::Char(c.value)))
+            }
+            HirExpr::UnitLiteral(_) => bytecode.push(Instruction::LoadConst(ConstantValue::Unit)),
             HirExpr::UnsignedIntegerLiteral(u) => {
-                bytecode.push(Instruction::PushInt(u.value as i64)); //TODO: Change to PushUnsignedInt when supported
+                bytecode.push(Instruction::LoadConst(ConstantValue::UInt(u.value))); //TODO: Change to PushUnsignedInt when supported
             }
-            HirExpr::StringLiteral(s) => {
-                self.string_pool.push(self.arena.alloc(s.value.to_string()));
-                let index = self.string_pool.len() - 1;
-                bytecode.push(Instruction::PushStr(index));
-            }
+            HirExpr::StringLiteral(s) => bytecode.push(Instruction::LoadConst(
+                ConstantValue::String(s.value.to_string()),
+            )),
             HirExpr::Ident(i) => bytecode.push(Instruction::LoadVar(
                 self.local_variables.get_index(i.name).unwrap(),
             )),
@@ -638,9 +646,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                             }));
                         }
                     };
-                    self.string_pool.push(self.arena.alloc(value));
-                    let index = self.string_pool.len() - 1;
-                    bytecode.push(Instruction::PushStr(index));
+                    bytecode.push(Instruction::LoadConst(ConstantValue::String(value)));
                 }
                 HirTy::Float64(_) => {
                     let struct_signature = self
@@ -670,7 +676,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                             }));
                         }
                     };
-                    bytecode.push(Instruction::PushFloat(value));
+                    bytecode.push(Instruction::LoadConst(ConstantValue::Float(value)));
                 }
                 HirTy::Int64(_) => {
                     let struct_signature = self
@@ -700,7 +706,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                             }));
                         }
                     };
-                    bytecode.push(Instruction::PushInt(value));
+                    bytecode.push(Instruction::LoadConst(ConstantValue::Int(value)));
                 }
                 HirTy::Char(_) => {
                     let struct_signature = self
@@ -730,7 +736,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                             }));
                         }
                     };
-                    bytecode.push(Instruction::PushInt(value as i64));
+                    bytecode.push(Instruction::LoadConst(ConstantValue::Char(value)));
                 }
                 HirTy::UInt64(_) => {
                     let struct_signature = self
@@ -760,7 +766,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                             }));
                         }
                     };
-                    bytecode.push(Instruction::PushInt(value as i64));
+                    bytecode.push(Instruction::LoadConst(ConstantValue::UInt(value)));
                 }
                 HirTy::List(_) => {
                     let path = expr.span().path;
@@ -793,39 +799,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 }
             },
             HirExpr::NoneLiteral(_) => {
-                bytecode.push(Instruction::PushUnit);
-            }
-            HirExpr::ConstructorExpr(constructor) => {
-                bytecode.push(Instruction::NewObj {
-                    obj_descriptor: self
-                        .struct_pool
-                        .iter()
-                        .position(|s| s.name == constructor.name)
-                        .unwrap(), //TODO: handle error
-                });
-                //Now we need to set the fields
-                for field_init in &constructor.fields {
-                    //Duplicate the object reference
-                    bytecode.push(Instruction::Dup);
-                    //Generate the value
-                    self.generate_bytecode_expr(&field_init.value, bytecode, src.clone())?;
-                    //Get the field index
-                    let struct_descriptor = self
-                        .struct_pool
-                        .iter()
-                        .find(|c| c.name == constructor.name)
-                        .unwrap_or_else(|| {
-                            //should never happen
-                            panic!("Struct {} not found", constructor.name)
-                        });
-                    let field_index = struct_descriptor
-                        .fields
-                        .iter()
-                        .position(|f| *f == field_init.name.name)
-                        .unwrap();
-                    //Set the field
-                    bytecode.push(Instruction::SetField { field: field_index });
-                }
+                bytecode.push(Instruction::LoadConst(ConstantValue::Unit));
             }
             _ => unimplemented!("Unsupported expression for now: {:?}", expr),
         }

@@ -4,15 +4,14 @@ mod atlas_vm;
 
 use atlas_c::{
     atlas_asm,
-    atlas_codegen::{CodeGenUnit, arena::CodeGenArena},
+    atlas_codegen::{arena::CodeGenArena, CodeGenUnit},
     atlas_frontend::{parse, parser::arena::AstArena},
     atlas_hir::{
-        arena::HirArena, syntax_lowering_pass::AstSyntaxLoweringPass, type_check_pass::TypeChecker,
+        arena::HirArena, monomorphization_pass::MonomorphizationPass,
+        syntax_lowering_pass::AstSyntaxLoweringPass, type_check_pass::TypeChecker,
     },
 };
 use bumpalo::Bump;
-
-use crate::atlas_c::atlas_hir::monomorphization_pass::MonomorphizationPass;
 use std::{io::Write, path::PathBuf};
 //todo: The pipeline of the compiler should be more straightforward and should include the "debug" and "release" modes
 //todo: There should also be a function for each stage of the pipeline
@@ -52,8 +51,7 @@ pub fn build(path: String, _flag: CompilationFlag) -> miette::Result<()> {
     let hir = lower.lower()?;
 
     //monomorphize
-    let mut monomorphizer =
-        MonomorphizationPass::new(&hir_arena, lower.generic_pool, source.clone());
+    let mut monomorphizer = MonomorphizationPass::new(&hir_arena, lower.generic_pool);
     monomorphizer.monomorphize(hir)?;
 
     //type-check
@@ -65,6 +63,18 @@ pub fn build(path: String, _flag: CompilationFlag) -> miette::Result<()> {
     let arena = CodeGenArena::new(&bump);
     let mut codegen = CodeGenUnit::new(hir, arena, source);
     let program = codegen.compile()?;
+    let mut file = std::fs::File::create("output.atlasc").unwrap();
+    let mut content = String::new();
+    for label in program.labels.iter() {
+        content.push_str(&format!("{}", label));
+    }
+    file.write_all(content.as_bytes()).unwrap();
+
+    let mut file2 = std::fs::File::create("output.atlas_asm").unwrap();
+    let mut assembler = atlas_asm::Assembler::new();
+    let asm = assembler.asm_from_instruction(program)?;
+    let content2 = format!("{}", asm);
+    file2.write_all(content2.as_bytes()).unwrap();
 
     Ok(())
 }
@@ -89,8 +99,7 @@ pub fn run(path: String, _flag: CompilationFlag) -> miette::Result<()> {
     let hir = lower.lower()?;
 
     //monomorphize
-    let mut monomorphizer =
-        MonomorphizationPass::new(&hir_arena, lower.generic_pool, source.clone());
+    let mut monomorphizer = MonomorphizationPass::new(&hir_arena, lower.generic_pool);
     monomorphizer.monomorphize(hir)?;
 
     //type-check
@@ -99,12 +108,12 @@ pub fn run(path: String, _flag: CompilationFlag) -> miette::Result<()> {
 
     //codegen
     let bump = Bump::new();
-    let arena = CodeGenArena::new(&bump);
-    let mut codegen = CodeGenUnit::new(hir, arena, source);
+    let code_gen_arena = CodeGenArena::new(&bump);
+    let mut codegen = CodeGenUnit::new(hir, code_gen_arena, source);
     let program = codegen.compile()?;
 
     //asm
-    let assembler = atlas_asm::Assembler::new();
+    let mut assembler = atlas_asm::Assembler::new();
     let asm = assembler.asm_from_instruction(program)?;
     let mut file = std::fs::File::create("output.atlas_asm").unwrap();
     //file.write_all(assembler.display_asm(&asm).as_bytes()).unwrap();

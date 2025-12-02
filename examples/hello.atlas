@@ -1,21 +1,5 @@
-import "std/io"
-
-struct Test {
-    public:
-        const_ref: const &string;
-
-        Test(ref: const &string) {
-            this.const_ref = ref;
-        }
-        fun get_ref(this) -> string {
-            return this.const_ref;
-        }
-}
+import "std/io";
 
 fun main() {
-    let hehe: string? = "yo";
-    let s: const &string = "Hello, Atlas!";
-    let test = new Test(s);
-    let s2 = test.get_ref();
-    println(s2);
+    println("Hello, Atlas!");
 }

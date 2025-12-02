@@ -1,7 +1,7 @@
-import "std/io"
-import "std/vector"
+import "std/io";
+import "std/vector";
 
-//package std::vector;
+package std::vector;c
 public extern len<T>(data: [T]) -> uint64;
 
 public struct Vector<T> {

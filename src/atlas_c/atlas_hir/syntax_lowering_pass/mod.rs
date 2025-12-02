@@ -4,8 +4,12 @@ use heck::{ToPascalCase, ToSnakeCase};
 use miette::{ErrReport, NamedSource, SourceOffset, SourceSpan};
 use std::{collections::BTreeMap, path::PathBuf};
 
-use crate::atlas_c::atlas_hir::error::InvalidReadOnlyTypeError;
-use crate::atlas_c::atlas_hir::warning::NameShouldBeInDifferentCaseWarning;
+use crate::atlas_c::atlas_hir::error::{
+    InvalidReadOnlyTypeError, StructNameCannotBeOneLetterError,
+};
+use crate::atlas_c::atlas_hir::warning::{
+    MultipleGenericParametersAreUnstableWarning, NameShouldBeInDifferentCaseWarning,
+};
 use crate::atlas_c::{
     atlas_frontend::{
         parse,
@@ -241,6 +245,9 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 &name.to_pascal_case(),
             );
         }
+        if name.len() == 1 {
+            return Err(Self::name_single_character_error(&node.name.span));
+        }
 
         let mut methods = Vec::new();
         for method in node.methods.iter() {
@@ -253,6 +260,9 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             for generic in node.generics.iter() {
                 generics.push(self.arena.intern(generic.name.name.to_owned()));
             }
+        }
+        if node.generics.len() > 1 {
+            Self::multiple_generic_parameters_are_unstable_warning(&node.name.span);
         }
 
         let mut fields = Vec::new();
@@ -1156,5 +1166,27 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             })
             .into();
         eprintln!("{:?}", report);
+    }
+
+    fn multiple_generic_parameters_are_unstable_warning(span: &Span) {
+        let path = span.path;
+        let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+        let report: ErrReport = HirWarning::MultipleGenericParametersAreUnstable(
+            MultipleGenericParametersAreUnstableWarning {
+                src: NamedSource::new(path, src),
+                span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
+            },
+        )
+        .into();
+        eprintln!("{:?}", report);
+    }
+
+    fn name_single_character_error(span: &Span) -> HirError {
+        let path = span.path;
+        let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+        HirError::StructNameCannotBeOneLetter(StructNameCannotBeOneLetterError {
+            src: NamedSource::new(path, src),
+            span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
+        })
     }
 }

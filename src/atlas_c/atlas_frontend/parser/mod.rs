@@ -22,8 +22,8 @@ use ast::{
 };
 
 use crate::atlas_c::atlas_frontend::lexer::{
-    token::{Token, TokenKind}, Spanned,
-    TokenVec,
+    Spanned, TokenVec,
+    token::{Token, TokenKind},
 };
 use crate::atlas_c::atlas_frontend::parser::ast::{
     AstCastingExpr, AstCharLiteral, AstCharType, AstConstructor, AstConstructorExpr,
@@ -33,7 +33,7 @@ use crate::atlas_c::atlas_frontend::parser::ast::{
     AstOperatorOverload, AstReadOnlyType, AstSelfLiteral, AstStaticAccessExpr, AstStruct,
     AstThisType, AstUnitLiteral, AstVisibility,
 };
-use crate::atlas_c::utils::{get_file_content, Span};
+use crate::atlas_c::utils::{Span, get_file_content};
 use arena::AstArena;
 
 pub(crate) struct Parser<'ast> {
@@ -166,7 +166,10 @@ impl<'ast> Parser<'ast> {
                 Ok(item)
             }
             //Handling comments
-            _ => Err(self.unexpected_token_error(TokenVec(vec![TokenKind::Identifier("Item".to_string())]), &self.current().span())),
+            _ => Err(self.unexpected_token_error(
+                TokenVec(vec![TokenKind::Identifier("Item".to_string())]),
+                &self.current().span(),
+            )),
         }
     }
 
@@ -297,9 +300,12 @@ impl<'ast> Parser<'ast> {
                     }
                 }
                 _ => {
-                    return Err(self.unexpected_token_error(TokenVec(vec![TokenKind::Identifier(
-                        "Field/Methods/Constant/Operator".to_string(),
-                    )]), &self.current().span));
+                    return Err(self.unexpected_token_error(
+                        TokenVec(vec![TokenKind::Identifier(
+                            "Field/Methods/Constant/Operator".to_string(),
+                        )]),
+                        &self.current().span,
+                    ));
                 }
             }
         }
@@ -308,7 +314,8 @@ impl<'ast> Parser<'ast> {
 
         if fields.is_empty() {
             let path = self.current().span.path;
-            let src = crate::atlas_c::utils::get_file_content(path).expect("Failed to get source content for error reporting");
+            let src = crate::atlas_c::utils::get_file_content(path)
+                .expect("Failed to get source content for error reporting");
             return Err(SyntaxError::NoFieldInStruct(NoFieldInStructError {
                 span: SourceSpan::new(
                     SourceOffset::from(struct_identifier.span.start),
@@ -360,7 +367,10 @@ impl<'ast> Parser<'ast> {
         while self.current().kind() != TokenKind::RParen {
             let obj_field = self.parse_obj_field()?;
             if let AstType::ThisTy(_) = obj_field.ty {
-                return Err(self.unexpected_token_error(TokenVec(vec![TokenKind::Identifier("Field".to_string())]), &obj_field.span));
+                return Err(self.unexpected_token_error(
+                    TokenVec(vec![TokenKind::Identifier("Field".to_string())]),
+                    &obj_field.span,
+                ));
             } else {
                 params.push(obj_field);
             }
@@ -404,9 +414,10 @@ impl<'ast> Parser<'ast> {
                         let op = match self.current().kind().try_into() {
                             Ok(op) => op,
                             Err(_) => {
-                                return Err(self.unexpected_token_error(TokenVec(vec![TokenKind::Identifier(
-                                    "Operator".to_string(),
-                                )]), &self.current().span()));
+                                return Err(self.unexpected_token_error(
+                                    TokenVec(vec![TokenKind::Identifier("Operator".to_string())]),
+                                    &self.current().span(),
+                                ));
                             }
                         };
                         let _ = self.advance();
@@ -417,18 +428,20 @@ impl<'ast> Parser<'ast> {
                         let ast_ty = match self.parse_type()? {
                             AstType::Named(ast_ty) => ast_ty,
                             _ => {
-                                return Err(self.unexpected_token_error(TokenVec(vec![TokenKind::Identifier(
-                                    "Named Type".to_string(),
-                                )]), &self.current().span));
+                                return Err(self.unexpected_token_error(
+                                    TokenVec(vec![TokenKind::Identifier("Named Type".to_string())]),
+                                    &self.current().span,
+                                ));
                             }
                         };
 
                         AstGenericConstraint::NamedType(ast_ty)
                     }
                     _ => {
-                        return Err(self.unexpected_token_error(TokenVec(vec![TokenKind::Identifier(
-                            "Constraint".to_string(),
-                        )]), &name.span));
+                        return Err(self.unexpected_token_error(
+                            TokenVec(vec![TokenKind::Identifier("Constraint".to_string())]),
+                            &name.span,
+                        ));
                     }
                 };
                 constraints.push(constraint);
@@ -453,7 +466,10 @@ impl<'ast> Parser<'ast> {
         let op = match tok_op.kind().try_into() {
             Ok(op) => op,
             Err(_) => {
-                return Err(self.unexpected_token_error(TokenVec(vec![TokenKind::Identifier("Operator".to_string())]), &tok_op.span));
+                return Err(self.unexpected_token_error(
+                    TokenVec(vec![TokenKind::Identifier("Operator".to_string())]),
+                    &tok_op.span,
+                ));
             }
         };
         let _ = self.advance();

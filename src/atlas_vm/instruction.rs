@@ -1,26 +1,15 @@
 use crate::atlas_c::atlas_hir::signature::ConstantValue;
 use std::collections::{BTreeMap, HashMap};
+use std::fmt::{Display, Formatter};
 use std::ops::Index;
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
-///**TODO**: Those instructions should be lowered to an asm-ish set later on.
+///TODO: Those instructions should be lowered to an asm-ish set later on.
 ///
 /// Something akin to a ``[u32; N]`` representation
 pub enum Instruction {
     // === Literals & constants ===
-    LoadConst(u32), // Load constant from constant pool
-    #[deprecated]
-    PushInt(i64), // Push integer (signed, covers chars + unsigned at type-level)
-    #[deprecated]
-    PushFloat(f64), // Push float
-    #[deprecated]
-    PushBool(bool), // Push boolean
-    #[deprecated]
-    PushStr(usize), // Push string from constant pool (returns pointer)
-    #[deprecated]
-    PushList(usize), // Push list from constant pool (returns pointer)
-    #[deprecated]
-    PushUnit, // Push unit value ()
+    LoadConst(ConstantValue), // Load constant from constant pool
 
     // === Stack manipulation ===
     Pop,  // Discard top of stack
@@ -63,13 +52,13 @@ pub enum Instruction {
         nb_vars: u8,
     }, // Reserve local slots
     Call {
-        func_id: String,
+        func_name: String,
         nb_args: u8,
     },
     ///TODO: Extern calls should be handled differently.
     ///This is completely temporary, the VM is still under heavy overhaul
     ExternCall {
-        func_id: String,
+        func_name: String,
         nb_args: u8,
     },
     // Call function:
@@ -103,6 +92,56 @@ pub enum Instruction {
     Halt, // Stop execution
 }
 
+impl Display for Instruction {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Instruction::LoadConst(c) => write!(f, "LoadConst {}", c),
+            Instruction::Pop => write!(f, "Pop"),
+            Instruction::Dup => write!(f, "Dup"),
+            Instruction::Swap => write!(f, "Swap"),
+            Instruction::StoreVar(i) => write!(f, "StoreVar {}", i),
+            Instruction::LoadVar(i) => write!(f, "LoadVar {}", i),
+            Instruction::IndexLoad => write!(f, "IndexLoad"),
+            Instruction::IndexStore => write!(f, "IndexStore"),
+            Instruction::NewList => write!(f, "NewList"),
+            Instruction::Add => write!(f, "Add"),
+            Instruction::Sub => write!(f, "Sub"),
+            Instruction::Mul => write!(f, "Mul"),
+            Instruction::Div => write!(f, "Div"),
+            Instruction::Mod => write!(f, "Mod"),
+            Instruction::Eq => write!(f, "Eq"),
+            Instruction::Neq => write!(f, "Neq"),
+            Instruction::Gt => write!(f, "Gt"),
+            Instruction::Gte => write!(f, "Gte"),
+            Instruction::Lt => write!(f, "Lt"),
+            Instruction::Lte => write!(f, "Lte"),
+            Instruction::Jmp { pos } => write!(f, "Jmp {}", pos),
+            Instruction::JmpZ { pos } => write!(f, "JmpZ {}", pos),
+            Instruction::LocalSpace { nb_vars } => write!(f, "LocalSpace {}", nb_vars),
+            Instruction::Call {
+                func_name: func_id,
+                nb_args,
+            } => {
+                write!(f, "Call {} {}", func_id, nb_args)
+            }
+            Instruction::ExternCall {
+                func_name: func_id,
+                nb_args,
+            } => {
+                write!(f, "ExternCall {} {}", func_id, nb_args)
+            }
+            Instruction::LoadArg { index } => write!(f, "LoadArg {}", index),
+            Instruction::Return => write!(f, "Return"),
+            Instruction::NewObj { obj_descriptor } => {
+                write!(f, "NewObj {}", obj_descriptor)
+            }
+            Instruction::GetField { field } => write!(f, "GetField {}", field),
+            Instruction::SetField { field } => write!(f, "SetField {}", field),
+            Instruction::CastTo(t) => write!(f, "CastTo {:?}", t),
+            Instruction::Halt => write!(f, "Halt"),
+        }
+    }
+}
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum Type {
@@ -124,12 +163,11 @@ pub struct ImportedLibrary {
 ///todo: Make the program serializable and deserializable
 /// This will allow the program to be saved and loaded from a file
 #[derive(Debug, Clone, PartialEq)]
-#[deprecated]
 pub struct ProgramDescriptor<'run> {
     pub labels: Vec<Label<'run>>,
     pub entry_point: String,
     pub libraries: Vec<ImportedLibrary>,
-    pub global: ConstantPool<'run>,
+    //pub global: ConstantPool<'run>,
     pub structs: &'run [StructDescriptor<'run>],
     //todo: Change `usize` to a `FunctionDescriptor`
     pub functions: HashMap<&'run str, usize>,
@@ -170,11 +208,6 @@ impl ProgramDescriptor<'_> {
             entry_point: String::new(),
             structs: &[],
             functions: HashMap::new(),
-            global: ConstantPool {
-                string_pool: &[],
-                list_pool: &[],
-                function_pool: &[],
-            },
             libraries: vec![],
         }
     }
@@ -201,4 +234,14 @@ pub struct Label<'run> {
     pub name: &'run str,
     pub position: usize,
     pub body: &'run [Instruction],
+}
+
+impl Display for Label<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "{}:", self.name)?;
+        for (i, instr) in self.body.iter().enumerate() {
+            writeln!(f, "\t{:04} {}", i + self.position, instr)?;
+        }
+        Ok(())
+    }
 }
