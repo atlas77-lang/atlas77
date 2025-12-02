@@ -5,6 +5,7 @@ use miette::{ErrReport, NamedSource, SourceOffset, SourceSpan};
 use std::{collections::BTreeMap, path::PathBuf};
 
 use crate::atlas_c::atlas_hir::error::InvalidReadOnlyTypeError;
+use crate::atlas_c::atlas_hir::warning::NameShouldBeInDifferentCaseWarning;
 use crate::atlas_c::{
     atlas_frontend::{
         parse,
@@ -102,14 +103,16 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     }
     pub fn visit_item(&mut self, ast_item: &'ast AstItem<'ast>) -> HirResult<()> {
         match ast_item {
-            AstItem::Function(f) => {
-                let hir_func = self.visit_func(f)?;
-                let name = self.arena.names().get(f.name.name);
+            AstItem::Function(ast_function) => {
+                let hir_func = self.visit_func(ast_function)?;
+                let name = self.arena.names().get(ast_function.name.name);
                 if !name.is_snake_case() {
-                    eprintln!("Warning: {} is not snake case", name);
-                    eprintln!(
-                        "Try using snake_case for function names e.g. {}",
-                        name.to_snake_case()
+                    Self::name_should_be_in_different_case_warning(
+                        &ast_function.name.span,
+                        "snake_case",
+                        "function",
+                        name,
+                        &name.to_snake_case(),
                     );
                 }
                 self.module_signature
@@ -149,10 +152,12 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             AstItem::ExternFunction(ast_extern_func) => {
                 let name = self.arena.names().get(ast_extern_func.name.name);
                 if !name.is_snake_case() {
-                    eprintln!("Warning: {} is not snake case", name);
-                    eprintln!(
-                        "Try using snake_case for function names e.g. {}",
-                        name.to_snake_case()
+                    Self::name_should_be_in_different_case_warning(
+                        &ast_extern_func.name.span,
+                        "snake_case",
+                        "extern function",
+                        name,
+                        &name.to_snake_case(),
                     );
                 }
                 let ty = self.visit_ty(ast_extern_func.ret_ty)?.clone();
@@ -227,12 +232,13 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
     fn visit_struct(&mut self, node: &'ast AstStruct<'ast>) -> HirResult<HirStruct<'hir>> {
         let name = self.arena.names().get(node.name.name);
-        //TODO: Replace that with a miette Warning
         if !name.is_pascal_case() {
-            eprintln!("Warning: {} is not pascal case", name);
-            eprintln!(
-                "Try using PascalCase for class names e.g. {}",
-                name.to_pascal_case()
+            Self::name_should_be_in_different_case_warning(
+                &node.name.span,
+                "PascalCase",
+                "struct",
+                name,
+                &name.to_pascal_case(),
             );
         }
 
@@ -579,9 +585,9 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
     fn visit_stmt(&mut self, node: &'ast AstStatement<'ast>) -> HirResult<HirStatement<'hir>> {
         match node {
-            AstStatement::While(w) => {
-                let condition = self.visit_expr(w.condition)?;
-                let body = self.visit_block(w.body)?;
+            AstStatement::While(ast_while) => {
+                let condition = self.visit_expr(ast_while.condition)?;
+                let body = self.visit_block(ast_while.body)?;
                 let hir = HirStatement::While(HirWhileStmt {
                     span: node.span(),
                     condition,
@@ -589,56 +595,60 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 });
                 Ok(hir)
             }
-            AstStatement::Const(c) => {
-                let name = self.arena.names().get(c.name.name);
+            AstStatement::Const(ast_const) => {
+                let name = self.arena.names().get(ast_const.name.name);
                 if !name.is_snake_case() {
-                    eprintln!("Warning: {} is not snake case", name);
-                    eprintln!(
-                        "Try using snake_case for variable names e.g. {}",
-                        name.to_snake_case()
+                    Self::name_should_be_in_different_case_warning(
+                        &ast_const.span,
+                        "snake_case",
+                        "constant",
+                        name,
+                        &name.to_snake_case(),
                     );
                 }
-                let ty = self.visit_ty(c.ty)?;
+                let ty = self.visit_ty(ast_const.ty)?;
 
-                let value = self.visit_expr(c.value)?;
+                let value = self.visit_expr(ast_const.value)?;
                 let hir = HirStatement::Const(HirLetStmt {
                     span: node.span(),
                     name,
-                    name_span: c.name.span.clone(),
+                    name_span: ast_const.name.span.clone(),
                     ty: Some(ty),
-                    ty_span: Some(c.ty.span()),
+                    ty_span: Some(ast_const.ty.span()),
                     value,
                 });
                 Ok(hir)
             }
-            AstStatement::Let(l) => {
-                let name = self.arena.names().get(l.name.name);
+            AstStatement::Let(ast_let) => {
+                let name = self.arena.names().get(ast_let.name.name);
                 if !name.is_snake_case() {
-                    eprintln!("Warning: {} is not snake case", name);
-                    eprintln!(
-                        "Try using snake_case for variable names e.g. {}",
-                        name.to_snake_case()
+                    Self::name_should_be_in_different_case_warning(
+                        &ast_let.span,
+                        "snake_case",
+                        "variable",
+                        name,
+                        &name.to_snake_case(),
                     );
                 }
-                let ty = l.ty.map(|ty| self.visit_ty(ty)).transpose()?;
+                let ty = ast_let.ty.map(|ty| self.visit_ty(ty)).transpose()?;
 
-                let value = self.visit_expr(l.value)?;
+                let value = self.visit_expr(ast_let.value)?;
                 let hir = HirStatement::Let(HirLetStmt {
                     span: node.span(),
                     name,
-                    name_span: l.name.span.clone(),
+                    name_span: ast_let.name.span.clone(),
                     ty,
-                    ty_span: ty.map(|_| l.ty.unwrap().span()),
+                    ty_span: ty.map(|_| ast_let.ty.unwrap().span()),
                     value,
                 });
                 Ok(hir)
             }
-            AstStatement::IfElse(i) => {
-                let condition = self.visit_expr(i.condition)?;
-                let then_branch = self.visit_block(i.body)?;
+            AstStatement::IfElse(ast_if_else) => {
+                let condition = self.visit_expr(ast_if_else.condition)?;
+                let then_branch = self.visit_block(ast_if_else.body)?;
                 //If you don't type, the compiler will use it as an "Option<&mut HirBlock<'hir>>"
                 //Which is dumb asf
-                let else_branch: Option<HirBlock<'hir>> = match i.else_body {
+                let else_branch: Option<HirBlock<'hir>> = match ast_if_else.else_body {
                     Some(else_body) => Some(self.visit_block(else_body)?),
                     None => None,
                 };
@@ -651,8 +661,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 Ok(hir)
             }
             //The parser really need a bit of work
-            AstStatement::Return(r) => {
-                let expr = self.visit_expr(r.value)?;
+            AstStatement::Return(ast_return) => {
+                let expr = self.visit_expr(ast_return.value)?;
                 let hir = HirStatement::Return(HirReturn {
                     span: node.span(),
                     ty: expr.ty(),
@@ -660,8 +670,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 });
                 Ok(hir)
             }
-            AstStatement::Expr(e) => {
-                let expr = self.visit_expr(e)?;
+            AstStatement::Expr(ast_expr) => {
+                let expr = self.visit_expr(ast_expr)?;
                 let hir = HirStatement::Expr(HirExprStmt {
                     span: node.span(),
                     expr,
@@ -857,7 +867,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         ty: self.arena.types().get_uninitialized_ty(),
                     }),
                     AstLiteral::None(_) => {
-                        self.add_warning(&node.span());
+                        Self::nullable_types_are_unstable_warning(&node.span());
                         HirExpr::NoneLiteral(HirNoneLiteral {
                             span: l.span(),
                             ty: self.arena.types().get_none_ty(),
@@ -1039,7 +1049,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             AstType::Unit(_) => self.arena.types().get_unit_ty(),
             AstType::String(_) => self.arena.types().get_str_ty(),
             AstType::Null(_) => {
-                self.add_warning(&node.span());
+                Self::nullable_types_are_unstable_warning(&node.span());
                 self.arena.types().get_none_ty()
             }
             AstType::Named(n) => {
@@ -1051,7 +1061,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 self.arena.types().get_list_ty(ty)
             }
             AstType::Nullable(n) => {
-                self.add_warning(&node.span());
+                Self::nullable_types_are_unstable_warning(&node.span());
                 let ty = self.visit_ty(n.inner)?;
                 self.arena.types().get_nullable_ty(ty)
             }
@@ -1115,14 +1125,31 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         Ok(ty)
     }
 
-    fn add_warning(&mut self, span: &Span) {
+    fn nullable_types_are_unstable_warning(span: &Span) {
         let path = span.path;
         let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
-        self.warnings.push(HirWarning::NullableTypesAreUnstable(
+        let report: ErrReport = HirWarning::NullableTypesAreUnstable(
             NullableTypesAreUnstableWarning {
                 src: NamedSource::new(path, src),
                 span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
             },
-        ));
+        ).into();
+        eprintln!("{:?}", report);
+    }
+
+    fn name_should_be_in_different_case_warning(span: &Span, case_kind: &str, item_kind: &str, name: &str, expected_name: &str) {
+        let path = span.path;
+        let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+        let report: ErrReport = HirWarning::NameShouldBeInDifferentCase(
+            NameShouldBeInDifferentCaseWarning {
+                src: NamedSource::new(path, src),
+                span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
+                case_kind: case_kind.to_string(),
+                item_kind: item_kind.to_string(),
+                name: name.to_string(),
+                expected_name: expected_name.to_string(),
+            },
+        ).into();
+        eprintln!("{:?}", report);
     }
 }

@@ -30,11 +30,22 @@ declare_error_type! {
         UselessError(UselessError),
         InvalidReadOnlyType(InvalidReadOnlyTypeError),
         CannotDeletePrimitiveType(CannotDeletePrimitiveTypeError),
+        StructNameCannotBeOneLetter(StructNameCannotBeOneLetterError),
     }
 }
 
 /// Handy type alias for all HIR-related errors.
 pub type HirResult<T> = Result<T, HirError>;
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::struct_name_cannot_be_one_letter))]
+#[error("Struct names cannot be a single letter.")]
+pub struct StructNameCannotBeOneLetterError {
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label = "Struct names cannot be a single letter. One letter name is reserved for generic type parameters."]
+    pub span: SourceSpan,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::cannot_delete_primitive_type))]
