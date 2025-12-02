@@ -4,7 +4,7 @@ use crate::atlas_lib::STD_LIB_DIR;
 pub struct Span {
     pub start: usize,
     pub end: usize,
-    pub path: String,
+    pub path: &'static str,
 }
 
 impl Default for Span {
@@ -35,16 +35,11 @@ pub fn get_file_content(path: &str) -> Result<String, std::io::Error> {
         match STD_LIB_DIR.get_file(file_name) {
             Some(file) => {
                 match file.contents_utf8() {
-                    Some(content) => {
-                        return Ok(content.to_string())
-                    }
+                    Some(content) => return Ok(content.to_string()),
                     None => {
                         return Err(std::io::Error::new(
                             std::io::ErrorKind::InvalidData,
-                            format!(
-                                "Standard library file '{}' is not valid UTF-8",
-                                file_name
-                            ),
+                            format!("Standard library file '{}' is not valid UTF-8", file_name),
                         ));
                     }
                 };
@@ -58,4 +53,11 @@ pub fn get_file_content(path: &str) -> Result<String, std::io::Error> {
         }
     }
     std::fs::read_to_string(path)
+}
+
+/// Yeah, we shouldn't be doing this but oh well
+/// But I guess it's okay since I only leak strings for file paths which are few and far between
+/// Later, I'll try to implement that with some kind of map, so we only have one static str per file path
+pub fn string_to_static_str(s: String) -> &'static str {
+    Box::leak(s.into_boxed_str())
 }

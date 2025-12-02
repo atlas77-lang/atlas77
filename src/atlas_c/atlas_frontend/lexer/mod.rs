@@ -1,18 +1,17 @@
 use crate::atlas_c::atlas_frontend::lexer::token::{LexingError, Token, TokenKind};
 use logos::Logos;
-use std::path::PathBuf;
 
 use crate::atlas_c::utils::Span;
 pub mod token;
 
 #[derive(Debug)]
 pub struct AtlasLexer {
-    path: PathBuf,
+    path: &'static str,
     pub source: String,
 }
 
 impl AtlasLexer {
-    pub fn new(path: PathBuf, source: String) -> Self {
+    pub fn new(path: &'static str, source: String) -> Self {
         AtlasLexer { path, source }
     }
     pub fn tokenize(&mut self) -> Result<Vec<Token>, (LexingError, Span)> {
@@ -24,7 +23,7 @@ impl AtlasLexer {
                     Span {
                         start: span.start,
                         end: span.end,
-                        path: self.path.clone().to_str().unwrap().to_string(),
+                        path: self.path,
                     },
                     kind,
                 )),
@@ -33,7 +32,7 @@ impl AtlasLexer {
                     Span {
                         start: span.start,
                         end: span.end,
-                        path: self.path.clone().to_str().unwrap().to_string(),
+                        path: self.path,
                     },
                 )),
             })
@@ -100,7 +99,7 @@ impl Spanned for Span {
         Span {
             start: self.start.min(other.start),
             end: self.end.max(other.end),
-            path: self.path.clone(),
+            path: self.path,
         }
     }
 }

@@ -180,7 +180,7 @@ impl<'ast> Parser<'ast> {
         }
     }
 
-    fn parse_constructor(&mut self, class_name: String) -> ParseResult<AstConstructor<'ast>> {
+    fn parse_constructor(&mut self, class_name: String, vis: AstVisibility) -> ParseResult<AstConstructor<'ast>> {
         self.expect(TokenKind::Identifier(class_name))?;
         self.expect(TokenKind::LParen)?;
         let mut params = vec![];
@@ -196,10 +196,11 @@ impl<'ast> Parser<'ast> {
             span: Span::union_span(&params.first().unwrap().span, &body.span),
             args: self.arena.alloc_vec(params),
             body: self.arena.alloc(body),
+            vis,
         };
         Ok(node)
     }
-    fn parse_destructor(&mut self, class_name: String) -> ParseResult<AstDestructor<'ast>> {
+    fn parse_destructor(&mut self, class_name: String, vis: AstVisibility) -> ParseResult<AstDestructor<'ast>> {
         self.expect(TokenKind::Tilde)?;
         self.expect(TokenKind::Identifier(class_name))?;
         self.expect(TokenKind::LParen)?;
@@ -216,6 +217,7 @@ impl<'ast> Parser<'ast> {
             span: Span::union_span(&body.span, &body.span),
             args: self.arena.alloc_vec(params),
             body: self.arena.alloc(body),
+            vis,
         };
         Ok(node)
     }
@@ -262,16 +264,17 @@ impl<'ast> Parser<'ast> {
                     methods.push(method);
                 }
                 TokenKind::Identifier(s) => {
+                    curr_vis = self.parse_current_vis(curr_vis)?;
                     if s == struct_identifier.name {
                         if constructor.is_none() {
                             constructor =
                                 Some(self.arena.alloc(
-                                    self.parse_constructor(struct_identifier.name.to_owned())?,
+                                    self.parse_constructor(struct_identifier.name.to_owned(), curr_vis)?,
                                 ));
                         } else {
                             //We still parse it so we can give a better error message and recover later
                             let bad_constructor =
-                                self.parse_constructor(struct_identifier.name.to_owned())?;
+                                self.parse_constructor(struct_identifier.name.to_owned(), curr_vis)?;
                             return Err(SyntaxError::OnlyOneConstructorAllowed(
                                 OnlyOneConstructorAllowedError {
                                     span: SourceSpan::new(
@@ -290,15 +293,16 @@ impl<'ast> Parser<'ast> {
                     }
                 }
                 TokenKind::Tilde => {
+                    curr_vis = self.parse_current_vis(curr_vis)?;
                     if destructor.is_none() {
                         destructor = Some(
                             self.arena
-                                .alloc(self.parse_destructor(struct_identifier.name.to_owned())?),
+                                .alloc(self.parse_destructor(struct_identifier.name.to_owned(), curr_vis)?),
                         );
                     } else {
                         //We still parse it so we can give a better error message and recover later
                         let bad_destructor =
-                            self.parse_destructor(struct_identifier.name.to_owned())?;
+                            self.parse_destructor(struct_identifier.name.to_owned(), curr_vis)?;
                         return Err(SyntaxError::OnlyOneConstructorAllowed(
                             OnlyOneConstructorAllowedError {
                                 span: SourceSpan::new(
@@ -1445,7 +1449,7 @@ impl<'ast> Parser<'ast> {
             TokenKind::Ampersand => {
                 let _ = self.advance();
                 let ty = self.parse_type()?;
-                let node = AstType::Pointer(AstPointerType {
+                let node = AstType::Reference(AstPointerType {
                     span: Span::union_span(&start, &ty.span()),
                     inner: self.arena.alloc(ty),
                 });

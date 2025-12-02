@@ -21,6 +21,7 @@ const READONLY_TY_ID: u8 = 0x41;
 const UNINITIALIZED_TY_ID: u8 = 0x50;
 const NAMED_TY_ID: u8 = 0x60;
 const GENERIC_TY_ID: u8 = 0x70;
+const REFERENCE_TY_ID: u8 = 0x80;
 
 impl HirTyId {
     pub fn compute_null_ty_id() -> Self {
@@ -113,6 +114,12 @@ impl HirTyId {
         (GENERIC_TY_ID, name, params).hash(&mut hasher);
         Self(hasher.finish())
     }
+
+    pub fn compute_ref_ty_id(inner: &HirTyId) -> Self {
+        let mut hasher = DefaultHasher::new();
+        (REFERENCE_TY_ID, inner).hash(&mut hasher);
+        Self(hasher.finish())
+    }
 }
 
 impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
@@ -135,6 +142,7 @@ impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
                 let params = g.inner.iter().map(HirTyId::from).collect::<Vec<_>>();
                 HirTyId::compute_generic_ty_id(g.name, &params)
             }
+            HirTy::Reference(ty) => HirTyId::from(ty.inner),
             HirTy::_Function(f) => {
                 let parameters = f.params.iter().map(HirTyId::from).collect::<Vec<_>>();
                 let ret_ty = HirTyId::from(f.ret_ty);
@@ -160,6 +168,7 @@ pub enum HirTy<'hir> {
     Nullable(HirNullableTy<'hir>),
     Const(HirConstTy<'hir>),
     Generic(HirGenericTy<'hir>),
+    Reference(HirReferenceTy<'hir>),
     _Function(HirFunctionTy<'hir>),
 }
 
@@ -198,6 +207,7 @@ impl fmt::Display for HirTy<'_> {
                     write!(f, "{}<{}>", ty.name, params)
                 }
             }
+            HirTy::Reference(ty) => write!(f, "&{}", ty.inner),
             HirTy::_Function(func) => {
                 let params = func
                     .params
@@ -209,6 +219,11 @@ impl fmt::Display for HirTy<'_> {
             }
         }
     }
+}
+
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
+pub struct HirReferenceTy<'hir> {
+    pub inner: &'hir HirTy<'hir>,
 }
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]

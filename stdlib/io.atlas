@@ -1,4 +1,0 @@
-public extern println<T>(s: const T);
-public extern print<T>(s: const T);
-public extern input() -> string;
-public extern panic<T>(s: const T);

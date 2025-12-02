@@ -1,8 +1,5 @@
 use super::{signature::HirFunctionSignature, stmt::HirBlock};
-use crate::atlas_c::atlas_hir::signature::{
-    HirFunctionParameterSignature, HirStructFieldSignature, HirStructMethodSignature,
-    HirStructSignature, HirTypeParameterItemSignature,
-};
+use crate::atlas_c::atlas_hir::signature::{HirFunctionParameterSignature, HirStructFieldSignature, HirStructMethodSignature, HirStructSignature, HirTypeParameterItemSignature, HirVisibility};
 use crate::atlas_c::utils::Span;
 
 #[derive(Debug, Clone)]
@@ -35,6 +32,7 @@ pub struct HirStruct<'hir> {
     pub fields: Vec<HirStructFieldSignature<'hir>>,
     pub constructor: HirStructConstructor<'hir>,
     pub destructor: HirStructConstructor<'hir>,
+    pub vis: HirVisibility,
 }
 
 #[derive(Debug, Clone)]
@@ -53,6 +51,7 @@ pub struct HirStructConstructor<'hir> {
     pub params: Vec<HirFunctionParameterSignature<'hir>>,
     pub type_params: Vec<HirTypeParameterItemSignature<'hir>>,
     pub body: HirBlock<'hir>,
+    pub vis: HirVisibility,
 }
 
 #[derive(Debug, Clone)]

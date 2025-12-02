@@ -1,15 +1,10 @@
-pub mod atlas_asm;
 pub mod atlas_c;
 pub mod atlas_lib;
 mod atlas_vm;
 
-use atlas_c::{
-    atlas_codegen::{arena::CodeGenArena, CodeGenUnit},
-    atlas_frontend::{parse, parser::arena::AstArena},
-    atlas_hir::{
-        arena::HirArena, syntax_lowering_pass::AstSyntaxLoweringPass, type_check_pass::TypeChecker,
-    },
-};
+use atlas_c::{atlas_asm, atlas_codegen::{arena::CodeGenArena, CodeGenUnit}, atlas_frontend::{parse, parser::arena::AstArena}, atlas_hir::{
+    arena::HirArena, syntax_lowering_pass::AstSyntaxLoweringPass, type_check_pass::TypeChecker,
+}};
 use bumpalo::Bump;
 
 use crate::atlas_c::atlas_hir::monomorphization_pass::MonomorphizationPass;
@@ -40,19 +35,15 @@ pub fn build(path: String, _flag: CompilationFlag) -> miette::Result<()> {
     let source = std::fs::read_to_string(&path).unwrap_or_else(|_| {
         eprintln!("Failed to read source file at path: {}", path);
         std::process::exit(1);
-    });    //parse
+    }); //parse
     let bump = Bump::new();
     let ast_arena = AstArena::new(&bump);
-    let file_path = path_buf.to_str().unwrap();
+    let file_path = atlas_c::utils::string_to_static_str(path_buf.to_str().unwrap().to_owned());
     let program = parse(file_path.into(), &ast_arena, source.clone())?;
 
     //hir
     let hir_arena = HirArena::new();
-    let mut lower = AstSyntaxLoweringPass::new(
-        &hir_arena,
-        &program,
-        &ast_arena,
-    );
+    let mut lower = AstSyntaxLoweringPass::new(&hir_arena, &program, &ast_arena);
     let hir = lower.lower()?;
 
     //monomorphize
@@ -60,12 +51,11 @@ pub fn build(path: String, _flag: CompilationFlag) -> miette::Result<()> {
         &hir_arena,
         lower.generic_pool,
         source.clone(),
-        file_path.into(),
     );
     monomorphizer.monomorphize(hir)?;
 
     //type-check
-    let mut type_checker = TypeChecker::new(&hir_arena, source.clone(), file_path.into());
+    let mut type_checker = TypeChecker::new(&hir_arena);
     type_checker.check(hir)?;
 
     //codegen
@@ -88,16 +78,12 @@ pub fn run(path: String, _flag: CompilationFlag) -> miette::Result<()> {
     //parse
     let bump = Bump::new();
     let ast_arena = AstArena::new(&bump);
-    let file_path = path_buf.to_str().unwrap();
+    let file_path = atlas_c::utils::string_to_static_str(path_buf.to_str().unwrap().to_owned());
     let program = parse(file_path.into(), &ast_arena, source.clone())?;
 
     //hir
     let hir_arena = HirArena::new();
-    let mut lower = AstSyntaxLoweringPass::new(
-        &hir_arena,
-        &program,
-        &ast_arena,
-    );
+    let mut lower = AstSyntaxLoweringPass::new(&hir_arena, &program, &ast_arena);
     let hir = lower.lower()?;
 
     //monomorphize
@@ -105,12 +91,11 @@ pub fn run(path: String, _flag: CompilationFlag) -> miette::Result<()> {
         &hir_arena,
         lower.generic_pool,
         source.clone(),
-        file_path.into(),
     );
     monomorphizer.monomorphize(hir)?;
 
     //type-check
-    let mut type_checker = TypeChecker::new(&hir_arena, source.clone(), file_path.into());
+    let mut type_checker = TypeChecker::new(&hir_arena);
     type_checker.check(hir)?;
 
     //codegen
@@ -170,5 +155,3 @@ pub fn init(name: String) {
         file.write_all(DEFAULT_INIT_CODE.as_bytes()).unwrap();
     }
 }
-
-

@@ -1,22 +1,21 @@
-//package main;
-
 import "std/io"
 
-fun main() {
-    let boxed_int: Box<int64> = new Box<int64>(42);
-    println("Hello, World!");
+struct Test {
+    public:
+        const_ref: const &string;
+
+        Test(ref: const &string) {
+            this.const_ref = ref;
+        }
+        fun get_ref(this) -> string {
+            return this.const_ref;
+        }
 }
 
-struct Box<T> {
-    private:
-        val: T;
-    Box(value: T) {
-        this.val = value;
-    }
-    fun get(this) -> T {
-        return this.val;
-    }
-    fun set(this, value: T) {
-        this.val = value;
-    }
+fun main() {
+    let hehe: string? = "yo";
+    let s: const &string = "Hello, Atlas!";
+    let test = new Test(s);
+    let s2 = test.get_ref();
+    println(s2);
 }

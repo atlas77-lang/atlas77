@@ -1,0 +1,243 @@
+// For now this will just serve as the base for the "cube" example in BlueEngine/examples/shapes/cube.rs
+// Later on, this will become the BlueEngine library
+// NB: uint32/float32/int32 are not supported in atlas77 yet.
+package blue_engine;
+
+import std::result;
+import std::option;
+import std::io;
+import std::time;
+import std::math;
+
+private extern new_engine() -> Engine;
+private extern get_renderer_from_engine(engine: &Engine) -> &Renderer;
+private extern get_object_storage_from_engine(engine: &Engine) -> &ObjectStorage;
+private extern get_camera_from_engine(engine: &Engine) -> &Camera;
+public struct Engine {
+    private:
+        engine_data: extern_ptr;
+        Engine() {}
+        ~Engine() {}
+    public:
+        /// Initializes and returns a new Engine instance
+        /// Example: let engine = Engine::init();
+        fun init() -> Engine {
+            let engine = new_engine();
+            return engine;
+        }
+        /// Get a mutable reference to the renderer associated with this engine
+        fun renderer(this) -> &Renderer {
+            return get_renderer_from_engine(&this);
+        }
+        /// Get a mutable reference to the object storage associated with this engine
+        fun objects(this) -> &ObjectStorage {
+            return get_object_storage_from_engine(&this);
+        }
+        /// Get a mutable reference to the camera associated with this engine
+        fun camera(this) -> &Camera {
+            return get_camera_from_engine(&this);
+        }
+}
+
+private extern new_renderer(window_name: string, width: uint64, height: uint64) -> Renderer;
+public struct Renderer {
+    private:
+        renderer_data: extern_ptr;
+        Renderer() {}
+        ~Renderer() {}
+    public:
+        fun init(window_name: string, width: uint64, height: uint64) -> Renderer {
+            let renderer = new_renderer(window_name, width, height);
+            return renderer;
+        }
+}
+
+private extern new_object_storage() -> ObjectStorage;
+private extern object_storage_insert(
+    storage: extern_ptr, 
+    name: string, 
+    obj: Object
+) -> Result<unit, BlueEngineError>;
+private extern get_mut_object_from_storage(storage: extern_ptr, name: string) -> Option<&Object>;
+private extern get_object_from_storage(storage: extern_ptr, name: string) -> Option<const &Object>;
+public struct ObjectStorage {
+    private:
+        object_storage_data: extern_ptr;
+        ObjectStorage() {}
+        ~ObjectStorage() {}
+    public:
+        fun init() -> ObjectStorage {
+            let storage = new_object_storage();
+            return storage;
+        }
+        fun insert(this, name: string, obj: Object) -> Result<unit, BlueEngineError> {
+            return object_storage_insert(this.object_storage_data, name, obj);
+        }
+        fun get(this, name: string) -> Option<const &Object> {
+            return get_object_from_storage(this.object_storage_data, name);
+        }
+        fun get_mut(this, name: string) -> Option<&Object> {
+            return get_mut_object_from_storage(this.object_storage_data, name);
+        }
+}
+
+private extern new_object_settings(camera_effect: string) -> ObjectSettings;
+public struct ObjectSettings {
+    private:
+        object_settings_data: extern_ptr;
+        ObjectSettings() {}
+        ~ObjectSettings() {}
+    public:
+        fun init(camera_effect: string) -> ObjectSettings {
+            let settings = new_object_settings(camera_effect);
+            return settings;
+        }
+}
+
+private extern new_vertex(position: [float64], uv: [float64], normal: [float64]) -> Vertex;
+public struct Vertex {
+    private:
+        vertex_data: extern_ptr;
+        Vertex() {}
+        ~Vertex() {}
+    public:
+        fun init(position: [float64], uv: [float64], normal: [float64]) -> Vertex {
+            let vertex = new_vertex(position, uv, normal);
+            return vertex;
+        }
+}
+
+private extern new_object(
+    name: string, 
+    vertices: [Vertex], 
+    indices: [uint64], 
+    settings: ObjectSettings, 
+    renderer: &Renderer
+) -> Object;
+private extern set_object_color(
+    obj: extern_ptr, 
+    r: float64, 
+    g: float64, 
+    b: float64, 
+    a: float64
+);
+public struct Object {
+    private:
+        object_data: extern_ptr;
+        ~Object() {}
+        Object() {}
+    public:
+        fun init(
+            name: string, 
+            vertices: [Vertex], 
+            indices: [uint64], 
+            settings: ObjectSettings, 
+            renderer: &Renderer
+        ) -> Object {
+            let object = new_object(name, vertices, indices, settings, renderer);
+            return object;
+        }
+        fun set_color(this, r: float64, g: float64, b: float64, a: float64) {
+            set_object_color(this.object_data, r, g, b, a);
+        }
+}
+
+private extern set_camera_position(
+    camera: extern_ptr, 
+    x: float64, 
+    y: float64, 
+    z: float64
+);
+public struct Camera {
+    private:
+        camera_data: extern_ptr;
+        Camera() {}
+        ~Camera() {}
+    public:
+        fun set_camera_position(this, x: float64, y: float64, z: float64) {
+            set_camera_position(this.camera_data, x, y, z);
+        }
+}
+
+
+public fun cube(name: string, settings: ObjectSettings, renderer: &Renderer, objects: &ObjectStorage) -> Result<unit, BlueEngineError> {
+    objects.insert(
+        name,
+        Object::init(
+            name,
+            new [
+                // Front Face
+                Vertex::init([-1.0, -1.0, 1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
+                Vertex::init([1.0, -1.0, 1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
+                Vertex::init([1.0, 1.0, 1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
+                Vertex::init([-1.0, 1.0, 1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
+                // Back Face
+                Vertex::init([-1.0, 1.0, -1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
+                Vertex::init([1.0, 1.0, -1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
+                Vertex::init([1.0, -1.0, -1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
+                Vertex::init([-1.0, -1.0, -1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
+                // Right face
+                Vertex::init([1.0, -1.0, -1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
+                Vertex::init([1.0, 1.0, -1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
+                Vertex::init([1.0, 1.0, 1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
+                Vertex::init([1.0, -1.0, 1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
+                // Left face
+                Vertex::init([-1.0, -1.0, 1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
+                Vertex::init([-1.0, 1.0, 1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
+                Vertex::init([-1.0, 1.0, -1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
+                Vertex::init([-1.0, -1.0, -1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
+                // Top face
+                Vertex::init([1.0, 1.0, -1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
+                Vertex::init([-1.0, 1.0, -1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
+                Vertex::init([-1.0, 1.0, 1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
+                Vertex::init([1.0, 1.0, 1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
+                // Bottom face
+                Vertex::init([1.0, -1.0, 1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
+                Vertex::init([-1.0, -1.0, 1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
+                Vertex::init([-1.0, -1.0, -1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
+                Vertex::init([1.0, -1.0, -1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
+            ],
+            new [
+                0, 1, 2, 2, 3, 0, // top
+                4, 5, 6, 6, 7, 4, // bottom
+                8, 9, 10, 10, 11, 8, // right
+                12, 13, 14, 14, 15, 12, // left
+                16, 17, 18, 18, 19, 16, // front
+                20, 21, 22, 22, 23, 20, // back
+            ],
+            settings,
+            renderer
+        )
+    ).unwrap();
+}
+/// Calls the specified update function every frame.
+private extern call_update_function(engine: &Engine, update_function_name: string, start: Time);
+fun my_update(delta: Time, engine: &Engine) {
+    const radius: float64 = 5.0;
+    let camx = sin(delta.elapsed(start_time).sec as float64 * 0.5) * radius;
+    let camy = sin(delta.elapsed(start_time).sec as float64 * 0.5) * radius;
+    let camz = cos(delta.elapsed(start_time).sec as float64 * 0.5) * radius;
+    engine.camera().set_camera_position(camx, camy, camz);
+    return;
+}
+
+fun main() {
+    let engine = Engine::init();
+    if cube(
+        "cube1", 
+        ObjectSettings::init("default"), 
+        engine.renderer(), 
+        engine.objects()
+    ).is_err() {
+        panic("Failed to create cube object");
+    }
+
+    engine
+        .objects()
+        .get_mut("cube1")
+        .unap()
+        .set_color(0.0, 0.0, 1.0, 1.0);
+    
+    let start_time = Time::now();
+    call_update_function(&engine, "my_update", start_time);
+}

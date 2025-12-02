@@ -1,6 +1,4 @@
-//The first view versions of the type checking will be quite simple.
-//As there will only be primitive types to check.
-//A rework of the type checker will be done when structs, classes, enums and unions are added.
+mod context;
 
 use super::{
     arena::HirArena, error::{FunctionTypeMismatchError, HirError, HirResult, TypeMismatchError, UnknownTypeError}, expr,
@@ -11,11 +9,7 @@ use super::{
     HirModule,
     HirModuleSignature,
 };
-use crate::atlas_c::atlas_hir::error::{
-    AccessingClassFieldOutsideClassError, AccessingPrivateFieldError, CanOnlyConstructStructsError,
-    ConstTyToNonConstTyError, EmptyListLiteralError, FieldKind, TryingToIndexNonIndexableTypeError,
-    UnsupportedExpr,
-};
+use crate::atlas_c::atlas_hir::error::{AccessingClassFieldOutsideClassError, AccessingPrivateConstructorError, AccessingPrivateFieldError, CanOnlyConstructStructsError, CannotDeletePrimitiveTypeError, ConstTyToNonConstTyError, EmptyListLiteralError, FieldKind, TryingToIndexNonIndexableTypeError, UnsupportedExpr};
 use crate::atlas_c::atlas_hir::expr::{HirFunctionCallExpr, HirIdentExpr};
 use crate::atlas_c::atlas_hir::item::{HirStruct, HirStructMethod};
 use crate::atlas_c::atlas_hir::monomorphization_pass::MonomorphizationPass;
@@ -23,8 +17,10 @@ use crate::atlas_c::atlas_hir::signature::{
     HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier, HirVisibility,
 };
 use crate::atlas_c::atlas_hir::ty::HirNamedTy;
+use crate::atlas_c::atlas_hir::type_check_pass::context::{ContextFunction, ContextVariable};
+use crate::atlas_c::atlas_hir::warning::{DeletingReferenceIsUnstableWarning, HirWarning};
 use crate::atlas_c::utils::Span;
-use miette::{NamedSource, SourceOffset, SourceSpan};
+use miette::{ErrReport, NamedSource, SourceOffset, SourceSpan};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -38,104 +34,21 @@ pub struct TypeChecker<'hir> {
     signature: HirModuleSignature<'hir>,
     current_func_name: Option<&'hir str>,
     current_class_name: Option<&'hir str>,
-    file_path: String,
-    // Source code
-    src: String,
+    #[deprecated]
+    /// Will be moved to the MonomorphizationPass in the future
     extern_monomorphized:
         HashMap<(&'hir str, Vec<&'hir HirTy<'hir>>), &'hir HirFunctionSignature<'hir>>,
 }
 
-pub struct ContextFunction<'hir> {
-    pub scopes: Vec<ContextScope<'hir>>,
-}
-
-impl Default for ContextFunction<'_> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<'hir> ContextFunction<'hir> {
-    pub fn new() -> Self {
-        Self {
-            scopes: vec![ContextScope::new(None)],
-        }
-    }
-    pub fn new_scope(&mut self) -> usize {
-        let parent = self.scopes.len() - 1;
-        self.scopes.push(ContextScope::new(Some(parent)));
-        parent
-    }
-    pub fn end_scope(&mut self) -> usize {
-        self.scopes.pop();
-        self.scopes.len() - 1
-    }
-
-    pub fn get(&self, name: &str) -> Option<&ContextVariable<'hir>> {
-        let scope = self.scopes.last().unwrap();
-        match scope.get(name) {
-            Some(s) => Some(s),
-            None => {
-                let mut parent = scope.parent;
-                while parent.is_some() {
-                    let parent_scope = &self.scopes[parent.unwrap()];
-                    match parent_scope.get(name) {
-                        Some(s) => return Some(s),
-                        None => parent = parent_scope.parent,
-                    }
-                }
-                None
-            }
-        }
-    }
-
-    pub fn insert(&mut self, name: &'hir str, var: ContextVariable<'hir>) {
-        self.scopes.last_mut().unwrap().insert(name, var);
-    }
-}
-
-#[derive(Debug)]
-pub struct ContextScope<'hir> {
-    ///I should stop using HashMap everywhere. A ContextVariable should be `(depth, &'hir str)`
-    /// depth as in the scope depth
-    pub variables: HashMap<&'hir str, ContextVariable<'hir>>,
-    pub parent: Option<usize>,
-}
-
-impl<'hir> ContextScope<'hir> {
-    pub fn new(parent: Option<usize>) -> Self {
-        Self {
-            variables: HashMap::new(),
-            parent,
-        }
-    }
-    pub fn get(&self, name: &str) -> Option<&ContextVariable<'hir>> {
-        self.variables.get(name)
-    }
-    pub fn insert(&mut self, name: &'hir str, var: ContextVariable<'hir>) {
-        self.variables.insert(name, var);
-    }
-}
-
-#[derive(Debug)]
-pub struct ContextVariable<'hir> {
-    pub _name: &'hir str,
-    pub name_span: Span,
-    pub ty: &'hir HirTy<'hir>,
-    pub ty_span: Span,
-    pub is_mut: bool,
-}
 
 impl<'hir> TypeChecker<'hir> {
-    pub fn new(arena: &'hir HirArena<'hir>, src: String, file_path: String) -> Self {
+    pub fn new(arena: &'hir HirArena<'hir>) -> Self {
         Self {
             arena,
             context_functions: vec![],
-            src,
             signature: HirModuleSignature::default(),
             current_func_name: None,
             current_class_name: None,
-            file_path,
             extern_monomorphized: HashMap::new(),
         }
     }
@@ -333,7 +246,6 @@ impl<'hir> TypeChecker<'hir> {
                 let expr_ty = self.check_expr(&mut c.value)?;
                 let const_ty = c.ty.unwrap_or(expr_ty);
                 c.ty = Some(const_ty);
-                let ty = HirTyId::from(const_ty);
                 self.context_functions
                     .last_mut()
                     .unwrap()
@@ -398,7 +310,43 @@ impl<'hir> TypeChecker<'hir> {
             HirExpr::CharLiteral(_) => Ok(self.arena.types().get_char_ty()),
             HirExpr::StringLiteral(_) => Ok(self.arena.types().get_str_ty()),
             HirExpr::NoneLiteral(_) => Ok(self.arena.types().get_none_ty()),
-            HirExpr::Delete(_) => Ok(self.arena.types().get_unit_ty()),
+            HirExpr::Delete(del) => {
+                let ty = self.check_expr(&mut del.expr)?;
+                if Self::is_primitive_type(ty) {
+                    let path = del.span.path;
+                    let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+                    return Err(HirError::CannotDeletePrimitiveType(CannotDeletePrimitiveTypeError {
+                        span: SourceSpan::new(
+                            SourceOffset::from(del.expr.span().start),
+                            del.expr.span().end - del.expr.span().start,
+                        ),
+                        ty: format!("{}", ty),
+                        src: NamedSource::new(path, src),
+                    }));
+                } else {
+                    let mut name = "";
+                    if let HirTy::Named(n) = ty {
+                        name = n.name;
+                    } else if let HirTy::Generic(g) = ty {
+                        name = MonomorphizationPass::mangle_generic_struct_name(self.arena, g);
+                    } else if let HirTy::Reference(_) = ty {
+                        Self::deleting_ref_is_unstable_warning(&del.span);
+                    } else {
+                        return Ok(self.arena.types().get_unit_ty());
+                    }
+                    let class = match self.signature.structs.get(name) {
+                        Some(c) => *c,
+                        None => {
+                            return Ok(self.arena.types().get_unit_ty());
+                        }
+                    };
+                    if class.destructor.vis != HirVisibility::Public {
+                        Err(Self::accessing_private_constructor_err(&del.span, "destructor"))
+                    } else {
+                        Ok(self.arena.types().get_unit_ty())
+                    }
+                }
+            }
             HirExpr::ThisLiteral(s) => {
                 let class_name = match self.current_class_name {
                     Some(class_name) => class_name,
@@ -467,7 +415,7 @@ impl<'hir> TypeChecker<'hir> {
                 Ok(c.ty)
             }
             HirExpr::Indexing(indexing_expr) => {
-                let path = indexing_expr.span.path.clone();
+                let path = indexing_expr.span.path;
                 let target = self.check_expr(&mut indexing_expr.target)?;
                 let index = self.check_expr(&mut indexing_expr.index)?;
                 self.is_equivalent_ty(
@@ -521,7 +469,7 @@ impl<'hir> TypeChecker<'hir> {
                 }
             }
             HirExpr::ListLiteral(l) => {
-                let path = l.span.path.clone();
+                let path = l.span.path;
                 if l.items.is_empty() {
                     let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
                     return Err(HirError::EmptyListLiteral(EmptyListLiteralError {
@@ -591,7 +539,7 @@ impl<'hir> TypeChecker<'hir> {
                     };
                     *tmp
                 } else {
-                    let path = obj.span.path.clone();
+                    let path = obj.span.path;
                     let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
                     return Err(HirError::CanOnlyConstructStructs(
                         CanOnlyConstructStructsError {
@@ -603,6 +551,20 @@ impl<'hir> TypeChecker<'hir> {
                         },
                     ));
                 };
+                if struct_signature.constructor.vis != HirVisibility::Public
+                    && self.current_class_name != Some(struct_ty.name)
+                {
+                    let path = obj.span.path;
+                    let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+                    return Err(HirError::AccessingPrivateConstructor(AccessingPrivateConstructorError {
+                        span: SourceSpan::new(
+                            SourceOffset::from(obj.span.start),
+                            obj.span.end - obj.span.start,
+                        ),
+                        kind: String::from("constructor"),
+                        src: NamedSource::new(path, src),
+                    }));
+                }
                 for (param, arg) in struct_signature
                     .constructor
                     .params
@@ -626,7 +588,7 @@ impl<'hir> TypeChecker<'hir> {
                 Ok(obj.ty)
             }
             HirExpr::Call(func_expr) => {
-                let path = func_expr.span.path.clone();
+                let path = func_expr.span.path;
 
                 let callee = func_expr.callee.as_mut();
                 match callee {
@@ -680,7 +642,7 @@ impl<'hir> TypeChecker<'hir> {
                         } else if let HirTy::Generic(g) = target_ty {
                             name = MonomorphizationPass::mangle_generic_struct_name(self.arena, g);
                         } else {
-                            let path = field_access.span.path.clone();
+                            let path = field_access.span.path;
                             let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
                             return Err(HirError::CanOnlyConstructStructs(
                                 CanOnlyConstructStructsError {
@@ -879,7 +841,7 @@ impl<'hir> TypeChecker<'hir> {
                 } else if let HirTy::Generic(g) = target_ty {
                     name = MonomorphizationPass::mangle_generic_struct_name(self.arena, g);
                 } else {
-                    let path = field_access.span.path.clone();
+                    let path = field_access.span.path;
                     let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
                     return Err(HirError::CanOnlyConstructStructs(
                         CanOnlyConstructStructsError {
@@ -957,31 +919,19 @@ impl<'hir> TypeChecker<'hir> {
                     ))
                 }
             }
-            HirExpr::ConstructorExpr(constructor) => {
-                let struct_ty: &HirNamedTy;
-                let struct_signature = if let HirTy::Named(n) = constructor.ty {
-                    struct_ty = n;
-                    let tmp = match self.signature.structs.get(n.name) {
-                        Some(c) => c,
-                        None => {
-                            return Err(Self::unknown_type_err(n.name, &constructor.span));
-                        }
-                    };
-                    *tmp
-                } else {
-                    let path = constructor.span.path.clone();
-                    let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
-                    return Err(HirError::CanOnlyConstructStructs(
-                        CanOnlyConstructStructsError {
-                            span: SourceSpan::new(
-                                SourceOffset::from(constructor.span.start),
-                                constructor.span.end - constructor.span.start,
-                            ),
-                            src: NamedSource::new(path, src),
-                        },
-                    ));
-                };
-                Ok(constructor.ty)
+            _ => {
+                Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                    span: SourceSpan::new(
+                        SourceOffset::from(expr.span().start),
+                        expr.span().end - expr.span().start,
+                    ),
+                    expr: format!("{:?}", expr),
+                    src: NamedSource::new(
+                        expr.span().path,
+                        crate::atlas_c::utils::get_file_content(&expr.span().path)
+                            .unwrap_or_default(),
+                    ),
+                }))
             }
         }
     }
@@ -1111,17 +1061,13 @@ impl<'hir> TypeChecker<'hir> {
     ) -> HirResult<()> {
         match (ty1, ty2) {
             (HirTy::Nullable(n1), HirTy::Nullable(n2)) => {
-                eprintln!(
-                    "Warning: Nullable type is equivalent to non-nullable type but might lead to runtime errors"
-                );
-                eprintln!("ty1: {:?} ty2: {:?}", n1.inner, n2.inner);
                 self.is_equivalent_ty(n1.inner, ty1_span, n2.inner, ty2_span)
             }
             (HirTy::Const(c1), HirTy::Const(c2)) => {
                 self.is_equivalent_ty(c1.inner, ty1_span, c2.inner, ty2_span)
             }
             (HirTy::Const(_), _) => {
-                let path = ty1_span.path.clone();
+                let path = ty1_span.path;
                 let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
                 Err(HirError::ConstTyToNonConstTy(ConstTyToNonConstTyError {
                     const_val: SourceSpan::new(
@@ -1141,17 +1087,9 @@ impl<'hir> TypeChecker<'hir> {
             (_, HirTy::Const(r2)) => self.is_equivalent_ty(ty1, ty1_span, r2.inner, ty2_span),
             (HirTy::Nullable(_), HirTy::Null(_)) | (HirTy::Null(_), HirTy::Nullable(_)) => Ok(()),
             (HirTy::Nullable(n1), _) => {
-                eprintln!(
-                    "Warning: Nullable type is equivalent to non-nullable type but might lead to runtime errors"
-                );
-                eprintln!("ty1: {:?} ty2: {:?}", n1.inner, ty2);
                 self.is_equivalent_ty(n1.inner, ty1_span, ty2, ty2_span)
             }
             (_, HirTy::Nullable(n2)) => {
-                eprintln!(
-                    "Warning: Nullable type is equivalent to non-nullable type but might lead to runtime errors"
-                );
-                eprintln!("ty1: {:?} ty2: {:?}", ty1, n2.inner);
                 self.is_equivalent_ty(ty1, ty1_span, n2.inner, ty2_span)
             }
             (HirTy::Generic(g), HirTy::Named(n)) | (HirTy::Named(n), HirTy::Generic(g)) => {
@@ -1181,6 +1119,20 @@ impl<'hir> TypeChecker<'hir> {
         }
     }
 
+    fn is_primitive_type(ty: &HirTy) -> bool {
+        matches!(
+            ty,
+            HirTy::Int64(_)
+                | HirTy::UInt64(_)
+                | HirTy::Float64(_)
+                | HirTy::Char(_)
+                | HirTy::Boolean(_)
+                | HirTy::String(_)
+                | HirTy::Null(_)
+                | HirTy::Unit(_)
+        )
+    }
+
     #[inline(always)]
     fn type_mismatch_err(
         actual_type: &str,
@@ -1188,7 +1140,7 @@ impl<'hir> TypeChecker<'hir> {
         expected_type: &str,
         expected_loc: &Span,
     ) -> HirError {
-        let path = actual_loc.path.clone();
+        let path = actual_loc.path;
         let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
         HirError::TypeMismatch(TypeMismatchError {
             actual_type: actual_type.to_string(),
@@ -1207,12 +1159,39 @@ impl<'hir> TypeChecker<'hir> {
 
     #[inline(always)]
     fn unknown_type_err(name: &str, span: &Span) -> HirError {
-        let path = span.path.clone();
+        let path = span.path;
         let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
         HirError::UnknownType(UnknownTypeError {
             name: name.to_string(),
             span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
             src: NamedSource::new(path, src),
         })
+    }
+
+    fn accessing_private_constructor_err(span: &Span, kind: &str) -> HirError {
+        let path = span.path;
+        let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+        HirError::AccessingPrivateConstructor(AccessingPrivateConstructorError {
+            span: SourceSpan::new(
+                SourceOffset::from(span.start),
+                span.end - span.start,
+            ),
+            kind: kind.to_string(),
+            src: NamedSource::new(path, src),
+        })
+    }
+
+    #[inline(always)]
+    fn deleting_ref_is_unstable_warning(span: &Span) {
+        let path = span.path;
+        let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+        let warning: ErrReport = HirWarning::DeletingReferenceIsUnstable(DeletingReferenceIsUnstableWarning {
+            span: SourceSpan::new(
+                SourceOffset::from(span.start),
+                span.end - span.start,
+            ),
+            src: NamedSource::new(path, src),
+        }).into();
+        eprintln!("{:?}", warning);
     }
 }

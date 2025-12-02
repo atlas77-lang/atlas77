@@ -282,7 +282,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 bytecode.push(Instruction::Pop);
             }
             _ => {
-                let path = stmt.span().path.clone();
+                let path = stmt.span().path;
                 let src = std::fs::read_to_string(PathBuf::from(&path))
                     .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                 return Err(HirError::UnsupportedStatement(UnsupportedStatement {
@@ -322,7 +322,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         let struct_name = match field_access.target.ty() {
                             HirTy::Named(struct_name) => struct_name,
                             _ => {
-                                let path = expr.span().path.clone();
+                                let path = expr.span().path;
                                 let src = std::fs::read_to_string(PathBuf::from(&path))
                                     .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                                 return Err(HirError::UnsupportedExpr(UnsupportedExpr {
@@ -356,7 +356,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         bytecode.push(Instruction::SetField { field })
                     }
                     _ => {
-                        let path = expr.span().path.clone();
+                        let path = expr.span().path;
                         let src = std::fs::read_to_string(PathBuf::from(&path))
                             .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                         return Err(HirError::UnsupportedExpr(UnsupportedExpr {
@@ -408,7 +408,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                     bytecode.push(Instruction::PushInt(0));
                                 }
                                 _ => {
-                                    let path = u.span.path.clone();
+                                    let path = u.span.path;
                                     let src = std::fs::read_to_string(PathBuf::from(&path))
                                         .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                                     return Err(atlas_hir::error::HirError::UnsupportedExpr(
@@ -431,7 +431,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                 bytecode.push(Instruction::PushBool(false));
                                 bytecode.push(Instruction::Eq);
                             } else {
-                                let path = u.span.path.clone();
+                                let path = u.span.path;
                                 let src = std::fs::read_to_string(PathBuf::from(&path))
                                     .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                                 return Err(HirError::UnsupportedExpr(UnsupportedExpr {
@@ -469,19 +469,17 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         bytecode.push(Instruction::CastTo(Type::Char));
                     }
                     _ => {
-                        let path = c.span.path.clone();
+                        let path = c.span.path;
                         let src = std::fs::read_to_string(PathBuf::from(&path))
                             .unwrap_or_else(|_| panic!("{} is not a valid path", path));
-                        return Err(HirError::UnsupportedExpr(
-                            UnsupportedExpr {
-                                span: SourceSpan::new(
-                                    SourceOffset::from(expr.span().start),
-                                    expr.span().end - expr.span().start,
-                                ),
-                                expr: format!("Can't cast: {:?}", expr),
-                                src: NamedSource::new(path, src),
-                            },
-                        ));
+                        return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                            span: SourceSpan::new(
+                                SourceOffset::from(expr.span().start),
+                                expr.span().end - expr.span().start,
+                            ),
+                            expr: format!("Can't cast: {:?}", expr),
+                            src: NamedSource::new(path, src),
+                        }));
                     }
                 }
             }
@@ -514,7 +512,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         let struct_name = match field_access.target.ty() {
                             HirTy::Named(struct_name) => struct_name,
                             _ => {
-                                let path = field_access.span.path.clone();
+                                let path = field_access.span.path;
                                 let src = std::fs::read_to_string(PathBuf::from(&path))
                                     .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                                 return Err(HirError::UnsupportedExpr(UnsupportedExpr {
@@ -545,7 +543,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         })
                     }
                     _ => {
-                        let path = expr.span().path.clone();
+                        let path = expr.span().path;
                         let src = std::fs::read_to_string(PathBuf::from(&path))
                             .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                         return Err(HirError::UnsupportedExpr(UnsupportedExpr {
@@ -583,7 +581,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 let struct_name = match field_access.target.ty() {
                     HirTy::Named(struct_name) => struct_name,
                     _ => {
-                        let path = field_access.span.path.clone();
+                        let path = field_access.span.path;
                         let src = std::fs::read_to_string(PathBuf::from(&path))
                             .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                         return Err(HirError::UnsupportedExpr(UnsupportedExpr {
@@ -624,7 +622,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     {
                         ConstantValue::String(s) => String::from(s),
                         _ => {
-                            let path = static_access.span.path.clone();
+                            let path = static_access.span.path;
                             let src = std::fs::read_to_string(PathBuf::from(&path))
                                 .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                             return Err(HirError::UnsupportedExpr(UnsupportedExpr {
@@ -659,7 +657,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     {
                         ConstantValue::Float(f) => *f,
                         _ => {
-                            let path = expr.span().path.clone();
+                            let path = expr.span().path;
                             let src = std::fs::read_to_string(PathBuf::from(&path))
                                 .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                             return Err(HirError::UnsupportedExpr(UnsupportedExpr {
@@ -689,7 +687,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     {
                         ConstantValue::Int(i) => *i,
                         _ => {
-                            let path = expr.span().path.clone();
+                            let path = expr.span().path;
                             let src = std::fs::read_to_string(PathBuf::from(&path))
                                 .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                             return Err(HirError::UnsupportedExpr(UnsupportedExpr {
@@ -719,7 +717,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     {
                         ConstantValue::Char(c) => *c,
                         _ => {
-                            let path = expr.span().path.clone();
+                            let path = expr.span().path;
                             let src = std::fs::read_to_string(PathBuf::from(&path))
                                 .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                             return Err(HirError::UnsupportedExpr(UnsupportedExpr {
@@ -749,7 +747,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     {
                         ConstantValue::UInt(u) => *u,
                         _ => {
-                            let path = expr.span().path.clone();
+                            let path = expr.span().path;
                             let src = std::fs::read_to_string(PathBuf::from(&path))
                                 .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                             return Err(HirError::UnsupportedExpr(UnsupportedExpr {
@@ -765,7 +763,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     bytecode.push(Instruction::PushInt(value as i64));
                 }
                 HirTy::List(_) => {
-                    let path = expr.span().path.clone();
+                    let path = expr.span().path;
                     let src = std::fs::read_to_string(PathBuf::from(&path))
                         .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                     return Err(HirError::UnsupportedExpr(UnsupportedExpr {
@@ -781,7 +779,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     }));
                 }
                 _ => {
-                    let path = expr.span().path.clone();
+                    let path = expr.span().path;
                     let src = std::fs::read_to_string(PathBuf::from(&path))
                         .unwrap_or_else(|_| panic!("{} is not a valid path", path));
                     return Err(HirError::UnsupportedExpr(UnsupportedExpr {

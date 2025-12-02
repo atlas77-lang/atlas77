@@ -7,11 +7,11 @@ use lexer::AtlasLexer;
 use parser::{arena::AstArena, ast::AstProgram, error::ParseResult};
 
 pub fn parse<'ast>(
-    path: PathBuf,
+    path: &'static str,
     arena: &'ast AstArena<'ast>,
     source: String,
 ) -> ParseResult<AstProgram<'ast>> {
-    let mut lex = AtlasLexer::new(path.clone(), source.clone());
+    let mut lex = AtlasLexer::new(path, source.clone());
     let token_res = lex.tokenize();
     let tokens = match token_res {
         Ok(tokens) => tokens,

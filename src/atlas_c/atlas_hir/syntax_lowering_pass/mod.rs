@@ -1,60 +1,55 @@
 pub mod case;
 
-use crate::atlas_c::atlas_frontend::parser::ast::{
-    AstConstructor, AstDestructor, AstIdentifier, AstMethod, AstMethodModifier, AstNamedType,
-    AstStruct,
-};
-use crate::atlas_c::atlas_frontend::{
-    parse,
-    parser::{
-        arena::AstArena,
-        ast::{
-            AstBinaryOp, AstBlock, AstExpr, AstFunction, AstImport, AstItem, AstLiteral,
-            AstObjField, AstProgram, AstStatement, AstType, AstUnaryOp,
+use heck::{ToPascalCase, ToSnakeCase};
+use miette::{ErrReport, NamedSource, SourceOffset, SourceSpan};
+use std::{collections::BTreeMap, path::PathBuf};
+
+use crate::atlas_c::atlas_hir::error::InvalidReadOnlyTypeError;
+use crate::atlas_c::{
+    atlas_frontend::{
+        parse,
+        parser::{
+            arena::AstArena,
+            ast::{
+                AstBinaryOp, AstBlock, AstConstructor, AstDestructor, AstExpr, AstFunction,
+                AstIdentifier, AstImport, AstItem, AstLiteral, AstMethod, AstMethodModifier,
+                AstNamedType, AstObjField, AstProgram, AstStatement, AstStruct, AstType,
+                AstUnaryOp,
+            },
         },
     },
-};
-use crate::atlas_c::utils::Span;
-use heck::{ToPascalCase, ToSnakeCase};
-use miette::{NamedSource, SourceOffset, SourceSpan};
-use std::collections::BTreeMap;
-use std::path::PathBuf;
-
-use crate::atlas_c::atlas_hir::error::{NonConstantValueError, UnsupportedTypeError, UselessError};
-use crate::atlas_c::atlas_hir::expr::{
-    HirCastExpr, HirCharLiteralExpr, HirConstructorExpr, HirDeleteExpr, HirFieldAccessExpr,
-    HirFieldInit, HirIndexingExpr, HirListLiteralExpr, HirNewArrayExpr, HirNewObjExpr,
-    HirNoneLiteral, HirStaticAccessExpr, HirStringLiteralExpr, HirThisLiteral, HirUnitLiteralExpr,
-};
-use crate::atlas_c::atlas_hir::generic_pool::HirGenericPool;
-use crate::atlas_c::atlas_hir::item::{HirStruct, HirStructConstructor, HirStructMethod};
-use crate::atlas_c::atlas_hir::signature::{
-    ConstantValue, HirStructConstantSignature, HirStructConstructorSignature,
-    HirStructFieldSignature, HirStructMethodModifier, HirStructMethodSignature, HirStructSignature,
-    HirVisibility,
-};
-use crate::atlas_c::atlas_hir::syntax_lowering_pass::case::Case;
-use crate::atlas_c::atlas_hir::ty::HirGenericTy;
-use crate::atlas_c::atlas_hir::{
-    arena::HirArena, error::{HirError, HirResult, UnsupportedExpr, UnsupportedStatement}, expr::{
-        HirAssignExpr, HirBinaryOp, HirBinaryOpExpr, HirBooleanLiteralExpr, HirExpr,
-        HirFloatLiteralExpr, HirFunctionCallExpr, HirIdentExpr, HirIntegerLiteralExpr, HirUnaryOp,
-        HirUnsignedIntegerLiteralExpr, UnaryOpExpr,
+    atlas_hir::{
+        arena::HirArena, error::{
+            HirError, HirResult, NonConstantValueError, UnsupportedExpr, UnsupportedStatement,
+            UnsupportedTypeError, UselessError,
+        }, expr::{
+            HirAssignExpr, HirBinaryOp, HirBinaryOpExpr, HirBooleanLiteralExpr, HirCastExpr,
+            HirCharLiteralExpr, HirDeleteExpr, HirExpr, HirFieldAccessExpr,
+            HirFloatLiteralExpr, HirFunctionCallExpr, HirIdentExpr, HirIndexingExpr,
+            HirIntegerLiteralExpr, HirListLiteralExpr, HirNewArrayExpr, HirNewObjExpr,
+            HirNoneLiteral, HirStaticAccessExpr, HirStringLiteralExpr, HirThisLiteral, HirUnaryOp,
+            HirUnitLiteralExpr, HirUnsignedIntegerLiteralExpr, UnaryOpExpr,
+        },
+        generic_pool::HirGenericPool,
+        item::{HirFunction, HirStruct, HirStructConstructor, HirStructMethod},
+        signature::{
+            ConstantValue, HirFunctionParameterSignature, HirFunctionSignature, HirModuleSignature,
+            HirStructConstantSignature, HirStructConstructorSignature, HirStructFieldSignature,
+            HirStructMethodModifier, HirStructMethodSignature, HirStructSignature,
+            HirTypeParameterItemSignature, HirVisibility,
+        },
+        stmt::{
+            HirBlock, HirExprStmt, HirIfElseStmt, HirLetStmt, HirReturn, HirStatement, HirWhileStmt,
+        },
+        syntax_lowering_pass::case::Case,
+        ty::{HirGenericTy, HirTy},
+        warning::{HirWarning, NullableTypesAreUnstableWarning},
+        HirImport,
+        HirModule,
+        HirModuleBody,
     },
-    item::HirFunction,
-    signature::{
-        HirFunctionParameterSignature, HirFunctionSignature, HirModuleSignature,
-        HirTypeParameterItemSignature,
-    },
-    stmt::{
-        HirBlock, HirExprStmt, HirIfElseStmt, HirLetStmt, HirReturn, HirStatement, HirWhileStmt,
-    },
-    ty::HirTy,
-    HirImport,
-    HirModule,
-    HirModuleBody,
+    utils::Span,
 };
-use crate::atlas_c::atlas_hir::warning::{HirWarning, NullableTypesAreUnstableWarning};
 
 pub struct AstSyntaxLoweringPass<'ast, 'hir> {
     arena: &'hir HirArena<'hir>,
@@ -63,9 +58,9 @@ pub struct AstSyntaxLoweringPass<'ast, 'hir> {
     pub generic_pool: HirGenericPool<'hir>,
     module_body: HirModuleBody<'hir>,
     module_signature: HirModuleSignature<'hir>,
+    /// Collect warnings during lowering (Only nullable types for now)
+    warnings: Vec<HirWarning>,
     /// Keep track of already imported modules to avoid duplicate imports
-    ///
-    /// It's a map so the lookups are faster
     pub already_imported: BTreeMap<&'hir str, ()>,
 }
 
@@ -82,6 +77,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             generic_pool: HirGenericPool::new(arena),
             module_body: HirModuleBody::default(),
             module_signature: HirModuleSignature::default(),
+            warnings: Vec::new(),
             already_imported: BTreeMap::new(),
         }
     }
@@ -93,6 +89,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             self.visit_item(item)?;
         }
 
+        for _ in 0..(self.warnings.len()) {
+            let warning: HirWarning = self.warnings.remove(0);
+            let report: ErrReport = warning.into();
+            eprintln!("{:?}", report);
+        }
 
         Ok(self.arena.intern(HirModule {
             body: self.module_body.clone(),
@@ -111,7 +112,9 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         name.to_snake_case()
                     );
                 }
-                self.module_signature.functions.insert(name, hir_func.signature);
+                self.module_signature
+                    .functions
+                    .insert(name, hir_func.signature);
                 self.module_body.functions.insert(name, hir_func);
             }
             AstItem::Struct(ast_struct) => {
@@ -121,30 +124,28 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     .insert(class.name, self.arena.intern(class.signature.clone()));
                 self.module_body.structs.insert(class.name, class);
             }
-            AstItem::Import(ast_import) => {
-                match self.visit_import(ast_import) {
-                    Ok((hir_module, mut generic_pool)) => {
-                        let allocated_hir: &'hir HirModule<'hir> = self.arena.intern(hir_module);
-                        for (name, signature) in allocated_hir.signature.functions.iter() {
-                            self.module_signature.functions.insert(name, *signature);
-                        }
-                        for (name, signature) in allocated_hir.signature.structs.iter() {
-                            self.module_signature.structs.insert(name, *signature);
-                        }
-                        for (name, hir_struct) in allocated_hir.body.structs.iter() {
-                            self.module_body.structs.insert(name, hir_struct.clone());
-                        }
-                        for (name, hir_func) in allocated_hir.body.functions.iter() {
-                            self.module_body.functions.insert(name, hir_func.clone());
-                        }
-                        self.generic_pool.structs.append(&mut generic_pool.structs);
+            AstItem::Import(ast_import) => match self.visit_import(ast_import) {
+                Ok((hir_module, mut generic_pool)) => {
+                    let allocated_hir: &'hir HirModule<'hir> = self.arena.intern(hir_module);
+                    for (name, signature) in allocated_hir.signature.functions.iter() {
+                        self.module_signature.functions.insert(name, *signature);
                     }
-                    Err(e) => match e {
-                        HirError::UselessError(_) => {}
-                        _ => return Err(e),
-                    },
+                    for (name, signature) in allocated_hir.signature.structs.iter() {
+                        self.module_signature.structs.insert(name, *signature);
+                    }
+                    for (name, hir_struct) in allocated_hir.body.structs.iter() {
+                        self.module_body.structs.insert(name, hir_struct.clone());
+                    }
+                    for (name, hir_func) in allocated_hir.body.functions.iter() {
+                        self.module_body.functions.insert(name, hir_func.clone());
+                    }
+                    self.generic_pool.structs.append(&mut generic_pool.structs);
                 }
-            }
+                Err(e) => match e {
+                    HirError::UselessError(_) => {}
+                    _ => return Err(e),
+                },
+            },
             AstItem::ExternFunction(ast_extern_func) => {
                 let name = self.arena.names().get(ast_extern_func.name.name);
                 if !name.is_snake_case() {
@@ -161,7 +162,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
                 let generics = if ast_extern_func.generics.is_some() {
                     Some(
-                        ast_extern_func.generics
+                        ast_extern_func
+                            .generics
                             .unwrap()
                             .iter()
                             .map(|g| self.visit_generic(g))
@@ -171,7 +173,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     None
                 };
 
-                for (arg_name, arg_ty) in ast_extern_func.args_name.iter().zip(ast_extern_func.args_ty.iter()) {
+                for (arg_name, arg_ty) in ast_extern_func
+                    .args_name
+                    .iter()
+                    .zip(ast_extern_func.args_ty.iter())
+                {
                     let hir_arg_ty = self.visit_ty(arg_ty)?;
                     let hir_arg_name = self.arena.names().get(arg_name.name);
 
@@ -304,11 +310,13 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             span: node.span.clone(),
             params: constructor.params.to_vec(),
             type_params: constructor.type_params.to_vec(),
+            vis: constructor.vis,
         };
         let destructor_signature = HirStructConstructorSignature {
             span: node.span.clone(),
             params: destructor.params.to_vec(),
             type_params: destructor.type_params.to_vec(),
+            vis: destructor.vis,
         };
 
         let signature = HirStructSignature {
@@ -346,6 +354,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             fields,
             constructor,
             destructor,
+            vis: node.vis.into(),
         })
     }
 
@@ -424,6 +433,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     span: Span::default(),
                     statements: Vec::new(),
                 },
+                //Constructor is public by default
+                vis: HirVisibility::Public,
             };
             return Ok(hir);
         }
@@ -454,6 +465,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             params,
             type_params,
             body: self.visit_block(constructor.body)?,
+            vis: constructor.vis.into(),
         };
         Ok(hir)
     }
@@ -471,6 +483,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     span: Span::default(),
                     statements: Vec::new(),
                 },
+                //Destructor is public by default
+                vis: HirVisibility::Public,
             };
             return Ok(hir);
         }
@@ -501,6 +515,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             params,
             type_params,
             body: self.visit_block(destructor.body)?,
+            vis: destructor.vis.into(),
         };
         Ok(hir)
     }
@@ -511,23 +526,21 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     ) -> HirResult<(&'hir HirModule<'hir>, HirGenericPool<'hir>)> {
         //TODO: Handle errors properly
         if !self.already_imported.contains_key(node.path) {
-            self.already_imported.insert(self.arena.intern(node.path.to_owned()), ());
+            self.already_imported
+                .insert(self.arena.intern(node.path.to_owned()), ());
             let src = crate::atlas_c::utils::get_file_content(node.path).unwrap();
-            let ast: AstProgram<'ast> = parse(
-                PathBuf::from(node.path),
-                self.ast_arena,
-                src,
-            )
-                .unwrap();
+            let path = crate::atlas_c::utils::string_to_static_str(node.path.to_owned());
+            let ast: AstProgram<'ast> =
+                parse(path, self.ast_arena, src).unwrap();
             let allocated_ast = self.ast_arena.alloc(ast);
-            let mut ast_lowering_pass = AstSyntaxLoweringPass::<'ast, 'hir>::new(
-                self.arena,
-                allocated_ast,
-                self.ast_arena,
-            );
-            ast_lowering_pass.already_imported.append(&mut self.already_imported);
+            let mut ast_lowering_pass =
+                AstSyntaxLoweringPass::<'ast, 'hir>::new(self.arena, allocated_ast, self.ast_arena);
+            ast_lowering_pass
+                .already_imported
+                .append(&mut self.already_imported);
             let hir = ast_lowering_pass.lower()?;
-            self.already_imported.append(&mut ast_lowering_pass.already_imported);
+            self.already_imported
+                .append(&mut ast_lowering_pass.already_imported);
             let path: &'hir str = self.arena.names().get(node.path);
             let hir_import: &'hir HirImport<'hir> = self.arena.intern(HirImport {
                 span: node.span.clone(),
@@ -715,7 +728,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     op_span: Span {
                         start: lhs.span().end,
                         end: rhs.span().start,
-                        path: b.span.path.clone(),
+                        path: b.span.path,
                     },
                     lhs: Box::new(lhs.clone()),
                     rhs: Box::new(rhs.clone()),
@@ -843,10 +856,13 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         span: l.span(),
                         ty: self.arena.types().get_uninitialized_ty(),
                     }),
-                    AstLiteral::None(_) => HirExpr::NoneLiteral(HirNoneLiteral {
-                        span: l.span(),
-                        ty: self.arena.types().get_none_ty(),
-                    }),
+                    AstLiteral::None(_) => {
+                        self.add_warning(&node.span());
+                        HirExpr::NoneLiteral(HirNoneLiteral {
+                            span: l.span(),
+                            ty: self.arena.types().get_none_ty(),
+                        })
+                    }
                     AstLiteral::Char(ast_char) => HirExpr::CharLiteral(HirCharLiteralExpr {
                         span: l.span(),
                         value: ast_char.value,
@@ -904,36 +920,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 });
                 Ok(hir)
             }
-            AstExpr::Constructor(ast_constructor) => {
-                let fields = ast_constructor
-                    .fields
-                    .iter()
-                    .map(|f| {
-                        Ok(HirFieldInit {
-                            ty: self.arena.types().get_uninitialized_ty(),
-                            name: Box::new(HirIdentExpr {
-                                ty: self.arena.types().get_uninitialized_ty(),
-                                span: f.name.span.clone(),
-                                name: self.arena.names().get(f.name.name),
-                            }),
-                            span: f.span.clone(),
-                            value: Box::new(self.visit_expr(f.value)?),
-                        })
-                    })
-                    .collect::<HirResult<Vec<_>>>()?;
-                let constructor_name: &'hir mut str =
-                    self.arena.intern(ast_constructor.ty.name.to_owned());
-                let hir = HirExpr::ConstructorExpr(HirConstructorExpr {
-                    name: self.arena.names().get(ast_constructor.ty.name),
-                    span: node.span(),
-                    fields,
-                    ty: self
-                        .arena
-                        .types()
-                        .get_named_ty(constructor_name, ast_constructor.ty.span.clone()),
-                });
-                Ok(hir)
-            }
             _ => {
                 //todo: if/else as an expression
                 let path = node.span().path;
@@ -943,7 +929,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         SourceOffset::from(node.span().start),
                         node.span().end - node.span().start,
                     ),
-                    expr: format!("2{:?}", node),
+                    expr: format!("{:?}", node),
                     src: NamedSource::new(path, src),
                 }))
             }
@@ -1052,7 +1038,10 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             AstType::UnsignedInteger(_) => self.arena.types().get_uint64_ty(),
             AstType::Unit(_) => self.arena.types().get_unit_ty(),
             AstType::String(_) => self.arena.types().get_str_ty(),
-            AstType::Null(_) => self.arena.types().get_none_ty(),
+            AstType::Null(_) => {
+                self.add_warning(&node.span());
+                self.arena.types().get_none_ty()
+            }
             AstType::Named(n) => {
                 let name = self.arena.names().get(n.name.name);
                 self.arena.types().get_named_ty(name, n.span.clone())
@@ -1062,18 +1051,27 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 self.arena.types().get_list_ty(ty)
             }
             AstType::Nullable(n) => {
-                eprintln!("{}", HirWarning::NullableTypesAreUnstable(NullableTypesAreUnstableWarning {
-                    src: crate::atlas_c::utils::get_file_content(&n.span.path).unwrap(),
-                    span: SourceSpan::new(
-                        SourceOffset::from(node.span().start),
-                        node.span().end - node.span().start,
-                    )
-                }));
+                self.add_warning(&node.span());
                 let ty = self.visit_ty(n.inner)?;
                 self.arena.types().get_nullable_ty(ty)
             }
             AstType::ReadOnly(r) => {
                 let ty = self.visit_ty(r.inner)?;
+                match ty {
+                    HirTy::Reference(_) => {}
+                    _ => {
+                        let path = node.span().path;
+                        let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+                        return Err(HirError::InvalidReadOnlyType(InvalidReadOnlyTypeError {
+                            span: SourceSpan::new(
+                                SourceOffset::from(node.span().start),
+                                node.span().end - node.span().start,
+                            ),
+                            ty: format!("{}", ty),
+                            src: NamedSource::new(path, src),
+                        }));
+                    }
+                };
                 self.arena.types().get_readonly_ty(ty)
             }
             AstType::Generic(g) => {
@@ -1095,7 +1093,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 }
                 ty
             }
-            //The self ty is replaced during the type checking phase
+            AstType::Reference(ptr) => {
+                let inner_ty = self.visit_ty(ptr.inner)?;
+                self.arena.types().get_reference_ty(inner_ty)
+            }
+            //The "this" ty is replaced during the type checking phase
             AstType::ThisTy(_) => self.arena.types().get_uninitialized_ty(),
             _ => {
                 let path = node.span().path;
@@ -1111,5 +1113,16 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
         };
         Ok(ty)
+    }
+
+    fn add_warning(&mut self, span: &Span) {
+        let path = span.path;
+        let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+        self.warnings.push(HirWarning::NullableTypesAreUnstable(
+            NullableTypesAreUnstableWarning {
+                src: NamedSource::new(path, src),
+                span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
+            },
+        ));
     }
 }

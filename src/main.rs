@@ -2,8 +2,8 @@
 #![deny(clippy::redundant_clone)]
 #![deny(clippy::unwrap_used)]
 
-use atlas_77::{build, run, CompilationFlag};
-use clap::{command, Parser};
+use atlas_77::{CompilationFlag, build, run};
+use clap::{Parser, command};
 
 #[derive(Parser)] // requires `derive` feature
 #[command(name = "Atlas77")]
@@ -60,16 +60,14 @@ fn main() -> miette::Result<()> {
                 std::process::exit(1);
             }
             match file_path {
-                Some(file_path) => {
-                    run(
-                        file_path,
-                        if release {
-                            CompilationFlag::Release
-                        } else {
-                            CompilationFlag::Debug
-                        },
-                    )
-                }
+                Some(file_path) => run(
+                    file_path,
+                    if release {
+                        CompilationFlag::Release
+                    } else {
+                        CompilationFlag::Debug
+                    },
+                ),
                 None => {
                     //We need to find the src/main.atlas or return an error
                     run(
@@ -93,16 +91,14 @@ fn main() -> miette::Result<()> {
                 std::process::exit(1);
             }
             match file_path {
-                Some(file_path) => {
-                    build(
-                        file_path,
-                        if release {
-                            CompilationFlag::Release
-                        } else {
-                            CompilationFlag::Debug
-                        },
-                    )
-                }
+                Some(file_path) => build(
+                    file_path,
+                    if release {
+                        CompilationFlag::Release
+                    } else {
+                        CompilationFlag::Debug
+                    },
+                ),
                 None => {
                     //We need to find the src/main.atlas or return an error
                     build(

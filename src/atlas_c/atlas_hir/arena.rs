@@ -5,11 +5,7 @@ use std::{
     rc::Rc,
 };
 
-use super::ty::{
-    HirBooleanTy, HirCharTy, HirConstTy, HirFloatTy, HirGenericTy, HirIntegerTy, HirListTy,
-    HirNamedTy, HirNullTy, HirNullableTy, HirStringTy, HirTy, HirTyId, HirUninitializedTy,
-    HirUnitTy, HirUnsignedIntTy,
-};
+use super::ty::{HirBooleanTy, HirCharTy, HirConstTy, HirFloatTy, HirGenericTy, HirIntegerTy, HirListTy, HirNamedTy, HirNullTy, HirNullableTy, HirReferenceTy, HirStringTy, HirTy, HirTyId, HirUninitializedTy, HirUnitTy, HirUnsignedIntTy};
 use crate::atlas_c::utils::Span;
 use bumpalo::Bump;
 
@@ -196,6 +192,7 @@ impl<'arena> TypeArena<'arena> {
         })
     }
 
+    //This might need to be refactored, seems fishy
     pub fn get_generic_ty(
         &'arena self,
         name: &'arena str,
@@ -214,5 +211,13 @@ impl<'arena> TypeArena<'arena> {
                 span,
             }))
         })
+    }
+
+    pub fn get_reference_ty(&'arena self, inner: &'arena HirTy<'arena>) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_ref_ty_id(&HirTyId::from(inner));
+        self.intern
+            .borrow_mut()
+            .entry(id)
+            .or_insert_with(|| self.allocator.alloc(HirTy::Reference(HirReferenceTy { inner })))
     }
 }

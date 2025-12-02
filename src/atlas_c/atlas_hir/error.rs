@@ -22,16 +22,54 @@ declare_error_type! {
         EmptyListLiteral(EmptyListLiteralError),
         AccessingClassFieldOutsideClass(AccessingClassFieldOutsideClassError),
         AccessingPrivateField(AccessingPrivateFieldError),
+        AccessingPrivateConstructor(AccessingPrivateConstructorError),
         NonConstantValue(NonConstantValueError),
         ConstTyToNonConstTy(ConstTyToNonConstTyError),
         CanOnlyConstructStructs(CanOnlyConstructStructsError),
         TryingToIndexNonIndexableType(TryingToIndexNonIndexableTypeError),
         UselessError(UselessError),
+        InvalidReadOnlyType(InvalidReadOnlyTypeError),
+        CannotDeletePrimitiveType(CannotDeletePrimitiveTypeError),
     }
 }
 
 /// Handy type alias for all HIR-related errors.
 pub type HirResult<T> = Result<T, HirError>;
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::cannot_delete_primitive_type))]
+#[error("cannot delete a value of primitive type {ty}")]
+pub struct CannotDeletePrimitiveTypeError {
+    #[label("cannot delete a value of primitive type")]
+    pub span: SourceSpan,
+    #[source_code]
+    pub src: NamedSource<String>,
+    pub ty: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::accessing_private_constructor))]
+#[error("Can't access private {kind} outside of its class")]
+pub struct AccessingPrivateConstructorError {
+    #[label("Trying to access a private {kind}")]
+    pub span: SourceSpan,
+    #[source_code]
+    pub src: NamedSource<String>,
+    //Either "constructor" or "destructor"
+    pub kind: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::invalid_read_only_type), help("Try using this instead `const &{ty}`"))]
+#[error("only reference types can be const")]
+//A const type can only hold a reference. It doesn't make sense to have a `const T` where T is not a reference.
+pub struct InvalidReadOnlyTypeError {
+    #[label = "only reference types can be const"]
+    pub span: SourceSpan,
+    #[source_code]
+    pub src: NamedSource<String>,
+    pub ty: String,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::this_should_not_appear))]

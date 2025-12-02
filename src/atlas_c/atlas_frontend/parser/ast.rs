@@ -111,6 +111,7 @@ pub struct AstConstructor<'ast> {
     pub span: Span,
     pub args: &'ast [&'ast AstObjField<'ast>],
     pub body: &'ast AstBlock<'ast>,
+    pub vis: AstVisibility,
 }
 
 #[derive(Debug, Clone)]
@@ -118,6 +119,7 @@ pub struct AstDestructor<'ast> {
     pub span: Span,
     pub args: &'ast [&'ast AstObjField<'ast>],
     pub body: &'ast AstBlock<'ast>,
+    pub vis: AstVisibility,
 }
 
 #[derive(Debug, Clone)]
@@ -544,7 +546,7 @@ pub enum AstType<'ast> {
     ThisTy(AstThisType),
     String(AstStringType),
     Named(AstNamedType<'ast>),
-    Pointer(AstPointerType<'ast>),
+    Reference(AstPointerType<'ast>),
     Function(AstFunctionType<'ast>),
     Nullable(AstNullableType<'ast>),
     ReadOnly(AstReadOnlyType<'ast>),
@@ -565,7 +567,7 @@ impl AstType<'_> {
             AstType::ThisTy(t) => t.span.clone(),
             AstType::String(t) => t.span.clone(),
             AstType::Named(t) => t.span.clone(),
-            AstType::Pointer(t) => t.span.clone(),
+            AstType::Reference(t) => t.span.clone(),
             AstType::Function(t) => t.span.clone(),
             AstType::Nullable(t) => t.span.clone(),
             AstType::ReadOnly(r) => r.span.clone(),
@@ -588,7 +590,7 @@ impl<'ast> AstType<'ast> {
             AstType::ThisTy(_) => "This".to_owned(),
             AstType::String(_) => "string".to_owned(),
             AstType::Named(t) => t.name.name.to_owned(),
-            AstType::Pointer(t) => format!("&{}", t.inner.name()),
+            AstType::Reference(t) => format!("&{}", t.inner.name()),
             AstType::Nullable(t) => format!("{}?", t.inner.name()),
             AstType::ReadOnly(r) => format!("const {}", r.inner.name()),
             AstType::Null(_) => "none".to_owned(),

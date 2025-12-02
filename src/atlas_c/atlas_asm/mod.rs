@@ -1,4 +1,4 @@
-use crate::atlas_asm::error::{ASMError, ASMResult, WeirdStuffError};
+use crate::atlas_c::atlas_asm::error::{ASMError, ASMResult, WeirdStuffError};
 use crate::atlas_vm::instruction::Instruction;
 use crate::atlas_vm::instruction::ProgramDescriptor;
 pub mod asm;

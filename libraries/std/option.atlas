@@ -4,6 +4,8 @@ import "std/io"
 
 public struct Option<T> {
     private:
+        /// This won't make sense in a little while as `T?` will become a syntactic sugar for `Option<T>`
+        /// 
         data: T?;
         Option(data: T?) {
             self.data = data;

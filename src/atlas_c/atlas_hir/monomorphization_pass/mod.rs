@@ -1,23 +1,25 @@
-use crate::atlas_c::atlas_hir::arena::HirArena;
-use crate::atlas_c::atlas_hir::error::HirError::UnknownType;
-use crate::atlas_c::atlas_hir::error::{
-    HirError, HirResult, NotEnoughGenericsError, UnknownTypeError,
+use crate::atlas_c::{
+    atlas_hir::{
+        arena::HirArena,
+        error::{
+            HirError, HirError::UnknownType, HirResult, NotEnoughGenericsError, UnknownTypeError,
+        },
+        expr::HirExpr,
+        generic_pool::HirGenericPool,
+        item::HirStruct,
+        signature::HirFunctionParameterSignature,
+        stmt::HirStatement,
+        ty::{HirGenericTy, HirListTy, HirNamedTy, HirTy},
+        HirModule,
+    },
+    utils::Span,
 };
-use crate::atlas_c::atlas_hir::expr::HirExpr;
-use crate::atlas_c::atlas_hir::generic_pool::HirGenericPool;
-use crate::atlas_c::atlas_hir::item::HirStruct;
-use crate::atlas_c::atlas_hir::signature::HirFunctionParameterSignature;
-use crate::atlas_c::atlas_hir::stmt::HirStatement;
-use crate::atlas_c::atlas_hir::ty::{HirGenericTy, HirListTy, HirNamedTy, HirTy};
-use crate::atlas_c::atlas_hir::HirModule;
-use crate::atlas_c::utils::Span;
 use miette::{NamedSource, SourceOffset, SourceSpan};
 
 //Maybe all the passes should share a common trait? Or be linked to a common context struct?
 pub struct MonomorphizationPass<'hir> {
     arena: &'hir HirArena<'hir>,
     generic_pool: HirGenericPool<'hir>,
-    file_path: String,
     //source code
     src: String,
 }
@@ -27,13 +29,11 @@ impl<'hir> MonomorphizationPass<'hir> {
         arena: &'hir HirArena<'hir>,
         generic_pool: HirGenericPool<'hir>,
         src: String,
-        file_path: String,
     ) -> Self {
         Self {
             arena,
             src,
             generic_pool,
-            file_path,
         }
     }
     /// Clears all the generic structs & functions from the module body and signature.
@@ -102,7 +102,7 @@ impl<'hir> MonomorphizationPass<'hir> {
         let template = match module.body.structs.get(base_name) {
             Some(s) => s,
             None => {
-                let path = span.path.clone();
+                let path = span.path;
                 let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
                 return Err(UnknownType(UnknownTypeError {
                     name: base_name.to_string(),
@@ -117,7 +117,7 @@ impl<'hir> MonomorphizationPass<'hir> {
         let generic_names = template.signature.generics.clone();
         if generic_names.len() != actual_type.inner.len() {
             let declaration_span = template.name_span.clone();
-            let path = span.path.clone();
+            let path = span.path;
             let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
             return Err(HirError::NotEnoughGenerics(NotEnoughGenericsError {
                 ty_name: base_name.to_string(),
@@ -132,7 +132,6 @@ impl<'hir> MonomorphizationPass<'hir> {
             }));
         }
 
-        
         let types_to_change: Vec<(&'hir str, &'hir HirTy<'hir>)> = generic_names
             .iter()
             .enumerate()
@@ -240,7 +239,6 @@ impl<'hir> MonomorphizationPass<'hir> {
 
         //And lastly, we need to update the statements inside the constructor and methods to reflect the new types.
         //It's mostly changing the name of every `new Struct<Generic>` to `new __atlas77__Struct__actual_types`
-
 
         for method in new_struct.methods.iter_mut() {
             for statement in method.body.statements.iter_mut() {

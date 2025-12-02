@@ -32,7 +32,7 @@ pub struct HirStructSignature<'hir> {
     pub destructor: HirStructConstructorSignature<'hir>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Copy)]
 pub enum HirVisibility {
     Public,
     Private,
@@ -57,6 +57,7 @@ pub struct HirStructConstructorSignature<'hir> {
     pub span: Span,
     pub params: Vec<HirFunctionParameterSignature<'hir>>,
     pub type_params: Vec<HirTypeParameterItemSignature<'hir>>,
+    pub vis: HirVisibility,
 }
 
 #[derive(Debug, Clone)]
