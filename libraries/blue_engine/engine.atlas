@@ -213,7 +213,7 @@ public fun cube(name: string, settings: ObjectSettings, renderer: &Renderer, obj
     ).unwrap();
 }
 /// Calls the specified update function every frame.
-private extern call_update_function(engine: &Engine, update_function_name: string, start: Time);
+public extern call_update_function(engine: &Engine, update_function_name: string, start: Time);
 fun my_update(delta: Time, engine: &Engine) {
     const radius: float64 = 5.0;
     let camx = sin(delta.elapsed(start_time).sec as float64 * 0.5) * radius;
