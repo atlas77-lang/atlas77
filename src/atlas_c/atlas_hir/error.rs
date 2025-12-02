@@ -71,7 +71,10 @@ pub struct AccessingPrivateConstructorError {
 }
 
 #[derive(Error, Diagnostic, Debug)]
-#[diagnostic(code(sema::invalid_read_only_type), help("Try using this instead `const &{ty}`"))]
+#[diagnostic(
+    code(sema::invalid_read_only_type),
+    help("Try using this instead `const &{ty}`")
+)]
 #[error("only reference types can be const")]
 //A const type can only hold a reference. It doesn't make sense to have a `const T` where T is not a reference.
 pub struct InvalidReadOnlyTypeError {

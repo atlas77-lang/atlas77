@@ -1,5 +1,6 @@
 use crate::atlas_c::{
     atlas_hir::{
+        HirModule,
         arena::HirArena,
         error::{
             HirError, HirError::UnknownType, HirResult, NotEnoughGenericsError, UnknownTypeError,
@@ -10,7 +11,6 @@ use crate::atlas_c::{
         signature::HirFunctionParameterSignature,
         stmt::HirStatement,
         ty::{HirGenericTy, HirListTy, HirNamedTy, HirTy},
-        HirModule,
     },
     utils::Span,
 };

@@ -10,12 +10,12 @@ use crate::atlas_c::atlas_hir::expr::HirUnaryOp;
 use crate::atlas_c::atlas_hir::item::HirStruct;
 use crate::atlas_c::atlas_hir::signature::{ConstantValue, HirStructMethodModifier};
 use crate::atlas_c::atlas_hir::{
+    HirModule,
     error::{HirResult, UnsupportedExpr, UnsupportedStatement},
     expr::HirExpr,
     signature::HirFunctionParameterSignature,
     stmt::{HirBlock, HirStatement},
     ty::HirTy,
-    HirModule,
 };
 use crate::atlas_vm::instruction::{
     ImportedLibrary, Instruction, Label, ProgramDescriptor, StructDescriptor, Type,

@@ -20,15 +20,18 @@ use crate::atlas_c::{
         },
     },
     atlas_hir::{
-        arena::HirArena, error::{
+        HirImport, HirModule, HirModuleBody,
+        arena::HirArena,
+        error::{
             HirError, HirResult, NonConstantValueError, UnsupportedExpr, UnsupportedStatement,
             UnsupportedTypeError, UselessError,
-        }, expr::{
+        },
+        expr::{
             HirAssignExpr, HirBinaryOp, HirBinaryOpExpr, HirBooleanLiteralExpr, HirCastExpr,
-            HirCharLiteralExpr, HirDeleteExpr, HirExpr, HirFieldAccessExpr,
-            HirFloatLiteralExpr, HirFunctionCallExpr, HirIdentExpr, HirIndexingExpr,
-            HirIntegerLiteralExpr, HirListLiteralExpr, HirNewArrayExpr, HirNewObjExpr,
-            HirNoneLiteral, HirStaticAccessExpr, HirStringLiteralExpr, HirThisLiteral, HirUnaryOp,
+            HirCharLiteralExpr, HirDeleteExpr, HirExpr, HirFieldAccessExpr, HirFloatLiteralExpr,
+            HirFunctionCallExpr, HirIdentExpr, HirIndexingExpr, HirIntegerLiteralExpr,
+            HirListLiteralExpr, HirNewArrayExpr, HirNewObjExpr, HirNoneLiteral,
+            HirStaticAccessExpr, HirStringLiteralExpr, HirThisLiteral, HirUnaryOp,
             HirUnitLiteralExpr, HirUnsignedIntegerLiteralExpr, UnaryOpExpr,
         },
         generic_pool::HirGenericPool,
@@ -45,9 +48,6 @@ use crate::atlas_c::{
         syntax_lowering_pass::case::Case,
         ty::{HirGenericTy, HirTy},
         warning::{HirWarning, NullableTypesAreUnstableWarning},
-        HirImport,
-        HirModule,
-        HirModuleBody,
     },
     utils::Span,
 };
@@ -536,8 +536,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 .insert(self.arena.intern(node.path.to_owned()), ());
             let src = crate::atlas_c::utils::get_file_content(node.path).unwrap();
             let path = crate::atlas_c::utils::string_to_static_str(node.path.to_owned());
-            let ast: AstProgram<'ast> =
-                parse(path, self.ast_arena, src).unwrap();
+            let ast: AstProgram<'ast> = parse(path, self.ast_arena, src).unwrap();
             let allocated_ast = self.ast_arena.alloc(ast);
             let mut ast_lowering_pass =
                 AstSyntaxLoweringPass::<'ast, 'hir>::new(self.arena, allocated_ast, self.ast_arena);
@@ -1128,28 +1127,34 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     fn nullable_types_are_unstable_warning(span: &Span) {
         let path = span.path;
         let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
-        let report: ErrReport = HirWarning::NullableTypesAreUnstable(
-            NullableTypesAreUnstableWarning {
+        let report: ErrReport =
+            HirWarning::NullableTypesAreUnstable(NullableTypesAreUnstableWarning {
                 src: NamedSource::new(path, src),
                 span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
-            },
-        ).into();
+            })
+            .into();
         eprintln!("{:?}", report);
     }
 
-    fn name_should_be_in_different_case_warning(span: &Span, case_kind: &str, item_kind: &str, name: &str, expected_name: &str) {
+    fn name_should_be_in_different_case_warning(
+        span: &Span,
+        case_kind: &str,
+        item_kind: &str,
+        name: &str,
+        expected_name: &str,
+    ) {
         let path = span.path;
         let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
-        let report: ErrReport = HirWarning::NameShouldBeInDifferentCase(
-            NameShouldBeInDifferentCaseWarning {
+        let report: ErrReport =
+            HirWarning::NameShouldBeInDifferentCase(NameShouldBeInDifferentCaseWarning {
                 src: NamedSource::new(path, src),
                 span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
                 case_kind: case_kind.to_string(),
                 item_kind: item_kind.to_string(),
                 name: name.to_string(),
                 expected_name: expected_name.to_string(),
-            },
-        ).into();
+            })
+            .into();
         eprintln!("{:?}", report);
     }
 }

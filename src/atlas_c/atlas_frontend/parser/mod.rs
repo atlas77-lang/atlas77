@@ -5,7 +5,7 @@ pub mod error;
 
 use std::path::PathBuf;
 
-use miette::{SourceOffset, SourceSpan};
+use miette::{NamedSource, SourceOffset, SourceSpan};
 
 use crate::atlas_c::atlas_frontend::parser::error::{
     NoFieldInStructError, OnlyOneConstructorAllowedError, ParseResult, SyntaxError,
@@ -33,7 +33,7 @@ use crate::atlas_c::atlas_frontend::parser::ast::{
     AstOperatorOverload, AstReadOnlyType, AstSelfLiteral, AstStaticAccessExpr, AstStruct,
     AstThisType, AstUnitLiteral, AstVisibility,
 };
-use crate::atlas_c::utils::Span;
+use crate::atlas_c::utils::{get_file_content, Span};
 use arena::AstArena;
 
 pub(crate) struct Parser<'ast> {
@@ -93,12 +93,7 @@ impl<'ast> Parser<'ast> {
         if tok.kind() == kind {
             Ok(tok)
         } else {
-            Err(SyntaxError::UnexpectedToken(UnexpectedTokenError {
-                token: tok.clone(),
-                expected: TokenVec(vec![kind]),
-                span: SourceSpan::new(SourceOffset::from(tok.start()), tok.end() - tok.start()),
-                src: self.src.clone(),
-            }))
+            Err(self.unexpected_token_error(TokenVec(vec![kind]), &tok.span))
         }
     }
 
@@ -171,16 +166,15 @@ impl<'ast> Parser<'ast> {
                 Ok(item)
             }
             //Handling comments
-            _ => Err(SyntaxError::UnexpectedToken(UnexpectedTokenError {
-                token: self.current().clone(),
-                expected: TokenVec(vec![TokenKind::Identifier("Item".to_string())]),
-                span: SourceSpan::new(SourceOffset::from(start), self.current().end() - start),
-                src: self.src.clone(),
-            })),
+            _ => Err(self.unexpected_token_error(TokenVec(vec![TokenKind::Identifier("Item".to_string())]), &self.current().span())),
         }
     }
 
-    fn parse_constructor(&mut self, class_name: String, vis: AstVisibility) -> ParseResult<AstConstructor<'ast>> {
+    fn parse_constructor(
+        &mut self,
+        class_name: String,
+        vis: AstVisibility,
+    ) -> ParseResult<AstConstructor<'ast>> {
         self.expect(TokenKind::Identifier(class_name))?;
         self.expect(TokenKind::LParen)?;
         let mut params = vec![];
@@ -200,7 +194,11 @@ impl<'ast> Parser<'ast> {
         };
         Ok(node)
     }
-    fn parse_destructor(&mut self, class_name: String, vis: AstVisibility) -> ParseResult<AstDestructor<'ast>> {
+    fn parse_destructor(
+        &mut self,
+        class_name: String,
+        vis: AstVisibility,
+    ) -> ParseResult<AstDestructor<'ast>> {
         self.expect(TokenKind::Tilde)?;
         self.expect(TokenKind::Identifier(class_name))?;
         self.expect(TokenKind::LParen)?;
@@ -268,22 +266,15 @@ impl<'ast> Parser<'ast> {
                     if s == struct_identifier.name {
                         if constructor.is_none() {
                             constructor =
-                                Some(self.arena.alloc(
-                                    self.parse_constructor(struct_identifier.name.to_owned(), curr_vis)?,
-                                ));
+                                Some(self.arena.alloc(self.parse_constructor(
+                                    struct_identifier.name.to_owned(),
+                                    curr_vis,
+                                )?));
                         } else {
                             //We still parse it so we can give a better error message and recover later
-                            let bad_constructor =
-                                self.parse_constructor(struct_identifier.name.to_owned(), curr_vis)?;
-                            return Err(SyntaxError::OnlyOneConstructorAllowed(
-                                OnlyOneConstructorAllowedError {
-                                    span: SourceSpan::new(
-                                        SourceOffset::from(bad_constructor.span.start),
-                                        bad_constructor.span.end - bad_constructor.span.start,
-                                    ),
-                                    src: self.src.clone(),
-                                },
-                            ));
+                            let bad_constructor = self
+                                .parse_constructor(struct_identifier.name.to_owned(), curr_vis)?;
+                            self.only_one_constructor_allowed_error(&bad_constructor.span);
                         }
                     } else {
                         let mut obj_field = self.parse_obj_field()?;
@@ -295,37 +286,20 @@ impl<'ast> Parser<'ast> {
                 TokenKind::Tilde => {
                     curr_vis = self.parse_current_vis(curr_vis)?;
                     if destructor.is_none() {
-                        destructor = Some(
-                            self.arena
-                                .alloc(self.parse_destructor(struct_identifier.name.to_owned(), curr_vis)?),
-                        );
+                        destructor = Some(self.arena.alloc(
+                            self.parse_destructor(struct_identifier.name.to_owned(), curr_vis)?,
+                        ));
                     } else {
                         //We still parse it so we can give a better error message and recover later
                         let bad_destructor =
                             self.parse_destructor(struct_identifier.name.to_owned(), curr_vis)?;
-                        return Err(SyntaxError::OnlyOneConstructorAllowed(
-                            OnlyOneConstructorAllowedError {
-                                span: SourceSpan::new(
-                                    SourceOffset::from(bad_destructor.span.start),
-                                    bad_destructor.span.end - bad_destructor.span.start,
-                                ),
-                                src: self.src.clone(),
-                            },
-                        ));
+                        self.only_one_constructor_allowed_error(&bad_destructor.span);
                     }
                 }
                 _ => {
-                    return Err(SyntaxError::UnexpectedToken(UnexpectedTokenError {
-                        token: self.current().clone(),
-                        expected: TokenVec(vec![TokenKind::Identifier(
-                            "Field/Methods/Constant/Operator".to_string(),
-                        )]),
-                        span: SourceSpan::new(
-                            SourceOffset::from(self.current().start()),
-                            self.current().end() - self.current().start(),
-                        ),
-                        src: self.src.clone(),
-                    }));
+                    return Err(self.unexpected_token_error(TokenVec(vec![TokenKind::Identifier(
+                        "Field/Methods/Constant/Operator".to_string(),
+                    )]), &self.current().span));
                 }
             }
         }
@@ -333,12 +307,14 @@ impl<'ast> Parser<'ast> {
         let end = self.expect(TokenKind::RBrace)?.span();
 
         if fields.is_empty() {
+            let path = self.current().span.path;
+            let src = crate::atlas_c::utils::get_file_content(path).expect("Failed to get source content for error reporting");
             return Err(SyntaxError::NoFieldInStruct(NoFieldInStructError {
                 span: SourceSpan::new(
                     SourceOffset::from(struct_identifier.span.start),
                     end.end - struct_identifier.span.start,
                 ),
-                src: self.src.clone(),
+                src: NamedSource::new(path, src),
             }));
         }
 
@@ -384,15 +360,7 @@ impl<'ast> Parser<'ast> {
         while self.current().kind() != TokenKind::RParen {
             let obj_field = self.parse_obj_field()?;
             if let AstType::ThisTy(_) = obj_field.ty {
-                return Err(SyntaxError::UnexpectedToken(UnexpectedTokenError {
-                    token: self.current().clone(),
-                    expected: TokenVec(vec![TokenKind::Identifier("Field".to_string())]),
-                    span: SourceSpan::new(
-                        SourceOffset::from(self.current().start()),
-                        self.current().end() - self.current().start(),
-                    ),
-                    src: self.src.clone(),
-                }));
+                return Err(self.unexpected_token_error(TokenVec(vec![TokenKind::Identifier("Field".to_string())]), &obj_field.span));
             } else {
                 params.push(obj_field);
             }
@@ -436,17 +404,9 @@ impl<'ast> Parser<'ast> {
                         let op = match self.current().kind().try_into() {
                             Ok(op) => op,
                             Err(_) => {
-                                return Err(SyntaxError::UnexpectedToken(UnexpectedTokenError {
-                                    token: self.current().clone(),
-                                    expected: TokenVec(vec![TokenKind::Identifier(
-                                        "Operator".to_string(),
-                                    )]),
-                                    span: SourceSpan::new(
-                                        SourceOffset::from(self.current().start()),
-                                        self.current().end() - self.current().start(),
-                                    ),
-                                    src: self.src.clone(),
-                                }));
+                                return Err(self.unexpected_token_error(TokenVec(vec![TokenKind::Identifier(
+                                    "Operator".to_string(),
+                                )]), &self.current().span()));
                             }
                         };
                         let _ = self.advance();
@@ -457,34 +417,18 @@ impl<'ast> Parser<'ast> {
                         let ast_ty = match self.parse_type()? {
                             AstType::Named(ast_ty) => ast_ty,
                             _ => {
-                                return Err(SyntaxError::UnexpectedToken(UnexpectedTokenError {
-                                    token: self.current().clone(),
-                                    expected: TokenVec(vec![TokenKind::Identifier(
-                                        "Named Type".to_string(),
-                                    )]),
-                                    span: SourceSpan::new(
-                                        SourceOffset::from(self.current().start()),
-                                        self.current().end() - self.current().start(),
-                                    ),
-                                    src: self.src.clone(),
-                                }));
+                                return Err(self.unexpected_token_error(TokenVec(vec![TokenKind::Identifier(
+                                    "Named Type".to_string(),
+                                )]), &self.current().span));
                             }
                         };
 
                         AstGenericConstraint::NamedType(ast_ty)
                     }
                     _ => {
-                        return Err(SyntaxError::UnexpectedToken(UnexpectedTokenError {
-                            token: self.current().clone(),
-                            expected: TokenVec(vec![TokenKind::Identifier(
-                                "Constraint".to_string(),
-                            )]),
-                            span: SourceSpan::new(
-                                SourceOffset::from(self.current().start()),
-                                self.current().end() - self.current().start(),
-                            ),
-                            src: self.src.clone(),
-                        }));
+                        return Err(self.unexpected_token_error(TokenVec(vec![TokenKind::Identifier(
+                            "Constraint".to_string(),
+                        )]), &name.span));
                     }
                 };
                 constraints.push(constraint);
@@ -509,15 +453,7 @@ impl<'ast> Parser<'ast> {
         let op = match tok_op.kind().try_into() {
             Ok(op) => op,
             Err(_) => {
-                return Err(SyntaxError::UnexpectedToken(UnexpectedTokenError {
-                    token: tok_op.clone(),
-                    expected: TokenVec(vec![TokenKind::Identifier("Operator".to_string())]),
-                    span: SourceSpan::new(
-                        SourceOffset::from(tok_op.start()),
-                        tok_op.end() - tok_op.start(),
-                    ),
-                    src: self.src.clone(),
-                }));
+                return Err(self.unexpected_token_error(TokenVec(vec![TokenKind::Identifier("Operator".to_string())]), &tok_op.span));
             }
         };
         let _ = self.advance();
@@ -835,8 +771,6 @@ impl<'ast> Parser<'ast> {
     fn parse_primary(&mut self) -> ParseResult<AstExpr<'ast>> {
         let tok = self.current();
 
-        let none = String::from("none");
-
         let node = match tok.kind() {
             TokenKind::Bool(b) => {
                 let node = AstExpr::Literal(AstLiteral::Boolean(AstBooleanLiteral {
@@ -923,14 +857,12 @@ impl<'ast> Parser<'ast> {
             }
             TokenKind::KwIf => AstExpr::IfElse(self.parse_if_expr()?),
             _ => {
-                return Err(SyntaxError::UnexpectedToken(UnexpectedTokenError {
-                    token: tok.clone(),
-                    expected: TokenVec(vec![TokenKind::Identifier(
+                return Err(self.unexpected_token_error(
+                    TokenVec(vec![TokenKind::Identifier(
                         "Primary expression".to_string(),
                     )]),
-                    span: SourceSpan::new(SourceOffset::from(tok.start()), tok.end() - tok.start()),
-                    src: self.src.clone(),
-                }));
+                    &tok.span,
+                ));
             }
         };
         Ok(node)
@@ -1030,21 +962,17 @@ impl<'ast> Parser<'ast> {
             };
             Ok(node)
         } else {
-            Err(SyntaxError::UnexpectedToken(UnexpectedTokenError {
-                token: self.current().clone(),
-                expected: TokenVec(vec![TokenKind::Identifier("Identifier".to_string())]),
-                span: SourceSpan::new(
-                    SourceOffset::from(self.current().start()),
-                    self.current().end() - self.current().start(),
-                ),
-                src: self.src.clone(),
-            }))
+            Err(self.unexpected_token_error(
+                TokenVec(vec![TokenKind::Identifier("Identifier".to_string())]),
+                &field.span,
+            ))
         }
     }
 
     fn parse_new_obj(&mut self) -> ParseResult<AstExpr<'ast>> {
         self.expect(TokenKind::KwNew)?;
-        match self.current().kind() {
+        let current = self.current();
+        match current.kind() {
             TokenKind::Identifier(_) => {
                 let ty = self.parse_type()?;
 
@@ -1083,18 +1011,13 @@ impl<'ast> Parser<'ast> {
                 });
                 Ok(node)
             }
-            _ => Err(SyntaxError::UnexpectedToken(UnexpectedTokenError {
-                token: self.current().clone(),
-                expected: TokenVec(vec![
+            _ => Err(self.unexpected_token_error(
+                TokenVec(vec![
                     TokenKind::Identifier("Identifier".to_string()),
                     TokenKind::LBrace,
                 ]),
-                span: SourceSpan::new(
-                    SourceOffset::from(self.current().start()),
-                    self.current().end() - self.current().start(),
-                ),
-                src: self.src.clone(),
-            })),
+                &current.span,
+            )),
         }
     }
 
@@ -1209,21 +1132,14 @@ impl<'ast> Parser<'ast> {
         let path = match self.current().kind() {
             TokenKind::StringLiteral(s) => s,
             _ => {
-                return Err(SyntaxError::UnexpectedToken(UnexpectedTokenError {
-                    token: self.current().clone(),
-                    expected: TokenVec(vec![TokenKind::StringLiteral(
-                        "String Literal".to_string(),
-                    )]),
-                    span: SourceSpan::new(
-                        SourceOffset::from(self.current().start()),
-                        self.current().end() - self.current().start(),
-                    ),
-                    src: self.src.clone(),
-                }));
+                return Err(self.unexpected_token_error(
+                    TokenVec(vec![TokenKind::StringLiteral("String Literal".to_string())]),
+                    &start.span,
+                ));
             }
         };
         let end = self.advance();
-
+        self.expect(TokenKind::Semicolon)?;
         if let TokenKind::KwAs = self.current().kind() {
             let _ = self.advance();
             let alias = self.parse_identifier()?;
@@ -1285,15 +1201,10 @@ impl<'ast> Parser<'ast> {
                 name: self.arena.alloc(s),
             },
             _ => {
-                return Err(SyntaxError::UnexpectedToken(UnexpectedTokenError {
-                    token: self.current().clone(),
-                    expected: TokenVec(vec![TokenKind::Identifier("Identifier".to_string())]),
-                    span: SourceSpan::new(
-                        SourceOffset::from(self.current().start()),
-                        self.current().end() - self.current().start(),
-                    ),
-                    src: self.src.clone(),
-                }));
+                return Err(self.unexpected_token_error(
+                    TokenVec(vec![TokenKind::Identifier("Identifier".to_string())]),
+                    &token.span,
+                ));
             }
         };
         let _ = self.advance();
@@ -1515,20 +1426,15 @@ impl<'ast> Parser<'ast> {
                 node
             }
             _ => {
-                return Err(SyntaxError::UnexpectedToken(UnexpectedTokenError {
-                    token: self.current().clone(),
-                    expected: TokenVec(vec![
+                return Err(self.unexpected_token_error(
+                    TokenVec(vec![
                         TokenKind::Identifier(String::from(
                             "Int64, Float64, UInt64, Char, T?, Str & (T) -> T",
                         )),
                         token.kind(),
                     ]),
-                    span: SourceSpan::new(
-                        SourceOffset::from(start.start),
-                        self.current().end() - start.start,
-                    ),
-                    src: self.src.clone(),
-                }));
+                    &start,
+                ));
             }
         };
         let node = if self.current().kind == TokenKind::Interrogation {
@@ -1542,6 +1448,26 @@ impl<'ast> Parser<'ast> {
             ty
         };
         Ok(node)
+    }
+
+    fn unexpected_token_error(&self, expected: TokenVec, span: &Span) -> SyntaxError {
+        let path = span.path;
+        let src = get_file_content(path).expect("Failed to read source file");
+        SyntaxError::UnexpectedToken(UnexpectedTokenError {
+            token: self.current().clone(),
+            expected,
+            span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
+            src: NamedSource::new(path, src),
+        })
+    }
+
+    fn only_one_constructor_allowed_error(&self, span: &Span) -> SyntaxError {
+        let path = span.path;
+        let src = get_file_content(path).expect("Failed to read source file");
+        SyntaxError::OnlyOneConstructorAllowed(OnlyOneConstructorAllowedError {
+            span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
+            src: NamedSource::new(path, src),
+        })
     }
 }
 

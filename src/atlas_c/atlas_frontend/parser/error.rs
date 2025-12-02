@@ -1,8 +1,8 @@
-use miette::{Diagnostic, SourceSpan};
+use miette::{Diagnostic, NamedSource, SourceSpan};
 use thiserror::Error;
 
-use crate::atlas_c::atlas_frontend::lexer::TokenVec;
 use crate::atlas_c::atlas_frontend::lexer::token::{LexingError, Token};
+use crate::atlas_c::atlas_frontend::lexer::TokenVec;
 use crate::declare_error_type;
 
 declare_error_type! {
@@ -25,20 +25,22 @@ pub struct NoFieldInStructError {
     #[label = "no fields in struct"]
     pub span: SourceSpan,
     #[source_code]
-    pub src: String,
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
     code(syntax::only_one_constructor_allowed),
-    help("Only one constructor or destructor is allowed for classes")
+    help("Try removing that constructor/destructor or make it a static method (e.g. `fun init(...) -> Self)`"
+    )
 )]
-#[error("Only one constructor or destructor is allowed for classes")]
+#[error("Only one constructor or destructor is allowed per struct")]
+//This should also have a label pointing to the 1st constructor/destructor
 pub struct OnlyOneConstructorAllowedError {
-    #[label = "only one constructor or destructor is allowed for classes"]
+    #[label = "only one constructor or destructor is allowed per struct"]
     pub span: SourceSpan,
     #[source_code]
-    pub src: String,
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -51,7 +53,7 @@ pub struct UnexpectedEndOfFileError {
     #[label = "required more input to parse"]
     pub span: SourceSpan,
     #[source_code]
-    pub src: String,
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -63,7 +65,7 @@ pub struct UnexpectedTokenError {
     #[label("was not expecting to find '{token}' in this position, expected one of: {expected}")]
     pub span: SourceSpan,
     #[source_code]
-    pub src: String,
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -71,7 +73,7 @@ pub struct UnexpectedTokenError {
 #[error("invalid stuff {kind:?} found during lexing")]
 pub struct InvalidCharacterError {
     #[source_code]
-    pub src: String,
+    pub src: NamedSource<String>,
     #[label("invalid character found here")]
     pub span: SourceSpan,
     pub kind: LexingError,

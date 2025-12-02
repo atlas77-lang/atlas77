@@ -2,9 +2,14 @@ pub mod atlas_c;
 pub mod atlas_lib;
 mod atlas_vm;
 
-use atlas_c::{atlas_asm, atlas_codegen::{arena::CodeGenArena, CodeGenUnit}, atlas_frontend::{parse, parser::arena::AstArena}, atlas_hir::{
-    arena::HirArena, syntax_lowering_pass::AstSyntaxLoweringPass, type_check_pass::TypeChecker,
-}};
+use atlas_c::{
+    atlas_asm,
+    atlas_codegen::{CodeGenUnit, arena::CodeGenArena},
+    atlas_frontend::{parse, parser::arena::AstArena},
+    atlas_hir::{
+        arena::HirArena, syntax_lowering_pass::AstSyntaxLoweringPass, type_check_pass::TypeChecker,
+    },
+};
 use bumpalo::Bump;
 
 use crate::atlas_c::atlas_hir::monomorphization_pass::MonomorphizationPass;
@@ -47,11 +52,8 @@ pub fn build(path: String, _flag: CompilationFlag) -> miette::Result<()> {
     let hir = lower.lower()?;
 
     //monomorphize
-    let mut monomorphizer = MonomorphizationPass::new(
-        &hir_arena,
-        lower.generic_pool,
-        source.clone(),
-    );
+    let mut monomorphizer =
+        MonomorphizationPass::new(&hir_arena, lower.generic_pool, source.clone());
     monomorphizer.monomorphize(hir)?;
 
     //type-check
@@ -87,11 +89,8 @@ pub fn run(path: String, _flag: CompilationFlag) -> miette::Result<()> {
     let hir = lower.lower()?;
 
     //monomorphize
-    let mut monomorphizer = MonomorphizationPass::new(
-        &hir_arena,
-        lower.generic_pool,
-        source.clone(),
-    );
+    let mut monomorphizer =
+        MonomorphizationPass::new(&hir_arena, lower.generic_pool, source.clone());
     monomorphizer.monomorphize(hir)?;
 
     //type-check

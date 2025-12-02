@@ -1,15 +1,20 @@
 mod context;
 
 use super::{
-    arena::HirArena, error::{FunctionTypeMismatchError, HirError, HirResult, TypeMismatchError, UnknownTypeError}, expr,
+    HirFunction, HirModule, HirModuleSignature,
+    arena::HirArena,
+    error::{FunctionTypeMismatchError, HirError, HirResult, TypeMismatchError, UnknownTypeError},
+    expr,
     expr::{HirBinaryOp, HirExpr},
     stmt::HirStatement,
     ty::{HirTy, HirTyId},
-    HirFunction,
-    HirModule,
-    HirModuleSignature,
 };
-use crate::atlas_c::atlas_hir::error::{AccessingClassFieldOutsideClassError, AccessingPrivateConstructorError, AccessingPrivateFieldError, CanOnlyConstructStructsError, CannotDeletePrimitiveTypeError, ConstTyToNonConstTyError, EmptyListLiteralError, FieldKind, TryingToIndexNonIndexableTypeError, UnsupportedExpr};
+use crate::atlas_c::atlas_hir::error::{
+    AccessingClassFieldOutsideClassError, AccessingPrivateConstructorError,
+    AccessingPrivateFieldError, CanOnlyConstructStructsError, CannotDeletePrimitiveTypeError,
+    ConstTyToNonConstTyError, EmptyListLiteralError, FieldKind, TryingToIndexNonIndexableTypeError,
+    UnsupportedExpr,
+};
 use crate::atlas_c::atlas_hir::expr::{HirFunctionCallExpr, HirIdentExpr};
 use crate::atlas_c::atlas_hir::item::{HirStruct, HirStructMethod};
 use crate::atlas_c::atlas_hir::monomorphization_pass::MonomorphizationPass;
@@ -39,7 +44,6 @@ pub struct TypeChecker<'hir> {
     extern_monomorphized:
         HashMap<(&'hir str, Vec<&'hir HirTy<'hir>>), &'hir HirFunctionSignature<'hir>>,
 }
-
 
 impl<'hir> TypeChecker<'hir> {
     pub fn new(arena: &'hir HirArena<'hir>) -> Self {
@@ -315,14 +319,16 @@ impl<'hir> TypeChecker<'hir> {
                 if Self::is_primitive_type(ty) {
                     let path = del.span.path;
                     let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
-                    return Err(HirError::CannotDeletePrimitiveType(CannotDeletePrimitiveTypeError {
-                        span: SourceSpan::new(
-                            SourceOffset::from(del.expr.span().start),
-                            del.expr.span().end - del.expr.span().start,
-                        ),
-                        ty: format!("{}", ty),
-                        src: NamedSource::new(path, src),
-                    }));
+                    return Err(HirError::CannotDeletePrimitiveType(
+                        CannotDeletePrimitiveTypeError {
+                            span: SourceSpan::new(
+                                SourceOffset::from(del.expr.span().start),
+                                del.expr.span().end - del.expr.span().start,
+                            ),
+                            ty: format!("{}", ty),
+                            src: NamedSource::new(path, src),
+                        },
+                    ));
                 } else {
                     let mut name = "";
                     if let HirTy::Named(n) = ty {
@@ -341,7 +347,10 @@ impl<'hir> TypeChecker<'hir> {
                         }
                     };
                     if class.destructor.vis != HirVisibility::Public {
-                        Err(Self::accessing_private_constructor_err(&del.span, "destructor"))
+                        Err(Self::accessing_private_constructor_err(
+                            &del.span,
+                            "destructor",
+                        ))
                     } else {
                         Ok(self.arena.types().get_unit_ty())
                     }
@@ -556,14 +565,16 @@ impl<'hir> TypeChecker<'hir> {
                 {
                     let path = obj.span.path;
                     let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
-                    return Err(HirError::AccessingPrivateConstructor(AccessingPrivateConstructorError {
-                        span: SourceSpan::new(
-                            SourceOffset::from(obj.span.start),
-                            obj.span.end - obj.span.start,
-                        ),
-                        kind: String::from("constructor"),
-                        src: NamedSource::new(path, src),
-                    }));
+                    return Err(HirError::AccessingPrivateConstructor(
+                        AccessingPrivateConstructorError {
+                            span: SourceSpan::new(
+                                SourceOffset::from(obj.span.start),
+                                obj.span.end - obj.span.start,
+                            ),
+                            kind: String::from("constructor"),
+                            src: NamedSource::new(path, src),
+                        },
+                    ));
                 }
                 for (param, arg) in struct_signature
                     .constructor
@@ -919,20 +930,17 @@ impl<'hir> TypeChecker<'hir> {
                     ))
                 }
             }
-            _ => {
-                Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                    span: SourceSpan::new(
-                        SourceOffset::from(expr.span().start),
-                        expr.span().end - expr.span().start,
-                    ),
-                    expr: format!("{:?}", expr),
-                    src: NamedSource::new(
-                        expr.span().path,
-                        crate::atlas_c::utils::get_file_content(&expr.span().path)
-                            .unwrap_or_default(),
-                    ),
-                }))
-            }
+            _ => Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                span: SourceSpan::new(
+                    SourceOffset::from(expr.span().start),
+                    expr.span().end - expr.span().start,
+                ),
+                expr: format!("{:?}", expr),
+                src: NamedSource::new(
+                    expr.span().path,
+                    crate::atlas_c::utils::get_file_content(&expr.span().path).unwrap_or_default(),
+                ),
+            })),
         }
     }
 
@@ -1086,12 +1094,8 @@ impl<'hir> TypeChecker<'hir> {
             (HirTy::Int64(_), HirTy::UInt64(_)) | (HirTy::UInt64(_), HirTy::Int64(_)) => Ok(()),
             (_, HirTy::Const(r2)) => self.is_equivalent_ty(ty1, ty1_span, r2.inner, ty2_span),
             (HirTy::Nullable(_), HirTy::Null(_)) | (HirTy::Null(_), HirTy::Nullable(_)) => Ok(()),
-            (HirTy::Nullable(n1), _) => {
-                self.is_equivalent_ty(n1.inner, ty1_span, ty2, ty2_span)
-            }
-            (_, HirTy::Nullable(n2)) => {
-                self.is_equivalent_ty(ty1, ty1_span, n2.inner, ty2_span)
-            }
+            (HirTy::Nullable(n1), _) => self.is_equivalent_ty(n1.inner, ty1_span, ty2, ty2_span),
+            (_, HirTy::Nullable(n2)) => self.is_equivalent_ty(ty1, ty1_span, n2.inner, ty2_span),
             (HirTy::Generic(g), HirTy::Named(n)) | (HirTy::Named(n), HirTy::Generic(g)) => {
                 if MonomorphizationPass::mangle_generic_struct_name(self.arena, g) == n.name {
                     Ok(())
@@ -1172,10 +1176,7 @@ impl<'hir> TypeChecker<'hir> {
         let path = span.path;
         let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
         HirError::AccessingPrivateConstructor(AccessingPrivateConstructorError {
-            span: SourceSpan::new(
-                SourceOffset::from(span.start),
-                span.end - span.start,
-            ),
+            span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
             kind: kind.to_string(),
             src: NamedSource::new(path, src),
         })
@@ -1185,13 +1186,12 @@ impl<'hir> TypeChecker<'hir> {
     fn deleting_ref_is_unstable_warning(span: &Span) {
         let path = span.path;
         let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
-        let warning: ErrReport = HirWarning::DeletingReferenceIsUnstable(DeletingReferenceIsUnstableWarning {
-            span: SourceSpan::new(
-                SourceOffset::from(span.start),
-                span.end - span.start,
-            ),
-            src: NamedSource::new(path, src),
-        }).into();
+        let warning: ErrReport =
+            HirWarning::DeletingReferenceIsUnstable(DeletingReferenceIsUnstableWarning {
+                span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
+                src: NamedSource::new(path, src),
+            })
+            .into();
         eprintln!("{:?}", warning);
     }
 }
