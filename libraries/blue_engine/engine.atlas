@@ -9,6 +9,8 @@ import std::io;
 import std::time;
 import std::math;
 
+import blue_engine::error;
+
 private extern new_engine() -> Engine;
 private extern get_renderer_from_engine(engine: &Engine) -> &Renderer;
 private extern get_object_storage_from_engine(engine: &Engine) -> &ObjectStorage;
