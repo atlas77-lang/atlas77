@@ -1474,79 +1474,15 @@ impl<'ast> Parser<'ast> {
 #[cfg(test)]
 mod tests {
     use bumpalo::Bump;
-    use miette::Result;
+    use miette::{ErrReport, Result};
 
     use super::*;
     use crate::atlas_c::atlas_frontend::lexer::AtlasLexer;
 
     #[test]
     fn test_parse_struct() -> Result<()> {
-        let input = r#"
-import "std/io"
-
-public struct Vector<T> {
-    private:
-        data: [T];
-    public:
-        length: uint64;
-        capacity: uint64;
-
-    Vector(data: [T]) {
-        this.length = len(data);
-        this.capacity = self.length;
-        this.data = data;
-    }
-    ~Vector() {
-        this.data = 0;
-        this.length = 0;
-        delete this.data;
-    }
-
-    /// A function that doesn't have a "self" parameter is a static function
-    /// static functions are called like this: "Vector::<T>::function_name()"
-    fun with_capacity(capacity: uint64) -> Vector<T> {
-        return new Vector<T>(new [T; capacity]);
-    }
-
-    /// A function that has a "self" parameter is a method of the struct
-    /// and is called like this: "vector_instance.function_name()"
-    fun push(this, val: T) {
-        if this.capacity <= self.length {
-            let new_capacity = this.capacity * 2;
-
-            let new_data = new [T; new_capacity];
-            let i = 0;
-            while i < this.length {
-                new_data[i] = this.data[i];
-                i = i + 1;
-            }
-            let data_to_delete = this.data;
-            this.data = new_data;
-            this.capacity = new_capacity;
-
-            delete data_to_delete;
-        }
-        this.data[self.length] = val;
-        this.length = this.length + 1;
-    }
-
-    fun pop(this) -> T {
-        if this.length == 0 {
-            std::panic("Cannot pop from an empty vector");
-        }
-        this.length = this.length - 1;
-        return this.data[this.length];
-    }
-}
-fun main() {
-    let vec = new Vector<int64>([1, 2, 3, 4, 5]);
-    vec.push(6);
-    let val = vec.pop();
-    print("Popped value: " + val);
-}
-"#
-            .to_string();
-        let mut lexer = AtlasLexer::new("<stdin>".into(), input.clone());
+        let input = get_file_content("examples/test.atlas").unwrap();
+        let mut lexer = AtlasLexer::new("examples/test.atlas".into(), input.clone());
         //lexer.set_source(input.to_string());
         let tokens = match lexer.tokenize() {
             Ok(tokens) => tokens,
@@ -1558,66 +1494,13 @@ fun main() {
         let result = parser.parse();
         match result {
             Ok(program) => {
-                for item in program.items.iter() {
-                    match item {
-                        AstItem::Struct(s) => {
-                            println!(
-                                "struct {} ({:?}) {{\n {:?} \n}}\n",
-                                s.name.name,
-                                s.fields
-                                    .iter()
-                                    .map(|f| format!("{}: {:?}", f.name.name, f.ty))
-                                    .collect::<String>(),
-                                s.methods
-                                    .iter()
-                                    .map(|m| format!(
-                                        "fun {}({:?}): {:?}",
-                                        m.name.name,
-                                        m.args
-                                            .iter()
-                                            .map(|func| format!(
-                                                "{:?}: {:?}",
-                                                func.name.name, func.ty
-                                            ))
-                                            .collect::<String>(),
-                                        m.ret
-                                    ))
-                                    .collect::<String>()
-                            );
-                        }
-                        AstItem::Import(i) => {
-                            println!("Import {:?} as {:?}\n", i.path, i.alias);
-                        }
-                        AstItem::ExternFunction(e) => {
-                            println!(
-                                "extern {:?} ({:?}) -> {:?}\n",
-                                e.name.name,
-                                e.args_name
-                                    .iter()
-                                    .zip(e.args_ty.iter())
-                                    .map(|(name, ty)| format!("{:?}: {:?}", name, ty))
-                                    .collect::<String>(),
-                                e.ret_ty
-                            );
-                        }
-                        AstItem::Function(f) => {
-                            println!(
-                                "func {:?} ({:?}) -> {:?}\n {{\n {:?} \n}}\n",
-                                f.name.name,
-                                f.args
-                                    .iter()
-                                    .map(|a| format!("{:?}", a))
-                                    .collect::<String>(),
-                                f.ret,
-                                f.body
-                            );
-                        }
-                        _ => {}
-                    }
-                }
+                println!("Parsed program: {:?}", program);
                 Ok(())
             }
-            Err(e) => Err(e.into()),
+            Err(e) => {
+                let report: ErrReport = e.into();
+                panic!("Parsing error: {:?}", report);
+            }
         }
     }
 }
