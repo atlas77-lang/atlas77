@@ -11,8 +11,8 @@ use clap::{command, Parser};
     bin_name = "atlas_77",
     author = "atlas77-lang",
     version("v0.6.0-dev Bastion"),
-    about = "Programming language made in Rust",
-    long_about = "Atlas77 is a programming language made in Rust. It is a statically typed language with a focus on being a goofy cousin to C++ and useful for me (Gipson62) at least."
+    about = "Programming language made in Rust, a goofy cousin to C++. \nNB: The language is still in early development and is not stable yet, BEWARE.",
+    long_about = "Atlas77 is a programming language made in Rust. It is a statically typed language with a focus on being a goofy cousin to C++ and useful for me (Gipson62) at least. \n\nNB: The language is still in early development and is not stable yet, BEWARE."
 )]
 enum AtlasRuntimeCLI {
     #[command(
@@ -22,10 +22,16 @@ enum AtlasRuntimeCLI {
     Run {
         file_path: Option<String>,
         #[arg(short = 'r', long)]
+        /// Build then run in release mode
         release: bool,
         #[arg(short = 'd', long)]
+        /// Build then run in debug mode
         debug: bool,
         #[arg(long)]
+        /// Do not include the standard library
+        /// As of now, it just means the Runtime won't load all the extern functions from the standard library
+        ///
+        /// BEWARE: It is not stable yet, so using this flag may lead to unexpected behavior
         no_standard_lib: bool,
     },
     #[command(
@@ -35,10 +41,16 @@ enum AtlasRuntimeCLI {
     Build {
         file_path: Option<String>,
         #[arg(short = 'r', long)]
+        /// Build in release mode
         release: bool,
         #[arg(short = 'd', long)]
+        /// Build in debug mode
         debug: bool,
         #[arg(long)]
+        /// Do not include the standard library
+        /// As of now, it just means the Runtime won't load all the extern functions from the standard library
+        ///
+        /// BEWARE: It is not stable yet, so using this flag may lead to unexpected behavior
         no_standard_lib: bool,
     },
     #[command(
