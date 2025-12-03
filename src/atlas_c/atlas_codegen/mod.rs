@@ -5,17 +5,17 @@ mod table;
 
 use crate::atlas_c::atlas_codegen::table::Table;
 use crate::atlas_c::atlas_hir;
-use crate::atlas_c::atlas_hir::error::HirError;
+use crate::atlas_c::atlas_hir::error::{HirError, NoReturnInFunctionError};
 use crate::atlas_c::atlas_hir::expr::HirUnaryOp;
 use crate::atlas_c::atlas_hir::item::HirStruct;
 use crate::atlas_c::atlas_hir::signature::{ConstantValue, HirStructMethodModifier};
 use crate::atlas_c::atlas_hir::{
-    HirModule,
     error::{HirResult, UnsupportedExpr, UnsupportedStatement},
     expr::HirExpr,
     signature::HirFunctionParameterSignature,
     stmt::{HirBlock, HirStatement},
     ty::HirTy,
+    HirModule,
 };
 use crate::atlas_vm::instruction::{
     ImportedLibrary, Instruction, Label, ProgramDescriptor, StructDescriptor, Type,
@@ -82,6 +82,11 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             self.generate_bytecode_block(&function.body, &mut bytecode, self.src.clone())?;
             //There is no need to reserve space for local variables if there is none
             if self.local_variables.len() > 0 {
+                eprintln!(
+                    "Function {} has {} local variables",
+                    func_name,
+                    self.local_variables.len()
+                );
                 bytecode.insert(
                     0,
                     Instruction::LocalSpace {
@@ -92,6 +97,27 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
 
             if func_name == "main" {
                 bytecode.push(Instruction::Halt);
+            } else if let HirTy::Unit(_) = function.signature.return_ty {
+                let last_instruction = &bytecode[bytecode.len() - 1];
+                match last_instruction {
+                    Instruction::Return => {}
+                    _ => bytecode.push(Instruction::Return),
+                }
+            } else {
+                let last_instruction = &bytecode[bytecode.len() - 1];
+                let path = function.span.path;
+                let src = crate::atlas_c::utils::get_file_content(path).unwrap();
+                match last_instruction {
+                    Instruction::Return => {}
+                    _ => return Err(HirError::NoReturnInFunction(NoReturnInFunctionError {
+                        span: SourceSpan::new(
+                            SourceOffset::from(function.span.start),
+                            function.span.end - function.span.start,
+                        ),
+                        func_name: func_name.to_string(),
+                        src: NamedSource::new(path, src),
+                    })),
+                }
             }
 
             let len = bytecode.len();
@@ -148,7 +174,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             let mut bytecode = Vec::new();
             let params = method.signature.params.clone();
             if method.signature.modifier != HirStructMethodModifier::Static {
-                self.local_variables.insert("self");
+                self.local_variables.insert("this");
                 bytecode.push(Instruction::LoadArg { index: 0 });
                 self.generate_bytecode_args(params, &mut bytecode, 1)?;
             } else {
@@ -156,12 +182,39 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
             self.generate_bytecode_block(&method.body, &mut bytecode, src.clone())?;
 
-            bytecode.insert(
-                0,
-                Instruction::LocalSpace {
-                    nb_vars: self.local_variables.len() as u8,
-                },
-            );
+            //There is no need to reserve space for local variables if there is none
+            if self.local_variables.len() > 0 {
+                bytecode.insert(
+                    0,
+                    Instruction::LocalSpace {
+                        nb_vars: self.local_variables.len() as u8,
+                    },
+                );
+            }
+
+            if let HirTy::Unit(_) = method.signature.return_ty {
+                let last_instruction = &bytecode[bytecode.len() - 1];
+                match last_instruction {
+                    Instruction::Return => {}
+                    _ => bytecode.push(Instruction::Return),
+                }
+            } else {
+                let last_instruction = &bytecode[bytecode.len() - 1];
+                let path = method.span.path;
+                let src = crate::atlas_c::utils::get_file_content(path).unwrap();
+                match last_instruction {
+                    Instruction::Return => {}
+                    _ => return Err(HirError::NoReturnInFunction(NoReturnInFunctionError {
+                        span: SourceSpan::new(
+                            SourceOffset::from(method.span.start),
+                            method.span.end - method.span.start,
+                        ),
+                        func_name: method.name.to_string(),
+                        src: NamedSource::new(path, src),
+                    })),
+                }
+            }
+
 
             let len = bytecode.len();
             let method_name = self.arena.alloc(
@@ -496,7 +549,6 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         if func.is_external {
                             bytecode.push(Instruction::ExternCall {
                                 func_name: i.name.to_string(),
-                                nb_args: f.args.len() as u8,
                             });
                         } else {
                             bytecode.push(Instruction::Call {
@@ -582,7 +634,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 self.local_variables.get_index(i.name).unwrap(),
             )),
             HirExpr::ThisLiteral(_) => bytecode.push(Instruction::LoadVar(
-                self.local_variables.get_index("self").unwrap(),
+                self.local_variables.get_index("this").unwrap(),
             )),
             HirExpr::FieldAccess(field_access) => {
                 self.generate_bytecode_expr(field_access.target.as_ref(), bytecode, src.clone())?;

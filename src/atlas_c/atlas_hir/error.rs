@@ -1,8 +1,10 @@
+use crate::atlas_c::utils::Span;
 use crate::declare_error_type;
 use miette::{Diagnostic, NamedSource, SourceSpan};
 use std::fmt;
 use std::fmt::Formatter;
 use thiserror::Error;
+
 //todo: Implement my own error type, because miette doesn't let me return just warnings
 declare_error_type! {
     #[error("semantic error: {0}")]
@@ -31,11 +33,26 @@ declare_error_type! {
         InvalidReadOnlyType(InvalidReadOnlyTypeError),
         CannotDeletePrimitiveType(CannotDeletePrimitiveTypeError),
         StructNameCannotBeOneLetter(StructNameCannotBeOneLetterError),
+        NoReturnInFunction(NoReturnInFunctionError),
     }
 }
 
 /// Handy type alias for all HIR-related errors.
 pub type HirResult<T> = Result<T, HirError>;
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::no_return_in_function),
+    help("Add a return statement at the end of the function")
+)]
+#[error("a function that is not of type `unit` must end with a return statement")]
+pub struct NoReturnInFunctionError {
+    #[label("function {func_name} requires a return statement")]
+    pub span: SourceSpan,
+    #[source_code]
+    pub src: NamedSource<String>,
+    pub func_name: String,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::struct_name_cannot_be_one_letter))]
@@ -127,6 +144,10 @@ pub struct UnknownFileImportError {
 #[error(
     "not enough generics provided {ty_name} requires {expected} generics, but only {found} were provided"
 )]
+///TODO: Find a way to use 2 #[source_code] for both spans (declaration and error).
+/// Because they could be in different files.
+///
+/// Maybe I could do something like having a Vec<NamedSource> and then have a mapping from span to source?
 pub struct NotEnoughGenericsError {
     pub ty_name: String,
     pub expected: usize,
@@ -297,22 +318,33 @@ pub struct ContinueOutsideLoopError {
 }
 
 #[derive(Error, Diagnostic, Debug)]
-#[diagnostic(code(sema::type_mismatch))]
-#[error("type mismatch: expected {expected_type}, found {actual_type}")]
+#[diagnostic(code(sema::type_mismatch), help("ensure that both types are the same"))]
+#[error("type mismatch error, found `{}` but expected `{expected_ty}`", actual.actual_ty)]
 pub struct TypeMismatchError {
-    pub actual_type: String,
-    pub expected_type: String,
-    #[label = "the expression has type {actual_type}"]
-    pub actual_loc: SourceSpan,
-    #[label = "expected type {expected_type}"]
-    pub expected_loc: SourceSpan,
+    #[label("expected {expected_ty}")]
+    pub span: Span,
+    pub expected_ty: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[source]
+    #[diagnostic_source]
+    pub actual: TypeMismatchActual,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic()]
+#[error("")]
+pub struct TypeMismatchActual {
+    pub actual_ty: String,
+    #[label = "found {actual_ty}"]
+    pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::function_type_mismatch))]
-#[error("function types do not take the same number of arguments")]
+#[error("function type mismatch: expected {expected_ty}")]
 pub struct FunctionTypeMismatchError {
     pub expected_ty: String,
     #[label = "the function has type {expected_ty}"]

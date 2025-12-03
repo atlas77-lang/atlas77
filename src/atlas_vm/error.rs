@@ -15,6 +15,10 @@ pub enum RuntimeError {
     InvalidOperation,
     TypeMismatchError,
     EntryPointNotFound(String),
+    ExternFunctionNotFound(String),
+    InvalidConstantPoolPointer(usize),
+    HaltEncountered,
+    OutOfBoundProgram(usize),
 }
 
 impl std::fmt::Display for RuntimeError {
@@ -33,6 +37,14 @@ impl std::fmt::Display for RuntimeError {
             EntryPointNotFound(entry_point) => {
                 writeln!(f, "Entry point {} not found", entry_point)
             }
+            ExternFunctionNotFound(func_name) => {
+                writeln!(f, "Extern function {} not found", func_name)
+            }
+            InvalidConstantPoolPointer(ptr) => {
+                writeln!(f, "Invalid constant pool pointer: {}", ptr)
+            }
+            HaltEncountered => writeln!(f, "Halt instruction encountered"),
+            OutOfBoundProgram(pos) => writeln!(f, "Program counter out of bounds: {}", pos),
         }
     }
 }

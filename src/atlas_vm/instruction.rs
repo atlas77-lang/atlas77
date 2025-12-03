@@ -59,7 +59,6 @@ pub enum Instruction {
     ///This is completely temporary, the VM is still under heavy overhaul
     ExternCall {
         func_name: String,
-        nb_args: u8,
     },
     // Call function:
     // - `func_id` is an index into the constant pool
@@ -126,9 +125,8 @@ impl Display for Instruction {
             }
             Instruction::ExternCall {
                 func_name: func_id,
-                nb_args,
             } => {
-                write!(f, "ExternCall {} {}", func_id, nb_args)
+                write!(f, "ExternCall {}", func_id)
             }
             Instruction::LoadArg { index } => write!(f, "LoadArg {}", index),
             Instruction::Return => write!(f, "Return"),

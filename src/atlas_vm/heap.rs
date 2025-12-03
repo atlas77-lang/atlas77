@@ -4,13 +4,15 @@ use crate::atlas_vm::vm_data::VMTag;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 
-pub struct Heap<'heap> {
-    memory: Vec<Object<'heap>>,
+pub const HEAP_DEFAULT_SIZE: usize = 2056; //In number of objects
+
+pub struct Heap {
+    memory: Vec<Object>,
     pub free: ObjectIndex,
     pub used_space: usize,
 }
 
-impl<'mem> Heap<'mem> {
+impl Heap {
     pub fn new(space: usize) -> Self {
         Self {
             free: ObjectIndex::new(0),
@@ -33,7 +35,7 @@ impl<'mem> Heap<'mem> {
         }
     }
 
-    pub fn put(&mut self, object: ObjectKind<'mem>) -> Result<ObjectIndex, RuntimeError> {
+    pub fn put(&mut self, object: ObjectKind) -> Result<ObjectIndex, RuntimeError> {
         let idx = self.free;
         let v = self.memory.get_mut(usize::from(self.free)).unwrap();
         let repl = std::mem::replace(
@@ -61,10 +63,9 @@ impl<'mem> Heap<'mem> {
         let v = &self.memory.get_mut(usize::from(index)).unwrap().kind;
         println!("Freeing: {}", v);
         let mut obj_to_dec = vec![];
-        //todo: Support classes
         match v {
-            ObjectKind::Structure(Structure { fields, .. }) => {
-                for field in fields.ptr.iter() {
+            ObjectKind::Structure(Structure { fields, .. }) => unsafe {
+                for field in fields.ptr.clone().into_iter() {
                     match field.tag {
                         VMTag::Str | VMTag::List | VMTag::Object => {
                             obj_to_dec.push(field.as_object());
@@ -112,14 +113,14 @@ impl<'mem> Heap<'mem> {
     }
 
     #[inline(always)]
-    pub fn get(&mut self, index: ObjectIndex) -> RuntimeResult<ObjectKind<'mem>> {
+    pub fn get(&mut self, index: ObjectIndex) -> RuntimeResult<ObjectKind> {
         let obj = self.memory[usize::from(index)].kind.clone();
         self.rc_dec(index)?;
         Ok(obj)
     }
 
     #[inline(always)]
-    pub fn get_mut(&mut self, index: ObjectIndex) -> RuntimeResult<&mut ObjectKind<'mem>> {
+    pub fn get_mut(&mut self, index: ObjectIndex) -> RuntimeResult<&mut ObjectKind> {
         //You can decrement the rc here, because if it reaches 0 and still need to return a mutable reference...
         self.rc_dec(index)?;
         let kind = &mut self.memory[usize::from(index)].kind;
@@ -142,17 +143,17 @@ impl<'mem> Heap<'mem> {
     }
 
     #[inline(always)]
-    pub fn raw(&self) -> &[Object<'mem>] {
+    pub fn raw(&self) -> &[Object] {
         &self.memory
     }
 
     #[inline(always)]
-    pub fn raw_mut(&mut self) -> &mut [Object<'mem>] {
+    pub fn raw_mut(&mut self) -> &mut [Object] {
         &mut self.memory
     }
 }
 
-impl Display for Heap<'_> {
+impl Display for Heap {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         for (i, obj) in self.memory.iter().enumerate() {
             if let Object {

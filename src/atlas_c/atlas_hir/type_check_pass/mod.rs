@@ -1,20 +1,15 @@
 mod context;
 
 use super::{
-    HirFunction, HirModule, HirModuleSignature,
-    arena::HirArena,
-    error::{FunctionTypeMismatchError, HirError, HirResult, TypeMismatchError, UnknownTypeError},
-    expr,
+    arena::HirArena, error::{FunctionTypeMismatchError, HirError, HirResult, TypeMismatchError, UnknownTypeError}, expr,
     expr::{HirBinaryOp, HirExpr},
     stmt::HirStatement,
     ty::{HirTy, HirTyId},
+    HirFunction,
+    HirModule,
+    HirModuleSignature,
 };
-use crate::atlas_c::atlas_hir::error::{
-    AccessingClassFieldOutsideClassError, AccessingPrivateConstructorError,
-    AccessingPrivateFieldError, CanOnlyConstructStructsError, CannotDeletePrimitiveTypeError,
-    ConstTyToNonConstTyError, EmptyListLiteralError, FieldKind, TryingToIndexNonIndexableTypeError,
-    UnsupportedExpr,
-};
+use crate::atlas_c::atlas_hir::error::{AccessingClassFieldOutsideClassError, AccessingPrivateConstructorError, AccessingPrivateFieldError, CanOnlyConstructStructsError, CannotDeletePrimitiveTypeError, ConstTyToNonConstTyError, EmptyListLiteralError, FieldKind, TryingToIndexNonIndexableTypeError, TypeMismatchActual, UnsupportedExpr};
 use crate::atlas_c::atlas_hir::expr::{HirFunctionCallExpr, HirIdentExpr};
 use crate::atlas_c::atlas_hir::item::{HirStruct, HirStructMethod};
 use crate::atlas_c::atlas_hir::monomorphization_pass::MonomorphizationPass;
@@ -1144,21 +1139,23 @@ impl<'hir> TypeChecker<'hir> {
         expected_type: &str,
         expected_loc: &Span,
     ) -> HirError {
-        let path = actual_loc.path;
-        let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
-        HirError::TypeMismatch(TypeMismatchError {
-            actual_type: actual_type.to_string(),
-            actual_loc: SourceSpan::new(
-                SourceOffset::from(actual_loc.start),
-                actual_loc.end - actual_loc.start,
-            ),
-            expected_type: expected_type.to_string(),
-            expected_loc: SourceSpan::new(
-                SourceOffset::from(expected_loc.start),
-                expected_loc.end - expected_loc.start,
-            ),
-            src: NamedSource::new(path, src),
-        })
+        let actual_path = actual_loc.path;
+        let actual_src = crate::atlas_c::utils::get_file_content(&actual_path).unwrap();
+        let actual_err = TypeMismatchActual {
+            actual_ty: actual_type.to_string(),
+            span: actual_loc.clone(),
+            src: NamedSource::new(actual_path, actual_src),
+        };
+
+        let expected_path = expected_loc.path;
+        let expected_src = crate::atlas_c::utils::get_file_content(&expected_path).unwrap();
+        let expected_err = TypeMismatchError {
+            expected_ty: expected_type.to_string(),
+            span: expected_loc.clone(),
+            src: NamedSource::new(expected_path, expected_src),
+            actual: actual_err,
+        };
+        HirError::TypeMismatch(expected_err)
     }
 
     #[inline(always)]
@@ -1191,7 +1188,7 @@ impl<'hir> TypeChecker<'hir> {
                 span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
                 src: NamedSource::new(path, src),
             })
-            .into();
+                .into();
         eprintln!("{:?}", warning);
     }
 }

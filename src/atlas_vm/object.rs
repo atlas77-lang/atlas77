@@ -1,7 +1,7 @@
 use crate::atlas_vm::vm_data::VMData;
 use std::borrow::Borrow;
 use std::fmt;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::ops::{Index, IndexMut};
 
 pub type ObjectDescriptorId = u64;
@@ -30,13 +30,13 @@ impl Display for ObjectIndex {
 }
 
 #[derive(Debug, Clone)]
-pub enum ObjectKind<'heap> {
+pub enum ObjectKind {
     String(String),
-    Structure(Structure<'heap>),
+    Structure(Structure),
     List(Vec<VMData>),
     Free { next: ObjectIndex },
 }
-impl Default for ObjectKind<'_> {
+impl Default for ObjectKind {
     fn default() -> Self {
         ObjectKind::Free {
             next: ObjectIndex::default(),
@@ -44,7 +44,7 @@ impl Default for ObjectKind<'_> {
     }
 }
 
-impl Display for ObjectKind<'_> {
+impl Display for ObjectKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             ObjectKind::String(s) => write!(f, "`String`: \"{}\"", s),
@@ -55,8 +55,8 @@ impl Display for ObjectKind<'_> {
     }
 }
 
-impl<'mem> ObjectKind<'mem> {
-    pub fn new(data: impl Into<ObjectKind<'mem>>) -> Self {
+impl ObjectKind {
+    pub fn new(data: impl Into<ObjectKind>) -> Self {
         data.into()
     }
 
@@ -74,14 +74,14 @@ impl<'mem> ObjectKind<'mem> {
         }
     }
 
-    pub fn structure(&self) -> &Structure<'mem> {
+    pub fn structure(&self) -> &Structure {
         match &self {
             ObjectKind::Structure(s) => s,
             _ => unreachable!("Expected a structure, got a {:?}", self),
         }
     }
 
-    pub fn structure_mut(&mut self) -> &mut Structure<'mem> {
+    pub fn structure_mut(&mut self) -> &mut Structure {
         match self {
             ObjectKind::Structure(s) => s,
             _ => unreachable!("Expected a structure, got a {:?}", self),
@@ -104,51 +104,71 @@ impl<'mem> ObjectKind<'mem> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Object<'heap> {
-    pub kind: ObjectKind<'heap>,
+pub struct Object {
+    pub kind: ObjectKind,
     pub rc: usize,
 }
 
-impl<'heap> Borrow<ObjectKind<'heap>> for Object<'heap> {
-    fn borrow(&self) -> &ObjectKind<'heap> {
+impl Borrow<ObjectKind> for Object {
+    fn borrow(&self) -> &ObjectKind {
         &self.kind
     }
 }
 
-impl Display for Object<'_> {
+impl Display for Object {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{} (rc: {})", self.kind, self.rc)
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct Structure<'heap> {
-    pub fields: RawStructure<'heap>,
+pub struct Structure {
+    pub fields: RawStructure,
     pub struct_descriptor: usize,
 }
 
 #[repr(C)]
-#[derive(Debug)]
-pub(crate) struct RawStructure<'heap> {
-    pub ptr: &'heap mut [VMData],
+pub struct RawStructure {
+    //Temporary workaround for raw pointer issues
+    pub ptr: Vec<VMData>,
+    pub len: usize,
 }
 
-impl<'mem> Clone for RawStructure<'mem> {
+impl Clone for RawStructure {
+    //TODO: Deep clone
     fn clone(&self) -> Self {
-        let ptr = Box::leak(Box::new(self.ptr.to_vec())).as_mut_slice();
-        RawStructure { ptr }
-    }
-}
-
-impl<'mem> Structure<'mem> {
-    pub fn new(struct_descriptor: usize, fields: &'mem mut [VMData]) -> Self {
         Self {
-            struct_descriptor,
-            fields: RawStructure { ptr: fields },
+            ptr: self.ptr.clone(),
+            len: self.len,
         }
     }
 }
-impl<'mem> Index<usize> for Structure<'mem> {
+
+impl Debug for RawStructure {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        unsafe {
+            f.debug_list().entries(self.ptr.clone().into_iter()).finish()
+        }
+    }
+}
+/*
+impl RawStructure {
+    pub unsafe fn as_slice(&self) -> &mut [VMData] {
+        unsafe {
+            std::slice::from_raw_parts_mut(self.ptr, self.len)
+        }
+    }
+}*/
+
+impl Structure {
+    pub fn new(struct_descriptor: usize, fields: Vec<VMData>, len: usize) -> Self {
+        Self {
+            struct_descriptor,
+            fields: RawStructure { ptr: fields, len },
+        }
+    }
+}
+impl Index<usize> for Structure {
     type Output = VMData;
 
     fn index(&self, index: usize) -> &Self::Output {
@@ -156,22 +176,22 @@ impl<'mem> Index<usize> for Structure<'mem> {
     }
 }
 
-impl IndexMut<usize> for Structure<'_> {
+impl IndexMut<usize> for Structure {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.fields[index]
     }
 }
 
-impl<'mem> Index<usize> for RawStructure<'mem> {
+impl Index<usize> for RawStructure {
     type Output = VMData;
 
     fn index(&self, index: usize) -> &Self::Output {
-        &self.ptr[index]
+        unsafe { &self.ptr[index] }
     }
 }
 
-impl<'mem> IndexMut<usize> for RawStructure<'mem> {
+impl IndexMut<usize> for RawStructure {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.ptr[index]
+        unsafe { &mut self.ptr[index] }
     }
 }
