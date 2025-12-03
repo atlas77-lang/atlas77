@@ -34,11 +34,38 @@ declare_error_type! {
         CannotDeletePrimitiveType(CannotDeletePrimitiveTypeError),
         StructNameCannotBeOneLetter(StructNameCannotBeOneLetterError),
         NoReturnInFunction(NoReturnInFunctionError),
+        AccessingPrivateStruct(AccessingPrivateStructError),
     }
 }
 
 /// Handy type alias for all HIR-related errors.
 pub type HirResult<T> = Result<T, HirError>;
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::trying_to_access_private_struct),
+    help("Mark {name} the struct as public")
+)]
+#[error("{name} is marked as private, so you cannot instantiate it outside of its file.")]
+pub struct AccessingPrivateStructError {
+    pub name: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label = "trying to instantiate a private struct"]
+    pub span: Span,
+    #[source]
+    #[diagnostic_source]
+    pub origin: AccessingPrivateStructOrigin
+}
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic()]
+#[error("")]
+pub struct AccessingPrivateStructOrigin {
+    #[label = "You marked it as private"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(

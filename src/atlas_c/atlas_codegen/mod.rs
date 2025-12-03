@@ -2,6 +2,7 @@
 pub mod arena;
 mod program;
 mod table;
+pub mod instruction;
 
 use crate::atlas_c::atlas_codegen::table::Table;
 use crate::atlas_c::atlas_hir;
@@ -17,13 +18,11 @@ use crate::atlas_c::atlas_hir::{
     ty::HirTy,
     HirModule,
 };
-use crate::atlas_vm::instruction::{
-    ImportedLibrary, Instruction, Label, ProgramDescriptor, StructDescriptor, Type,
-};
 use arena::CodeGenArena;
 use miette::{NamedSource, SourceOffset, SourceSpan};
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
+use crate::atlas_c::atlas_codegen::instruction::{ImportedLibrary, Instruction, Label, ProgramDescriptor, StructDescriptor, Type};
 
 /// Result of codegen
 pub type CodegenResult<T> = Result<T, HirError>;
@@ -155,11 +154,15 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             .iter()
             .map(|l| ImportedLibrary {
                 name: l.path.to_string(),
-                is_std: true,
+                is_std: Self::is_std(l.path),
             })
             .collect::<Vec<_>>();
         self.program.libraries = libraries;
         Ok(self.program.clone())
+    }
+    
+    fn is_std(path: &str) -> bool {
+        path.starts_with("std") 
     }
 
     fn generate_bytecode_struct(

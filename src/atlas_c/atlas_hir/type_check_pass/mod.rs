@@ -9,7 +9,7 @@ use super::{
     HirModule,
     HirModuleSignature,
 };
-use crate::atlas_c::atlas_hir::error::{AccessingClassFieldOutsideClassError, AccessingPrivateConstructorError, AccessingPrivateFieldError, CanOnlyConstructStructsError, CannotDeletePrimitiveTypeError, ConstTyToNonConstTyError, EmptyListLiteralError, FieldKind, TryingToIndexNonIndexableTypeError, TypeMismatchActual, UnsupportedExpr};
+use crate::atlas_c::atlas_hir::error::{AccessingClassFieldOutsideClassError, AccessingPrivateConstructorError, AccessingPrivateFieldError, AccessingPrivateStructError, AccessingPrivateStructOrigin, CanOnlyConstructStructsError, CannotDeletePrimitiveTypeError, ConstTyToNonConstTyError, EmptyListLiteralError, FieldKind, TryingToIndexNonIndexableTypeError, TypeMismatchActual, UnsupportedExpr};
 use crate::atlas_c::atlas_hir::expr::{HirFunctionCallExpr, HirIdentExpr};
 use crate::atlas_c::atlas_hir::item::{HirStruct, HirStructMethod};
 use crate::atlas_c::atlas_hir::monomorphization_pass::MonomorphizationPass;
@@ -555,6 +555,23 @@ impl<'hir> TypeChecker<'hir> {
                         },
                     ));
                 };
+                if struct_signature.name_span.path != obj.span.path
+                    && struct_signature.vis != HirVisibility::Public
+                {
+                    let origin_path = struct_signature.name_span.path;
+                    let origin_src = crate::atlas_c::utils::get_file_content(&origin_path).unwrap();
+                    let obj_path = obj.span.path;
+                    let obj_src = crate::atlas_c::utils::get_file_content(&obj_path).unwrap();
+                    return Err(HirError::AccessingPrivateStruct(AccessingPrivateStructError {
+                        name: struct_ty.name.to_owned(),
+                        span: obj.span.clone(),
+                        src: NamedSource::new(obj_path, obj_src),
+                        origin: AccessingPrivateStructOrigin {
+                            span: struct_signature.name_span.clone(),
+                            src: NamedSource::new(origin_path, origin_src),
+                        }
+                    }))
+                }
                 if struct_signature.constructor.vis != HirVisibility::Public
                     && self.current_class_name != Some(struct_ty.name)
                 {

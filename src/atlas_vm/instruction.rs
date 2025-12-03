@@ -1,245 +1,164 @@
-use crate::atlas_c::atlas_hir::signature::ConstantValue;
-use std::collections::{BTreeMap, HashMap};
-use std::fmt::{Display, Formatter};
-use std::ops::Index;
-
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-///TODO: Those instructions should be lowered to an asm-ish set later on.
-///
-/// Something akin to a ``[u32; N]`` representation
-pub enum Instruction {
+#[repr(u8)]
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+//Todo: ensure variants to always be the same value e.g. LoadConst = 1
+pub enum OpCode {
     // === Literals & constants ===
-    LoadConst(ConstantValue), // Load constant from constant pool
+    /// Args: [constant_pool_idx: 24bits]
+    LoadConst,
 
     // === Stack manipulation ===
-    Pop,  // Discard top of stack
-    Dup,  // Duplicate top value
-    Swap, // Swap top two values
+    ///No Args
+    Pop,
+    ///No Args
+    Dup,
+    ///No Args
+    Swap,
 
     // === Variables ===
-    StoreVar(usize), // Store TOS in local slot
-    LoadVar(usize),  // Load local slot onto TOS
+    /// Args: [local_slot_idx: 24bits]
+    StoreVar,
+    /// Args: [local_slot_idx: 24bits]
+    LoadVar,
 
     // === Collections & indexing ===
-    IndexLoad,  // [ContainerPtr, Index] -> [Value]
-    IndexStore, // [ContainerPtr, Index, Value] -> []
-
-    NewList, // [Size] -> [ListPtr]
+    /// No Args
+    IndexLoad,
+    /// No Args
+    IndexStore,
+    /// No Args
+    NewList,
 
     // === Arithmetic & comparisons ===
+    //NB: It is not possible for obj to use one of these OpCode
+    //Even if they have implemented one of the operator.
+    //Why? Because at compile time, those `obj1+obj2` becomes `add(obj1, obj2)`
+    //The type in those instructions can only be one of those:
+    //int8, int16, int32, int64, uint8, uint16, uint32, uint64, float32, float64, char
+    /// Args: [type: 24bits]
     Add,
+    /// Args: [type: 24bits]
     Sub,
+    /// Args: [type: 24bits]
     Mul,
+    /// Args: [type: 24bits]
     Div,
+    /// Args: [type: 24bits]
     Mod,
+    /// Args: [type: 24bits]
     Eq,
+    /// Args: [type: 24bits]
     Neq,
+    /// Args: [type: 24bits]
     Gt,
+    /// Args: [type: 24bits]
     Gte,
+    /// Args: [type: 24bits]
     Lt,
+    /// Args: [type: 24bits]
     Lte,
 
     // === Control flow ===
-    Jmp {
-        pos: isize,
-    }, // Relative unconditional jump
-    JmpZ {
-        pos: isize,
-    }, // Jump if TOS == false/0
+    /// Args: [where_to: 24bits]
+    Jmp,
+    /// Args: [where_to: 24bits]
+    JmpZ,
 
     // === Functions ===
-    LocalSpace {
-        nb_vars: u8,
-    }, // Reserve local slots
-    Call {
-        func_name: String,
-        nb_args: u8,
-    },
-    ///TODO: Extern calls should be handled differently.
-    ///This is completely temporary, the VM is still under heavy overhaul
-    ExternCall {
-        func_name: String,
-    },
-    // Call function:
-    // - `func_id` is an index into the constant pool
-    // - The **first bit** of `func_id` defines the call type:
-    //    * 0 → Local function call (resolved to a function defined in this module)
-    //    * 1 → Extern function call (resolved via FFI / host environment)
-    // - Remaining bits encode the actual function index
-    // - `nb_args` is the number of arguments to pop from the stack and pass to the function
-    // Stack effect: [arg1, arg2, ..., argN] -> [return_value]
-    LoadArg {
-        index: u8,
-    }, // Load function argument
-    Return, // Return from function
+    /// Args: [local_space_size: 24bits]
+    LocalSpace,
+    //TODO: Maybe call should go look up into a table to get those data.
+    // Because a 16bits wide `where_to` might be too small
+    /// Args: [[nb_args: 8bits][where_to: 16bits]]
+    Call,
+    /// Args: [func_name_idx: 24bits]
+    ExternCall,
+    /// Args: [arg_idx: 24bits]
+    LoadArg,
+    /// No Args
+    Return,
 
     // === Objects ===
-    NewObj {
-        obj_descriptor: usize,
-    }, // Create object
-    GetField {
-        field: usize,
-    }, // [ObjPtr] -> [Value]
-    SetField {
-        field: usize,
-    }, // [ObjPtr, Value] -> []
+    /// Args: [obj_descriptor_id: 24bits]
+    NewObj,
+    /// Args: [obj_field_idx: 24bits]
+    GetField,
+    /// Args: [obj_field_idx: 24bits]
+    SetField,
 
     // === Type ops ===
-    CastTo(Type), // Explicit type coercion (if kept)
+    //Similar than the arithmetic operation,
+    // this is reserved for the primitive types
+    /// Args: [type: 24bits]
+    CastTo,
 
     // === Misc ===
-    Halt, // Stop execution
+    /// No Args
+    Halt,
+    /// No Args
+    NoOp,
 }
 
-impl Display for Instruction {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Instruction::LoadConst(c) => write!(f, "LoadConst {}", c),
-            Instruction::Pop => write!(f, "Pop"),
-            Instruction::Dup => write!(f, "Dup"),
-            Instruction::Swap => write!(f, "Swap"),
-            Instruction::StoreVar(i) => write!(f, "StoreVar {}", i),
-            Instruction::LoadVar(i) => write!(f, "LoadVar {}", i),
-            Instruction::IndexLoad => write!(f, "IndexLoad"),
-            Instruction::IndexStore => write!(f, "IndexStore"),
-            Instruction::NewList => write!(f, "NewList"),
-            Instruction::Add => write!(f, "Add"),
-            Instruction::Sub => write!(f, "Sub"),
-            Instruction::Mul => write!(f, "Mul"),
-            Instruction::Div => write!(f, "Div"),
-            Instruction::Mod => write!(f, "Mod"),
-            Instruction::Eq => write!(f, "Eq"),
-            Instruction::Neq => write!(f, "Neq"),
-            Instruction::Gt => write!(f, "Gt"),
-            Instruction::Gte => write!(f, "Gte"),
-            Instruction::Lt => write!(f, "Lt"),
-            Instruction::Lte => write!(f, "Lte"),
-            Instruction::Jmp { pos } => write!(f, "Jmp {}", pos),
-            Instruction::JmpZ { pos } => write!(f, "JmpZ {}", pos),
-            Instruction::LocalSpace { nb_vars } => write!(f, "LocalSpace {}", nb_vars),
-            Instruction::Call {
-                func_name: func_id,
-                nb_args,
-            } => {
-                write!(f, "Call {} {}", func_id, nb_args)
-            }
-            Instruction::ExternCall {
-                func_name: func_id,
-            } => {
-                write!(f, "ExternCall {}", func_id)
-            }
-            Instruction::LoadArg { index } => write!(f, "LoadArg {}", index),
-            Instruction::Return => write!(f, "Return"),
-            Instruction::NewObj { obj_descriptor } => {
-                write!(f, "NewObj {}", obj_descriptor)
-            }
-            Instruction::GetField { field } => write!(f, "GetField {}", field),
-            Instruction::SetField { field } => write!(f, "SetField {}", field),
-            Instruction::CastTo(t) => write!(f, "CastTo {:?}", t),
-            Instruction::Halt => write!(f, "Halt"),
-        }
-    }
-}
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub enum Type {
-    Integer,
-    Float,
-    UnsignedInteger,
-    Boolean,
-    String,
-    Char,
+pub const SIZE_CHECK: [(); 0] = [(); 2 * 4 - size_of::<Instr>() - 4];
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct Instr {
+    pub opcode: OpCode,
+    pub arg: Arg,
 }
 
-/// Read by the VM before execution to import the related functions
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub struct ImportedLibrary {
-    pub name: String,
-    pub is_std: bool,
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct Arg {
+    bytes: [u8; 3]
 }
 
-///todo: Make the program serializable and deserializable
-/// This will allow the program to be saved and loaded from a file
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProgramDescriptor<'run> {
-    pub labels: Vec<Label<'run>>,
-    pub entry_point: String,
-    pub libraries: Vec<ImportedLibrary>,
-    //pub global: ConstantPool<'run>,
-    pub structs: &'run [StructDescriptor<'run>],
-    //todo: Change `usize` to a `FunctionDescriptor`
-    pub functions: HashMap<&'run str, usize>,
-}
-
-impl<'run> Index<usize> for ProgramDescriptor<'run> {
-    type Output = Instruction;
-
-    /// THIS SHOULD REALLY BE REPLACED BY A `[u32; N]` REPRESENTATION
-    ///
-    /// Right now we are iterating through all labels and their bodies to find the instruction at the given index.
-    fn index(&self, index: usize) -> &Self::Output {
-        let mut current_index = 0;
-        for label in &self.labels {
-            if current_index + label.body.len() > index {
-                return &label.body[index - current_index];
-            }
-            current_index += label.body.len();
-        }
-        panic!("Index out of bounds");
-    }
-}
-impl Default for ProgramDescriptor<'_> {
+impl Default for Arg {
     fn default() -> Self {
-        Self::new()
+        Arg::from_u24(0)
     }
 }
-impl ProgramDescriptor<'_> {
-    pub fn len(&self) -> usize {
-        self.labels.iter().map(|label| label.body.len()).sum()
-    }
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-    pub fn new() -> Self {
+
+impl Arg {
+    #[inline]
+    pub fn from_u24(v: u32) -> Self {
+        // mask ensures only the low 24 bits are used
+        let v = v & 0x00FF_FFFF;
         Self {
-            labels: vec![],
-            entry_point: String::new(),
-            structs: &[],
-            functions: HashMap::new(),
-            libraries: vec![],
+            bytes: [
+                (v & 0x0000_FF) as u8,
+                ((v >> 8) & 0x0000_FF) as u8,
+                ((v >> 16) & 0x0000_FF) as u8,
+            ],
         }
     }
-}
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub struct ConstantPool<'run> {
-    //todo: Vec<T> -> &'run [T]
-    pub string_pool: &'run [&'run str],
-    pub list_pool: &'run [ConstantValue],
-    pub function_pool: &'run [usize],
-}
-
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub struct StructDescriptor<'run> {
-    pub name: &'run str,
-    pub fields: Vec<&'run str>,
-    pub constants: BTreeMap<&'run str, ConstantValue>,
-}
-
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-//todo: This should be dropped cuz it's slow
-pub struct Label<'run> {
-    pub name: &'run str,
-    pub position: usize,
-    pub body: &'run [Instruction],
-}
-
-impl Display for Label<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{}:", self.name)?;
-        for (i, instr) in self.body.iter().enumerate() {
-            writeln!(f, "\t{:04} {}", i + self.position, instr)?;
-        }
-        Ok(())
+    #[inline]
+    pub fn as_u24(&self) -> u32 {
+        (self.bytes[0] as u32)
+            | ((self.bytes[1] as u32) << 8)
+            | ((self.bytes[2] as u32) << 16)
     }
+
+    pub fn get_all(&self) -> u32 {
+        (self.bytes[0] as u32) | ((self.bytes[1] as u32) << 8 | ((self.bytes[2] as u32) << 16))
+    }
+    #[inline]
+    pub fn first_16(&self) -> u16 {
+        (self.bytes[0] as u16) | ((self.bytes[1] as u16) << 8)
+    }
+
+    #[inline]
+    pub fn last_16(&self) -> u16 {
+        // bytes[1] is low, bytes[2] is high
+        (self.bytes[1] as u16) | ((self.bytes[2] as u16) << 8)
+    }
+
+    #[inline]
+    pub fn first_8(&self) -> u8 { self.bytes[0] }
+
+    #[inline]
+    pub fn middle_8(&self) -> u8 { self.bytes[1] }
+
+    #[inline]
+    pub fn last_8(&self) -> u8 { self.bytes[2] }
 }

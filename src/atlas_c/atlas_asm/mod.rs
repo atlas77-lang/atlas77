@@ -1,9 +1,10 @@
 use crate::atlas_c::atlas_asm::error::{ASMError, ASMResult, UnsupportedInstructionError};
 use crate::atlas_c::atlas_hir::signature::ConstantValue;
-use crate::atlas_vm::instruction::Instruction;
-use crate::atlas_vm::instruction::ProgramDescriptor;
+use crate::atlas_c::atlas_codegen::instruction::Instruction;
+use crate::atlas_c::atlas_codegen::instruction::ProgramDescriptor;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use crate::atlas_vm::instruction::{Arg, Instr, OpCode};
 
 pub mod asm;
 pub mod error;
@@ -27,7 +28,8 @@ pub union WipConstantValueData {
     pub char_value: char,
     /// Pointer to a string in the constant pool.
     ///
-    /// Yes the string has been leaked, but it doesn't matter as the constant pool lives as long as the program
+    /// Yes the string has been leaked, but it doesn't matter
+    /// as the constant pool lives for as long as the program
     pub string_value: &'static str,
 }
 
@@ -63,7 +65,7 @@ pub struct Assembler {
 }
 
 pub struct AsmProgram {
-    pub bytecode: Vec<u32>,
+    pub bytecode: Vec<Instr>,
     pub constant_pool: Vec<ConstantValue>,
     /// Mapping of function names to their entry point in the bytecode
     /// Useful for debugging
@@ -78,11 +80,8 @@ impl Assembler {
             asm_constant_map: AsmConstantMap::new(),
         }
     }
-    fn make_instruction(&self, byte: u8) -> u32 {
-        (byte as u32) << 24
-    }
     pub fn asm_from_instruction(&mut self, has_standard_lib: bool, source: ProgramDescriptor) -> ASMResult<AsmProgram> {
-        let mut bytecode: Vec<u32> = vec![];
+        let mut bytecode: Vec<Instr> = vec![];
         let mut i = 0;
         while i < source.len() {
             let instr = &source[i];
@@ -91,48 +90,75 @@ impl Assembler {
                     match const_value {
                         ConstantValue::String(s) => {
                             let const_index = self.asm_constant_map.get(ConstantValue::String(s.clone()));
-                            let instruction = self.make_instruction(asm::LOAD_CONST);
-                            bytecode.push(instruction | (const_index as u32));
+                            let instr = Instr {
+                                opcode: OpCode::LoadConst,
+                                arg: Arg::from_u24(const_index as u32)
+                            };
+                            bytecode.push(instr);
                         }
                         ConstantValue::Int(_) => {
                             let const_index = self.asm_constant_map.get(const_value.clone());
-                            let instruction = self.make_instruction(asm::LOAD_CONST);
-                            bytecode.push(instruction | (const_index as u32));
+                            let instr = Instr {
+                                opcode: OpCode::LoadConst,
+                                arg: Arg::from_u24(const_index as u32)
+                            };
+                            bytecode.push(instr);
                         }
                         ConstantValue::UInt(_) => {
                             let const_index = self.asm_constant_map.get(const_value.clone());
-                            let instruction = self.make_instruction(asm::LOAD_CONST);
-                            bytecode.push(instruction | (const_index as u32));
+                            let instr = Instr {
+                                opcode: OpCode::LoadConst,
+                                arg: Arg::from_u24(const_index as u32)
+                            };
+                            bytecode.push(instr);
                         }
                         ConstantValue::Float(_) => {
                             let const_index = self.asm_constant_map.get(const_value.clone());
-                            let instruction = self.make_instruction(asm::LOAD_CONST);
-                            bytecode.push(instruction | (const_index as u32));
+                            let instr = Instr {
+                                opcode: OpCode::LoadConst,
+                                arg: Arg::from_u24(const_index as u32)
+                            };
+                            bytecode.push(instr);
                         }
                         ConstantValue::Bool(_) => {
                             let const_index = self.asm_constant_map.get(const_value.clone());
-                            let instruction = self.make_instruction(asm::LOAD_CONST);
-                            bytecode.push(instruction | (const_index as u32));
+                            let instr = Instr {
+                                opcode: OpCode::LoadConst,
+                                arg: Arg::from_u24(const_index as u32)
+                            };
+                            bytecode.push(instr);
                         }
                         ConstantValue::Char(c) => {
                             let const_index = self.asm_constant_map.get(ConstantValue::Char(*c));
-                            let instruction = self.make_instruction(asm::LOAD_CONST);
-                            bytecode.push(instruction | (const_index as u32));
+                            let instr = Instr {
+                                opcode: OpCode::LoadConst,
+                                arg: Arg::from_u24(const_index as u32)
+                            };
+                            bytecode.push(instr);
                         }
                         _ => unimplemented!("Loading constant {}", const_value),
                     }
                 }
                 Instruction::Pop => {
-                    bytecode.push(self.make_instruction(asm::POP));
+                    bytecode.push(Instr {
+                        opcode: OpCode::Pop,
+                        arg: Arg::default()
+                    })
                 }
                 Instruction::ExternCall { func_name } => {
                     let func_ptr = self.asm_constant_map.get(ConstantValue::String(func_name.clone()));
-                    let instruction = self.make_instruction(asm::CALL_EXTERNAL_FUNCTION);
-                    bytecode.push(instruction | (func_ptr as u32));
+                    let instr = Instr {
+                        opcode: OpCode::ExternCall,
+                        arg: Arg::from_u24(func_ptr as u32)
+                    };
+                    bytecode.push(instr);
                 }
                 Instruction::Halt => {
-                    let instruction = self.make_instruction(asm::HALT);
-                    bytecode.push(instruction);
+                    let instr = Instr {
+                        opcode: OpCode::Halt,
+                        arg: Arg::default()
+                    };
+                    bytecode.push(instr);
                 }
                 _ => {
                     return Err(ASMError::UnsupportedInstruction(
@@ -175,24 +201,23 @@ impl Display for AsmProgram {
         }
 
         writeln!(f, "\nsection .text")?;
-        for byte in &self.bytecode {
-            let instr = match (byte >> 24) as u8 {
-                asm::LOAD_CONST => {
-                    format!("LOAD_CONST &{:04}", byte & 0x00FFFFFF)
+        for instruction in &self.bytecode {
+            let instr = match instruction.opcode {
+                OpCode::LoadConst => {
+                    format!("LOAD_CONST &{:04}", instruction.arg.get_all())
                 }
-                asm::POP => {
+                OpCode::Pop => {
                     "POP".to_string()
                 }
-                asm::CALL_EXTERNAL_FUNCTION => {
-                    let func_ptr = (byte & 0x00FFFF00) >> 8;
-                    let nb_args = byte & 0x000000FF;
-                    format!("CALL_EXTERNAL_FUNCTION &{:04} #{}", func_ptr, nb_args)
+                OpCode::ExternCall => {
+                    let func_ptr = instruction.arg.get_all();
+                    format!("CALL_EXTERNAL_FUNCTION &{:04}", func_ptr)
                 }
-                asm::HALT => {
+                OpCode::Halt => {
                     "HALT".to_string()
                 }
                 _ => {
-                    format!("UNKNOWN_INSTRUCTION {:08X}", byte)
+                    format!("UNKNOWN_INSTRUCTION {:?}", instruction)
                 }
             };
             writeln!(f, "\t{}", instr)?;

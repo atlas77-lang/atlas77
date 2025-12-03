@@ -11,6 +11,7 @@ use crate::atlas_vm::heap::{Heap, HEAP_DEFAULT_SIZE};
 use crate::atlas_vm::object::ObjectKind;
 use crate::atlas_vm::stack::Stack;
 use std::collections::BTreeMap;
+use crate::atlas_vm::instruction::{Instr, OpCode};
 
 pub type CallBack = fn(VMState) -> RuntimeResult<VMData>;
 
@@ -72,11 +73,10 @@ impl<'run> AtlasRuntime<'run> {
         let operand2 = (bytecode & 0x0000FFFF) as u16;
         (operand1, operand2)
     }
-    fn execute_instruction(&mut self, instr: u32) -> RuntimeResult<()> {
-        let opcode = self.decode_instruction(instr);
-        match opcode {
-            LOAD_CONST => {
-                let const_ptr = self.get_24bits_operand(instr) as usize;
+    fn execute_instruction(&mut self, instr: Instr) -> RuntimeResult<()> {
+        match instr.opcode {
+            OpCode::LoadConst => {
+                let const_ptr = instr.arg.get_all() as usize;
                 let val = &self.asm_program.constant_pool[const_ptr];
                 match val {
                     ConstantValue::String(s) => {
@@ -108,8 +108,8 @@ impl<'run> AtlasRuntime<'run> {
                 }
                 Ok(())
             }
-            CALL_EXTERNAL_FUNCTION => {
-                let func_ptr = self.get_24bits_operand(instr);
+            OpCode::ExternCall => {
+                let func_ptr = instr.arg.get_all();
                 let func_name = match &self.asm_program.constant_pool[func_ptr as usize] {
                     ConstantValue::String(s) => s.as_str(),
                     _ => return Err(RuntimeError::InvalidConstantPoolPointer(func_ptr as usize)),
@@ -126,11 +126,11 @@ impl<'run> AtlasRuntime<'run> {
                 self.stack.push(result)?;
                 Ok(())
             }
-            POP => {
+            OpCode::Pop => {
                 self.stack.pop()?;
                 Ok(())
             }
-            HALT => {
+            OpCode::Halt => {
                 Err(RuntimeError::HaltEncountered)
             }
             _ => unimplemented!("{:?}", instr),

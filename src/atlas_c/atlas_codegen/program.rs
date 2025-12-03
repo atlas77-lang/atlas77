@@ -1,4 +1,4 @@
-use crate::atlas_vm::instruction::Instruction;
+use crate::atlas_c::atlas_codegen::instruction::Instruction;
 use std::collections::HashMap;
 
 pub struct CodeGenProgram {
