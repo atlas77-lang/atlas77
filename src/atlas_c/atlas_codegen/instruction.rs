@@ -57,9 +57,6 @@ pub enum Instruction {
     ExternCall {
         func_name: String,
     },
-    LoadArg {
-        index: u8,
-    }, // Load function argument
     Return, // Return from function
 
     // === Objects ===
@@ -117,7 +114,6 @@ impl Display for Instruction {
             } => {
                 write!(f, "ExternCall {}", func_id)
             }
-            Instruction::LoadArg { index } => write!(f, "LoadArg {}", index),
             Instruction::Return => write!(f, "Return"),
             Instruction::NewObj { obj_descriptor } => {
                 write!(f, "NewObj {}", obj_descriptor)

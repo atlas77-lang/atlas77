@@ -72,7 +72,6 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             let mut bytecode = Vec::new();
 
             let params = function.signature.params.clone();
-            self.generate_bytecode_args(params, &mut bytecode, 0)?;
 
             for arg in function.signature.params.iter() {
                 self.local_variables.insert(arg.name);
@@ -175,13 +174,9 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
     ) -> HirResult<()> {
         for method in hir_struct.methods.iter() {
             let mut bytecode = Vec::new();
-            let params = method.signature.params.clone();
+            //If the method is not static, reserve space for `this`
             if method.signature.modifier != HirStructMethodModifier::Static {
                 self.local_variables.insert("this");
-                bytecode.push(Instruction::LoadArg { index: 0 });
-                self.generate_bytecode_args(params, &mut bytecode, 1)?;
-            } else {
-                self.generate_bytecode_args(params, &mut bytecode, 0)?;
             }
             self.generate_bytecode_block(&method.body, &mut bytecode, src.clone())?;
 
@@ -863,22 +858,6 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 bytecode.push(Instruction::LoadConst(ConstantValue::Unit));
             }
             _ => unimplemented!("Unsupported expression for now: {:?}", expr),
-        }
-        Ok(())
-    }
-
-    fn generate_bytecode_args(
-        &mut self,
-        args: Vec<HirFunctionParameterSignature<'hir>>,
-        bytecode: &mut Vec<Instruction>,
-        //The index of the first arguments
-        base_index: u8,
-    ) -> HirResult<()> {
-        for (i, arg) in args.iter().enumerate() {
-            bytecode.push(Instruction::LoadArg {
-                index: (i as u8) + base_index,
-            });
-            self.local_variables.insert(arg.name);
         }
         Ok(())
     }

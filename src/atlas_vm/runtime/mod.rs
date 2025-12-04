@@ -134,12 +134,6 @@ impl<'run> AtlasRuntime<'run> {
                 self.stack.pop()?;
                 Ok(())
             }
-            OpCode::LoadArg => {
-                //let arg_idx = instr.arg.get_all() as usize;
-                //let data = self.args[arg_idx];
-                //self.stack.set_var(arg_idx, data);
-                Ok(())
-            }
             OpCode::LoadVar => {
                 let local_slot_idx = instr.arg.get_all() as usize;
                 let data = self.stack.get_var(local_slot_idx);

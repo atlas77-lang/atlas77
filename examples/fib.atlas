@@ -1,7 +1,6 @@
 import "std/io";
 
 fun main() {
-    //Standard benchmark across all Atlas77 versions
     println(fib(40));
 }
 

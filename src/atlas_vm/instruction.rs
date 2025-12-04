@@ -66,14 +66,10 @@ pub enum OpCode {
     // === Functions ===
     /// Args: [local_space_size: 24bits]
     LocalSpace,
-    //TODO: Maybe call should go look up into a table to get those data.
-    // Because a 16bits wide `where_to` might be too small
-    /// Args: [[nb_args: 8bits][where_to: 16bits]]
+    /// Args: [func_id: 24bits]
     Call,
     /// Args: [func_name_idx: 24bits]
     ExternCall,
-    /// Args: [arg_idx: 24bits]
-    LoadArg,
     /// No Args
     Return,
 

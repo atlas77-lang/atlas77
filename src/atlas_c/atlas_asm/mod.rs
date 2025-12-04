@@ -177,13 +177,6 @@ impl Assembler {
                     };
                     bytecode.push(instr);
                 }
-                Instruction::LoadArg { index } => {
-                    let instr = Instr {
-                        opcode: OpCode::LoadArg,
-                        arg: Arg::from_u24(*index as u32)
-                    };
-                    bytecode.push(instr);
-                }
                 Instruction::LoadVar(index) => {
                     let instr = Instr {
                         opcode: OpCode::LoadVar,
@@ -320,9 +313,6 @@ impl Display for AsmProgram {
                 }
                 OpCode::LoadVar => {
                     format!("LOAD_VAR @{}", instruction.arg.get_all())
-                }
-                OpCode::LoadArg => {
-                    format!("LOAD_ARG @{}", instruction.arg.get_all())
                 }
                 OpCode::LocalSpace => {
                     format!("LOCAL_SPACE #{}", instruction.arg.get_all())
