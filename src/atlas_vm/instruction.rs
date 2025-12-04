@@ -120,6 +120,18 @@ impl Default for Arg {
 
 impl Arg {
     #[inline]
+    pub fn from_i24(v: i32) -> Self {
+        // mask ensures only the low 24 bits are used
+        let v = (v as u32) & 0x00FF_FFFF;
+        Self {
+            bytes: [
+                (v & 0x0000_FF) as u8,
+                ((v >> 8) & 0x0000_FF) as u8,
+                ((v >> 16) & 0x0000_FF) as u8,
+            ],
+        }
+    }
+    #[inline]
     pub fn from_u24(v: u32) -> Self {
         // mask ensures only the low 24 bits are used
         let v = v & 0x00FF_FFFF;

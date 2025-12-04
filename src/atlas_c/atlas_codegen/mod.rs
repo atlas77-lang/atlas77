@@ -287,13 +287,16 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 self.generate_bytecode_block(&i.then_branch, &mut then_body, src.clone())?;
 
                 bytecode.push(Instruction::JmpZ {
+                    //Jump over the `JMP else_body` instruction if there is an else branch
                     pos: (then_body.len() + if i.else_branch.is_some() { 1 } else { 0 }) as isize,
                 });
                 bytecode.append(&mut then_body);
                 if let Some(e) = &i.else_branch {
                     let mut else_body = Vec::new();
                     self.generate_bytecode_block(e, &mut else_body, src)?;
-
+                    //TODO: If the then body ends with Return or Halt, no need to jump to the else body
+                    //TODO: But that would mean the `JmpZ` instruction would need to be slightly tweaked to
+                    //NB: This is not semantically incorrect, but it's a waste of system resources & memory
                     bytecode.push(Instruction::Jmp {
                         pos: (else_body.len() + 1) as isize,
                     });
@@ -334,6 +337,9 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
             HirStatement::Expr(e) => {
                 self.generate_bytecode_expr(&e.expr, bytecode, src)?;
+                //TODO: Remove this Pop for instructions that leave nothing on the stack 
+                //(e.g. function calls that return Unit or statements that don't produce a value (like assignments))
+                //NB: This is not semantically incorrect, but it's a waste of system resources & memory
                 bytecode.push(Instruction::Pop);
             }
             _ => {

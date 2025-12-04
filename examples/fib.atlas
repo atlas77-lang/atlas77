@@ -1,57 +1,14 @@
-import "examples/string"
-
-struct Fibonacci {
-    public:
-        nth: int64;
-        fun iterative_fib(this) -> int64 {
-            let a = 0;
-            let b = 1;
-            let i = 0;
-            while i < this.nth {
-                let temp = a;
-                a = b;
-                b = temp + b;
-                i = i + 1;
-            }
-            return a;
-        }
-        fun recursive_fib(this, nth: int64) -> int64 {
-            if nth <= 1 {
-                return nth;
-            } else {
-                return this.recursive_fib(nth - 1) + this.recursive_fib(nth - 2);
-            }
-        }
-}
+import "std/io";
 
 fun main() {
-    let fibonacci = new Fibonacci(10);
-    let n: int64 = fibonacci.nth;
-    let res_iterative = fibonacci.iterative_fib();
-    //print("Iterative Fib: ");
-    //println(res_iterative);
-    let res_recursive = fibonacci.recursive_fib(fibonacci.nth);
-    //print("Recursive Fib: ");
-    //println(res_recursive);
+    //Standard benchmark across all Atlas77 versions
+    println(fib(40));
 }
 
-fun recursive_fib(n: int64) -> int64 {
+fun fib(n: int64) -> int64 {
     if n <= 1 {
         return n;
     } else {
-        return recursive_fib(n - 1) + recursive_fib(n - 2);
+        return fib(n - 1) + fib(n - 2);
     }
-}
-
-fun iterative_fib(n: int64) -> int64 {
-    let a = 0;
-    let b = 1;
-    let i = 0;
-    while i < n {
-        let temp = a;
-        a = b;
-        b = temp + b;
-        i = i + 1;
-    }
-    return a;
 }

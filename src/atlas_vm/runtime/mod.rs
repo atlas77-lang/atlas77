@@ -3,7 +3,7 @@ pub mod vm_state;
 use crate::atlas_vm::runtime::vm_state::VMState;
 use crate::atlas_vm::vm_data::VMData;
 
-use crate::atlas_c::atlas_asm::{asm::{CALL_EXTERNAL_FUNCTION, HALT, LOAD_CONST, POP}, AsmProgram};
+use crate::atlas_c::atlas_asm::AsmProgram;
 use crate::atlas_c::atlas_hir::signature::ConstantValue;
 use crate::atlas_vm;
 use crate::atlas_vm::error::{RuntimeError, RuntimeResult};
