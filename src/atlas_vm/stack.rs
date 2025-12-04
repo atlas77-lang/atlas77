@@ -7,7 +7,7 @@ use std::ops::{Index, IndexMut};
 /// The size of the stack in bytes
 ///
 /// I'll try allocating the stack into the heap later on so
-const STACK_SIZE: usize = 16 * 16384 / size_of::<VMData>();
+pub const STACK_SIZE: usize = 16 * 16384 / size_of::<VMData>();
 
 /// The stack for the VM
 ///
@@ -24,8 +24,12 @@ const STACK_SIZE: usize = 16 * 16384 / size_of::<VMData>();
 /// ``arguments`` & ``local variables`` are fixed-size arrays as they are known at compile time.
 #[derive(Debug)]
 pub struct Stack {
+    /// The stack values themselves
     values: [VMData; STACK_SIZE],
+    /// The top of the stack (i.e. a pointer to the last value pushed)
     pub top: usize,
+    /// A pointer to the base of the current stack
+    pub base_ptr: usize,
 }
 
 
@@ -46,10 +50,106 @@ impl Stack {
         Self {
             values: [VMData::new_unit(); STACK_SIZE],
             top: 0,
+            base_ptr: 0,
         }
     }
+
+    /// Create a new stack frame.
+    ///
+    /// Layout we use at `base_ptr` after this call:
+    ///   values[base_ptr]     = previous_pc
+    ///   values[base_ptr + 1] = previous_base_ptr
+    /// Locals / args start at base_ptr + 2
+    pub fn new_stack_frame(&mut self, previous_pc: usize, previous_base: usize) {
+        // Ensure we have space for the two frame metadata slots
+        let need = 2;
+        if self.top + need > STACK_SIZE {
+            panic!("stack overflow while creating new frame");
+        }
+
+        // Write previous_pc then previous_base at current top
+        self.values[self.top] = VMData::new_u64(previous_pc as u64);
+        self.values[self.top + 1] = VMData::new_u64(previous_base as u64);
+
+        // Set base_ptr to point to the metadata (previous frame info)
+        self.base_ptr = self.top;
+
+        // Advance top to point to the first free slot AFTER the metadata.
+        self.top += need;
+    }
+
+    /// Returns (pc, bp, ret_val)
+    pub fn return_from_stack_frame(&mut self) -> RuntimeResult<(usize, usize, VMData)> {
+        // The current base_ptr points to the stored previous_pc at base_ptr
+        let pc = self.values[self.base_ptr].as_u64() as usize;
+        let bp = self.values[self.base_ptr + 1].as_u64() as usize;
+
+        // Pop the return value (value on top of this frame)
+        let ret_val = self.pop()?;
+
+        // Shrink the stack back to the metadata slot of this frame,
+        // effectively deallocating locals and temporaries.
+        self.top = self.base_ptr;
+
+        // Restore caller's base_ptr
+        self.base_ptr = bp;
+
+        Ok((pc, bp, ret_val))
+    }
+    /// Let you get the program counter of the previous stack frame that
+    /// lives at the ``base_ptr`` location of the current stack frame.
+    #[inline(always)]
+    pub fn get_program_counter(&self) -> usize {
+        self.values[self.base_ptr].as_u64() as usize
+    }
+    /// Let you set the program counter of the previous stack frame
+    #[inline(always)]
+    pub fn set_program_counter(&mut self, previous_pc: usize) {
+        self.values[self.base_ptr] = VMData::new_u64(previous_pc as u64);
+    }
+    /// Let you get the base_pointer of the previous stack frame
+    /// at the ``base_ptr + 1`` location of the current stack frame.
+    #[inline(always)]
+    pub fn get_base_pointer(&self) -> usize {
+        self.values[self.base_ptr + 1].as_u64() as usize
+    }
+    #[inline(always)]
+    pub fn set_base_pointer(&mut self, new_base_ptr: usize) {
+        self.values[self.base_ptr + 1] = VMData::new_u64(new_base_ptr as u64);
+    }
+
+    /// Lets you get a value from the local space.
+    ///
+    /// It's used to streamline and standardize the `base_ptr + pos + 2`
+    /// to avoid the `previous_program_counter` & `previous_base_ptr`
+    /// that are the first 2 variables in the local space.
+    #[inline(always)]
+    pub fn get_var(&self, pos: usize) -> VMData {
+        self.values[self.base_ptr + pos + 2]
+    }
+    /// Lets you set a value to the local space.
+    ///
+    /// It's used to streamline and standardize the `base_ptr + pos + 2`
+    /// to avoid the `previous_program_counter` & `previous_base_ptr`
+    /// that are the first 2 variables in the local space.
+    #[inline(always)]
+    pub fn set_var(&mut self, pos: usize, data: VMData) {
+        self.values[self.base_ptr + pos + 2] = data
+    }
+    /// Clear the stack (i.e. set the top of the stack to 0)
+    ///
+    /// NB: It does zero the stack at all.
     pub fn clear(&mut self) {
         self.top = 0;
+        self.base_ptr = 0;
+    }
+    /// Clear the stack (set the top of the stack to 0 & then zero every cell of the stack)
+    pub fn clear_and_zero(&mut self) {
+        self.top = 0;
+        self.base_ptr = 0;
+        for i in 0..self.values.len() {
+            self.values[i] = VMData::new_unit();
+        }
     }
 
     pub fn push(&mut self, val: VMData) -> Result<(), RuntimeError> {
@@ -156,8 +256,6 @@ impl Stack {
     pub fn push_object(&mut self, _obj: &[VMData]) -> Result<(), RuntimeError> {
         unimplemented!("push_object(&mut self, obj: &[VMData])")
     }
-
-    pub fn new_stack_frame(&mut self) {}
 
     pub fn set(&mut self, _offset: usize) {}
 

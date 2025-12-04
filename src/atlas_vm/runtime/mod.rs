@@ -9,7 +9,7 @@ use crate::atlas_vm;
 use crate::atlas_vm::error::{RuntimeError, RuntimeResult};
 use crate::atlas_vm::heap::{Heap, HEAP_DEFAULT_SIZE};
 use crate::atlas_vm::object::ObjectKind;
-use crate::atlas_vm::stack::Stack;
+use crate::atlas_vm::stack::{Stack, STACK_SIZE};
 use std::collections::BTreeMap;
 use crate::atlas_vm::instruction::{Instr, OpCode};
 
@@ -21,8 +21,6 @@ pub struct AtlasRuntime<'run> {
     pub extern_fn: BTreeMap<&'run str, CallBack>,
     /// Program Counter
     pub pc: usize,
-    /// Base pointer for the stack frame
-    pub base_ptr: usize,
     pub asm_program: AsmProgram,
     /// Arguments for the current function call
     pub args: [VMData; 16],
@@ -39,7 +37,6 @@ impl<'run> AtlasRuntime<'run> {
             heap: Heap::new(HEAP_DEFAULT_SIZE),
             extern_fn,
             pc: 0,
-            base_ptr: 0,
             args: [VMData::new_unit(); 16],
             asm_program,
         }
@@ -62,16 +59,24 @@ impl<'run> AtlasRuntime<'run> {
         Ok(())
     }
     fn execute_instruction(&mut self, instr: Instr) -> RuntimeResult<()> {
-        println!("Executing instruction at pc {}: {:?}", self.pc, instr);
         match instr.opcode {
             OpCode::LocalSpace => {
                 let size = instr.arg.get_all() as usize;
+                // Ensure we are inside a frame (base_ptr set)
+                // base_ptr == 0 is allowed for top-level; still support it, but check bounds
+                if self.stack.top + size > STACK_SIZE {
+                    return Err(RuntimeError::StackOverflow);
+                }
                 self.stack.top += size;
                 Ok(())
             }
             OpCode::Jmp => {
                 let where_to = instr.arg.get_all() as isize;
-                self.pc += where_to as usize;
+                if where_to.is_negative() {
+                    self.pc -= where_to.abs() as usize;
+                }else {
+                    self.pc += where_to as usize;
+                }
                 Ok(())
             }
             OpCode::LoadConst => {
@@ -130,81 +135,81 @@ impl<'run> AtlasRuntime<'run> {
                 Ok(())
             }
             OpCode::LoadArg => {
-                let arg_idx = instr.arg.get_all() as usize;
-                let data = self.args[arg_idx];
-                eprintln!("Loading argument {}: {}", arg_idx, data);
-                self.stack[self.base_ptr + arg_idx + 2] = data; // +2 for the base pointer and the return address
+                //let arg_idx = instr.arg.get_all() as usize;
+                //let data = self.args[arg_idx];
+                //self.stack.set_var(arg_idx, data);
                 Ok(())
             }
             OpCode::LoadVar => {
                 let local_slot_idx = instr.arg.get_all() as usize;
-                let data = self.stack[self.base_ptr + local_slot_idx + 2]; // +2 for the base pointer and the return address
-                eprintln!("Loading local variable {}: {}", local_slot_idx, data);
+                let data = self.stack.get_var(local_slot_idx);
                 self.stack.push(data)
             }
             //Let's assume the type is `int64` for now
             OpCode::Lte => {
-                let a = self.stack.pop()?.as_i64();
                 let b = self.stack.pop()?.as_i64();
-                let res = VMData::new_bool(b <= a);
+                let a = self.stack.pop()?.as_i64();
+                let res = VMData::new_bool(a <= b);
                 self.stack.push(res)
             }
             OpCode::JmpZ => {
                 let where_to = instr.arg.get_all() as isize;
                 let condition = self.stack.pop()?.as_bool();
-                if condition {
-                    self.pc += where_to as usize;
+                if !condition {
+                    if where_to.is_negative() {
+                        self.pc -= where_to.abs() as usize;
+                    } else {
+                        self.pc += where_to as usize
+                    }
                 }
                 Ok(())
             }
             OpCode::Return => {
-                let program_counter = self.stack[self.base_ptr].as_u64() as usize;
-                let stack_ptr = self.stack[self.base_ptr + 1].as_u64() as usize;
-                let return_value = self.stack.pop()?;
+                let (pc, bp, ret_val) = self.stack.return_from_stack_frame()?;
                 // Restore the base pointer and program counter
-                self.base_ptr = stack_ptr;
-                self.pc = program_counter;
+                self.pc = pc;
                 // Push the return value onto the stack
-                self.stack.push(return_value)
+                self.stack.push(ret_val)
             }
-            //Is everything actually there? Let me list all the steps I think are necessary:
-            //1. Get the function id from the instruction argument
-            //2. Look up the function in the function map
-            //3. Set up the arguments by popping them from the stack
-            //4. Save the current pc and base pointer onto the stack
-            //5. Update the pc to the function's entry point
-            //6. Update the base pointer to the current top of the stack
             OpCode::Call => {
-                let stack_ptr = self.base_ptr;
                 let func_id = instr.arg.get_all() as usize;
                 let func_data = self.asm_program.function_map.get(&func_id).ok_or(
                     RuntimeError::FunctionNotFound(func_id),
                 )?;
                 let nb_args = func_data.nb_args;
-                // Set up arguments
+
+                // Pop arguments from the stack into self.args (preserving original order)
+                // caller pushed args left-to-right, so we pop right-to-left into self.args[0..]
                 for i in 0..nb_args {
-                    self.args[i as usize] = self.stack.pop()?;
+                    self.args[i] = self.stack.pop()?;
                 }
-                
+
+                // Create new stack frame (save old pc & bp)
+                self.stack.new_stack_frame(self.pc, self.stack.base_ptr);
+
+                // Place the arguments into the new frame's variable slots.
+                // We popped args into self.args such that self.args[0] is last pushed arg.
+                // We must place them so arg 0 (first function param) is at var slot 0.
+                for i in 0..nb_args {
+                    let src_idx = nb_args - 1 - i; // reverse the popped order
+                    let val = self.args[src_idx];
+                    self.stack.set_var(i, val);
+                }
+
+                // Jump to callee entry point
                 self.pc = func_data.entry_point;
-                self.stack.top = stack_ptr;
-                self.base_ptr = self.stack.top;
-                
-                let program_counter = self.pc;
-                self.stack[self.base_ptr] = VMData::new_u64(program_counter as u64);
-                self.stack[self.base_ptr + 1] = VMData::new_u64(stack_ptr as u64);
                 Ok(())
             }
             OpCode::Add => {
                 let b = self.stack.pop()?;
                 let a = self.stack.pop()?;
-                let res = VMData::new_i64(b.as_i64() + a.as_i64());
+                let res = VMData::new_i64(a.as_i64() + b.as_i64());
                 self.stack.push(res)
             }
             OpCode::Sub => {
                 let b = self.stack.pop()?;
                 let a = self.stack.pop()?;
-                let res = VMData::new_i64(b.as_i64() - a.as_i64());
+                let res = VMData::new_i64(a.as_i64() - b.as_i64());
                 self.stack.push(res)
             }
             OpCode::Halt => {
