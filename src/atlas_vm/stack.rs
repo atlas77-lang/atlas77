@@ -7,7 +7,7 @@ use std::ops::{Index, IndexMut};
 /// The size of the stack in bytes
 ///
 /// I'll try allocating the stack into the heap later on so
-const STACK_SIZE: usize = 16 * 1024 / size_of::<VMData>();
+const STACK_SIZE: usize = 16 * 16384 / size_of::<VMData>();
 
 /// The stack for the VM
 ///
@@ -20,26 +20,14 @@ const STACK_SIZE: usize = 16 * 1024 / size_of::<VMData>();
 /// as well as the temporary values used during the execution of the function.
 ///
 /// A stack frame takes this form:
-/// - `[[arguments], [local variables], [temporary values]]`
-/// ``arguments`` & ``local variables`` are fixed-size arrays
+/// - `[[previous_pc, previous_base_ptr], [arguments], [local_variables], [temporary_values]]`
+/// ``arguments`` & ``local variables`` are fixed-size arrays as they are known at compile time.
 #[derive(Debug)]
 pub struct Stack {
     values: [VMData; STACK_SIZE],
     pub top: usize,
 }
 
-#[derive(Debug)]
-pub struct NewStack {
-    /// Must be created with Vec::with_capacity(stack::STACK_SIZE)
-    pub frames: Vec<StackFrame>,
-}
-
-#[derive(Debug)]
-pub struct StackFrame {
-    /// The program counter of the caller function
-    pub previous: usize,
-    values: Vec<VMData>,
-}
 
 #[derive(Debug)]
 pub struct StackFrameInfo {

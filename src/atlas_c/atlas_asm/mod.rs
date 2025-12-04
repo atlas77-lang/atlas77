@@ -78,7 +78,7 @@ pub struct AsmProgram {
 pub struct AsmFunction {
     pub name: String,
     pub entry_point: usize,
-    pub nb_args: u8,
+    pub nb_args: usize,
     /// Useful for debugging and error reporting
     pub declaration_span: Span,
 }
@@ -246,7 +246,7 @@ impl Assembler {
                         AsmFunction {
                             name: func_name.clone(),
                             entry_point: 0, //Will be filled later
-                            nb_args: *nb_args,
+                            nb_args: *nb_args as usize,
                             declaration_span: Span::default(),
                         }
                     );
