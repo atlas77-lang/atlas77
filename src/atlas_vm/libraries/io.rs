@@ -21,6 +21,9 @@ pub fn println<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
         | VMTag::Char => {
             println!("{}", val)
         }
+        VMTag::Object => {
+            println!("{}", state.object_map.get(val.as_object())?.structure())
+        }
         VMTag::String => {
             println!("{}", state.object_map.get(val.as_object())?.string())
         }
@@ -44,6 +47,9 @@ pub fn print<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
         }
         VMTag::String => {
             print!("{}", state.object_map.get(val.as_object())?.string())
+        }
+        VMTag::Object => {
+            print!("{}", state.object_map.get(val.as_object())?.structure())
         }
         _ => {
             print!("{}", state.object_map.get(val.as_object())?)
@@ -78,6 +84,10 @@ pub fn panic<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
         }
         VMTag::String => {
             println!("{}", state.object_map.get(val.as_object())?.string());
+            std::process::exit(1);
+        }
+        VMTag::Object => {
+            println!("{}", state.object_map.get(val.as_object())?.structure());
             std::process::exit(1);
         }
         _ => {

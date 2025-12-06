@@ -457,12 +457,14 @@ impl<'hir> TypeChecker<'hir> {
                 let ty = self.check_expr(&mut u.expr)?;
                 match u.op {
                     Some(expr::HirUnaryOp::Neg) => {
-                        self.is_equivalent_ty(
-                            ty,
-                            u.expr.span(),
-                            self.arena.types().get_integer64_ty(),
-                            u.expr.span(),
-                        )?;
+                        if !TypeChecker::is_arithmetic_type(ty) {
+                            return Err(Self::illegal_operation_err(
+                                ty,
+                                ty,
+                                u.expr.span(),
+                                "negation operation",
+                            ));
+                        }
                         u.ty = ty;
                         Ok(ty)
                     }
@@ -719,15 +721,11 @@ impl<'hir> TypeChecker<'hir> {
                 }
                 if struct_signature.constructor.params.len() != obj.args.len() {
                     return Err(Self::type_mismatch_err(
-                        &format!(
-                            "{} parameter(s)",
-                            struct_signature.constructor.params.len()
-                        ),
+                        &format!("{} parameter(s)", struct_signature.constructor.params.len()),
                         &obj.span,
                         &format!("{} argument(s)", obj.args.len()),
                         &struct_signature.constructor.span,
                     ));
-                        
                 }
                 for (param, arg) in struct_signature
                     .constructor

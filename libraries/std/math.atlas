@@ -7,6 +7,7 @@ public fun abs(x: int64) -> int64 {
     }
     return x;
 }
+
 public fun abs_f(x: float64) -> float64 {
     if x < 0.0 {
         return -x;
@@ -33,6 +34,7 @@ public fun max(x: int64, y: int64) -> int64 {
     }
     return y;
 }
+
 public fun max_f(x: float64, y: float64) -> float64 {
     if x > y {
         return x;

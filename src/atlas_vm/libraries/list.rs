@@ -7,10 +7,7 @@ use crate::atlas_vm::vm_data::VMData;
 pub const LIST_FUNCTIONS: [(&str, CallBack); 2] = [("len", len), ("slice", slice)];
 
 pub fn len<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
-    eprintln!("Entering len function"); //--- IGNORE ---
-    eprintln!("{}", state.stack); //--- IGNORE ---
     let val = state.stack.pop()?;
-    eprintln!("Calculating length of list object: {:?}", val); //--- IGNORE ---
     let list_ptr = val.as_object();
     let raw_list = state.object_map.get(list_ptr)?;
     let list = raw_list.list();

@@ -82,14 +82,18 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             for arg in function.signature.params.iter() {
                 self.local_variables.insert(arg.name);
             }
-
+            
             self.generate_bytecode_block(&function.body, &mut bytecode)?;
+            
+            eprintln!("Function: {} has {:?} local variables", func_name, self.local_variables); //--- IGNORE ---
             //There is no need to reserve space for local variables if there is none
             if self.local_variables.len() > 0 {
                 bytecode.insert(
                     0,
                     Instruction::LocalSpace {
-                        nb_vars: self.local_variables.len() as u8,
+                        //Parameters are already counted in the function call stack frame
+                        nb_vars: self.local_variables.len() as u8
+                            - function.signature.params.len() as u8,
                     },
                 );
             }
@@ -143,7 +147,6 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
         self.program.labels = labels;
         self.program.structs = self.codegen_arena.alloc(self.struct_pool.clone());
         self.program.functions.extend(functions);
-        println!("Functions: {:?}", self.program.functions);
         let libraries = self
             .hir
             .body
@@ -167,8 +170,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
     ) -> HirResult<()> {
         //generate constructor
         self.generate_bytecode_constructor(struct_name, &hir_struct.constructor, labels)?;
+        self.local_variables.clear();
         //generate destructor
         self.generate_bytecode_destructor(struct_name, &hir_struct.destructor, labels)?;
+        self.local_variables.clear();
 
         for method in hir_struct.methods.iter() {
             let mut bytecode = Vec::new();
@@ -267,9 +272,11 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             position: self.current_pos,
             body: self.codegen_arena.alloc(bytecode),
         });
-        self.program
-            .functions
-            .insert(self.codegen_arena.alloc(format!("{}.{}", struct_name, "new")), self.current_pos);
+        self.program.functions.insert(
+            self.codegen_arena
+                .alloc(format!("{}.{}", struct_name, "new")),
+            self.current_pos,
+        );
         self.current_pos += len;
 
         Ok(())
@@ -303,9 +310,11 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             position: self.current_pos,
             body: self.codegen_arena.alloc(bytecode),
         });
-        self.program
-            .functions
-            .insert(self.codegen_arena.alloc(format!("{}.{}", struct_name, "destroy")), self.current_pos);
+        self.program.functions.insert(
+            self.codegen_arena
+                .alloc(format!("{}.{}", struct_name, "destroy")),
+            self.current_pos,
+        );
         self.current_pos += len;
 
         Ok(())
@@ -368,7 +377,8 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     //TODO: But that would mean the `JmpZ` instruction would need to be slightly tweaked to
                     //NB: This is not semantically incorrect, but it's a waste of system memory
                     bytecode.push(Instruction::Jmp {
-                        pos: (else_body.len() + 1) as isize,
+                        //No need to add 1 here because the runtime does self.pc += 1 after executing an instruction
+                        pos: (else_body.len()) as isize,
                     });
                     bytecode.append(&mut else_body);
                 }

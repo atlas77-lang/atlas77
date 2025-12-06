@@ -125,6 +125,20 @@ pub struct Structure {
     pub struct_descriptor: usize,
 }
 
+impl Display for Structure {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        //Let's pretty print the structure:
+        write!(f, "struct {{ ")?;
+        for (i, field) in self.fields.ptr.iter().enumerate() {
+            write!(f, "\n\t{}: {}", i, field)?;
+            if i != self.fields.len - 1 {
+                write!(f, ", ")?;
+            }
+        }
+        write!(f, " }}")
+    }
+}
+
 #[repr(C)]
 pub struct RawStructure {
     //Temporary workaround for raw pointer issues

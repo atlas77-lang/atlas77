@@ -10,7 +10,7 @@ use crate::atlas_vm::error::{RuntimeError, RuntimeResult};
 use crate::atlas_vm::heap::{HEAP_DEFAULT_SIZE, Heap};
 use crate::atlas_vm::instruction::{Instr, OpCode};
 use crate::atlas_vm::object::{ObjectKind, RawStructure, Structure};
-use crate::atlas_vm::stack::{STACK_SIZE, Stack};
+use crate::atlas_vm::stack::Stack;
 use std::collections::BTreeMap;
 
 pub type CallBack = fn(VMState) -> RuntimeResult<VMData>;
@@ -79,6 +79,7 @@ impl<'run> AtlasRuntime<'run> {
                 Some(i) => *i,
                 None => return Err(RuntimeError::OutOfBoundProgram(self.pc)),
             };
+            eprintln!("{}", self.stack); //--- IGNORE ---
             eprintln!("Instr @ {}: {:?}", self.pc, instr.opcode); //--- IGNORE ---
             self.pc += 1;
             match self.execute_instruction(instr) {
@@ -87,15 +88,14 @@ impl<'run> AtlasRuntime<'run> {
                 Err(e) => err = Err(e),
             }
             instr_count += 1;
-            if instr_count > 50 {
-                //Let's test something
-                break;
-            }
         }
         let duration = start.elapsed();
         eprintln!("Execution finished in: {:?}", duration);
         eprintln!("Execution finished after {} instructions.", instr_count);
-        eprintln!("Amount of mips (Million Instructions Per Second): {}", (instr_count as f64) / (duration.as_secs_f64() * 1_000_000.0));
+        eprintln!(
+            "Amount of mips (Million Instructions Per Second): {}",
+            (instr_count as f64) / (duration.as_secs_f64() * 1_000_000.0)
+        );
         err
     }
 
@@ -166,6 +166,7 @@ impl<'run> AtlasRuntime<'run> {
             OpCode::INDEX_LOAD => {
                 let ptr = self.stack.pop()?.as_object();
                 let index = self.stack.pop()?.as_u64() as usize;
+                eprintln!("Indexing object at ptr {} with index {}", ptr, index); //--- IGNORE ---
                 let raw_list = self.heap.get(ptr)?;
                 let list = raw_list.list();
                 let val = list[index];
@@ -202,7 +203,7 @@ impl<'run> AtlasRuntime<'run> {
                 Ok(())
             }
             OpCode::NEW_ARRAY => {
-                let size = instr.arg.as_u24() as usize;
+                let size = self.stack.pop()?.as_u64() as usize;
                 let list = vec![VMData::new_unit(); size];
                 let obj_idx = self.heap.put(ObjectKind::List(list))?;
                 self.stack.push(VMData::new_list(obj_idx))?;
@@ -462,13 +463,7 @@ impl<'run> AtlasRuntime<'run> {
             }
             OpCode::LOCAL_SPACE => {
                 let size = instr.arg.as_u24() as usize;
-                // Ensure we are inside a frame (base_ptr set)
-                // base_ptr == 0 is allowed for top-level; still support it, but check bounds
-                if self.stack.top + size > STACK_SIZE {
-                    return Err(RuntimeError::StackOverflow);
-                }
-                self.stack.top += size;
-                Ok(())
+                self.stack.reserve_space(size)
             }
             OpCode::CALL => {
                 let func_id = instr.arg.as_u24() as usize;
@@ -498,6 +493,8 @@ impl<'run> AtlasRuntime<'run> {
                     self.stack.set_var(i, val);
                 }
 
+                self.stack.top += nb_args;
+
                 // Jump to callee entry point
                 self.pc = func_data.entry_point;
                 Ok(())
@@ -515,7 +512,12 @@ impl<'run> AtlasRuntime<'run> {
                     }
                 };
                 // Prepare a new VMState for the external function call
-                let vm_state = VMState::new(&mut self.stack, &mut self.heap);
+                let vm_state = VMState::new(
+                    &mut self.stack,
+                    &mut self.heap,
+                    &self.asm_program.constant_pool,
+                    &self.asm_program.struct_descriptors,
+                );
                 // Call the external function
                 let result = extern_fn(vm_state)?;
                 // Push the result onto the stack

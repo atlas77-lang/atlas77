@@ -758,6 +758,7 @@ impl Assembler {
             struct_descriptors.push(StructDescriptor {
                 name: struct_descriptor.name.to_owned(),
                 nb_fields: struct_descriptor.fields.len(),
+                fields: struct_descriptor.fields.clone().into_iter().map(|s| s.to_owned()).collect(),
             });
         }
         Ok(AsmProgram {

@@ -121,6 +121,16 @@ impl Stack {
         self.values[self.base_ptr + 1] = VMData::new_u64(new_base_ptr as u64);
     }
 
+    /// Reserve space on the stack for local variables.
+    #[inline(always)]
+    pub fn reserve_space(&mut self, size: usize) -> RuntimeResult<()> {
+        if self.top + size > STACK_SIZE {
+            return Err(RuntimeError::StackOverflow);
+        }
+        self.top += size;
+        Ok(())
+    }
+
     /// Lets you get a value from the local space.
     ///
     /// It's used to streamline and standardize the `base_ptr + pos + 2`

@@ -3,9 +3,11 @@ import "src/lexer";
 import "std/string";
 
 fun main() {
-    let source = new String("++>--<.");
+    let source = new String("+>-<.");
     let tokens = lex(source);
+    print(tokens);
     let i: uint64 = 0;
+    println("Lexed tokens:");
     while i < tokens.length {
         let token = tokens.get(i);
         print("Token kind: ");
