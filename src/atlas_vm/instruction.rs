@@ -1,100 +1,131 @@
+//TODO: Rename this file to program.rs later
+
+pub const _SIZE_CHECK: [(); 0] = [(); 2 * 4 - size_of::<Instr>() - 4];
+
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 //Todo: ensure variants to always be the same value e.g. LoadConst = 1
+#[allow(non_camel_case_types)]
 pub enum OpCode {
     // === Literals & constants ===
     /// Args: [constant_pool_idx: 24bits]
-    LoadConst,
+    LOAD_CONST,
 
     // === Stack manipulation ===
     ///No Args
-    Pop,
+    POP,
     ///No Args
-    Dup,
+    DUP,
     ///No Args
-    Swap,
-
+    SWAP,
     // === Variables ===
     /// Args: [local_slot_idx: 24bits]
-    StoreVar,
+    STORE_VAR,
     /// Args: [local_slot_idx: 24bits]
-    LoadVar,
+    LOAD_VAR,
 
     // === Collections & indexing ===
     /// No Args
-    IndexLoad,
+    INDEX_LOAD,
     /// No Args
-    IndexStore,
+    INDEX_STORE,
     /// No Args
-    NewList,
+    STRING_LOAD,
+    /// No Args
+    STRING_STORE,
+
+    /// No Args
+    NEW_ARRAY,
 
     // === Arithmetic & comparisons ===
-    //NB: It is not possible for obj to use one of these OpCode
-    //Even if they have implemented one of the operator.
-    //Why? Because at compile time, those `obj1+obj2` becomes `add(obj1, obj2)`
-    //The type in those instructions can only be one of those:
-    //int8, int16, int32, int64, uint8, uint16, uint32, uint64, float32, float64, char
+    /// No Args
+    INT_ADD,
+    FLOAT_ADD,
+    UINT_ADD,
+
+    INT_SUB,
+    FLOAT_SUB,
+    UINT_SUB,
     /// Args: [type: 24bits]
-    Add,
+    INT_MUL,
+    FLOAT_MUL,
+    UINT_MUL,
     /// Args: [type: 24bits]
-    Sub,
+    INT_DIV,
+    FLOAT_DIV,
+    UINT_DIV,
     /// Args: [type: 24bits]
-    Mul,
+    INT_MOD,
+    UINT_MOD,
+    FLOAT_MOD,
     /// Args: [type: 24bits]
-    Div,
+    INT_EQUAL,
+    UINT_EQUAL,
+    FLOAT_EQUAL,
+    BOOL_EQUAL,
     /// Args: [type: 24bits]
-    Mod,
+    INT_NOT_EQUAL,
+    UINT_NOT_EQUAL,
+    FLOAT_NOT_EQUAL,
+    BOOL_NOT_EQUAL,
     /// Args: [type: 24bits]
-    Eq,
+    INT_GREATER_THAN,
+    UINT_GREATER_THAN,
+    FLOAT_GREATER_THAN,
     /// Args: [type: 24bits]
-    Neq,
+    INT_GREATER_THAN_EQUAL,
+    UINT_GREATER_THAN_EQUAL,
+    FLOAT_GREATER_THAN_EQUAL,
     /// Args: [type: 24bits]
-    Gt,
+    INT_LESS_THAN,
+    UINT_LESS_THAN,
+    FLOAT_LESS_THAN,
     /// Args: [type: 24bits]
-    Gte,
-    /// Args: [type: 24bits]
-    Lt,
-    /// Args: [type: 24bits]
-    Lte,
+    INT_LESS_THAN_EQUAL,
+    UINT_LESS_THAN_EQUAL,
+    FLOAT_LESS_THAN_EQUAL,
+
+    BOOL_AND,
+    BOOL_OR,
 
     // === Control flow ===
     /// Args: [where_to: 24bits]
-    Jmp,
+    JMP,
     /// Args: [where_to: 24bits]
-    JmpZ,
+    JMP_Z,
 
     // === Functions ===
     /// Args: [local_space_size: 24bits]
-    LocalSpace,
+    LOCAL_SPACE,
     /// Args: [func_id: 24bits]
-    Call,
+    CALL,
     /// Args: [func_name_idx: 24bits]
-    ExternCall,
+    EXTERN_CALL,
     /// No Args
-    Return,
+    RETURN,
 
     // === Objects ===
     /// Args: [obj_descriptor_id: 24bits]
-    NewObj,
+    NEW_OBJ,
     /// Args: [obj_field_idx: 24bits]
-    GetField,
+    GET_FIELD,
     /// Args: [obj_field_idx: 24bits]
-    SetField,
-
+    SET_FIELD,
+    /// No Args
+    DELETE_OBJ,
     // === Type ops ===
     //Similar than the arithmetic operation,
     // this is reserved for the primitive types
     /// Args: [type: 24bits]
-    CastTo,
+    CAST_TO,
 
     // === Misc ===
     /// No Args
-    Halt,
+    NoOp = 254,
     /// No Args
-    NoOp,
+    Halt = 255,
 }
 
-pub const SIZE_CHECK: [(); 0] = [(); 2 * 4 - size_of::<Instr>() - 4];
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct Instr {
@@ -105,7 +136,7 @@ pub struct Instr {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct Arg {
-    bytes: [u8; 3]
+    bytes: [u8; 3],
 }
 
 impl Default for Arg {
@@ -142,14 +173,9 @@ impl Arg {
 
     #[inline]
     pub fn as_u24(&self) -> u32 {
-        (self.bytes[0] as u32)
-            | ((self.bytes[1] as u32) << 8)
-            | ((self.bytes[2] as u32) << 16)
+        (self.bytes[0] as u32) | ((self.bytes[1] as u32) << 8) | ((self.bytes[2] as u32) << 16)
     }
 
-    pub fn get_all(&self) -> u32 {
-        (self.bytes[0] as u32) | ((self.bytes[1] as u32) << 8 | ((self.bytes[2] as u32) << 16))
-    }
     #[inline]
     pub fn first_16(&self) -> u16 {
         (self.bytes[0] as u16) | ((self.bytes[1] as u16) << 8)
@@ -157,16 +183,27 @@ impl Arg {
 
     #[inline]
     pub fn last_16(&self) -> u16 {
-        // bytes[1] is low, bytes[2] is high
         (self.bytes[1] as u16) | ((self.bytes[2] as u16) << 8)
     }
 
     #[inline]
-    pub fn first_8(&self) -> u8 { self.bytes[0] }
+    pub fn first_8(&self) -> u8 {
+        self.bytes[0]
+    }
 
     #[inline]
-    pub fn middle_8(&self) -> u8 { self.bytes[1] }
+    pub fn middle_8(&self) -> u8 {
+        self.bytes[1]
+    }
 
     #[inline]
-    pub fn last_8(&self) -> u8 { self.bytes[2] }
+    pub fn last_8(&self) -> u8 {
+        self.bytes[2]
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructDescriptor {
+    pub name: String,
+    pub nb_fields: usize,
 }

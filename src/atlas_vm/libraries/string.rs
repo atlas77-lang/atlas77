@@ -1,7 +1,7 @@
 use crate::atlas_vm::error::{RuntimeError, RuntimeResult};
 use crate::atlas_vm::object::ObjectKind;
-use crate::atlas_vm::runtime::vm_state::VMState;
 use crate::atlas_vm::runtime::CallBack;
+use crate::atlas_vm::runtime::vm_state::VMState;
 use crate::atlas_vm::vm_data::VMData;
 
 pub const STRING_FUNCTIONS: [(&str, CallBack); 7] = [

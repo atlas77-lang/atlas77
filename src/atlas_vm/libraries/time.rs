@@ -2,10 +2,10 @@
 
 use crate::atlas_vm::error::RuntimeError;
 use crate::atlas_vm::object::{ObjectKind, Structure};
-use crate::atlas_vm::runtime::vm_state::VMState;
 use crate::atlas_vm::runtime::CallBack;
+use crate::atlas_vm::runtime::vm_state::VMState;
 use crate::atlas_vm::vm_data::VMData;
-use time::{format_description, OffsetDateTime};
+use time::{OffsetDateTime, format_description};
 
 pub const TIME_FUNCTIONS: [(&str, CallBack); 4] = [
     ("now", now),
@@ -22,10 +22,7 @@ pub fn now<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
     let sec = duration.as_secs();
     let nsec = duration.subsec_nanos();
 
-    let fields = vec![
-        VMData::new_i64(sec as i64),
-        VMData::new_i64(nsec as i64),
-    ];
+    let fields = vec![VMData::new_i64(sec as i64), VMData::new_i64(nsec as i64)];
 
     let obj_idx = state
         .object_map
@@ -105,14 +102,13 @@ pub fn elapsed<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
     let elapsed_sec = end_sec - start_sec;
     let elapsed_nsec = end_nsec - start_nsec;
 
-    let fields = vec![
-        VMData::new_i64(elapsed_sec),
-        VMData::new_i64(elapsed_nsec),
-    ];
+    let fields = vec![VMData::new_i64(elapsed_sec), VMData::new_i64(elapsed_nsec)];
 
-    let obj_idx = state
-        .object_map
-        .put(ObjectKind::Structure(Structure::new(fields.len(), fields, 2)));
+    let obj_idx = state.object_map.put(ObjectKind::Structure(Structure::new(
+        fields.len(),
+        fields,
+        2,
+    )));
 
     match obj_idx {
         Ok(index) => Ok(VMData::new_object(index)),

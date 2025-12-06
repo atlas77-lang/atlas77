@@ -4,7 +4,7 @@ use crate::atlas_vm::vm_data::VMTag;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 
-pub const HEAP_DEFAULT_SIZE: usize = 2056; //In number of objects
+pub const HEAP_DEFAULT_SIZE: usize = 8192; //In number of objects
 
 pub struct Heap {
     memory: Vec<Object>,
@@ -19,7 +19,7 @@ impl Heap {
             memory: (0..space)
                 .map(|x| Object {
                     kind: ObjectKind::Free {
-                        next: ObjectIndex::new(((x + 1) % space)),
+                        next: ObjectIndex::new((x + 1) % space),
                     },
                     rc: 0,
                 })
@@ -36,13 +36,14 @@ impl Heap {
     }
 
     pub fn put(&mut self, object: ObjectKind) -> Result<ObjectIndex, RuntimeError> {
+        //println!("Allocating object: {:?}", object);
         let idx = self.free;
         let v = self.memory.get_mut(usize::from(self.free)).unwrap();
         let repl = std::mem::replace(
             v,
             Object {
                 kind: object,
-                rc: 1000,
+                rc: 1000, //Why 1000?
             },
         );
 
@@ -61,13 +62,12 @@ impl Heap {
     pub fn free(&mut self, index: ObjectIndex) -> RuntimeResult<()> {
         let next = self.free;
         let v = &self.memory.get_mut(usize::from(index)).unwrap().kind;
-        println!("Freeing: {}", v);
         let mut obj_to_dec = vec![];
         match v {
-            ObjectKind::Structure(Structure { fields, .. }) => unsafe {
+            ObjectKind::Structure(Structure { fields, .. }) => {
                 for field in fields.ptr.clone().into_iter() {
                     match field.tag {
-                        VMTag::Str | VMTag::List | VMTag::Object => {
+                        VMTag::String | VMTag::List | VMTag::Object => {
                             obj_to_dec.push(field.as_object());
                         }
                         _ => {}
@@ -77,7 +77,7 @@ impl Heap {
             ObjectKind::List(list) => {
                 for item in list {
                     match item.tag {
-                        VMTag::Str | VMTag::List | VMTag::Object => {
+                        VMTag::String | VMTag::List | VMTag::Object => {
                             obj_to_dec.push(item.as_object());
                         }
                         _ => {}
@@ -121,7 +121,6 @@ impl Heap {
 
     #[inline(always)]
     pub fn get_mut(&mut self, index: ObjectIndex) -> RuntimeResult<&mut ObjectKind> {
-        //You can decrement the rc here, because if it reaches 0 and still need to return a mutable reference...
         self.rc_dec(index)?;
         let kind = &mut self.memory[usize::from(index)].kind;
         Ok(kind)

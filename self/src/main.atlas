@@ -1,0 +1,18 @@
+import "std/io";
+import "src/lexer";
+import "std/string";
+
+fun main() {
+    let source = new String("++>--<.");
+    let tokens = lex(source);
+    let i: uint64 = 0;
+    while i < tokens.length {
+        let token = tokens.get(i);
+        print("Token kind: ");
+        print(token.kind);
+        print(", value: ");
+        println(token.value);
+        i = i + 1;
+    }
+    println("Hello, Atlas!");
+}

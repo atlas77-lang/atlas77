@@ -17,6 +17,6 @@ pub fn parse<'ast>(
         Ok(tokens) => tokens,
         Err(e) => panic!("Error while lexing: {:?}", e),
     };
-    let mut parser = parser::Parser::new(arena, tokens, PathBuf::from(path), source);
+    let mut parser = parser::Parser::new(arena, tokens, PathBuf::from(path));
     parser.parse()
 }

@@ -26,11 +26,10 @@ use crate::atlas_c::atlas_frontend::lexer::{
     token::{Token, TokenKind},
 };
 use crate::atlas_c::atlas_frontend::parser::ast::{
-    AstCastingExpr, AstCharLiteral, AstCharType, AstConstructor, AstConstructorExpr,
-    AstDeleteObjExpr, AstDestructor, AstFieldInit, AstGeneric, AstGenericConstraint,
-    AstGenericType, AstIndexingExpr, AstListLiteral, AstListType, AstMethod, AstMethodModifier,
-    AstNewArrayExpr, AstNewObjExpr, AstNoneLiteral, AstNullType, AstNullableType,
-    AstOperatorOverload, AstReadOnlyType, AstSelfLiteral, AstStaticAccessExpr, AstStruct,
+    AstCastingExpr, AstCharLiteral, AstCharType, AstConstructor, AstDeleteObjExpr, AstDestructor,
+    AstGeneric, AstGenericConstraint, AstGenericType, AstIndexingExpr, AstListLiteral, AstListType,
+    AstMethod, AstMethodModifier, AstNewArrayExpr, AstNewObjExpr, AstNullableType,
+    AstOperatorOverload, AstReadOnlyType, AstStaticAccessExpr, AstStruct, AstThisLiteral,
     AstThisType, AstUnitLiteral, AstVisibility,
 };
 use crate::atlas_c::utils::{Span, get_file_content};
@@ -42,7 +41,6 @@ pub(crate) struct Parser<'ast> {
     //for error reporting
     _file_path: PathBuf,
     pos: usize,
-    src: String,
 }
 
 pub fn remove_comments(tokens: Vec<Token>) -> Vec<Token> {
@@ -57,7 +55,6 @@ impl<'ast> Parser<'ast> {
         arena: &'ast AstArena<'ast>,
         tokens: Vec<Token>,
         _file_path: PathBuf,
-        src: String,
     ) -> Parser<'ast> {
         let tokens = remove_comments(tokens);
         Parser {
@@ -65,7 +62,6 @@ impl<'ast> Parser<'ast> {
             tokens,
             _file_path,
             pos: 0,
-            src,
         }
     }
 
@@ -95,18 +91,6 @@ impl<'ast> Parser<'ast> {
         } else {
             Err(self.unexpected_token_error(TokenVec(vec![kind]), &tok.span))
         }
-    }
-
-    fn eat_while<F, T>(&mut self, kind: TokenKind, f: F) -> ParseResult<Vec<T>>
-    where
-        F: Fn(&mut Parser<'ast>) -> ParseResult<T>,
-    {
-        let mut items = Vec::new();
-        while self.current().kind() == kind {
-            let _ = self.advance();
-            items.push(f(self)?);
-        }
-        Ok(items)
     }
 
     fn eat_until<F, T>(&mut self, kind: TokenKind, f: F) -> ParseResult<Vec<T>>
@@ -145,7 +129,6 @@ impl<'ast> Parser<'ast> {
     }
 
     fn parse_item(&mut self) -> ParseResult<AstItem<'ast>> {
-        let start = self.current().start();
         match self.current().kind() {
             //TokenKind::KwStruct => Ok(AstItem::Struct(self.parse_struct()?)),
             TokenKind::KwImport => Ok(AstItem::Import(self.parse_import()?)),
@@ -663,17 +646,58 @@ impl<'ast> Parser<'ast> {
         Ok(node)
     }
 
+    /// Entry point for parsing binary expressions
     fn parse_binary(&mut self) -> ParseResult<AstExpr<'ast>> {
-        let left = self.parse_factor()?;
+        self.parse_logical_or()
+    }
+
+    fn parse_logical_or(&mut self) -> ParseResult<AstExpr<'ast>> {
+        let left = self.parse_logical_and()?;
         match self.current().kind() {
-            TokenKind::Plus | TokenKind::Minus => {
+            TokenKind::OpOr => {
+                let _ = self.advance();
+                let right = self.parse_logical_or()?;
+                let node = AstExpr::BinaryOp(AstBinaryOpExpr {
+                    span: Span::union_span(&left.span(), &right.span()),
+                    op: AstBinaryOp::Or,
+                    lhs: self.arena.alloc(left),
+                    rhs: self.arena.alloc(right),
+                });
+                Ok(node)
+            }
+            _ => Ok(left),
+        }
+    }
+
+    fn parse_logical_and(&mut self) -> ParseResult<AstExpr<'ast>> {
+        let left = self.parse_equality()?;
+        match self.current().kind() {
+            TokenKind::OpAnd => {
+                let _ = self.advance();
+                let right = self.parse_logical_and()?;
+                let node = AstExpr::BinaryOp(AstBinaryOpExpr {
+                    span: Span::union_span(&left.span(), &right.span()),
+                    op: AstBinaryOp::And,
+                    lhs: self.arena.alloc(left),
+                    rhs: self.arena.alloc(right),
+                });
+                Ok(node)
+            }
+            _ => Ok(left),
+        }
+    }
+
+    fn parse_equality(&mut self) -> ParseResult<AstExpr<'ast>> {
+        let left = self.parse_relational()?;
+        match self.current().kind() {
+            TokenKind::EqEq | TokenKind::NEq => {
                 let op = match self.current().kind() {
-                    TokenKind::Plus => AstBinaryOp::Add,
-                    TokenKind::Minus => AstBinaryOp::Sub,
+                    TokenKind::EqEq => AstBinaryOp::Eq,
+                    TokenKind::NEq => AstBinaryOp::NEq,
                     _ => unreachable!(),
                 };
                 let _ = self.advance();
-                let right = self.parse_binary()?;
+                let right = self.parse_equality()?;
                 let node = AstExpr::BinaryOp(AstBinaryOpExpr {
                     span: Span::union_span(&left.span(), &right.span()),
                     op,
@@ -686,8 +710,59 @@ impl<'ast> Parser<'ast> {
         }
     }
 
-    fn parse_factor(&mut self) -> ParseResult<AstExpr<'ast>> {
-        let left = self.parse_condition()?;
+    fn parse_relational(&mut self) -> ParseResult<AstExpr<'ast>> {
+        let left = self.parse_additive()?;
+        match self.current().kind() {
+            TokenKind::RAngle
+            | TokenKind::OpGreaterThanEq
+            | TokenKind::LAngle
+            | TokenKind::LFatArrow => {
+                let op = match self.current().kind() {
+                    TokenKind::RAngle => AstBinaryOp::Gt,
+                    TokenKind::OpGreaterThanEq => AstBinaryOp::Gte,
+                    TokenKind::LAngle => AstBinaryOp::Lt,
+                    TokenKind::LFatArrow => AstBinaryOp::Lte,
+                    _ => unreachable!(),
+                };
+                let _ = self.advance();
+                let right = self.parse_relational()?;
+                let node = AstExpr::BinaryOp(AstBinaryOpExpr {
+                    span: Span::union_span(&left.span(), &right.span()),
+                    op,
+                    lhs: self.arena.alloc(left),
+                    rhs: self.arena.alloc(right),
+                });
+                Ok(node)
+            }
+            _ => Ok(left),
+        }
+    }
+
+    fn parse_additive(&mut self) -> ParseResult<AstExpr<'ast>> {
+        let left = self.parse_multiplicative()?;
+        match self.current().kind() {
+            TokenKind::Plus | TokenKind::Minus => {
+                let op = match self.current().kind() {
+                    TokenKind::Plus => AstBinaryOp::Add,
+                    TokenKind::Minus => AstBinaryOp::Sub,
+                    _ => unreachable!(),
+                };
+                let _ = self.advance();
+                let right = self.parse_additive()?;
+                let node = AstExpr::BinaryOp(AstBinaryOpExpr {
+                    span: Span::union_span(&left.span(), &right.span()),
+                    op,
+                    lhs: self.arena.alloc(left),
+                    rhs: self.arena.alloc(right),
+                });
+                Ok(node)
+            }
+            _ => Ok(left),
+        }
+    }
+
+    fn parse_multiplicative(&mut self) -> ParseResult<AstExpr<'ast>> {
+        let left = self.parse_casting()?;
         match self.current().kind() {
             TokenKind::Star | TokenKind::Slash | TokenKind::Percent => {
                 let op = match self.current().kind() {
@@ -697,40 +772,7 @@ impl<'ast> Parser<'ast> {
                     _ => unreachable!(),
                 };
                 let _ = self.advance();
-                let right = self.parse_factor()?;
-                let node = AstExpr::BinaryOp(AstBinaryOpExpr {
-                    span: Span::union_span(&left.span(), &right.span()),
-                    op,
-                    lhs: self.arena.alloc(left),
-                    rhs: self.arena.alloc(right),
-                });
-                Ok(node)
-            }
-            _ => Ok(left),
-        }
-    }
-    //Condition should be switched with parse_binary (because it's the lowest precedence)
-    fn parse_condition(&mut self) -> ParseResult<AstExpr<'ast>> {
-        let left = self.parse_casting()?;
-
-        match self.current().kind() {
-            TokenKind::EqEq
-            | TokenKind::NEq
-            | TokenKind::RAngle
-            | TokenKind::OpGreaterThanEq
-            | TokenKind::LAngle
-            | TokenKind::LFatArrow => {
-                let op = match self.current().kind() {
-                    TokenKind::EqEq => AstBinaryOp::Eq,
-                    TokenKind::NEq => AstBinaryOp::NEq,
-                    TokenKind::RAngle => AstBinaryOp::Gt,
-                    TokenKind::OpGreaterThanEq => AstBinaryOp::Gte,
-                    TokenKind::LAngle => AstBinaryOp::Lt,
-                    TokenKind::LFatArrow => AstBinaryOp::Lte,
-                    _ => unreachable!(),
-                };
-                let _ = self.advance();
-                let right = self.parse_condition()?;
+                let right = self.parse_multiplicative()?;
                 let node = AstExpr::BinaryOp(AstBinaryOpExpr {
                     span: Span::union_span(&left.span(), &right.span()),
                     op,
@@ -857,16 +899,11 @@ impl<'ast> Parser<'ast> {
             }
             TokenKind::KwThis => {
                 let node =
-                    AstExpr::Literal(AstLiteral::SelfLiteral(AstSelfLiteral { span: tok.span() }));
+                    AstExpr::Literal(AstLiteral::ThisLiteral(AstThisLiteral { span: tok.span() }));
                 let _ = self.expect(TokenKind::KwThis)?;
                 self.parse_ident_access(node)?
             }
-            TokenKind::KwNull => {
-                let node = AstExpr::Literal(AstLiteral::None(AstNoneLiteral { span: tok.span() }));
-                let _ = self.advance();
-                node
-            }
-            TokenKind::Identifier(i) => {
+            TokenKind::Identifier(_) => {
                 let node = AstExpr::Identifier(self.parse_identifier()?);
 
                 self.parse_ident_access(node)?
@@ -894,34 +931,6 @@ impl<'ast> Parser<'ast> {
         Ok(node)
     }
 
-    fn parse_constructor_expr(
-        &mut self,
-        struct_name: AstIdentifier<'ast>,
-    ) -> ParseResult<AstConstructorExpr<'ast>> {
-        self.expect(TokenKind::LBrace)?;
-        let mut fields = vec![];
-        while self.current().kind() != TokenKind::RBrace {
-            let field_name = self.parse_identifier()?;
-            self.expect(TokenKind::OpAssign)?;
-            let value = self.parse_expr()?;
-            fields.push(AstFieldInit {
-                span: Span::union_span(&field_name.span, &value.span()),
-                name: self.arena.alloc(field_name),
-                value: self.arena.alloc(value),
-            });
-            if self.current().kind() == TokenKind::Comma {
-                let _ = self.advance();
-            }
-        }
-        let end = self.expect(TokenKind::RBrace)?.span;
-        let node = AstConstructorExpr {
-            span: Span::union_span(&struct_name.span, &end),
-            ty: self.arena.alloc(struct_name),
-            fields: self.arena.alloc_vec(fields),
-        };
-        Ok(node)
-    }
-
     fn parse_ident_access(&mut self, origin: AstExpr<'ast>) -> ParseResult<AstExpr<'ast>> {
         let mut node = origin;
         while self.peek().is_some() {
@@ -931,20 +940,6 @@ impl<'ast> Parser<'ast> {
                 }
                 TokenKind::LBracket => {
                     node = AstExpr::Indexing(self.parse_indexing(node)?);
-                }
-                //Struct base constructor, i.e.: `Foo { bar = 42, baz = 69 }`
-                TokenKind::LBrace => {
-                    if let AstExpr::Identifier(ident) = node.clone() {
-                        //Check if the identifier starts with an uppercase letter, if not, it's not a constructor
-                        //Not a good fix tbf, but it works for now
-                        if !ident.name.chars().next().unwrap().is_uppercase() {
-                            break;
-                        }
-                        node = AstExpr::Constructor(self.parse_constructor_expr(ident)?);
-                    } else {
-                        //Just a break because it's not a parse error, just not a constructor
-                        break;
-                    }
                 }
                 TokenKind::Dot => {
                     node = AstExpr::FieldAccess(self.parse_field_access(node)?);
@@ -1042,8 +1037,17 @@ impl<'ast> Parser<'ast> {
         let condition = self.parse_expr()?;
         let if_body = self.parse_block()?;
         let else_body = if self.current().kind() == TokenKind::KwElse {
-            let _ = self.advance();
-            let else_body = self.parse_block()?;
+            self.expect(TokenKind::KwElse)?;
+            let else_body;
+            if self.current().kind() == TokenKind::KwIf {
+                let if_stmt = self.parse_if_expr()?;
+                else_body = AstBlock {
+                    span: if_stmt.span.clone(),
+                    stmts: self.arena.alloc_vec(vec![AstStatement::IfElse(if_stmt)]),
+                };
+            } else {
+                else_body = self.parse_block()?;
+            }
             Some(else_body)
         } else {
             None
@@ -1367,12 +1371,6 @@ impl<'ast> Parser<'ast> {
                     span: Span::union_span(&start, &self.current().span()),
                 })
             }
-            TokenKind::KwNull => {
-                let _ = self.advance();
-                AstType::Null(AstNullType {
-                    span: self.current().span(),
-                })
-            }
             TokenKind::Ampersand => {
                 let _ = self.advance();
                 let ty = self.parse_type()?;
@@ -1506,7 +1504,7 @@ mod tests {
         };
         let bump = Bump::new();
         let arena = &AstArena::new(&bump);
-        let mut parser = Parser::new(arena, tokens, PathBuf::from("test"), input);
+        let mut parser = Parser::new(arena, tokens, PathBuf::from("test"));
         let result = parser.parse();
         match result {
             Ok(program) => {

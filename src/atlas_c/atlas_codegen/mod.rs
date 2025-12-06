@@ -1,31 +1,35 @@
 /// Contains the definition of the CodeGenArena
 pub mod arena;
-mod program;
-mod table;
 pub mod instruction;
+mod table;
 
+use crate::atlas_c::atlas_codegen::instruction::{
+    ImportedLibrary, Instruction, Label, ProgramDescriptor, StructDescriptor, Type,
+};
 use crate::atlas_c::atlas_codegen::table::Table;
-use crate::atlas_c::atlas_hir;
+use crate::atlas_c::atlas_hir::arena::HirArena;
 use crate::atlas_c::atlas_hir::error::{HirError, NoReturnInFunctionError};
-use crate::atlas_c::atlas_hir::expr::HirUnaryOp;
-use crate::atlas_c::atlas_hir::item::HirStruct;
+use crate::atlas_c::atlas_hir::expr::{HirBinaryOperator, HirUnaryOp};
+use crate::atlas_c::atlas_hir::item::{HirStruct, HirStructConstructor};
+use crate::atlas_c::atlas_hir::monomorphization_pass::MonomorphizationPass;
 use crate::atlas_c::atlas_hir::signature::{ConstantValue, HirStructMethodModifier};
 use crate::atlas_c::atlas_hir::{
+    HirModule,
     error::{HirResult, UnsupportedExpr, UnsupportedStatement},
     expr::HirExpr,
-    signature::HirFunctionParameterSignature,
     stmt::{HirBlock, HirStatement},
     ty::HirTy,
-    HirModule,
 };
+use crate::atlas_c::{atlas_hir, utils};
 use arena::CodeGenArena;
 use miette::{NamedSource, SourceOffset, SourceSpan};
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
-use crate::atlas_c::atlas_codegen::instruction::{ImportedLibrary, Instruction, Label, ProgramDescriptor, StructDescriptor, Type};
 
 /// Result of codegen
 pub type CodegenResult<T> = Result<T, HirError>;
+
+pub const THIS_NAME: &str = "this";
 
 /// Unit of codegen
 pub struct CodeGenUnit<'hir, 'codegen>
@@ -34,27 +38,31 @@ where
 {
     hir: &'hir HirModule<'hir>,
     program: ProgramDescriptor<'codegen>,
-    arena: CodeGenArena<'codegen>,
+    codegen_arena: CodeGenArena<'codegen>,
+    hir_arena: &'hir HirArena<'hir>,
     //simulate a var_map so the codegen can translate it into stack operations
     local_variables: Table<&'hir str>,
     //store the function position
     current_pos: usize,
     struct_pool: Vec<StructDescriptor<'codegen>>,
     //todo: Replace this with the path of the current module to be codegen
-    src: String,
 }
 
 impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
     /// Create a new CodeGenUnit
-    pub fn new(hir: &'hir HirModule<'hir>, arena: CodeGenArena<'codegen>, src: String) -> Self {
+    pub fn new(
+        hir: &'hir HirModule<'hir>,
+        arena: CodeGenArena<'codegen>,
+        hir_arena: &'hir HirArena<'hir>,
+    ) -> Self {
         Self {
             hir,
             program: ProgramDescriptor::new(),
-            arena,
+            codegen_arena: arena,
+            hir_arena,
             local_variables: Table::new(),
             current_pos: 0,
             struct_pool: Vec::new(),
-            src,
         }
     }
 
@@ -71,20 +79,13 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
         for (func_name, function) in self.hir.body.functions.clone() {
             let mut bytecode = Vec::new();
 
-            let params = function.signature.params.clone();
-
             for arg in function.signature.params.iter() {
                 self.local_variables.insert(arg.name);
             }
 
-            self.generate_bytecode_block(&function.body, &mut bytecode, self.src.clone())?;
+            self.generate_bytecode_block(&function.body, &mut bytecode)?;
             //There is no need to reserve space for local variables if there is none
             if self.local_variables.len() > 0 {
-                eprintln!(
-                    "Function {} has {} local variables",
-                    func_name,
-                    self.local_variables.len()
-                );
                 bytecode.insert(
                     0,
                     Instruction::LocalSpace {
@@ -104,48 +105,44 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             } else {
                 let last_instruction = &bytecode[bytecode.len() - 1];
                 let path = function.span.path;
-                let src = crate::atlas_c::utils::get_file_content(path).unwrap();
+                let src = utils::get_file_content(path).unwrap();
                 match last_instruction {
                     Instruction::Return => {}
-                    _ => return Err(HirError::NoReturnInFunction(NoReturnInFunctionError {
-                        span: SourceSpan::new(
-                            SourceOffset::from(function.span.start),
-                            function.span.end - function.span.start,
-                        ),
-                        func_name: func_name.to_string(),
-                        src: NamedSource::new(path, src),
-                    })),
+                    _ => {
+                        return Err(HirError::NoReturnInFunction(NoReturnInFunctionError {
+                            span: SourceSpan::new(
+                                SourceOffset::from(function.span.start),
+                                function.span.end - function.span.start,
+                            ),
+                            func_name: func_name.to_string(),
+                            src: NamedSource::new(path, src),
+                        }));
+                    }
                 }
             }
 
             let len = bytecode.len();
-            let func_name = self.arena.alloc(func_name.to_string());
+            let func_name = self.codegen_arena.alloc(func_name.to_string());
 
             functions.insert(func_name, self.current_pos);
 
             labels.push(Label {
-                name: self.arena.alloc(func_name.to_string()),
+                name: self.codegen_arena.alloc(func_name.to_string()),
                 position: self.current_pos,
-                body: self.arena.alloc(bytecode),
+                body: self.codegen_arena.alloc(bytecode),
             });
 
             self.current_pos += len;
             self.local_variables.clear();
         }
         for (struct_name, hir_struct) in self.hir.body.structs.clone() {
-            self.generate_bytecode_struct(
-                struct_name,
-                &hir_struct,
-                &mut labels,
-                self.src.clone(),
-                &mut functions,
-            )?;
+            self.generate_bytecode_struct(struct_name, &hir_struct, &mut labels, &mut functions)?;
         }
 
         self.program.entry_point = String::from("main");
         self.program.labels = labels;
-        self.program.structs = self.arena.alloc(self.struct_pool.clone());
-        self.program.functions = functions;
+        self.program.structs = self.codegen_arena.alloc(self.struct_pool.clone());
+        self.program.functions.extend(functions);
         let libraries = self
             .hir
             .body
@@ -159,26 +156,30 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
         self.program.libraries = libraries;
         Ok(self.program.clone())
     }
-    
-    fn is_std(path: &str) -> bool {
-        path.starts_with("std") 
-    }
 
     fn generate_bytecode_struct(
         &mut self,
         struct_name: &str,
         hir_struct: &HirStruct<'hir>,
         labels: &mut Vec<Label<'codegen>>,
-        src: String,
         functions: &mut HashMap<&'codegen str, usize>,
     ) -> HirResult<()> {
+        //generate constructor
+        self.generate_bytecode_constructor(struct_name, &hir_struct.constructor, labels)?;
+        //generate destructor
+        self.generate_bytecode_destructor(struct_name, &hir_struct.destructor, labels)?;
+
         for method in hir_struct.methods.iter() {
             let mut bytecode = Vec::new();
             //If the method is not static, reserve space for `this`
             if method.signature.modifier != HirStructMethodModifier::Static {
-                self.local_variables.insert("this");
+                self.local_variables.insert(THIS_NAME);
             }
-            self.generate_bytecode_block(&method.body, &mut bytecode, src.clone())?;
+            for arg in method.signature.params.iter() {
+                self.local_variables.insert(arg.name);
+            }
+
+            self.generate_bytecode_block(&method.body, &mut bytecode)?;
 
             //There is no need to reserve space for local variables if there is none
             if self.local_variables.len() > 0 {
@@ -199,23 +200,24 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             } else {
                 let last_instruction = &bytecode[bytecode.len() - 1];
                 let path = method.span.path;
-                let src = crate::atlas_c::utils::get_file_content(path).unwrap();
+                let src = utils::get_file_content(path).unwrap();
                 match last_instruction {
                     Instruction::Return => {}
-                    _ => return Err(HirError::NoReturnInFunction(NoReturnInFunctionError {
-                        span: SourceSpan::new(
-                            SourceOffset::from(method.span.start),
-                            method.span.end - method.span.start,
-                        ),
-                        func_name: method.name.to_string(),
-                        src: NamedSource::new(path, src),
-                    })),
+                    _ => {
+                        return Err(HirError::NoReturnInFunction(NoReturnInFunctionError {
+                            span: SourceSpan::new(
+                                SourceOffset::from(method.span.start),
+                                method.span.end - method.span.start,
+                            ),
+                            func_name: method.name.to_string(),
+                            src: NamedSource::new(path, src),
+                        }));
+                    }
                 }
             }
 
-
             let len = bytecode.len();
-            let method_name = self.arena.alloc(
+            let method_name = self.codegen_arena.alloc(
                 if method.signature.modifier == HirStructMethodModifier::Static {
                     format!("{}::{}", struct_name, method.name)
                 } else {
@@ -226,28 +228,102 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             labels.push(Label {
                 name: method_name,
                 position: self.current_pos,
-                body: self.arena.alloc(bytecode),
+                body: self.codegen_arena.alloc(bytecode),
             });
             self.current_pos += len;
             self.local_variables.clear();
         }
         Ok(())
     }
+
+    fn generate_bytecode_constructor(
+        &mut self,
+        struct_name: &str,
+        constructor: &HirStructConstructor<'hir>,
+        labels: &mut Vec<Label<'codegen>>,
+    ) -> HirResult<()> {
+        let mut bytecode = Vec::new();
+        let params = constructor.params.clone();
+
+        self.local_variables.insert(THIS_NAME);
+        for arg in params.iter() {
+            self.local_variables.insert(arg.name);
+        }
+        //self reference of the object
+        let this_idx = self.local_variables.get_index(THIS_NAME).unwrap();
+
+        self.generate_bytecode_block(&constructor.body, &mut bytecode)?;
+
+        //Return the self reference
+        bytecode.push(Instruction::LoadVar(this_idx));
+        bytecode.push(Instruction::Return);
+
+        let len = bytecode.len();
+        labels.push(Label {
+            name: self
+                .codegen_arena
+                .alloc(format!("{}.{}", struct_name, "new")),
+            position: self.current_pos,
+            body: self.codegen_arena.alloc(bytecode),
+        });
+        self.program
+            .functions
+            .insert(self.codegen_arena.alloc(format!("{}.{}", struct_name, "new")), self.current_pos);
+        self.current_pos += len;
+
+        Ok(())
+    }
+
+    fn generate_bytecode_destructor(
+        &mut self,
+        struct_name: &str,
+        destructor: &HirStructConstructor<'hir>,
+        labels: &mut Vec<Label<'codegen>>,
+    ) -> HirResult<()> {
+        let mut bytecode = Vec::new();
+        let params = destructor.params.clone();
+
+        self.local_variables.insert(THIS_NAME);
+        for arg in params.iter() {
+            self.local_variables.insert(arg.name);
+        }
+
+        self.generate_bytecode_block(&destructor.body, &mut bytecode)?;
+
+        //Return Unit
+        bytecode.push(Instruction::LoadConst(ConstantValue::Unit));
+        bytecode.push(Instruction::Return);
+
+        let len = bytecode.len();
+        labels.push(Label {
+            name: self
+                .codegen_arena
+                .alloc(format!("{}.{}", struct_name, "destroy")),
+            position: self.current_pos,
+            body: self.codegen_arena.alloc(bytecode),
+        });
+        self.program
+            .functions
+            .insert(self.codegen_arena.alloc(format!("{}.{}", struct_name, "destroy")), self.current_pos);
+        self.current_pos += len;
+
+        Ok(())
+    }
+
     fn generate_struct_descriptor(&mut self, struct_name: &str, hir_struct: &HirStruct<'hir>) {
-        println!("Generating hir_struct descriptor for {}", struct_name);
         let mut fields: Vec<&'codegen str> = Vec::new();
         let mut constants: BTreeMap<&'codegen str, ConstantValue> = BTreeMap::new();
         for field in hir_struct.fields.iter() {
-            fields.push(self.arena.alloc(field.name.to_string()));
+            fields.push(self.codegen_arena.alloc(field.name.to_string()));
         }
         for (constant_name, constant) in hir_struct.signature.constants.iter() {
             constants.insert(
-                self.arena.alloc(constant_name.to_string()),
+                self.codegen_arena.alloc(constant_name.to_string()),
                 constant.value.clone(),
             );
         }
         let struct_constant = StructDescriptor {
-            name: self.arena.alloc(struct_name.to_string()),
+            name: self.codegen_arena.alloc(struct_name.to_string()),
             fields,
             constants,
         };
@@ -257,10 +333,9 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
         &mut self,
         block: &HirBlock<'hir>,
         bytecode: &mut Vec<Instruction>,
-        src: String,
     ) -> HirResult<()> {
         for stmt in &block.statements {
-            self.generate_bytecode_stmt(stmt, bytecode, src.clone())?;
+            self.generate_bytecode_stmt(stmt, bytecode)?;
         }
         Ok(())
     }
@@ -269,17 +344,16 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
         &mut self,
         stmt: &HirStatement<'hir>,
         bytecode: &mut Vec<Instruction>,
-        src: String,
     ) -> HirResult<()> {
         match stmt {
             HirStatement::Return(e) => {
-                self.generate_bytecode_expr(&e.value, bytecode, src)?;
+                self.generate_bytecode_expr(&e.value, bytecode)?;
                 bytecode.push(Instruction::Return);
             }
             HirStatement::IfElse(i) => {
-                self.generate_bytecode_expr(&i.condition, bytecode, src.clone())?;
+                self.generate_bytecode_expr(&i.condition, bytecode)?;
                 let mut then_body = Vec::new();
-                self.generate_bytecode_block(&i.then_branch, &mut then_body, src.clone())?;
+                self.generate_bytecode_block(&i.then_branch, &mut then_body)?;
 
                 bytecode.push(Instruction::JmpZ {
                     //Jump over the `JMP else_body` instruction if there is an else branch
@@ -288,10 +362,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 bytecode.append(&mut then_body);
                 if let Some(e) = &i.else_branch {
                     let mut else_body = Vec::new();
-                    self.generate_bytecode_block(e, &mut else_body, src)?;
+                    self.generate_bytecode_block(e, &mut else_body)?;
                     //TODO: If the then body ends with Return or Halt, no need to jump to the else body
                     //TODO: But that would mean the `JmpZ` instruction would need to be slightly tweaked to
-                    //NB: This is not semantically incorrect, but it's a waste of system resources & memory
+                    //NB: This is not semantically incorrect, but it's a waste of system memory
                     bytecode.push(Instruction::Jmp {
                         pos: (else_body.len() + 1) as isize,
                     });
@@ -300,10 +374,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
             HirStatement::While(w) => {
                 let start = bytecode.len() as isize;
-                self.generate_bytecode_expr(&w.condition, bytecode, src.clone())?;
+                self.generate_bytecode_expr(&w.condition, bytecode)?;
                 let mut body = Vec::new();
 
-                self.generate_bytecode_block(&w.body, &mut body, src)?;
+                self.generate_bytecode_block(&w.body, &mut body)?;
                 //If the condition is false jump to the end of the loop
                 bytecode.push(Instruction::JmpZ {
                     pos: (body.len() + 1) as isize,
@@ -316,7 +390,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
             HirStatement::Const(const_stmt) => {
                 let mut value = Vec::new();
-                self.generate_bytecode_expr(&const_stmt.value, &mut value, src)?;
+                self.generate_bytecode_expr(&const_stmt.value, &mut value)?;
                 value.push(Instruction::StoreVar(
                     self.local_variables.insert(const_stmt.name),
                 ));
@@ -324,17 +398,17 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
             HirStatement::Let(let_stmt) => {
                 let mut value = Vec::new();
-                self.generate_bytecode_expr(&let_stmt.value, &mut value, src)?;
+                self.generate_bytecode_expr(&let_stmt.value, &mut value)?;
                 value.push(Instruction::StoreVar(
                     self.local_variables.insert(let_stmt.name),
                 ));
                 bytecode.append(&mut value);
             }
             HirStatement::Expr(e) => {
-                self.generate_bytecode_expr(&e.expr, bytecode, src)?;
-                //TODO: Remove this Pop for instructions that leave nothing on the stack 
-                //(e.g. function calls that return Unit or statements that don't produce a value (like assignments))
-                //NB: This is not semantically incorrect, but it's a waste of system resources & memory
+                self.generate_bytecode_expr(&e.expr, bytecode)?;
+                //TODO: Remove this Pop for instructions that leave nothing on the stack
+                //(e.g. function calls that return Unit)
+                //NB: This is not semantically incorrect
                 bytecode.push(Instruction::Pop);
             }
             _ => {
@@ -358,36 +432,76 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
         &mut self,
         expr: &HirExpr<'hir>,
         bytecode: &mut Vec<Instruction>,
-        src: String,
     ) -> HirResult<()> {
         match expr {
             HirExpr::Assign(a) => {
                 let lhs = a.lhs.as_ref();
                 match lhs {
-                    HirExpr::Ident(i) => {
-                        self.generate_bytecode_expr(&a.rhs, bytecode, src.clone())?;
-                        bytecode.push(Instruction::StoreVar(
-                            self.local_variables.get_index(i.name).unwrap(),
-                        ));
-                    }
-                    HirExpr::FieldAccess(field_access) => {
-                        //Get the Struct pointer
-                        self.generate_bytecode_expr(&field_access.target, bytecode, src.clone())?;
-                        //Get the value
-                        self.generate_bytecode_expr(&a.rhs, bytecode, src.clone())?;
-                        let struct_name = match field_access.target.ty() {
-                            HirTy::Named(struct_name) => struct_name,
+                    HirExpr::Indexing(idx_expr) => {
+                        match idx_expr.target.ty() {
+                            HirTy::List(_) => {
+                                //Get the index
+                                self.generate_bytecode_expr(&idx_expr.index, bytecode)?;
+                                //Get the list pointer
+                                self.generate_bytecode_expr(&idx_expr.target, bytecode)?;
+                                //Get the value to store
+                                self.generate_bytecode_expr(&a.rhs, bytecode)?;
+                                //Store the value in the list at the given index
+                                bytecode.push(Instruction::IndexStore);
+                            }
+                            HirTy::String(_) => {
+                                //Get the index
+                                self.generate_bytecode_expr(&idx_expr.index, bytecode)?;
+                                //Get the string pointer
+                                self.generate_bytecode_expr(&idx_expr.target, bytecode)?;
+                                //Get the value to store
+                                self.generate_bytecode_expr(&a.rhs, bytecode)?;
+                                //Store the value in the string at the given index
+                                bytecode.push(Instruction::StringStore);
+                            }
                             _ => {
                                 let path = expr.span().path;
-                                let src = std::fs::read_to_string(PathBuf::from(&path))
-                                    .unwrap_or_else(|_| panic!("{} is not a valid path", path));
+                                let src = utils::get_file_content(path).unwrap();
                                 return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                     span: SourceSpan::new(
                                         SourceOffset::from(expr.span().start),
                                         expr.span().end - expr.span().start,
                                     ),
                                     expr: format!(
-                                        "No field access for {:?}",
+                                        "Indexing assignment for non-list type: {}",
+                                        idx_expr.target.ty()
+                                    ),
+                                    src: NamedSource::new(path, src),
+                                }));
+                            }
+                        }
+                    }
+                    HirExpr::Ident(ident) => {
+                        self.generate_bytecode_expr(&a.rhs, bytecode)?;
+                        bytecode.push(Instruction::StoreVar(
+                            self.local_variables.get_index(ident.name).unwrap(),
+                        ));
+                    }
+                    HirExpr::FieldAccess(field_access) => {
+                        //Get the Struct pointer
+                        self.generate_bytecode_expr(&field_access.target, bytecode)?;
+                        //Get the value
+                        self.generate_bytecode_expr(&a.rhs, bytecode)?;
+                        let struct_name = match field_access.target.ty() {
+                            HirTy::Named(struct_name) => struct_name.name,
+                            HirTy::Generic(g) => {
+                                MonomorphizationPass::mangle_generic_struct_name(self.hir_arena, g)
+                            }
+                            _ => {
+                                let path = expr.span().path;
+                                let src = utils::get_file_content(path).unwrap();
+                                return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                                    span: SourceSpan::new(
+                                        SourceOffset::from(expr.span().start),
+                                        expr.span().end - expr.span().start,
+                                    ),
+                                    expr: format!(
+                                        "No field access for {}",
                                         field_access.target.ty()
                                     ),
                                     src: NamedSource::new(path, src),
@@ -397,10 +511,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         let struct_descriptor = self
                             .struct_pool
                             .iter()
-                            .find(|c| c.name == struct_name.name)
+                            .find(|c| c.name == struct_name)
                             .unwrap_or_else(|| {
                                 //should never happen
-                                panic!("Struct {} not found", struct_name.name)
+                                panic!("Struct {} not found", struct_name)
                             });
                         //get the position of the field
                         let field = struct_descriptor
@@ -413,42 +527,46 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     }
                     _ => {
                         let path = expr.span().path;
-                        let src = std::fs::read_to_string(PathBuf::from(&path))
-                            .unwrap_or_else(|_| panic!("{} is not a valid path", path));
+                        let src = utils::get_file_content(path).unwrap();
                         return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                             span: SourceSpan::new(
                                 SourceOffset::from(expr.span().start),
                                 expr.span().end - expr.span().start,
                             ),
-                            expr: format!("{:?}", expr),
+                            expr: format!("{}", expr.ty()),
                             src: NamedSource::new(path, src),
                         }));
                     }
                 }
                 bytecode.push(Instruction::LoadConst(ConstantValue::Unit));
             }
-            HirExpr::HirBinaryOp(b) => {
-                self.generate_bytecode_expr(&b.lhs, bytecode, src.clone())?;
-                self.generate_bytecode_expr(&b.rhs, bytecode, src)?;
+            HirExpr::HirBinaryOperation(b) => {
+                self.generate_bytecode_expr(&b.lhs, bytecode)?;
+                self.generate_bytecode_expr(&b.rhs, bytecode)?;
                 match b.op {
-                    atlas_hir::expr::HirBinaryOp::Add => bytecode.push(Instruction::Add),
-                    atlas_hir::expr::HirBinaryOp::Sub => bytecode.push(Instruction::Sub),
-                    atlas_hir::expr::HirBinaryOp::Mul => bytecode.push(Instruction::Mul),
-                    atlas_hir::expr::HirBinaryOp::Div => bytecode.push(Instruction::Div),
-                    atlas_hir::expr::HirBinaryOp::Mod => bytecode.push(Instruction::Mod),
-                    atlas_hir::expr::HirBinaryOp::Eq => bytecode.push(Instruction::Eq),
-                    atlas_hir::expr::HirBinaryOp::Neq => bytecode.push(Instruction::Neq),
-                    atlas_hir::expr::HirBinaryOp::Gt => bytecode.push(Instruction::Gt),
-                    atlas_hir::expr::HirBinaryOp::Gte => bytecode.push(Instruction::Gte),
-                    atlas_hir::expr::HirBinaryOp::Lt => bytecode.push(Instruction::Lt),
-                    atlas_hir::expr::HirBinaryOp::Lte => bytecode.push(Instruction::Lte),
-                    _ => unimplemented!("Unsupported binary operator for now"),
+                    HirBinaryOperator::Add => bytecode.push(Instruction::Add(b.ty.into())),
+                    HirBinaryOperator::Sub => bytecode.push(Instruction::Sub(b.ty.into())),
+                    HirBinaryOperator::Mul => bytecode.push(Instruction::Mul(b.ty.into())),
+                    HirBinaryOperator::Div => bytecode.push(Instruction::Div(b.ty.into())),
+                    HirBinaryOperator::Mod => bytecode.push(Instruction::Mod(b.ty.into())),
+                    HirBinaryOperator::Eq => bytecode.push(Instruction::Eq(b.ty.into())),
+                    HirBinaryOperator::Neq => bytecode.push(Instruction::Neq(b.ty.into())),
+                    HirBinaryOperator::Gt => bytecode.push(Instruction::Gt(b.ty.into())),
+                    HirBinaryOperator::Gte => bytecode.push(Instruction::Gte(b.ty.into())),
+                    HirBinaryOperator::Lt => bytecode.push(Instruction::Lt(b.ty.into())),
+                    HirBinaryOperator::Lte => bytecode.push(Instruction::Lte(b.ty.into())),
+                    HirBinaryOperator::And => {
+                        bytecode.push(Instruction::And);
+                    }
+                    HirBinaryOperator::Or => {
+                        bytecode.push(Instruction::Or);
+                    }
                 }
             }
             HirExpr::Unary(u) => {
                 //There is no unary instruction, so -x is the same as 0 - x
                 //And !x is the same as x == 0
-                self.generate_bytecode_expr(&u.expr, bytecode, src.clone())?;
+                self.generate_bytecode_expr(&u.expr, bytecode)?;
                 if let Some(op) = &u.op {
                     match op {
                         HirUnaryOp::Neg => {
@@ -468,37 +586,35 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                 }
                                 _ => {
                                     let path = u.span.path;
-                                    let src = std::fs::read_to_string(PathBuf::from(&path))
-                                        .unwrap_or_else(|_| panic!("{} is not a valid path", path));
+                                    let src = utils::get_file_content(path).unwrap();
                                     return Err(atlas_hir::error::HirError::UnsupportedExpr(
                                         UnsupportedExpr {
                                             span: SourceSpan::new(
                                                 SourceOffset::from(expr.span().start),
                                                 expr.span().end - expr.span().start,
                                             ),
-                                            expr: format!("Can't negate: {:?}", expr),
+                                            expr: format!("Can't negate: {}", expr.ty()),
                                             src: NamedSource::new(path, src),
                                         },
                                     ));
                                 }
                             }
                             bytecode.push(Instruction::Swap);
-                            bytecode.push(Instruction::Sub);
+                            bytecode.push(Instruction::Sub(u.expr.ty().into()));
                         }
                         HirUnaryOp::Not => {
                             if let HirTy::Boolean(_) = u.expr.ty() {
                                 bytecode.push(Instruction::LoadConst(ConstantValue::Bool(false)));
-                                bytecode.push(Instruction::Eq);
+                                bytecode.push(Instruction::Eq(Type::Boolean));
                             } else {
                                 let path = u.span.path;
-                                let src = std::fs::read_to_string(PathBuf::from(&path))
-                                    .unwrap_or_else(|_| panic!("{} is not a valid path", path));
+                                let src = utils::get_file_content(path).unwrap();
                                 return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                     span: SourceSpan::new(
                                         SourceOffset::from(expr.span().start),
                                         expr.span().end - expr.span().start,
                                     ),
-                                    expr: format!("Can't negate: {:?}", expr),
+                                    expr: format!("Can't negate: {}", expr.ty()),
                                     src: NamedSource::new(path, src),
                                 }));
                             }
@@ -507,7 +623,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 }
             }
             HirExpr::Casting(c) => {
-                self.generate_bytecode_expr(&c.expr, bytecode, src.clone())?;
+                self.generate_bytecode_expr(&c.expr, bytecode)?;
                 match c.ty {
                     HirTy::Int64(_) => {
                         bytecode.push(Instruction::CastTo(Type::Integer));
@@ -529,14 +645,45 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     }
                     _ => {
                         let path = c.span.path;
-                        let src = std::fs::read_to_string(PathBuf::from(&path))
-                            .unwrap_or_else(|_| panic!("{} is not a valid path", path));
+                        let src = utils::get_file_content(path).unwrap();
                         return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                             span: SourceSpan::new(
                                 SourceOffset::from(expr.span().start),
                                 expr.span().end - expr.span().start,
                             ),
-                            expr: format!("Can't cast: {:?}", expr),
+                            expr: format!("Can't cast: {} as {}", c.expr.ty(), c.ty),
+                            src: NamedSource::new(path, src),
+                        }));
+                    }
+                }
+            }
+            HirExpr::Indexing(idx) => {
+                match idx.target.ty() {
+                    HirTy::List(_) => {
+                        //Get the index
+                        self.generate_bytecode_expr(&idx.index, bytecode)?;
+                        //Get the list pointer
+                        self.generate_bytecode_expr(&idx.target, bytecode)?;
+                        //Load the value at the given index
+                        bytecode.push(Instruction::IndexLoad);
+                    }
+                    HirTy::String(_) => {
+                        //Get the index
+                        self.generate_bytecode_expr(&idx.index, bytecode)?;
+                        //Get the string pointer
+                        self.generate_bytecode_expr(&idx.target, bytecode)?;
+                        //Load the char at the given index
+                        bytecode.push(Instruction::StringLoad);
+                    }
+                    _ => {
+                        let path = expr.span().path;
+                        let src = utils::get_file_content(path).unwrap();
+                        return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                            span: SourceSpan::new(
+                                SourceOffset::from(expr.span().start),
+                                expr.span().end - expr.span().start,
+                            ),
+                            expr: format!("Indexing for non-list type: {}", idx.target.ty()),
                             src: NamedSource::new(path, src),
                         }));
                     }
@@ -547,7 +694,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 match callee {
                     HirExpr::Ident(i) => {
                         for arg in &f.args {
-                            self.generate_bytecode_expr(arg, bytecode, src.clone())?;
+                            self.generate_bytecode_expr(arg, bytecode)?;
                         }
                         let func = self.hir.signature.functions.get(i.name).unwrap();
                         if func.is_external {
@@ -563,34 +710,36 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     }
                     HirExpr::FieldAccess(field_access) => {
                         //Get the Class pointer:
-                        self.generate_bytecode_expr(&field_access.target, bytecode, src.clone())?;
+                        self.generate_bytecode_expr(&field_access.target, bytecode)?;
                         for arg in &f.args {
-                            self.generate_bytecode_expr(arg, bytecode, src.clone())?;
+                            self.generate_bytecode_expr(arg, bytecode)?;
                         }
                         let struct_name = match field_access.target.ty() {
-                            HirTy::Named(struct_name) => struct_name,
+                            HirTy::Named(struct_name) => struct_name.name,
+                            HirTy::Generic(g) => {
+                                MonomorphizationPass::mangle_generic_struct_name(self.hir_arena, g)
+                            }
                             _ => {
                                 let path = field_access.span.path;
-                                let src = std::fs::read_to_string(PathBuf::from(&path))
-                                    .unwrap_or_else(|_| panic!("{} is not a valid path", path));
+                                let src = utils::get_file_content(path).unwrap();
                                 return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                     span: SourceSpan::new(
                                         SourceOffset::from(expr.span().start),
                                         expr.span().end - expr.span().start,
                                     ),
-                                    expr: format!("Can't call from: {:?}", expr),
+                                    expr: format!("Can't call from: {}", expr.ty()),
                                     src: NamedSource::new(path, src),
                                 }));
                             }
                         };
                         bytecode.push(Instruction::Call {
-                            func_name: format!("{}.{}", struct_name.name, field_access.field.name),
+                            func_name: format!("{}.{}", struct_name, field_access.field.name),
                             nb_args: f.args.len() as u8 + 1,
                         })
                     }
                     HirExpr::StaticAccess(static_access) => {
                         for arg in &f.args {
-                            self.generate_bytecode_expr(arg, bytecode, src.clone())?;
+                            self.generate_bytecode_expr(arg, bytecode)?;
                         }
                         bytecode.push(Instruction::Call {
                             func_name: format!(
@@ -602,14 +751,13 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     }
                     _ => {
                         let path = expr.span().path;
-                        let src = std::fs::read_to_string(PathBuf::from(&path))
-                            .unwrap_or_else(|_| panic!("{} is not a valid path", path));
+                        let src = utils::get_file_content(path).unwrap();
                         return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                             span: SourceSpan::new(
                                 SourceOffset::from(expr.span().start),
                                 expr.span().end - expr.span().start,
                             ),
-                            expr: format!("Can't call from: {:?}", expr),
+                            expr: format!("Can't call from: {}", expr.ty()),
                             src: NamedSource::new(path, src),
                         }));
                     }
@@ -634,26 +782,60 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             HirExpr::StringLiteral(s) => bytecode.push(Instruction::LoadConst(
                 ConstantValue::String(s.value.to_string()),
             )),
-            HirExpr::Ident(i) => bytecode.push(Instruction::LoadVar(
-                self.local_variables.get_index(i.name).unwrap(),
-            )),
-            HirExpr::ThisLiteral(_) => bytecode.push(Instruction::LoadVar(
-                self.local_variables.get_index("this").unwrap(),
-            )),
-            HirExpr::FieldAccess(field_access) => {
-                self.generate_bytecode_expr(field_access.target.as_ref(), bytecode, src.clone())?;
-                let struct_name = match field_access.target.ty() {
-                    HirTy::Named(struct_name) => struct_name,
-                    _ => {
-                        let path = field_access.span.path;
-                        let src = std::fs::read_to_string(PathBuf::from(&path))
-                            .unwrap_or_else(|_| panic!("{} is not a valid path", path));
+            HirExpr::Ident(i) => {
+                let var_index;
+                match self.local_variables.get_index(i.name) {
+                    Some(idx) => var_index = idx,
+                    None => {
+                        let path = i.span.path;
+                        let src = utils::get_file_content(path).unwrap();
                         return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                             span: SourceSpan::new(
                                 SourceOffset::from(expr.span().start),
                                 expr.span().end - expr.span().start,
                             ),
-                            expr: format!("No field access for {:?}", field_access.target.ty()),
+                            expr: format!("Variable {} not found", i.name),
+                            src: NamedSource::new(path, src),
+                        }));
+                    }
+                }
+                bytecode.push(Instruction::LoadVar(var_index))
+            }
+            HirExpr::ThisLiteral(this) => {
+                let var_index;
+                match self.local_variables.get_index(THIS_NAME) {
+                    Some(idx) => var_index = idx,
+                    None => {
+                        let path = this.span.path;
+                        let src = utils::get_file_content(path).unwrap();
+                        return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                            span: SourceSpan::new(
+                                SourceOffset::from(expr.span().start),
+                                expr.span().end - expr.span().start,
+                            ),
+                            expr: format!("'this' used in a non-struct context: {:?}", expr),
+                            src: NamedSource::new(path, src),
+                        }));
+                    }
+                }
+                bytecode.push(Instruction::LoadVar(var_index))
+            }
+            HirExpr::FieldAccess(field_access) => {
+                self.generate_bytecode_expr(field_access.target.as_ref(), bytecode)?;
+                let struct_name = match field_access.target.ty() {
+                    HirTy::Named(struct_name) => struct_name.name,
+                    HirTy::Generic(g) => {
+                        MonomorphizationPass::mangle_generic_struct_name(self.hir_arena, g)
+                    }
+                    _ => {
+                        let path = field_access.span.path;
+                        let src = utils::get_file_content(path).unwrap();
+                        return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                            span: SourceSpan::new(
+                                SourceOffset::from(expr.span().start),
+                                expr.span().end - expr.span().start,
+                            ),
+                            expr: format!("No field access for {}", field_access.target.ty()),
                             src: NamedSource::new(path, src),
                         }));
                     }
@@ -661,10 +843,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 let struct_descriptor = self
                     .struct_pool
                     .iter()
-                    .find(|c| c.name == struct_name.name)
+                    .find(|c| c.name == struct_name)
                     .unwrap_or_else(|| {
                         //should never happen
-                        panic!("Struct {} not found", struct_name.name)
+                        panic!("Struct {} not found", struct_name)
                     });
                 //get the position of the field
                 let field = struct_descriptor
@@ -687,8 +869,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         ConstantValue::String(s) => String::from(s),
                         _ => {
                             let path = static_access.span.path;
-                            let src = std::fs::read_to_string(PathBuf::from(&path))
-                                .unwrap_or_else(|_| panic!("{} is not a valid path", path));
+                            let src = utils::get_file_content(path).unwrap();
                             return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                 span: SourceSpan::new(
                                     SourceOffset::from(expr.span().start),
@@ -720,8 +901,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         ConstantValue::Float(f) => *f,
                         _ => {
                             let path = expr.span().path;
-                            let src = std::fs::read_to_string(PathBuf::from(&path))
-                                .unwrap_or_else(|_| panic!("{} is not a valid path", path));
+                            let src = utils::get_file_content(path).unwrap();
                             return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                 span: SourceSpan::new(
                                     SourceOffset::from(expr.span().start),
@@ -750,8 +930,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         ConstantValue::Int(i) => *i,
                         _ => {
                             let path = expr.span().path;
-                            let src = std::fs::read_to_string(PathBuf::from(&path))
-                                .unwrap_or_else(|_| panic!("{} is not a valid path", path));
+                            let src = utils::get_file_content(path).unwrap();
                             return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                 span: SourceSpan::new(
                                     SourceOffset::from(expr.span().start),
@@ -780,8 +959,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         ConstantValue::Char(c) => *c,
                         _ => {
                             let path = expr.span().path;
-                            let src = std::fs::read_to_string(PathBuf::from(&path))
-                                .unwrap_or_else(|_| panic!("{} is not a valid path", path));
+                            let src = utils::get_file_content(path).unwrap();
                             return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                 span: SourceSpan::new(
                                     SourceOffset::from(expr.span().start),
@@ -810,8 +988,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         ConstantValue::UInt(u) => *u,
                         _ => {
                             let path = expr.span().path;
-                            let src = std::fs::read_to_string(PathBuf::from(&path))
-                                .unwrap_or_else(|_| panic!("{} is not a valid path", path));
+                            let src = utils::get_file_content(path).unwrap();
                             return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                 span: SourceSpan::new(
                                     SourceOffset::from(expr.span().start),
@@ -826,8 +1003,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 }
                 HirTy::List(_) => {
                     let path = expr.span().path;
-                    let src = std::fs::read_to_string(PathBuf::from(&path))
-                        .unwrap_or_else(|_| panic!("{} is not a valid path", path));
+                    let src = utils::get_file_content(path).unwrap();
                     return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                         span: SourceSpan::new(
                             SourceOffset::from(expr.span().start),
@@ -842,8 +1018,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 }
                 _ => {
                     let path = expr.span().path;
-                    let src = std::fs::read_to_string(PathBuf::from(&path))
-                        .unwrap_or_else(|_| panic!("{} is not a valid path", path));
+                    let src = utils::get_file_content(path).unwrap();
                     return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                         span: SourceSpan::new(
                             SourceOffset::from(expr.span().start),
@@ -854,11 +1029,103 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     }));
                 }
             },
-            HirExpr::NoneLiteral(_) => {
-                bytecode.push(Instruction::LoadConst(ConstantValue::Unit));
+            HirExpr::NewObj(new_obj) => {
+                let name = match &new_obj.ty {
+                    HirTy::Named(n) => n.name,
+                    HirTy::Generic(g) => {
+                        MonomorphizationPass::mangle_generic_struct_name(self.hir_arena, g)
+                    }
+                    _ => {
+                        let path = expr.span().path;
+                        let src = utils::get_file_content(path).unwrap();
+                        return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                            span: SourceSpan::new(
+                                SourceOffset::from(expr.span().start),
+                                expr.span().end - expr.span().start,
+                            ),
+                            expr: format!("Can't instantiate object of type {}", new_obj.ty),
+                            src: NamedSource::new(path, src),
+                        }));
+                    }
+                };
+                let obj_descriptor = self
+                    .struct_pool
+                    .iter()
+                    .position(|s| s.name == name)
+                    .unwrap();
+                bytecode.push(Instruction::NewObj { obj_descriptor });
+                for arg in &new_obj.args {
+                    self.generate_bytecode_expr(arg, bytecode)?;
+                }
+                bytecode.push(Instruction::Call {
+                    func_name: format!("{}.new", name),
+                    nb_args: (new_obj.args.len() + 1) as u8, // +1 for the this pointer
+                });
             }
-            _ => unimplemented!("Unsupported expression for now: {:?}", expr),
+            HirExpr::NewArray(new_array) => {
+                self.generate_bytecode_expr(&new_array.size, bytecode)?;
+                bytecode.push(Instruction::NewArray)
+            }
+            HirExpr::Delete(delete) => {
+                let name = match &delete.expr.ty() {
+                    HirTy::Named(n) => n.name,
+                    HirTy::Generic(g) => {
+                        MonomorphizationPass::mangle_generic_struct_name(self.hir_arena, g)
+                    }
+                    HirTy::String(_) | HirTy::List(_) => {
+                        //Strings and Lists have their own delete instruction
+                        self.generate_bytecode_expr(&delete.expr, bytecode)?;
+                        bytecode.push(Instruction::DeleteObj);
+                        return Ok(());
+                    }
+                    _ => {
+                        let path = expr.span().path;
+                        let src = utils::get_file_content(path).unwrap();
+                        return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                            span: SourceSpan::new(
+                                SourceOffset::from(expr.span().start),
+                                expr.span().end - expr.span().start,
+                            ),
+                            expr: format!("Can't delete object of type {}", delete.expr.ty()),
+                            src: NamedSource::new(path, src),
+                        }));
+                    }
+                };
+
+                let _ = self
+                    .struct_pool
+                    .iter()
+                    .find(|c| c.name == name)
+                    .unwrap_or_else(|| {
+                        //should never happen
+                        panic!("Struct {} not found", name)
+                    });
+                //Call the destructor
+                self.generate_bytecode_expr(&delete.expr, bytecode)?;
+                bytecode.push(Instruction::Call {
+                    func_name: format!("{}.destroy", name),
+                    nb_args: 1,
+                });
+                //Free the object memory
+                bytecode.push(Instruction::DeleteObj);
+            }
+            _ => {
+                let path = expr.span().path;
+                let src = utils::get_file_content(path).unwrap();
+                return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                    span: SourceSpan::new(
+                        SourceOffset::from(expr.span().start),
+                        expr.span().end - expr.span().start,
+                    ),
+                    expr: format!("{:?}", expr),
+                    src: NamedSource::new(path, src),
+                }));
+            }
         }
         Ok(())
+    }
+
+    fn is_std(path: &str) -> bool {
+        path.starts_with("std")
     }
 }

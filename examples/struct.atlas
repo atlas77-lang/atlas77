@@ -14,12 +14,6 @@ struct Pair<T, U> {
         return new Pair<U, T>(this.second, this.first);
     }
 
-    fun inner_swap(this) {
-        let temp = this.first;
-        this.first = this.second;
-        this.second = temp;
-    }
-
     fun fn_first(this) -> T {
         return this.first;
     }
@@ -32,9 +26,13 @@ struct Pair<T, U> {
         return this;
     }
 
-    fun test() -> Pair<T, Box<float64>> {
+    fun test(this) -> Pair<T, Box<float64>> {
         let boxed_value: Box<float64> = new Box<float64>(3.14);
         return new Pair<T, Box<float64>>(this.first, boxed_value);
+    }
+
+    fun add(this) -> T {
+        return this.first + this.second;
     }
 }
 
@@ -54,7 +52,10 @@ fun main() {
     let second: string = p.fn_second();
     let swapped: Pair<string, int64> = p.swap();
     let p_boxed: Pair<Box<int64>, Box<string>> = new Pair<Box<int64>, Box<string>>(new Box<int64>(p.first), new Box<string>(p.second));
-    print("Pair: (" + p.first as string + ", " + p.second + ")");
-
-    let maybe_pair: Pair<int64, int64>? = null;
+    print("Pair: (");
+    print(p.first);
+    print(", ");
+    print(p.second);
+    println(")");
+    let pair_of_pairs_of_boxes: Pair<Box<int64>, Pair<Box<string>, Box<float64>>> = new Pair<Box<int64>, Pair<Box<string>, Box<float64>>>(new Box<int64>(1), new Pair<Box<string>, Box<float64>>(new Box<string>("Nested"), new Box<float64>(2.718)));
 }

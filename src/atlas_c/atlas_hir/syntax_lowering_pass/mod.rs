@@ -31,12 +31,12 @@ use crate::atlas_c::{
             UnsupportedTypeError, UselessError,
         },
         expr::{
-            HirAssignExpr, HirBinaryOp, HirBinaryOpExpr, HirBooleanLiteralExpr, HirCastExpr,
+            HirAssignExpr, HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr,
             HirCharLiteralExpr, HirDeleteExpr, HirExpr, HirFieldAccessExpr, HirFloatLiteralExpr,
             HirFunctionCallExpr, HirIdentExpr, HirIndexingExpr, HirIntegerLiteralExpr,
-            HirListLiteralExpr, HirNewArrayExpr, HirNewObjExpr, HirNoneLiteral,
-            HirStaticAccessExpr, HirStringLiteralExpr, HirThisLiteral, HirUnaryOp,
-            HirUnitLiteralExpr, HirUnsignedIntegerLiteralExpr, UnaryOpExpr,
+            HirListLiteralExpr, HirNewArrayExpr, HirNewObjExpr, HirStaticAccessExpr,
+            HirStringLiteralExpr, HirThisLiteral, HirUnaryOp, HirUnitLiteralExpr,
+            HirUnsignedIntegerLiteralExpr, UnaryOpExpr,
         },
         generic_pool::HirGenericPool,
         item::{HirFunction, HirStruct, HirStructConstructor, HirStructMethod},
@@ -546,7 +546,14 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 .insert(self.arena.intern(node.path.to_owned()), ());
             let src = crate::atlas_c::utils::get_file_content(node.path).unwrap();
             let path = crate::atlas_c::utils::string_to_static_str(node.path.to_owned());
-            let ast: AstProgram<'ast> = parse(path, self.ast_arena, src).unwrap();
+            let ast: AstProgram<'ast> = match parse(path, self.ast_arena, src) {
+                Ok(ast) => ast,
+                Err(e) => {
+                    let report: ErrReport = e.into();
+                    eprintln!("{:?}", report);
+                    std::process::exit(1);
+                }
+            };
             let allocated_ast = self.ast_arena.alloc(ast);
             let mut ast_lowering_pass =
                 AstSyntaxLoweringPass::<'ast, 'hir>::new(self.arena, allocated_ast, self.ast_arena);
@@ -741,7 +748,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 let lhs = self.visit_expr(b.lhs)?;
                 let rhs = self.visit_expr(b.rhs)?;
                 let op = self.visit_bin_op(&b.op)?;
-                let hir = HirExpr::HirBinaryOp(HirBinaryOpExpr {
+                let hir = HirExpr::HirBinaryOperation(HirBinaryOpExpr {
                     span: node.span(),
                     op,
                     op_span: Span {
@@ -871,17 +878,10 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                             ty: self.arena.types().get_uint64_ty(),
                         })
                     }
-                    AstLiteral::SelfLiteral(_) => HirExpr::ThisLiteral(HirThisLiteral {
+                    AstLiteral::ThisLiteral(_) => HirExpr::ThisLiteral(HirThisLiteral {
                         span: l.span(),
                         ty: self.arena.types().get_uninitialized_ty(),
                     }),
-                    AstLiteral::None(_) => {
-                        Self::nullable_types_are_unstable_warning(&node.span());
-                        HirExpr::NoneLiteral(HirNoneLiteral {
-                            span: l.span(),
-                            ty: self.arena.types().get_none_ty(),
-                        })
-                    }
                     AstLiteral::Char(ast_char) => HirExpr::CharLiteral(HirCharLiteralExpr {
                         span: l.span(),
                         value: ast_char.value,
@@ -963,19 +963,21 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         })
     }
 
-    fn visit_bin_op(&self, bin_op: &'ast AstBinaryOp) -> HirResult<HirBinaryOp> {
+    fn visit_bin_op(&self, bin_op: &'ast AstBinaryOp) -> HirResult<HirBinaryOperator> {
         let op = match bin_op {
-            AstBinaryOp::Add => HirBinaryOp::Add,
-            AstBinaryOp::Sub => HirBinaryOp::Sub,
-            AstBinaryOp::Mul => HirBinaryOp::Mul,
-            AstBinaryOp::Div => HirBinaryOp::Div,
-            AstBinaryOp::Mod => HirBinaryOp::Mod,
-            AstBinaryOp::Eq => HirBinaryOp::Eq,
-            AstBinaryOp::NEq => HirBinaryOp::Neq,
-            AstBinaryOp::Lt => HirBinaryOp::Lt,
-            AstBinaryOp::Lte => HirBinaryOp::Lte,
-            AstBinaryOp::Gt => HirBinaryOp::Gt,
-            AstBinaryOp::Gte => HirBinaryOp::Gte,
+            AstBinaryOp::Add => HirBinaryOperator::Add,
+            AstBinaryOp::Sub => HirBinaryOperator::Sub,
+            AstBinaryOp::Mul => HirBinaryOperator::Mul,
+            AstBinaryOp::Div => HirBinaryOperator::Div,
+            AstBinaryOp::Mod => HirBinaryOperator::Mod,
+            AstBinaryOp::Eq => HirBinaryOperator::Eq,
+            AstBinaryOp::NEq => HirBinaryOperator::Neq,
+            AstBinaryOp::Lt => HirBinaryOperator::Lt,
+            AstBinaryOp::Lte => HirBinaryOperator::Lte,
+            AstBinaryOp::Gt => HirBinaryOperator::Gt,
+            AstBinaryOp::Gte => HirBinaryOperator::Gte,
+            AstBinaryOp::And => HirBinaryOperator::And,
+            AstBinaryOp::Or => HirBinaryOperator::Or,
             //Other operators will soon come
         };
         Ok(op)
@@ -1057,10 +1059,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             AstType::UnsignedInteger(_) => self.arena.types().get_uint64_ty(),
             AstType::Unit(_) => self.arena.types().get_unit_ty(),
             AstType::String(_) => self.arena.types().get_str_ty(),
-            AstType::Null(_) => {
-                Self::nullable_types_are_unstable_warning(&node.span());
-                self.arena.types().get_none_ty()
-            }
             AstType::Named(n) => {
                 let name = self.arena.names().get(n.name.name);
                 self.arena.types().get_named_ty(name, n.span.clone())

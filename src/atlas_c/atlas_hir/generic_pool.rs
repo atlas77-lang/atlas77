@@ -44,16 +44,17 @@ impl<'hir> HirGenericPool<'hir> {
         }
     }
     pub fn register_struct_instance(&mut self, generic: HirGenericTy<'hir>) {
+        //First we need to check if it's an instantiated generics or a generic definition e.g.: Vector<T> or Vector<uint64>
+        if !self.is_generic_instantiated(&generic) {
+            return;
+        }
         let name = self.mangle_generic_struct_name(generic.clone());
-        self.structs.insert(
-            name,
-            HirGenericInstance {
-                name: generic.name,
-                args: generic.inner,
-                is_done: false,
-                span: generic.span,
-            },
-        );
+        self.structs.entry(name).or_insert(HirGenericInstance {
+            name: generic.name,
+            args: generic.inner,
+            is_done: false,
+            span: generic.span,
+        });
     }
 
     pub fn register_function_instance(
@@ -70,6 +71,27 @@ impl<'hir> HirGenericPool<'hir> {
                 span: Span::default(),
             },
         );
+    }
+
+    fn is_generic_instantiated(&mut self, generic: &HirGenericTy<'hir>) -> bool {
+        let mut is_instantiated = true;
+        for ty in generic.inner.iter() {
+            match ty {
+                HirTy::Named(n) => {
+                    if n.name.len() == 1 {
+                        is_instantiated = false;
+                    }
+                }
+                HirTy::Generic(g) => {
+                    //We register nested generics as well (e.g. MyStruct<Vector<uint64>>)
+                    //This ensures that they are also monomorphized if it's the only instance
+                    //But because the check is called in register_struct_instance it won't register generic definitions
+                    self.register_struct_instance(g.clone());
+                }
+                _ => continue,
+            }
+        }
+        is_instantiated
     }
 
     fn mangle_generic_struct_name(&self, generic: HirGenericTy<'hir>) -> &'hir str {

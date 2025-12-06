@@ -1,4 +1,3 @@
-use crate::atlas_c::atlas_codegen::instruction::Type;
 use crate::atlas_vm::vm_data::VMTag;
 
 pub type RuntimeResult<T> = Result<T, RuntimeError>;
@@ -10,7 +9,7 @@ pub enum RuntimeError {
     StackUnderflow,
     NullReference,
     DivisionByZero,
-    InvalidCast(VMTag, Type),
+    InvalidCast(VMTag, VMTag),
     IndexOutOfBounds,
     InvalidOperation,
     TypeMismatchError,

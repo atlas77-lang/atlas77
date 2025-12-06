@@ -1,7 +1,7 @@
 use crate::atlas_vm::error::RuntimeError;
 use crate::atlas_vm::object::ObjectKind;
-use crate::atlas_vm::runtime::vm_state::VMState;
 use crate::atlas_vm::runtime::CallBack;
+use crate::atlas_vm::runtime::vm_state::VMState;
 use crate::atlas_vm::vm_data::{VMData, VMTag};
 
 pub const IO_FUNCTIONS: [(&str, CallBack); 4] = [
@@ -14,15 +14,14 @@ pub fn println<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
     let val = state.stack.pop()?;
     match val.tag {
         VMTag::Unit
-        | VMTag::Bool
+        | VMTag::Boolean
         | VMTag::UInt64
         | VMTag::Int64
         | VMTag::Float64
-        | VMTag::Char
-        | VMTag::Null => {
+        | VMTag::Char => {
             println!("{}", val)
         }
-        VMTag::Str => {
+        VMTag::String => {
             println!("{}", state.object_map.get(val.as_object())?.string())
         }
         _ => {
@@ -36,15 +35,14 @@ pub fn print<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
     let val = state.stack.pop()?;
     match val.tag {
         VMTag::Unit
-        | VMTag::Bool
+        | VMTag::Boolean
         | VMTag::UInt64
         | VMTag::Int64
         | VMTag::Float64
-        | VMTag::Char
-        | VMTag::Null => {
+        | VMTag::Char => {
             print!("{}", val)
         }
-        VMTag::Str => {
+        VMTag::String => {
             print!("{}", state.object_map.get(val.as_object())?.string())
         }
         _ => {
@@ -70,16 +68,15 @@ pub fn panic<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
     let val = state.stack.pop()?;
     match val.tag {
         VMTag::Unit
-        | VMTag::Bool
+        | VMTag::Boolean
         | VMTag::UInt64
         | VMTag::Int64
         | VMTag::Float64
-        | VMTag::Char
-        | VMTag::Null => {
+        | VMTag::Char => {
             println!("{}", val);
             std::process::exit(1);
         }
-        VMTag::Str => {
+        VMTag::String => {
             println!("{}", state.object_map.get(val.as_object())?.string());
             std::process::exit(1);
         }

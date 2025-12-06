@@ -89,7 +89,7 @@ fun main() {
 ### Fibonacci Example
 
 ```
-import "std/io"
+import "std/io";
 
 fun fib(n: int64) -> int64 {
     if n <= 1 {
@@ -125,6 +125,8 @@ There never was any official v0.1 or v0.2 releases, they were just internal mile
 
 > Deprecated, if you want to know more about the v0.4, check the releases page.
 
+> [!Warning] This version no longer compiles for some reason, so the source code is still accessible, but you can't build it.
+
 - [v0.4 "Keystone"](https://github.com/atlas77-lang/Atlas77/tag/v0.4)
 
 ### v0.5 "Phoenix"
@@ -150,13 +152,14 @@ The runtime focuses on a simple GC (refcount + cycle breaking) and Rust-backed i
 | Functions            |   ✅    | Self descriptive I would say                          |
 | Variables            |   ✅    | Immutable (`const`) and mutable (`let`)               |
 | Control Flow         |   ✅    | `if/else`, `while`                                    |
-| Imports & Packages   |   🔧   | Multi module projects                                 |
+| Imports              |   ✅   | Multi module projects                                 |
+| Packages             |   ❌   | Package manager + ecosystem                           |
 | Basic Types          |   ✅    | `int64`, `float64`, `bool`, `char`, `string`          |
 | Basic `std`          |   ✅    | I/O, string, math, time, vector, file                 |
-| Structs              |   🔧   | User-defined data types                               |
+| Structs              |   ✅   | User-defined data types                               |
 | Enums                |   🔧   | C-like enumerator                                     |
 | Algebraic Data Types |   🔧   | Sum types with pattern matching                       |
-| Generics             |   🔧   | Type parameters for reusable code                     |
+| Generics             |   ✅   | Type parameters for reusable code                     |
 | GC                   |   🔧   | Reference counting + cycle detection                  |
 | Type System          |   🔧   | Static, strong, inferred                              |
 | Rust FFI             |   🔧   | Core of the "everything else in libraries" philosophy |

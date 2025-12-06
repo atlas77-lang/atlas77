@@ -6,7 +6,6 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
 pub struct HirTyId(u64);
 
-const NULL_TY_ID: u8 = 0x00;
 const INTEGER64_TY_ID: u8 = 0x01;
 const FLOAT64_TY_ID: u8 = 0x02;
 const UNSIGNED_INTEGER_TY_ID: u8 = 0x03;
@@ -24,11 +23,6 @@ const GENERIC_TY_ID: u8 = 0x70;
 const REFERENCE_TY_ID: u8 = 0x80;
 
 impl HirTyId {
-    pub fn compute_null_ty_id() -> Self {
-        let mut hasher = DefaultHasher::new();
-        NULL_TY_ID.hash(&mut hasher);
-        Self(hasher.finish())
-    }
     pub fn compute_integer64_ty_id() -> Self {
         let mut hasher = DefaultHasher::new();
         INTEGER64_TY_ID.hash(&mut hasher);
@@ -125,7 +119,6 @@ impl HirTyId {
 impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
     fn from(value: &'hir HirTy<'hir>) -> Self {
         match value {
-            HirTy::Null(_) => Self::compute_null_ty_id(),
             HirTy::Int64(_) => Self::compute_integer64_ty_id(),
             HirTy::Float64(_) => Self::compute_float64_ty_id(),
             HirTy::UInt64(_) => Self::compute_uint64_ty_id(),
@@ -154,7 +147,6 @@ impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub enum HirTy<'hir> {
-    Null(HirNullTy),
     Int64(HirIntegerTy),
     Float64(HirFloatTy),
     UInt64(HirUnsignedIntTy),
@@ -181,7 +173,6 @@ impl HirTy<'_> {
 impl fmt::Display for HirTy<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            HirTy::Null(_) => write!(f, "null"),
             HirTy::Int64(_) => write!(f, "int64"),
             HirTy::Float64(_) => write!(f, "float64"),
             HirTy::UInt64(_) => write!(f, "uint64"),
@@ -232,9 +223,8 @@ pub struct HirConstTy<'hir> {
 }
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
-pub struct HirNullTy {}
-
-#[derive(Debug, Clone, Eq, Hash, PartialEq)]
+//TODO: remove HirNullableTy as this will be replaced by option types
+//e.g.: T? -> Option<T>
 pub struct HirNullableTy<'hir> {
     pub inner: &'hir HirTy<'hir>,
 }

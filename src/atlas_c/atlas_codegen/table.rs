@@ -46,27 +46,11 @@ impl<T> Table<T> {
     {
         self.items.iter().any(|x| x.borrow() == item)
     }
-    pub fn retrieve(&self, idx: usize) -> Option<&T> {
-        self.items.get(idx)
-    }
     pub fn len(&self) -> usize {
         self.items.len()
     }
-    pub fn is_empty(&self) -> bool {
-        self.items.is_empty()
-    }
     pub fn clear(&mut self) {
         self.items.clear()
-    }
-    pub fn extend(&mut self, other: Table<T>) {
-        self.items.extend(other.items);
-    }
-    pub fn remove<K>(&mut self, item: &K)
-    where
-        T: Borrow<K>,
-        K: PartialEq,
-    {
-        self.items.remove(self.get_index(item).unwrap());
     }
 }
 

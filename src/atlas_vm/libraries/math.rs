@@ -1,8 +1,8 @@
 use crate::atlas_vm::error::RuntimeError;
-use crate::atlas_vm::runtime::vm_state::VMState;
 use crate::atlas_vm::runtime::CallBack;
+use crate::atlas_vm::runtime::vm_state::VMState;
 use crate::atlas_vm::vm_data::VMData;
-use rand::{rng, Rng};
+use rand::{Rng, rng};
 
 pub const MATH_FUNCTIONS: [(&str, CallBack); 7] = [
     ("abs", abs),

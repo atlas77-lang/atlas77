@@ -1,16 +1,14 @@
 mod context;
 
 use super::{
-    arena::HirArena, error::{FunctionTypeMismatchError, HirError, HirResult, TypeMismatchError, UnknownTypeError}, expr,
-    expr::{HirBinaryOp, HirExpr},
+    HirFunction, HirModule, HirModuleSignature,
+    arena::HirArena,
+    error::{FunctionTypeMismatchError, HirError, HirResult, TypeMismatchError, UnknownTypeError},
+    expr,
+    expr::{HirBinaryOperator, HirExpr},
     stmt::HirStatement,
     ty::{HirTy, HirTyId},
-    HirFunction,
-    HirModule,
-    HirModuleSignature,
 };
-use crate::atlas_c::atlas_hir::error::{AccessingClassFieldOutsideClassError, AccessingPrivateConstructorError, AccessingPrivateFieldError, AccessingPrivateStructError, AccessingPrivateStructOrigin, CanOnlyConstructStructsError, CannotDeletePrimitiveTypeError, ConstTyToNonConstTyError, EmptyListLiteralError, FieldKind, TryingToIndexNonIndexableTypeError, TypeMismatchActual, UnsupportedExpr};
-use crate::atlas_c::atlas_hir::expr::{HirFunctionCallExpr, HirIdentExpr};
 use crate::atlas_c::atlas_hir::item::{HirStruct, HirStructMethod};
 use crate::atlas_c::atlas_hir::monomorphization_pass::MonomorphizationPass;
 use crate::atlas_c::atlas_hir::signature::{
@@ -19,7 +17,22 @@ use crate::atlas_c::atlas_hir::signature::{
 use crate::atlas_c::atlas_hir::ty::HirNamedTy;
 use crate::atlas_c::atlas_hir::type_check_pass::context::{ContextFunction, ContextVariable};
 use crate::atlas_c::atlas_hir::warning::{DeletingReferenceIsUnstableWarning, HirWarning};
+use crate::atlas_c::atlas_hir::{
+    expr::{HirFunctionCallExpr, HirIdentExpr},
+    item::HirStructConstructor,
+};
 use crate::atlas_c::utils::Span;
+use crate::atlas_c::{
+    atlas_hir::error::{
+        AccessingClassFieldOutsideClassError, AccessingPrivateConstructorError,
+        AccessingPrivateFieldError, AccessingPrivateFunctionError, AccessingPrivateFunctionOrigin,
+        AccessingPrivateStructError, AccessingPrivateStructOrigin, CanOnlyConstructStructsError,
+        CannotDeletePrimitiveTypeError, ConstTyToNonConstTyError, EmptyListLiteralError, FieldKind,
+        IllegalOperationError, TryingToIndexNonIndexableTypeError, TypeMismatchActual,
+        UnsupportedExpr,
+    },
+    utils,
+};
 use miette::{ErrReport, NamedSource, SourceOffset, SourceSpan};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -34,8 +47,7 @@ pub struct TypeChecker<'hir> {
     signature: HirModuleSignature<'hir>,
     current_func_name: Option<&'hir str>,
     current_class_name: Option<&'hir str>,
-    #[deprecated]
-    /// Will be moved to the MonomorphizationPass in the future
+    //TODO: Move this to the MonomorphizationPass in the future
     extern_monomorphized:
         HashMap<(&'hir str, Vec<&'hir HirTy<'hir>>), &'hir HirFunctionSignature<'hir>>,
 }
@@ -72,6 +84,72 @@ impl<'hir> TypeChecker<'hir> {
             self.context_functions.push(HashMap::new());
             self.check_method(method)?;
         }
+        self.current_func_name = Some("constructor");
+        self.check_constructor(&mut class.constructor)?;
+        self.current_func_name = Some("destructor");
+        self.check_destructor(&mut class.destructor)?;
+        Ok(())
+    }
+
+    fn check_destructor(&mut self, destructor: &mut HirStructConstructor<'hir>) -> HirResult<()> {
+        self.context_functions.push(HashMap::new());
+        self.context_functions
+            .last_mut()
+            .unwrap()
+            .insert(String::from("destructor"), ContextFunction::new());
+        for param in &destructor.params {
+            self.context_functions
+                .last_mut()
+                .unwrap()
+                .get_mut("destructor")
+                .unwrap()
+                .insert(
+                    param.name,
+                    ContextVariable {
+                        _name: param.name,
+                        _name_span: param.span.clone(),
+                        ty: param.ty,
+                        _ty_span: param.ty_span.clone(),
+                        _is_mut: false,
+                    },
+                );
+        }
+        for stmt in &mut destructor.body.statements {
+            self.check_stmt(stmt)?;
+        }
+        //Because it is a destructor we don't keep it in the `context_functions`
+        self.context_functions.pop();
+        Ok(())
+    }
+
+    fn check_constructor(&mut self, constructor: &mut HirStructConstructor<'hir>) -> HirResult<()> {
+        self.context_functions.push(HashMap::new());
+        self.context_functions
+            .last_mut()
+            .unwrap()
+            .insert(String::from("constructor"), ContextFunction::new());
+        for param in &constructor.params {
+            self.context_functions
+                .last_mut()
+                .unwrap()
+                .get_mut("constructor")
+                .unwrap()
+                .insert(
+                    param.name,
+                    ContextVariable {
+                        _name: param.name,
+                        _name_span: param.span.clone(),
+                        ty: param.ty,
+                        _ty_span: param.ty_span.clone(),
+                        _is_mut: false,
+                    },
+                );
+        }
+        for stmt in &mut constructor.body.statements {
+            self.check_stmt(stmt)?;
+        }
+        //Because it is a constructor we don't keep it in the `context_functions`
+        self.context_functions.pop();
         Ok(())
     }
 
@@ -91,10 +169,10 @@ impl<'hir> TypeChecker<'hir> {
                     param.name,
                     ContextVariable {
                         _name: param.name,
-                        name_span: param.span.clone(),
+                        _name_span: param.span.clone(),
                         ty: param.ty,
-                        ty_span: param.ty_span.clone(),
-                        is_mut: false,
+                        _ty_span: param.ty_span.clone(),
+                        _is_mut: false,
                     },
                 );
         }
@@ -122,10 +200,10 @@ impl<'hir> TypeChecker<'hir> {
                     param.name,
                     ContextVariable {
                         _name: param.name,
-                        name_span: param.span.clone(),
+                        _name_span: param.span.clone(),
                         ty: param.ty,
-                        ty_span: param.ty_span.clone(),
-                        is_mut: false,
+                        _ty_span: param.ty_span.clone(),
+                        _is_mut: false,
                     },
                 );
         }
@@ -254,10 +332,10 @@ impl<'hir> TypeChecker<'hir> {
                         c.name,
                         ContextVariable {
                             _name: c.name,
-                            name_span: c.name_span.clone(),
+                            _name_span: c.name_span.clone(),
                             ty: const_ty,
-                            ty_span: c.ty_span.clone().unwrap_or(c.name_span.clone()),
-                            is_mut: false,
+                            _ty_span: c.ty_span.clone().unwrap_or(c.name_span.clone()),
+                            _is_mut: false,
                         },
                     );
 
@@ -281,10 +359,10 @@ impl<'hir> TypeChecker<'hir> {
                         l.name,
                         ContextVariable {
                             _name: l.name,
-                            name_span: l.name_span.clone(),
+                            _name_span: l.name_span.clone(),
                             ty: var_ty,
-                            ty_span: l.ty_span.clone().unwrap_or(l.name_span.clone()),
-                            is_mut: true,
+                            _ty_span: l.ty_span.clone().unwrap_or(l.name_span.clone()),
+                            _is_mut: true,
                         },
                     );
                 self.is_equivalent_ty(
@@ -308,12 +386,11 @@ impl<'hir> TypeChecker<'hir> {
             HirExpr::UnitLiteral(_) => Ok(self.arena.types().get_unit_ty()),
             HirExpr::CharLiteral(_) => Ok(self.arena.types().get_char_ty()),
             HirExpr::StringLiteral(_) => Ok(self.arena.types().get_str_ty()),
-            HirExpr::NoneLiteral(_) => Ok(self.arena.types().get_none_ty()),
             HirExpr::Delete(del) => {
                 let ty = self.check_expr(&mut del.expr)?;
                 if Self::is_primitive_type(ty) {
                     let path = del.span.path;
-                    let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+                    let src = utils::get_file_content(&path).unwrap();
                     return Err(HirError::CannotDeletePrimitiveType(
                         CannotDeletePrimitiveTypeError {
                             span: SourceSpan::new(
@@ -356,7 +433,7 @@ impl<'hir> TypeChecker<'hir> {
                     Some(class_name) => class_name,
                     None => {
                         let path = expr.span().path;
-                        let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+                        let src = utils::get_file_content(&path).unwrap();
                         return Err(HirError::AccessingClassFieldOutsideClass(
                             AccessingClassFieldOutsideClassError {
                                 span: SourceSpan::new(
@@ -439,7 +516,7 @@ impl<'hir> TypeChecker<'hir> {
                         Ok(self.arena.types().get_char_ty())
                     }
                     _ => {
-                        let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+                        let src = utils::get_file_content(&path).unwrap();
                         Err(HirError::TryingToIndexNonIndexableType(
                             TryingToIndexNonIndexableTypeError {
                                 span: SourceSpan::new(
@@ -454,28 +531,78 @@ impl<'hir> TypeChecker<'hir> {
                     }
                 }
             }
-            HirExpr::HirBinaryOp(b) => {
+            HirExpr::HirBinaryOperation(b) => {
                 let lhs = self.check_expr(&mut b.lhs)?;
                 b.ty = lhs;
                 let rhs = self.check_expr(&mut b.rhs)?;
-                self.is_equivalent_ty(lhs, b.lhs.span(), rhs, b.rhs.span())?;
+                let is_equivalent = self.is_equivalent_ty(lhs, b.lhs.span(), rhs, b.rhs.span());
+                if is_equivalent.is_err() {
+                    return Err(Self::illegal_operation_err(
+                        lhs,
+                        rhs,
+                        b.span,
+                        "binary operation",
+                    ));
+                }
 
                 match b.op {
-                    HirBinaryOp::And
-                    | HirBinaryOp::Eq
-                    | HirBinaryOp::Neq
-                    | HirBinaryOp::Or
-                    | HirBinaryOp::Gt
-                    | HirBinaryOp::Gte
-                    | HirBinaryOp::Lt
-                    | HirBinaryOp::Lte => Ok(self.arena.types().get_boolean_ty()),
-                    _ => Ok(lhs),
+                    HirBinaryOperator::Add
+                    | HirBinaryOperator::Sub
+                    | HirBinaryOperator::Mul
+                    | HirBinaryOperator::Div
+                    | HirBinaryOperator::Mod => {
+                        if !TypeChecker::is_arithmetic_type(lhs) {
+                            return Err(Self::illegal_operation_err(
+                                lhs,
+                                rhs,
+                                b.span,
+                                "arithmetic operation",
+                            ));
+                        }
+                        Ok(lhs)
+                    }
+                    HirBinaryOperator::And | HirBinaryOperator::Or => {
+                        if HirTyId::from(lhs) != HirTyId::compute_boolean_ty_id() {
+                            return Err(Self::illegal_operation_err(
+                                lhs,
+                                rhs,
+                                b.span,
+                                "logical operation",
+                            ));
+                        }
+                        Ok(lhs)
+                    }
+                    HirBinaryOperator::Eq | HirBinaryOperator::Neq => {
+                        if !TypeChecker::is_equality_comparable(lhs) {
+                            return Err(Self::illegal_operation_err(
+                                lhs,
+                                rhs,
+                                b.span,
+                                "equality comparison",
+                            ));
+                        }
+                        Ok(self.arena.types().get_boolean_ty())
+                    }
+                    HirBinaryOperator::Gt
+                    | HirBinaryOperator::Gte
+                    | HirBinaryOperator::Lt
+                    | HirBinaryOperator::Lte => {
+                        if !TypeChecker::is_orderable_type(lhs) {
+                            return Err(Self::illegal_operation_err(
+                                lhs,
+                                rhs,
+                                b.span,
+                                "ordering comparison",
+                            ));
+                        }
+                        Ok(self.arena.types().get_boolean_ty())
+                    }
                 }
             }
             HirExpr::ListLiteral(l) => {
                 let path = l.span.path;
                 if l.items.is_empty() {
-                    let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+                    let src = utils::get_file_content(&path).unwrap();
                     return Err(HirError::EmptyListLiteral(EmptyListLiteralError {
                         span: SourceSpan::new(
                             SourceOffset::from(l.span.start),
@@ -544,7 +671,7 @@ impl<'hir> TypeChecker<'hir> {
                     *tmp
                 } else {
                     let path = obj.span.path;
-                    let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+                    let src = utils::get_file_content(&path).unwrap();
                     return Err(HirError::CanOnlyConstructStructs(
                         CanOnlyConstructStructsError {
                             span: SourceSpan::new(
@@ -559,24 +686,26 @@ impl<'hir> TypeChecker<'hir> {
                     && struct_signature.vis != HirVisibility::Public
                 {
                     let origin_path = struct_signature.name_span.path;
-                    let origin_src = crate::atlas_c::utils::get_file_content(&origin_path).unwrap();
+                    let origin_src = utils::get_file_content(&origin_path).unwrap();
                     let obj_path = obj.span.path;
-                    let obj_src = crate::atlas_c::utils::get_file_content(&obj_path).unwrap();
-                    return Err(HirError::AccessingPrivateStruct(AccessingPrivateStructError {
-                        name: struct_ty.name.to_owned(),
-                        span: obj.span.clone(),
-                        src: NamedSource::new(obj_path, obj_src),
-                        origin: AccessingPrivateStructOrigin {
-                            span: struct_signature.name_span.clone(),
-                            src: NamedSource::new(origin_path, origin_src),
-                        }
-                    }))
+                    let obj_src = utils::get_file_content(&obj_path).unwrap();
+                    return Err(HirError::AccessingPrivateStruct(
+                        AccessingPrivateStructError {
+                            name: struct_ty.name.to_owned(),
+                            span: obj.span.clone(),
+                            src: NamedSource::new(obj_path, obj_src),
+                            origin: AccessingPrivateStructOrigin {
+                                span: struct_signature.name_span.clone(),
+                                src: NamedSource::new(origin_path, origin_src),
+                            },
+                        },
+                    ));
                 }
                 if struct_signature.constructor.vis != HirVisibility::Public
                     && self.current_class_name != Some(struct_ty.name)
                 {
                     let path = obj.span.path;
-                    let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+                    let src = utils::get_file_content(&path).unwrap();
                     return Err(HirError::AccessingPrivateConstructor(
                         AccessingPrivateConstructorError {
                             span: SourceSpan::new(
@@ -595,7 +724,9 @@ impl<'hir> TypeChecker<'hir> {
                     .zip(obj.args.iter_mut())
                 {
                     let arg_ty = self.check_expr(arg)?;
-                    if HirTyId::from(arg_ty) != HirTyId::from(param.ty) {
+                    let is_equivalent =
+                        self.is_equivalent_ty(arg_ty, arg.span(), param.ty, param.span.clone());
+                    if !is_equivalent.is_ok() {
                         return Err(Self::type_mismatch_err(
                             &format!("{}", arg_ty),
                             &arg.span(),
@@ -624,9 +755,27 @@ impl<'hir> TypeChecker<'hir> {
                             }
                         };
 
+                        if func.span.path != path && func.vis != HirVisibility::Public {
+                            let origin_path = func.span.path;
+                            let origin_src = utils::get_file_content(&origin_path).unwrap();
+                            let call_path = func_expr.span.path;
+                            let call_src = utils::get_file_content(&call_path).unwrap();
+                            return Err(HirError::AccessingPrivateFunction(
+                                AccessingPrivateFunctionError {
+                                    name: name.to_string(),
+                                    span: func_expr.span.clone(),
+                                    src: NamedSource::new(call_path, call_src),
+                                    origin: AccessingPrivateFunctionOrigin {
+                                        span: func.span.clone(),
+                                        src: NamedSource::new(origin_path, origin_src),
+                                    },
+                                },
+                            ));
+                        }
+
                         if func.params.len() != func_expr.args.len() {
                             let path = expr.span().path;
-                            let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+                            let src = utils::get_file_content(&path).unwrap();
                             return Err(HirError::FunctionTypeMismatch(
                                 FunctionTypeMismatchError {
                                     expected_ty: format!("{:?}", func),
@@ -666,7 +815,7 @@ impl<'hir> TypeChecker<'hir> {
                             name = MonomorphizationPass::mangle_generic_struct_name(self.arena, g);
                         } else {
                             let path = field_access.span.path;
-                            let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+                            let src = utils::get_file_content(&path).unwrap();
                             return Err(HirError::CanOnlyConstructStructs(
                                 CanOnlyConstructStructsError {
                                     span: SourceSpan::new(
@@ -683,6 +832,24 @@ impl<'hir> TypeChecker<'hir> {
                                 return Err(Self::unknown_type_err(name, &field_access.span));
                             }
                         };
+                        if class.declaration_span.path != path && class.vis != HirVisibility::Public
+                        {
+                            let origin_path = class.declaration_span.path;
+                            let origin_src = utils::get_file_content(&origin_path).unwrap();
+                            let access_path = field_access.span.path;
+                            let access_src = utils::get_file_content(&access_path).unwrap();
+                            return Err(HirError::AccessingPrivateStruct(
+                                AccessingPrivateStructError {
+                                    name: name.to_owned(),
+                                    span: field_access.span.clone(),
+                                    src: NamedSource::new(access_path, access_src),
+                                    origin: AccessingPrivateStructOrigin {
+                                        span: class.declaration_span.clone(),
+                                        src: NamedSource::new(origin_path, origin_src),
+                                    },
+                                },
+                            ));
+                        }
                         let method = class
                             .methods
                             .iter()
@@ -693,7 +860,7 @@ impl<'hir> TypeChecker<'hir> {
                             if self.current_class_name != Some(name)
                                 && method_signature.vis != HirVisibility::Public
                             {
-                                let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+                                let src = utils::get_file_content(&path).unwrap();
                                 return Err(HirError::AccessingPrivateField(
                                     AccessingPrivateFieldError {
                                         span: SourceSpan::new(
@@ -706,7 +873,7 @@ impl<'hir> TypeChecker<'hir> {
                                 ));
                             }
                             if method_signature.modifier == HirStructMethodModifier::Static {
-                                let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+                                let src = utils::get_file_content(&path).unwrap();
                                 return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                     span: SourceSpan::new(
                                         SourceOffset::from(field_access.span.start),
@@ -717,7 +884,7 @@ impl<'hir> TypeChecker<'hir> {
                                 }));
                             }
                             if method_signature.params.len() != func_expr.args.len() {
-                                let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+                                let src = utils::get_file_content(&path).unwrap();
                                 return Err(HirError::FunctionTypeMismatch(
                                     FunctionTypeMismatchError {
                                         expected_ty: format!("{:?}", method_signature),
@@ -865,7 +1032,7 @@ impl<'hir> TypeChecker<'hir> {
                     name = MonomorphizationPass::mangle_generic_struct_name(self.arena, g);
                 } else {
                     let path = field_access.span.path;
-                    let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+                    let src = utils::get_file_content(&path).unwrap();
                     return Err(HirError::CanOnlyConstructStructs(
                         CanOnlyConstructStructsError {
                             span: SourceSpan::new(
@@ -891,7 +1058,7 @@ impl<'hir> TypeChecker<'hir> {
                         && field_signature.vis != HirVisibility::Public
                     {
                         let path = expr.span().path;
-                        let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+                        let src = utils::get_file_content(&path).unwrap();
                         return Err(HirError::AccessingPrivateField(
                             AccessingPrivateFieldError {
                                 span: SourceSpan::new(
@@ -942,17 +1109,6 @@ impl<'hir> TypeChecker<'hir> {
                     ))
                 }
             }
-            _ => Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                span: SourceSpan::new(
-                    SourceOffset::from(expr.span().start),
-                    expr.span().end - expr.span().start,
-                ),
-                expr: format!("{:?}", expr),
-                src: NamedSource::new(
-                    expr.span().path,
-                    crate::atlas_c::utils::get_file_content(&expr.span().path).unwrap_or_default(),
-                ),
-            })),
         }
     }
 
@@ -1074,9 +1230,9 @@ impl<'hir> TypeChecker<'hir> {
     }
     fn is_equivalent_ty(
         &self,
-        ty1: &'hir HirTy<'hir>,
+        ty1: &HirTy<'_>,
         ty1_span: Span,
-        ty2: &'hir HirTy<'hir>,
+        ty2: &HirTy<'_>,
         ty2_span: Span,
     ) -> HirResult<()> {
         match (ty1, ty2) {
@@ -1088,7 +1244,7 @@ impl<'hir> TypeChecker<'hir> {
             }
             (HirTy::Const(_), _) => {
                 let path = ty1_span.path;
-                let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+                let src = utils::get_file_content(&path).unwrap();
                 Err(HirError::ConstTyToNonConstTy(ConstTyToNonConstTyError {
                     const_val: SourceSpan::new(
                         SourceOffset::from(ty1_span.start),
@@ -1105,7 +1261,6 @@ impl<'hir> TypeChecker<'hir> {
             }
             (HirTy::Int64(_), HirTy::UInt64(_)) | (HirTy::UInt64(_), HirTy::Int64(_)) => Ok(()),
             (_, HirTy::Const(r2)) => self.is_equivalent_ty(ty1, ty1_span, r2.inner, ty2_span),
-            (HirTy::Nullable(_), HirTy::Null(_)) | (HirTy::Null(_), HirTy::Nullable(_)) => Ok(()),
             (HirTy::Nullable(n1), _) => self.is_equivalent_ty(n1.inner, ty1_span, ty2, ty2_span),
             (_, HirTy::Nullable(n2)) => self.is_equivalent_ty(ty1, ty1_span, n2.inner, ty2_span),
             (HirTy::Generic(g), HirTy::Named(n)) | (HirTy::Named(n), HirTy::Generic(g)) => {
@@ -1135,6 +1290,9 @@ impl<'hir> TypeChecker<'hir> {
         }
     }
 
+    // I don't know if I'll keep `string` as a primitive type in the future.
+    // Maybe it will become something like `str` like in Rust,
+    // so I can have a `std::string` package without conflicts.
     fn is_primitive_type(ty: &HirTy) -> bool {
         matches!(
             ty,
@@ -1144,7 +1302,6 @@ impl<'hir> TypeChecker<'hir> {
                 | HirTy::Char(_)
                 | HirTy::Boolean(_)
                 | HirTy::String(_)
-                | HirTy::Null(_)
                 | HirTy::Unit(_)
         )
     }
@@ -1157,7 +1314,7 @@ impl<'hir> TypeChecker<'hir> {
         expected_loc: &Span,
     ) -> HirError {
         let actual_path = actual_loc.path;
-        let actual_src = crate::atlas_c::utils::get_file_content(&actual_path).unwrap();
+        let actual_src = utils::get_file_content(&actual_path).unwrap();
         let actual_err = TypeMismatchActual {
             actual_ty: actual_type.to_string(),
             span: actual_loc.clone(),
@@ -1165,7 +1322,7 @@ impl<'hir> TypeChecker<'hir> {
         };
 
         let expected_path = expected_loc.path;
-        let expected_src = crate::atlas_c::utils::get_file_content(&expected_path).unwrap();
+        let expected_src = utils::get_file_content(&expected_path).unwrap();
         let expected_err = TypeMismatchError {
             expected_ty: expected_type.to_string(),
             span: expected_loc.clone(),
@@ -1178,7 +1335,7 @@ impl<'hir> TypeChecker<'hir> {
     #[inline(always)]
     fn unknown_type_err(name: &str, span: &Span) -> HirError {
         let path = span.path;
-        let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+        let src = utils::get_file_content(&path).unwrap();
         HirError::UnknownType(UnknownTypeError {
             name: name.to_string(),
             span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
@@ -1188,7 +1345,7 @@ impl<'hir> TypeChecker<'hir> {
 
     fn accessing_private_constructor_err(span: &Span, kind: &str) -> HirError {
         let path = span.path;
-        let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+        let src = utils::get_file_content(&path).unwrap();
         HirError::AccessingPrivateConstructor(AccessingPrivateConstructorError {
             span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
             kind: kind.to_string(),
@@ -1199,13 +1356,55 @@ impl<'hir> TypeChecker<'hir> {
     #[inline(always)]
     fn deleting_ref_is_unstable_warning(span: &Span) {
         let path = span.path;
-        let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+        let src = utils::get_file_content(&path).unwrap();
         let warning: ErrReport =
             HirWarning::DeletingReferenceIsUnstable(DeletingReferenceIsUnstableWarning {
                 span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
                 src: NamedSource::new(path, src),
             })
-                .into();
+            .into();
         eprintln!("{:?}", warning);
+    }
+    fn illegal_operation_err(
+        ty1: &HirTy,
+        ty2: &HirTy,
+        expr_span: Span,
+        operation: &str,
+    ) -> HirError {
+        let path = expr_span.path;
+        let src = utils::get_file_content(&path).unwrap();
+        HirError::IllegalOperation(IllegalOperationError {
+            operation: operation.to_string(),
+            expr_span,
+            src: NamedSource::new(path, src),
+            ty1: ty1.to_string(),
+            ty2: ty2.to_string(),
+        })
+    }
+    /// + - * / %
+    fn is_arithmetic_type(ty: &HirTy) -> bool {
+        match ty {
+            //char is kind of an alias for uint32, so it can be used in arithmetic operations (Unicode char)
+            HirTy::Int64(_) | HirTy::UInt64(_) | HirTy::Float64(_) | HirTy::Char(_) => true,
+            _ => false,
+        }
+    }
+    /// == !=
+    fn is_equality_comparable(ty: &HirTy) -> bool {
+        match ty {
+            HirTy::Int64(_)
+            | HirTy::UInt64(_)
+            | HirTy::Float64(_)
+            | HirTy::Char(_)
+            | HirTy::Boolean(_)
+            | HirTy::Unit(_) => true,
+            _ => false,
+        }
+    }
+    fn is_orderable_type(ty: &HirTy) -> bool {
+        match ty {
+            HirTy::Int64(_) | HirTy::UInt64(_) | HirTy::Float64(_) | HirTy::Char(_) => true,
+            _ => false,
+        }
     }
 }

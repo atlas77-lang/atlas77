@@ -1,7 +1,7 @@
 use super::ty::{HirTy, HirUnitTy};
 use crate::atlas_c::atlas_frontend::parser::ast::AstVisibility;
 use crate::atlas_c::atlas_hir::expr::HirUnaryOp;
-use crate::atlas_c::atlas_hir::expr::{HirBinaryOp, HirExpr};
+use crate::atlas_c::atlas_hir::expr::{HirBinaryOperator, HirExpr};
 use crate::atlas_c::utils::Span;
 use std::collections::BTreeMap;
 use std::fmt::Display;
@@ -27,7 +27,7 @@ pub struct HirStructSignature<'hir> {
     /// Generic type parameter names
     pub generics: Vec<&'hir str>,
     /// This is enough to know if the class implement them or not
-    pub operators: Vec<HirBinaryOp>,
+    pub operators: Vec<HirBinaryOperator>,
     pub constants: BTreeMap<&'hir str, &'hir HirStructConstantSignature<'hir>>,
     pub constructor: HirStructConstructorSignature<'hir>,
     pub destructor: HirStructConstructorSignature<'hir>,

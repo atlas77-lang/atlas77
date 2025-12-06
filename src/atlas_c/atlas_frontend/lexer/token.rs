@@ -168,8 +168,6 @@ pub enum TokenKind {
     Tilde,
     #[token("this")]
     KwThis,
-    #[token("null")]
-    KwNull,
     #[token("operator")]
     KwOperator,
     #[token("class")]

@@ -75,10 +75,11 @@ impl<'hir> ContextScope<'hir> {
 }
 
 #[derive(Debug)]
+//TODO: start using all the fields
 pub struct ContextVariable<'hir> {
     pub _name: &'hir str,
-    pub name_span: Span,
+    pub _name_span: Span,
     pub ty: &'hir HirTy<'hir>,
-    pub ty_span: Span,
-    pub is_mut: bool,
+    pub _ty_span: Span,
+    pub _is_mut: bool,
 }

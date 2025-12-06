@@ -5,7 +5,7 @@ use crate::atlas_c::utils::Span;
 //todo: Add arrays/struct & class init literal
 pub enum HirExpr<'hir> {
     Assign(HirAssignExpr<'hir>),
-    HirBinaryOp(HirBinaryOpExpr<'hir>),
+    HirBinaryOperation(HirBinaryOpExpr<'hir>),
     Call(HirFunctionCallExpr<'hir>),
     Ident(HirIdentExpr<'hir>),
     Unary(UnaryOpExpr<'hir>),
@@ -17,7 +17,6 @@ pub enum HirExpr<'hir> {
     BooleanLiteral(HirBooleanLiteralExpr<'hir>),
     UnsignedIntegerLiteral(HirUnsignedIntegerLiteralExpr<'hir>),
     ThisLiteral(HirThisLiteral<'hir>),
-    NoneLiteral(HirNoneLiteral<'hir>),
     StringLiteral(HirStringLiteralExpr<'hir>),
     ListLiteral(HirListLiteralExpr<'hir>),
     NewArray(HirNewArrayExpr<'hir>),
@@ -26,8 +25,6 @@ pub enum HirExpr<'hir> {
     FieldAccess(HirFieldAccessExpr<'hir>),
     Indexing(HirIndexingExpr<'hir>),
     StaticAccess(HirStaticAccessExpr<'hir>),
-    #[deprecated]
-    ConstructorExpr(HirConstructorExpr<'hir>),
 }
 
 pub fn is_self_access(field_access_expr: &HirFieldAccessExpr) -> bool {
@@ -45,10 +42,9 @@ impl HirExpr<'_> {
             HirExpr::CharLiteral(expr) => expr.span.clone(),
             HirExpr::UnitLiteral(expr) => expr.span.clone(),
             HirExpr::ThisLiteral(expr) => expr.span.clone(),
-            HirExpr::NoneLiteral(expr) => expr.span.clone(),
             HirExpr::Unary(expr) => expr.span.clone(),
             HirExpr::Casting(expr) => expr.span.clone(),
-            HirExpr::HirBinaryOp(expr) => expr.span.clone(),
+            HirExpr::HirBinaryOperation(expr) => expr.span.clone(),
             HirExpr::Call(expr) => expr.span.clone(),
             HirExpr::Assign(expr) => expr.span.clone(),
             HirExpr::StringLiteral(expr) => expr.span.clone(),
@@ -59,7 +55,6 @@ impl HirExpr<'_> {
             HirExpr::FieldAccess(expr) => expr.span.clone(),
             HirExpr::Indexing(expr) => expr.span.clone(),
             HirExpr::StaticAccess(expr) => expr.span.clone(),
-            HirExpr::ConstructorExpr(expr) => expr.span.clone(),
         }
     }
 }
@@ -75,10 +70,9 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::CharLiteral(expr) => expr.ty,
             HirExpr::UnitLiteral(expr) => expr.ty,
             HirExpr::ThisLiteral(expr) => expr.ty,
-            HirExpr::NoneLiteral(expr) => expr.ty,
             HirExpr::Unary(expr) => expr.ty,
             HirExpr::Casting(expr) => expr.ty,
-            HirExpr::HirBinaryOp(expr) => expr.ty,
+            HirExpr::HirBinaryOperation(expr) => expr.ty,
             HirExpr::Call(expr) => expr.ty,
             HirExpr::Assign(expr) => expr.ty,
             HirExpr::StringLiteral(expr) => expr.ty,
@@ -89,26 +83,8 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::FieldAccess(expr) => expr.ty,
             HirExpr::Indexing(expr) => expr.ty,
             HirExpr::StaticAccess(expr) => expr.ty,
-            HirExpr::ConstructorExpr(expr) => expr.ty,
         }
     }
-}
-
-#[derive(Debug, Clone)]
-/// Represents the default C-like constructor expression for structs.
-///
-/// Example:
-/// ```
-/// Point {
-///    x: 10,
-///    y: 20,
-/// }
-/// ```
-pub struct HirConstructorExpr<'hir> {
-    pub name: &'hir str,
-    pub span: Span,
-    pub ty: &'hir HirTy<'hir>,
-    pub fields: Vec<HirFieldInit<'hir>>,
 }
 
 #[derive(Debug, Clone)]
@@ -117,12 +93,6 @@ pub struct HirFieldInit<'hir> {
     pub name: Box<HirIdentExpr<'hir>>,
     pub ty: &'hir HirTy<'hir>,
     pub value: Box<HirExpr<'hir>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct HirNoneLiteral<'hir> {
-    pub span: Span,
-    pub ty: &'hir HirTy<'hir>,
 }
 
 #[derive(Debug, Clone)]
@@ -240,7 +210,7 @@ pub struct HirFunctionCallExpr<'hir> {
 #[derive(Debug, Clone)]
 pub struct HirBinaryOpExpr<'hir> {
     pub span: Span,
-    pub op: HirBinaryOp,
+    pub op: HirBinaryOperator,
     pub op_span: Span,
     pub lhs: Box<HirExpr<'hir>>,
     pub rhs: Box<HirExpr<'hir>>,
@@ -249,7 +219,7 @@ pub struct HirBinaryOpExpr<'hir> {
 }
 
 #[derive(Debug, Clone)]
-pub enum HirBinaryOp {
+pub enum HirBinaryOperator {
     Add,
     And,
     Div,

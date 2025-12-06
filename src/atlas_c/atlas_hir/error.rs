@@ -35,6 +35,8 @@ declare_error_type! {
         StructNameCannotBeOneLetter(StructNameCannotBeOneLetterError),
         NoReturnInFunction(NoReturnInFunctionError),
         AccessingPrivateStruct(AccessingPrivateStructError),
+        IllegalOperation(IllegalOperationError),
+        AccessingPrivateFunction(AccessingPrivateFunctionError),
     }
 }
 
@@ -43,19 +45,63 @@ pub type HirResult<T> = Result<T, HirError>;
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
+    code(sema::trying_to_access_private_function),
+    help("Mark the function {name} as public")
+)]
+#[error("{name} is marked as private, so you cannot call it outside of its file.")]
+pub struct AccessingPrivateFunctionError {
+    pub name: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label = "trying to call a private function"]
+    pub span: Span,
+    #[source]
+    #[diagnostic_source]
+    pub origin: AccessingPrivateFunctionOrigin,
+}
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic()]
+#[error("")]
+pub struct AccessingPrivateFunctionOrigin {
+    #[label = "You marked it as private"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::illegal_operation),
+    help("ensure that the operation is valid for the given types")
+)]
+#[error("Imcompatible {operation} on {ty1} & {ty2}")]
+pub struct IllegalOperationError {
+    #[source_code]
+    pub src: NamedSource<String>,
+    pub operation: String,
+    pub ty1: String,
+    #[label("Imcompatible {operation} on {ty1} & {ty2}")]
+    pub expr_span: Span,
+    pub ty2: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
     code(sema::trying_to_access_private_struct),
     help("Mark {name} the struct as public")
 )]
-#[error("{name} is marked as private, so you cannot instantiate it outside of its file.")]
+#[error(
+    "{name} is marked as private, so you cannot accessing it from outside of its declaration file."
+)]
 pub struct AccessingPrivateStructError {
     pub name: String,
     #[source_code]
     pub src: NamedSource<String>,
-    #[label = "trying to instantiate a private struct"]
+    #[label = "trying to access a private struct"]
     pub span: Span,
     #[source]
     #[diagnostic_source]
-    pub origin: AccessingPrivateStructOrigin
+    pub origin: AccessingPrivateStructOrigin,
 }
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic()]

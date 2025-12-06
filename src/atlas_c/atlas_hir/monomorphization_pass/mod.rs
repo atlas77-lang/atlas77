@@ -321,6 +321,7 @@ impl<'hir> MonomorphizationPass<'hir> {
                     let monomorphized_ty =
                         self.swap_generic_types_in_ty(new_obj_expr.ty, types_to_change.clone());
                     let monomorphized_ty = if let HirTy::Generic(g) = monomorphized_ty {
+                        self.generic_pool.register_struct_instance(g.clone());
                         self.arena.intern(HirTy::Named(HirNamedTy {
                             name: MonomorphizationPass::mangle_generic_struct_name(self.arena, g),
                             span: new_obj_expr.span.clone(),
@@ -329,6 +330,9 @@ impl<'hir> MonomorphizationPass<'hir> {
                         monomorphized_ty
                     };
                     new_obj_expr.ty = monomorphized_ty;
+                }
+                for arg in new_obj_expr.args.iter_mut() {
+                    self.monomorphize_expression(module, arg, types_to_change.clone())?;
                 }
             }
             HirExpr::Indexing(idx_expr) => {
@@ -350,7 +354,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             HirExpr::Unary(unary_expr) => {
                 self.monomorphize_expression(module, &mut unary_expr.expr, types_to_change)?;
             }
-            HirExpr::HirBinaryOp(binary_expr) => {
+            HirExpr::HirBinaryOperation(binary_expr) => {
                 self.monomorphize_expression(
                     module,
                     &mut binary_expr.lhs,
@@ -381,11 +385,11 @@ impl<'hir> MonomorphizationPass<'hir> {
                         self.generic_pool.register_struct_instance(g.clone());
                     } else if let HirTy::Named(n) = l.inner {
                         if n.name.len() == 1 {
-                            for (generic_name, actual_ty) in types_to_change.iter() {
-                                if n.name == *generic_name {
-                                    new_array_expr.ty = actual_ty;
-                                }
-                            }
+                            let ty = self.swap_generic_types_in_ty(
+                                new_array_expr.ty,
+                                types_to_change.clone(),
+                            );
+                            new_array_expr.ty = ty;
                         }
                     }
                 }
@@ -442,7 +446,7 @@ impl<'hir> MonomorphizationPass<'hir> {
     /// Format: __atlas77__<base_name>__<type1>_<type2>_..._<typeN>
     pub fn mangle_generic_struct_name(
         arena: &'hir HirArena<'hir>,
-        generic: &'hir HirGenericTy<'hir>,
+        generic: &HirGenericTy<'_>,
     ) -> &'hir str {
         let parts: Vec<String> = generic
             .inner
@@ -461,7 +465,7 @@ impl<'hir> MonomorphizationPass<'hir> {
     /// Compute a stable mangled name for a monomorphized function given its base name
     /// and the actual type arguments.
     #[inline]
-    fn mangle_function_name(&self, base_name: &str, actual_tys: &[&'hir HirTy<'hir>]) -> String {
+    fn _mangle_function_name(&self, base_name: &str, actual_tys: &[&'hir HirTy<'hir>]) -> String {
         let parts: Vec<String> = actual_tys.iter().map(|t| format!("{}", t)).collect();
         format!("__atlas77__fun__{}__{}", base_name, parts.join("_"))
     }

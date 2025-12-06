@@ -1,52 +1,33 @@
-package std::option;
+//package std::option;
 
-import "std/io"
+import "std/io";
+ 
+//This will be in its own file, some kind of std/hallucinate
+public extern default<T>() -> T;
 
+//std/option
 public struct Option<T> {
-    private:
-        /// This won't make sense in a little while as `T?` will become a syntactic sugar for `Option<T>`
-        /// 
-        data: T?;
-        Option(data: T?) {
-            self.data = data;
-        }
-    public:
-        ~Option() {
-            if this.is_some() {
-                delete this.data;
-            }
-        }
-        fun some(data: T) -> Option<T> {
-            return new Option<T>(data);
-        }
-        fun none() -> Option<T> {
-            return new Option<T>(null);
-        }
-        fun is_some(self) -> bool {
-            return self.data != null;
-        }
-        fun is_none(self) -> bool {
-            return self.data == null;
-        }
-        fun unwrap(self) -> T {
-            if self.is_some() {
-                return self.data;
-            } else {
-                panic("Called `Option<T>::unwrap()` on a `None` value");
-            }
-        }
-        fun unwrap_or(self, def: T) -> T {
-            if self.is_some() {
-                return self.data;
-            } else {
-                return def;
-            }
-        }
-        fun expect(self, msg: str) -> T {
-            if self.is_some() {
-                return self.data;
-            } else {
-                panic(msg);
-            }
-        }
+private:
+  /// 0 = None, 1 = Some
+  tag: int64;
+  data: T;
+public:
+  Option(data: T, tag: int64) {
+    this.tag = tag;
+    this.data = data;
+  }
+public:
+  fun some(data: T) -> Option<T> {
+    return new Option<T>(data, 1);
+  }
+  fun none() -> Option<T> {
+    return new Option<T>(default(), 0);
+  }
+}
+
+fun main() {
+    let a = new Option<int64>(42, 1);
+    let b = new Option<int64>(default(), 0);
+    println("Option a tag: " + a.tag as string); // Should print 1
+    println("Option b tag: " + b.tag as string); // Should print 0
 }

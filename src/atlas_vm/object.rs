@@ -4,8 +4,6 @@ use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::{Index, IndexMut};
 
-pub type ObjectDescriptorId = u64;
-
 #[repr(transparent)]
 #[derive(Clone, Copy, Default, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub struct ObjectIndex {
@@ -146,9 +144,9 @@ impl Clone for RawStructure {
 
 impl Debug for RawStructure {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        unsafe {
-            f.debug_list().entries(self.ptr.clone().into_iter()).finish()
-        }
+        f.debug_list()
+            .entries(self.ptr.clone().into_iter())
+            .finish()
     }
 }
 /*
@@ -186,12 +184,12 @@ impl Index<usize> for RawStructure {
     type Output = VMData;
 
     fn index(&self, index: usize) -> &Self::Output {
-        unsafe { &self.ptr[index] }
+        &self.ptr[index]
     }
 }
 
 impl IndexMut<usize> for RawStructure {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        unsafe { &mut self.ptr[index] }
+        &mut self.ptr[index]
     }
 }

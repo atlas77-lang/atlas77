@@ -7,8 +7,8 @@ use std::{
 
 use super::ty::{
     HirBooleanTy, HirCharTy, HirConstTy, HirFloatTy, HirGenericTy, HirIntegerTy, HirListTy,
-    HirNamedTy, HirNullTy, HirNullableTy, HirReferenceTy, HirStringTy, HirTy, HirTyId,
-    HirUninitializedTy, HirUnitTy, HirUnsignedIntTy,
+    HirNamedTy, HirNullableTy, HirReferenceTy, HirStringTy, HirTy, HirTyId, HirUninitializedTy,
+    HirUnitTy, HirUnsignedIntTy,
 };
 use crate::atlas_c::utils::Span;
 use bumpalo::Bump;
@@ -88,14 +88,6 @@ impl<'arena> TypeArena<'arena> {
 
     pub fn _get_type(&'arena self, id: HirTyId) -> Option<&'arena HirTy<'arena>> {
         self.intern.borrow().get(&id).copied()
-    }
-
-    pub fn get_none_ty(&'arena self) -> &'arena HirTy<'arena> {
-        let id = HirTyId::compute_null_ty_id();
-        self.intern
-            .borrow_mut()
-            .entry(id)
-            .or_insert_with(|| self.allocator.alloc(HirTy::Null(HirNullTy {})))
     }
 
     pub fn get_integer64_ty(&'arena self) -> &'arena HirTy<'arena> {

@@ -1,4 +1,6 @@
 use crate::atlas_c::atlas_hir::signature::ConstantValue;
+use crate::atlas_c::atlas_hir::ty::HirTy;
+use crate::atlas_vm::vm_data::VMTag;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{Display, Formatter};
 use std::ops::Index;
@@ -18,23 +20,29 @@ pub enum Instruction {
     LoadVar(usize),  // Load local slot onto TOS
 
     // === Collections & indexing ===
-    IndexLoad,  // [ContainerPtr, Index] -> [Value]
-    IndexStore, // [ContainerPtr, Index, Value] -> []
+    IndexLoad,   // [Index, Ptr] -> [Value]
+    IndexStore,  // [Index, Ptr, Value] -> []
+    StringLoad,  // [Index, Ptr] -> [Value]
+    StringStore, // [Index, Ptr, Value] -> []
 
-    NewList, // [Size] -> [ListPtr]
+    NewArray, // [Size] -> [ListPtr]
 
     // === Arithmetic & comparisons ===
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Mod,
-    Eq,
-    Neq,
-    Gt,
-    Gte,
-    Lt,
-    Lte,
+    Add(Type),
+    Sub(Type),
+    Mul(Type),
+    Div(Type),
+    Mod(Type),
+    Eq(Type),
+    Neq(Type),
+    Gt(Type),
+    Gte(Type),
+    Lt(Type),
+    Lte(Type),
+    //NB: These instructions should be short-circuited and not exist in the VM
+    //They are only temporary
+    And,
+    Or,
 
     // === Control flow ===
     Jmp {
@@ -62,13 +70,15 @@ pub enum Instruction {
     // === Objects ===
     NewObj {
         obj_descriptor: usize,
-    }, // Create object
+    }, // Create empty zeroed object
     GetField {
         field: usize,
     }, // [ObjPtr] -> [Value]
     SetField {
         field: usize,
     }, // [ObjPtr, Value] -> []
+    //Works for List/String/Object
+    DeleteObj, // [ObjPtr] -> []
 
     // === Type ops ===
     CastTo(Type), // Explicit type coercion (if kept)
@@ -88,18 +98,22 @@ impl Display for Instruction {
             Instruction::LoadVar(i) => write!(f, "LoadVar {}", i),
             Instruction::IndexLoad => write!(f, "IndexLoad"),
             Instruction::IndexStore => write!(f, "IndexStore"),
-            Instruction::NewList => write!(f, "NewList"),
-            Instruction::Add => write!(f, "Add"),
-            Instruction::Sub => write!(f, "Sub"),
-            Instruction::Mul => write!(f, "Mul"),
-            Instruction::Div => write!(f, "Div"),
-            Instruction::Mod => write!(f, "Mod"),
-            Instruction::Eq => write!(f, "Eq"),
-            Instruction::Neq => write!(f, "Neq"),
-            Instruction::Gt => write!(f, "Gt"),
-            Instruction::Gte => write!(f, "Gte"),
-            Instruction::Lt => write!(f, "Lt"),
-            Instruction::Lte => write!(f, "Lte"),
+            Instruction::StringLoad => write!(f, "StringLoad"),
+            Instruction::StringStore => write!(f, "StringStore"),
+            Instruction::NewArray => write!(f, "NewList"),
+            Instruction::Add(t) => write!(f, "Add {:?}", t),
+            Instruction::Sub(t) => write!(f, "Sub {:?}", t),
+            Instruction::Mul(t) => write!(f, "Mul {:?}", t),
+            Instruction::Div(t) => write!(f, "Div {:?}", t),
+            Instruction::Mod(t) => write!(f, "Mod {:?}", t),
+            Instruction::Eq(t) => write!(f, "Eq {:?}", t),
+            Instruction::Neq(t) => write!(f, "Neq {:?}", t),
+            Instruction::Gt(t) => write!(f, "Gt {:?}", t),
+            Instruction::Gte(t) => write!(f, "Gte {:?}", t),
+            Instruction::Lt(t) => write!(f, "Lt {:?}", t),
+            Instruction::Lte(t) => write!(f, "Lte {:?}", t),
+            Instruction::And => write!(f, "And"),
+            Instruction::Or => write!(f, "Or"),
             Instruction::Jmp { pos } => write!(f, "Jmp {}", pos),
             Instruction::JmpZ { pos } => write!(f, "JmpZ {}", pos),
             Instruction::LocalSpace { nb_vars } => write!(f, "LocalSpace {}", nb_vars),
@@ -109,9 +123,7 @@ impl Display for Instruction {
             } => {
                 write!(f, "Call {} {}", func_id, nb_args)
             }
-            Instruction::ExternCall {
-                func_name: func_id,
-            } => {
+            Instruction::ExternCall { func_name: func_id } => {
                 write!(f, "ExternCall {}", func_id)
             }
             Instruction::Return => write!(f, "Return"),
@@ -120,20 +132,63 @@ impl Display for Instruction {
             }
             Instruction::GetField { field } => write!(f, "GetField {}", field),
             Instruction::SetField { field } => write!(f, "SetField {}", field),
+            Instruction::DeleteObj => write!(f, "DeleteObj"),
             Instruction::CastTo(t) => write!(f, "CastTo {:?}", t),
             Instruction::Halt => write!(f, "Halt"),
         }
     }
 }
+
 #[repr(u8)]
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum Type {
     Integer,
     Float,
     UnsignedInteger,
     Boolean,
     String,
+    List,
     Char,
+    Unit,
+    Object,
+}
+
+impl Into<VMTag> for Type {
+    fn into(self) -> VMTag {
+        match self {
+            Type::Integer => VMTag::Int64,
+            Type::Float => VMTag::Float64,
+            Type::UnsignedInteger => VMTag::UInt64,
+            Type::Boolean => VMTag::Boolean,
+            Type::String => VMTag::String,
+            Type::Char => VMTag::Char,
+            Type::Unit => VMTag::Unit,
+            Type::List => VMTag::List,
+            Type::Object => VMTag::Object,
+        }
+    }
+}
+
+impl From<&HirTy<'_>> for Type {
+    fn from(ty: &HirTy) -> Self {
+        match ty {
+            HirTy::Int64(_) => Type::Integer,
+            HirTy::Float64(_) => Type::Float,
+            HirTy::UInt64(_) => Type::UnsignedInteger,
+            HirTy::Boolean(_) => Type::Boolean,
+            HirTy::String(_) => Type::String,
+            HirTy::Char(_) => Type::Char,
+            HirTy::Unit(_) => Type::Unit,
+            HirTy::List(_) => Type::List,
+            HirTy::Named(_) | HirTy::Generic(_) => Type::Object,
+            _ => {
+                panic!(
+                    "Unsupported type for conversion to Instruction::Type {:?}",
+                    ty
+                )
+            }
+        }
+    }
 }
 
 /// Read by the VM before execution to import the related functions

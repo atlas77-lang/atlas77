@@ -1,4 +1,9 @@
-import "std/vector"
+/// String library for Atlas `std::string`
+///
+/// Provides a String struct with various string manipulation functions.
+
+import "std/vector";
+
 // Miscellaneous functions for raw strings
 public extern str_len(s: string) -> uint64;
 public extern trim(s: string) -> string;
@@ -10,14 +15,14 @@ public extern to_chars(s: string) -> [char];
 public extern from_chars(s: [char]) -> string;
 
 
-struct String {
-    public:
-        s: string;
-        len: uint64;
+public struct String {
+public:
+    s: string;
+    len: uint64;
 
     String(s: string) {
         this.s = s;
-        this.len = len(s);
+        this.len = str_len(s);
     }
     ~String() {}
     fun from_chars(s: [char]) -> String {
@@ -46,6 +51,7 @@ struct String {
             res[i] = self_chars[i];
             i = i + 1;
         }
+        return new String(from_chars(res));
     }
     fun push(this, c: char) -> unit {
         //Same... I should implement the <- operator
@@ -135,18 +141,5 @@ struct String {
             i = i + 1;
         }
         return res;
-    }
-}
-
-public struct RefChar {
-    value: char;
-    fun init(val: char) -> RefChar {
-        this.value = val;
-    }
-    fun to_str(this) -> string {
-        return this.value as string;
-    }
-    fun from_str(s: String) -> RefChar {
-        return new RefChar(s.get(0));
     }
 }

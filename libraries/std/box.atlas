@@ -3,22 +3,22 @@
 /// A box is a container that holds a single value of a specific type.
 /// Useful for passing around values that need to be shared and mutated.
 public struct Box<T> {
-    private:
-        data: T;
-    public:
-        Box(data: T) {
-            this.data = data;
-        }
-        ~Box() {
-            delete this.data;
-        }
-        /// Returns the value of the box.
-        fun get(this) -> T {
-            return this.data;
-        }
-        /// Sets the value of the box.
-        fun set(this, data: T) {
-            this.data = data;
-            return;
-        }
+private:
+    data: T;
+public:
+    Box(data: T) {
+        this.data = data;
+    }
+    ~Box() {
+        delete this.data;
+    }
+    /// Returns the value of the box.
+    fun get(this) -> T {
+        return this.data;
+    }
+    /// Sets the value of the box.
+    fun set(this, data: T) {
+        this.data = data;
+        return;
+    }
 }

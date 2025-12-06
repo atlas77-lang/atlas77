@@ -16,17 +16,15 @@ pub union RawVMData {
     as_u32: u32,
     as_f64: f64,
     as_f32: f32,
-    as_bool: bool,
+    as_boolean: bool,
     as_char: char,
-    /// Null value
-    as_none: (),
     /// Pointer to a value in the stack
     ///
     /// The first element is the stack frame index and the second is the index in the frame
     as_stack_ptr: [u32; 2],
     /// Pointer to a function
     as_fn_ptr: usize,
-    as_extern_ptr: *mut c_void,
+    _as_extern_ptr: *mut c_void,
     /// Pointer to an object in the object map
     as_object: ObjectIndex,
 }
@@ -41,7 +39,6 @@ pub struct VMData {
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
 pub enum VMTag {
     Unit,
-    Null,
 
     Int64,
     Int32,
@@ -50,8 +47,8 @@ pub enum VMTag {
     Float64,
     Float32,
 
-    Bool,
-    Str,
+    Boolean,
+    String,
     Char,
     StackPtr,
     FnPtr,
@@ -77,15 +74,14 @@ impl Display for VMTag {
             "{}",
             match self {
                 VMTag::Unit => "unit",
-                VMTag::Null => "null",
                 VMTag::Int64 => "int64",
                 VMTag::Int32 => "int32",
                 VMTag::UInt64 => "uint64",
                 VMTag::UInt32 => "uint32",
                 VMTag::Float64 => "float64",
                 VMTag::Float32 => "float32",
-                VMTag::Bool => "bool",
-                VMTag::Str => "str",
+                VMTag::Boolean => "bool",
+                VMTag::String => "str",
                 VMTag::Char => "char",
                 VMTag::StackPtr => "stack_ptr",
                 VMTag::FnPtr => "fn_ptr",
@@ -126,12 +122,6 @@ impl VMData {
             data: RawVMData { as_unit: () },
         }
     }
-    pub fn new_none() -> Self {
-        Self {
-            tag: VMTag::Null,
-            data: RawVMData { as_none: () },
-        }
-    }
 
     pub fn new_object(val: ObjectIndex) -> Self {
         Self {
@@ -142,7 +132,7 @@ impl VMData {
 
     pub fn new_string(val: ObjectIndex) -> Self {
         Self {
-            tag: VMTag::Str,
+            tag: VMTag::String,
             data: RawVMData { as_object: val },
         }
     }
@@ -171,7 +161,7 @@ impl VMData {
     def_new_vm_data_func!(new_u32, as_u32, u32, UInt32);
     def_new_vm_data_func!(new_f64, as_f64, f64, Float64);
     def_new_vm_data_func!(new_f32, as_f32, f32, Float32);
-    def_new_vm_data_func!(new_bool, as_bool, bool, Bool);
+    def_new_vm_data_func!(new_boolean, as_boolean, bool, Boolean);
     def_new_vm_data_func!(new_char, as_char, char, Char);
     def_new_vm_data_func!(new_stack_ptr, as_stack_ptr, [u32; 2], StackPtr);
     def_new_vm_data_func!(new_fn_ptr, as_fn_ptr, usize, FnPtr);
@@ -183,12 +173,11 @@ impl PartialEq for VMData {
             return false;
         }
         match self.tag {
-            VMTag::Bool => self.as_bool() == other.as_bool(),
+            VMTag::Boolean => self.as_boolean() == other.as_boolean(),
             VMTag::Float64 => self.as_f64() == other.as_f64(),
             VMTag::Int64 => self.as_i64() == other.as_i64(),
             VMTag::UInt64 => self.as_u64() == other.as_u64(),
             VMTag::Char => self.as_char() == other.as_char(),
-            VMTag::Unit | VMTag::Null => true,
             // comparison based on pointer and not inner data
             _ if self.is_object() => self.as_object() == other.as_object(),
             _ => panic!("Illegal comparison between {:?} and {:?}", self, other),
@@ -286,7 +275,7 @@ impl Display for VMData {
                 VMTag::Int64 => self.as_i64().to_string(),
                 VMTag::UInt64 => self.as_u64().to_string(),
                 VMTag::Float64 => self.as_f64().to_string(),
-                VMTag::Bool => self.as_bool().to_string(),
+                VMTag::Boolean => self.as_boolean().to_string(),
                 VMTag::Char => format!("'{}'", self.as_char()),
                 VMTag::StackPtr =>
                     format!("&[{}, {}]", self.as_stack_ptr()[0], self.as_stack_ptr()[1]),
@@ -332,7 +321,7 @@ impl VMData {
     enum_variant_function!(as_f32, is_f32, Float32, f32);
     enum_variant_function!(as_u64, is_u64, UInt64, u64);
     enum_variant_function!(as_u32, is_u32, UInt32, u32);
-    enum_variant_function!(as_bool, is_bool, Bool, bool);
+    enum_variant_function!(as_boolean, is_boolean, Boolean, bool);
     enum_variant_function!(as_char, is_char, Char, char);
     enum_variant_function!(as_stack_ptr, is_stack_ptr, StackPtr, [u32; 2]);
     enum_variant_function!(as_fn_ptr, is_fn_ptr, FnPtr, usize);
@@ -348,19 +337,9 @@ impl VMData {
     }
 
     #[inline(always)]
-    pub fn as_none(self) {
-        unsafe { self.data.as_none }
-    }
-    #[inline(always)]
-    #[must_use]
-    pub fn is_none(self) -> bool {
-        self.tag == VMTag::Null
-    }
-
-    #[inline(always)]
     #[must_use]
     pub fn is_object(self) -> bool {
-        self.tag == VMTag::Object || self.tag == VMTag::List || self.tag == VMTag::Str
+        self.tag == VMTag::Object || self.tag == VMTag::List || self.tag == VMTag::String
     }
 
     #[inline(always)]

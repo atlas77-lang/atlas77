@@ -2,8 +2,8 @@
 #![deny(clippy::redundant_clone)]
 #![deny(clippy::unwrap_used)]
 
-use atlas_77::{build, run, CompilationFlag};
-use clap::{command, Parser};
+use atlas_77::{CompilationFlag, build, run};
+use clap::{Parser, command};
 
 #[derive(Parser)] // requires `derive` feature
 #[command(name = "Atlas77")]
@@ -58,9 +58,7 @@ enum AtlasRuntimeCLI {
         about = "Initialize a new Atlas77 project",
         long_about = "Initialize a new Atlas77 project in the current directory"
     )]
-    Init {
-        name: Option<String>,
-    },
+    Init { name: Option<String> },
 }
 
 fn main() -> miette::Result<()> {
@@ -69,15 +67,13 @@ fn main() -> miette::Result<()> {
             file_path,
             release,
             debug,
-            no_standard_lib
+            no_standard_lib,
         } => {
             if release && debug {
                 eprintln!("Cannot run in both release and debug mode");
                 std::process::exit(1);
             }
-            let path = file_path.unwrap_or_else(|| {
-                "src/main.atlas".to_string()
-            });
+            let path = file_path.unwrap_or_else(|| "src/main.atlas".to_string());
             run(
                 path,
                 if release {
@@ -92,15 +88,13 @@ fn main() -> miette::Result<()> {
             file_path,
             release,
             debug,
-            no_standard_lib
+            no_standard_lib,
         } => {
             if release && debug {
                 eprintln!("Cannot build in both release and debug mode");
                 std::process::exit(1);
             }
-            let path = file_path.unwrap_or_else(|| {
-                "src/main.atlas".to_string()
-            });
+            let path = file_path.unwrap_or_else(|| "src/main.atlas".to_string());
             build(
                 path,
                 if release {
@@ -109,7 +103,8 @@ fn main() -> miette::Result<()> {
                     CompilationFlag::Debug
                 },
                 no_standard_lib,
-            ).map(|_| ())
+            )
+            .map(|_| ())
         }
         AtlasRuntimeCLI::Init { name } => {
             match name {

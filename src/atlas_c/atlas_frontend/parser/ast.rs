@@ -180,8 +180,6 @@ pub enum AstStatement<'ast> {
     While(AstWhileExpr<'ast>),
     Expr(AstExpr<'ast>),
     Return(AstReturnStmt<'ast>),
-    #[deprecated]
-    InnerFunc(AstFunction<'ast>),
 }
 
 impl AstStatement<'_> {
@@ -190,7 +188,6 @@ impl AstStatement<'_> {
             AstStatement::Let(e) => e.span.clone(),
             AstStatement::Const(e) => e.span.clone(),
             AstStatement::IfElse(e) => e.span.clone(),
-            AstStatement::InnerFunc(e) => e.span.clone(),
             AstStatement::Block(e) => e.span.clone(),
             AstStatement::While(e) => e.span.clone(),
             AstStatement::Expr(e) => e.span(),
@@ -223,10 +220,8 @@ pub struct AstAssignExpr<'ast> {
 
 #[derive(Debug, Clone)]
 pub enum AstExpr<'ast> {
-    #[deprecated]
     Lambda(AstLambdaExpr<'ast>),
-    #[deprecated]
-    CompTime(AstCompTimeExpr<'ast>),
+    ConstExpr(AstConstExpr<'ast>),
     IfElse(AstIfElseExpr<'ast>),
     BinaryOp(AstBinaryOpExpr<'ast>),
     UnaryOp(AstUnaryOpExpr<'ast>),
@@ -242,14 +237,13 @@ pub enum AstExpr<'ast> {
     _Block(AstBlock<'ast>),
     Assign(AstAssignExpr<'ast>),
     Casting(AstCastingExpr<'ast>),
-    Constructor(AstConstructorExpr<'ast>),
 }
 
 impl AstExpr<'_> {
     pub(crate) fn span(&self) -> Span {
         match self {
             AstExpr::Lambda(e) => e.span.clone(),
-            AstExpr::CompTime(e) => e.span.clone(),
+            AstExpr::ConstExpr(e) => e.span.clone(),
             AstExpr::IfElse(e) => e.span.clone(),
             AstExpr::BinaryOp(e) => e.span.clone(),
             AstExpr::UnaryOp(e) => e.span.clone(),
@@ -266,7 +260,6 @@ impl AstExpr<'_> {
             AstExpr::_Block(e) => e.span.clone(),
             AstExpr::Assign(e) => e.span.clone(),
             AstExpr::Casting(e) => e.span.clone(),
-            AstExpr::Constructor(e) => e.span.clone(),
         }
     }
 }
@@ -297,13 +290,6 @@ pub struct AstBlock<'ast> {
     pub stmts: &'ast [&'ast AstStatement<'ast>],
 }
 
-/// The default constructor has the form `Foo { bar = 5, baz = "hello" }`
-#[derive(Debug, Clone)]
-pub struct AstConstructorExpr<'ast> {
-    pub span: Span,
-    pub ty: &'ast AstIdentifier<'ast>,
-    pub fields: &'ast [&'ast AstFieldInit<'ast>],
-}
 #[derive(Debug, Clone)]
 pub struct AstNewObjExpr<'ast> {
     pub span: Span,
@@ -316,13 +302,6 @@ pub struct AstNewArrayExpr<'ast> {
     pub span: Span,
     pub ty: &'ast AstType<'ast>,
     pub size: &'ast AstExpr<'ast>,
-}
-
-#[derive(Debug, Clone)]
-pub struct AstFieldInit<'ast> {
-    pub span: Span,
-    pub name: &'ast AstIdentifier<'ast>,
-    pub value: &'ast AstExpr<'ast>,
 }
 
 #[derive(Debug, Clone)]
@@ -390,6 +369,8 @@ pub enum AstBinaryOp {
     Lte,
     Gt,
     Gte,
+    And,
+    Or,
 }
 
 impl TryFrom<TokenKind> for AstBinaryOp {
@@ -407,6 +388,8 @@ impl TryFrom<TokenKind> for AstBinaryOp {
             TokenKind::LFatArrow => Ok(AstBinaryOp::Lte),
             TokenKind::RAngle => Ok(AstBinaryOp::Gt),
             TokenKind::OpGreaterThanEq => Ok(AstBinaryOp::Gte),
+            TokenKind::OpAnd => Ok(AstBinaryOp::And),
+            TokenKind::OpOr => Ok(AstBinaryOp::Or),
             _ => Err(format!("{:?}", value)),
         }
     }
@@ -436,7 +419,7 @@ pub struct AstLambdaExpr<'ast> {
 }
 
 #[derive(Debug, Clone)]
-pub struct AstCompTimeExpr<'ast> {
+pub struct AstConstExpr<'ast> {
     pub span: Span,
     pub expr: &'ast AstExpr<'ast>,
 }
@@ -454,11 +437,10 @@ pub enum AstLiteral<'ast> {
     Float(AstFloatLiteral),
     Char(AstCharLiteral),
     Unit(AstUnitLiteral),
-    SelfLiteral(AstSelfLiteral),
+    ThisLiteral(AstThisLiteral),
     String(AstStringLiteral<'ast>),
     Boolean(AstBooleanLiteral),
     List(AstListLiteral<'ast>),
-    None(AstNoneLiteral),
 }
 
 impl AstLiteral<'_> {
@@ -469,22 +451,16 @@ impl AstLiteral<'_> {
             AstLiteral::Float(l) => l.span.clone(),
             AstLiteral::Char(l) => l.span.clone(),
             AstLiteral::Unit(l) => l.span.clone(),
-            AstLiteral::SelfLiteral(l) => l.span.clone(),
+            AstLiteral::ThisLiteral(l) => l.span.clone(),
             AstLiteral::String(l) => l.span.clone(),
             AstLiteral::Boolean(l) => l.span.clone(),
             AstLiteral::List(l) => l.span.clone(),
-            AstLiteral::None(l) => l.span.clone(),
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct AstNoneLiteral {
-    pub span: Span,
-}
-
-#[derive(Debug, Clone)]
-pub struct AstSelfLiteral {
+pub struct AstThisLiteral {
     pub span: Span,
 }
 
@@ -550,7 +526,6 @@ pub enum AstType<'ast> {
     Function(AstFunctionType<'ast>),
     Nullable(AstNullableType<'ast>),
     ReadOnly(AstReadOnlyType<'ast>),
-    Null(AstNullType),
     List(AstListType<'ast>),
     Generic(AstGenericType<'ast>),
 }
@@ -571,7 +546,6 @@ impl AstType<'_> {
             AstType::Function(t) => t.span.clone(),
             AstType::Nullable(t) => t.span.clone(),
             AstType::ReadOnly(r) => r.span.clone(),
-            AstType::Null(t) => t.span.clone(),
             AstType::List(t) => t.span.clone(),
             AstType::Generic(t) => t.span.clone(),
         }
@@ -593,7 +567,6 @@ impl<'ast> AstType<'ast> {
             AstType::Reference(t) => format!("&{}", t.inner.name()),
             AstType::Nullable(t) => format!("{}?", t.inner.name()),
             AstType::ReadOnly(r) => format!("const {}", r.inner.name()),
-            AstType::Null(_) => "none".to_owned(),
             AstType::List(t) => format!("[{}]", t.inner.name()),
             AstType::Generic(t) => {
                 if t.inner_types.is_empty() {
@@ -616,15 +589,10 @@ impl<'ast> AstType<'ast> {
 }
 
 #[derive(Debug, Clone)]
-/// A readonly type in atlas has the form of `readonly T`
+/// A readonly type in atlas has the form of `const T`
 pub struct AstReadOnlyType<'ast> {
     pub span: Span,
     pub inner: &'ast AstType<'ast>,
-}
-
-#[derive(Debug, Clone)]
-pub struct AstNullType {
-    pub span: Span,
 }
 
 #[derive(Debug, Clone)]

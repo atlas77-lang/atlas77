@@ -1,11 +1,11 @@
 pub mod atlas_c;
 pub mod atlas_lib;
-mod atlas_vm;
+pub mod atlas_vm;
 
 use crate::atlas_c::atlas_asm::AsmProgram;
 use atlas_c::{
     atlas_asm,
-    atlas_codegen::{arena::CodeGenArena, CodeGenUnit},
+    atlas_codegen::{CodeGenUnit, arena::CodeGenArena},
     atlas_frontend::{parse, parser::arena::AstArena},
     atlas_hir::{
         arena::HirArena, monomorphization_pass::MonomorphizationPass,
@@ -34,7 +34,11 @@ fn get_path(path: &str) -> PathBuf {
     path_buf
 }
 
-pub fn build(path: String, _flag: CompilationFlag, has_standard_library: bool) -> miette::Result<AsmProgram> {
+pub fn build(
+    path: String,
+    _flag: CompilationFlag,
+    has_standard_library: bool,
+) -> miette::Result<AsmProgram> {
     let start = Instant::now();
     println!("Building project at path: {}", path);
     let path_buf = get_path(&path);
@@ -46,7 +50,7 @@ pub fn build(path: String, _flag: CompilationFlag, has_standard_library: bool) -
     let bump = Bump::new();
     let ast_arena = AstArena::new(&bump);
     let file_path = atlas_c::utils::string_to_static_str(path_buf.to_str().unwrap().to_owned());
-    let program = parse(file_path.into(), &ast_arena, source.clone())?;
+    let program = parse(file_path.into(), &ast_arena, source)?;
 
     //hir
     let hir_arena = HirArena::new();
@@ -64,7 +68,7 @@ pub fn build(path: String, _flag: CompilationFlag, has_standard_library: bool) -
     //codegen
     let bump = Bump::new();
     let arena = CodeGenArena::new(&bump);
-    let mut codegen = CodeGenUnit::new(hir, arena, source);
+    let mut codegen = CodeGenUnit::new(hir, arena, &hir_arena);
     let program = codegen.compile()?;
     let mut file = std::fs::File::create("output.atlasc").unwrap();
     let mut content = String::new();

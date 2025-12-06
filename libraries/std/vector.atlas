@@ -1,7 +1,5 @@
 import "std/io";
-import "std/vector";
 
-package std::vector;c
 public extern len<T>(data: [T]) -> uint64;
 
 public struct Vector<T> {
@@ -16,16 +14,19 @@ public struct Vector<T> {
         this.capacity = this.length;
         this.data = data;
     }
-    ~Vector() {
-        this.data = 0;
-        this.length = 0;
-        delete this.data;
-    }
+    ~Vector() {}
 
     /// A function that doesn't have a "self" parameter is a static function
     /// static functions are called like this: "Vector::<T>::function_name()"
     fun with_capacity(capacity: uint64) -> Vector<T> {
         return new Vector<T>(new [T; capacity]);
+    }
+
+    fun get(this, index: uint64) -> T {
+        if index >= this.length {
+            panic("Index out of bounds");
+        }
+        return this.data[index];
     }
 
     /// A function that has a "self" parameter is a method of the struct
@@ -35,7 +36,7 @@ public struct Vector<T> {
             let new_capacity = this.capacity * 2;
 
             let new_data = new [T; new_capacity];
-            let i = 0;
+            let i: uint64 = 0;
             while i < this.length {
                 new_data[i] = this.data[i];
                 i = i + 1;
@@ -43,8 +44,6 @@ public struct Vector<T> {
             let data_to_delete = this.data;
             this.data = new_data;
             this.capacity = new_capacity;
-
-            delete data_to_delete;
         }
         this.data[this.length] = val;
         this.length = this.length + 1;
@@ -57,9 +56,4 @@ public struct Vector<T> {
         this.length = this.length - 1;
         return this.data[this.length];
     }
-}
-
-fun main() {
-    let my_vec = new Vector<int64>([0, 1, 2, 3, 4]);
-    my_vec.push(5);
 }

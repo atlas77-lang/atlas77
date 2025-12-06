@@ -1,7 +1,7 @@
 use crate::atlas_lib::STD_LIB_DIR;
 use miette::SourceSpan;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Span {
     pub start: usize,
     pub end: usize,
@@ -30,7 +30,6 @@ impl From<Span> for SourceSpan {
 ///
 /// TODO: At one point the standard library will have subdirectories, so this function
 /// will need to be updated to handle that.
-///
 pub fn get_file_content(path: &str) -> Result<String, std::io::Error> {
     let path = if path.ends_with(".atlas") {
         path.to_string()
