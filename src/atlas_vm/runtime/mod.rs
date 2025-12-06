@@ -79,6 +79,7 @@ impl<'run> AtlasRuntime<'run> {
                 Some(i) => *i,
                 None => return Err(RuntimeError::OutOfBoundProgram(self.pc)),
             };
+            eprintln!("Instr @ {}: {:?}", self.pc, instr.opcode); //--- IGNORE ---
             self.pc += 1;
             match self.execute_instruction(instr) {
                 Ok(_) => {}
@@ -482,6 +483,8 @@ impl<'run> AtlasRuntime<'run> {
                 for i in 0..nb_args {
                     self.args[i] = self.stack.pop()?;
                 }
+                //Only display nb_args args for clarity
+                eprintln!("Calling function {} with [{:?}] args", func_data.name, &self.args[0..nb_args]); //--- IGNORE ---
 
                 // Create new stack frame (save old pc & bp)
                 self.stack.new_stack_frame(self.pc, self.stack.base_ptr);

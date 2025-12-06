@@ -717,6 +717,18 @@ impl<'hir> TypeChecker<'hir> {
                         },
                     ));
                 }
+                if struct_signature.constructor.params.len() != obj.args.len() {
+                    return Err(Self::type_mismatch_err(
+                        &format!(
+                            "{} parameter(s)",
+                            struct_signature.constructor.params.len()
+                        ),
+                        &obj.span,
+                        &format!("{} argument(s)", obj.args.len()),
+                        &struct_signature.constructor.span,
+                    ));
+                        
+                }
                 for (param, arg) in struct_signature
                     .constructor
                     .params
