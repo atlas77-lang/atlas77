@@ -43,6 +43,8 @@ libraries rather than in the compiler itself.
 
 The philosophy is simple: **keep the core language tiny, make everything else userland.**
 
+> [!Note] If you find the code to be messy, it's because it kinda is. I am sort of "speedrunning" the bootstrapping of the language, so the Rust implementation is not really the main focus right now.
+
 <!-- GETTING STARTED -->
 
 ## Getting Started

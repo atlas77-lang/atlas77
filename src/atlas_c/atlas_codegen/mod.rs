@@ -143,6 +143,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
         self.program.labels = labels;
         self.program.structs = self.codegen_arena.alloc(self.struct_pool.clone());
         self.program.functions.extend(functions);
+        println!("Functions: {:?}", self.program.functions);
         let libraries = self
             .hir
             .body
@@ -385,7 +386,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 bytecode.append(&mut body);
                 //Jump back to the start of the loop
                 bytecode.push(Instruction::Jmp {
-                    pos: start - bytecode.len() as isize,
+                    pos: start - bytecode.len() as isize - 1,
                 });
             }
             HirStatement::Const(const_stmt) => {
@@ -406,6 +407,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
             HirStatement::Expr(e) => {
                 self.generate_bytecode_expr(&e.expr, bytecode)?;
+                if let Some(Instruction::LoadConst(ConstantValue::Unit)) = bytecode.last() {
+                    bytecode.pop();
+                    return Ok(());
+                }
                 //TODO: Remove this Pop for instructions that leave nothing on the stack
                 //(e.g. function calls that return Unit)
                 //NB: This is not semantically incorrect

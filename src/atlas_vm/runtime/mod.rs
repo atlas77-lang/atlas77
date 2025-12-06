@@ -30,7 +30,30 @@ impl<'run> AtlasRuntime<'run> {
     pub fn new(asm_program: AsmProgram, extern_fn: BTreeMap<&'run str, CallBack>) -> Self {
         let mut extern_fn = extern_fn;
         if asm_program.has_standard_lib {
-            extern_fn.insert("println", atlas_vm::libraries::io::println as CallBack);
+            //std/io
+            for (name, func) in atlas_vm::libraries::io::IO_FUNCTIONS.iter() {
+                extern_fn.insert(name, *func as CallBack);
+            }
+            //std/fs
+            for (name, func) in atlas_vm::libraries::fs::FILE_FUNCTIONS.iter() {
+                extern_fn.insert(name, *func as CallBack);
+            }
+            //std/time
+            for (name, func) in atlas_vm::libraries::time::TIME_FUNCTIONS.iter() {
+                extern_fn.insert(name, *func as CallBack);
+            }
+            //std/string
+            for (name, func) in atlas_vm::libraries::string::STRING_FUNCTIONS.iter() {
+                extern_fn.insert(name, *func as CallBack);
+            }
+            //std/math
+            for (name, func) in atlas_vm::libraries::math::MATH_FUNCTIONS.iter() {
+                extern_fn.insert(name, *func as CallBack);
+            }
+            //std/list
+            for (name, func) in atlas_vm::libraries::list::LIST_FUNCTIONS.iter() {
+                extern_fn.insert(name, *func as CallBack);
+            }
         }
         Self {
             stack: Stack::new(),
@@ -47,20 +70,32 @@ impl<'run> AtlasRuntime<'run> {
             .entry_point
             .expect("There should be a main function");
         self.pc = entry_point;
+        let mut err: RuntimeResult<()> = Ok(());
+        let mut instr_count: i64 = 0;
+        let start = std::time::Instant::now();
+        self.stack.new_stack_frame(self.pc, 0);
         loop {
             let instr = match self.asm_program.bytecode.get(self.pc) {
                 Some(i) => *i,
                 None => return Err(RuntimeError::OutOfBoundProgram(self.pc)),
             };
-            //println!("PC: {}, Instr: {:?}", self.pc, instr);
             self.pc += 1;
             match self.execute_instruction(instr) {
                 Ok(_) => {}
                 Err(RuntimeError::HaltEncountered) => break,
-                Err(e) => return Err(e),
+                Err(e) => err = Err(e),
+            }
+            instr_count += 1;
+            if instr_count > 50 {
+                //Let's test something
+                break;
             }
         }
-        Ok(())
+        let duration = start.elapsed();
+        eprintln!("Execution finished in: {:?}", duration);
+        eprintln!("Execution finished after {} instructions.", instr_count);
+        eprintln!("Amount of mips (Million Instructions Per Second): {}", (instr_count as f64) / (duration.as_secs_f64() * 1_000_000.0));
+        err
     }
 
     //TODO: Add more error handling
@@ -404,7 +439,7 @@ impl<'run> AtlasRuntime<'run> {
                 self.stack.push(res)
             }
             OpCode::JMP => {
-                let where_to = instr.arg.as_u24() as isize;
+                let where_to = instr.arg.as_i24();
                 if where_to.is_negative() {
                     self.pc -= where_to.abs() as usize;
                 } else {
@@ -413,7 +448,7 @@ impl<'run> AtlasRuntime<'run> {
                 Ok(())
             }
             OpCode::JMP_Z => {
-                let where_to = instr.arg.as_u24() as isize;
+                let where_to = instr.arg.as_i24();
                 let condition = self.stack.pop()?.as_boolean();
                 if !condition {
                     if where_to.is_negative() {
@@ -442,7 +477,6 @@ impl<'run> AtlasRuntime<'run> {
                     .get(&func_id)
                     .ok_or(RuntimeError::FunctionNotFound(func_id))?;
                 let nb_args = func_data.nb_args;
-
                 // Pop arguments from the stack into self.args (preserving original order)
                 // caller pushed args left-to-right, so we pop right-to-left into self.args[0..]
                 for i in 0..nb_args {
@@ -496,7 +530,7 @@ impl<'run> AtlasRuntime<'run> {
                 let obj_descriptor_ptr = instr.arg.as_u24() as usize;
                 let struct_descriptor = &self.asm_program.struct_descriptors[obj_descriptor_ptr];
                 let nb_fields = struct_descriptor.nb_fields;
-                let fields = Vec::with_capacity(nb_fields);
+                let fields = vec![VMData::new_unit(); nb_fields];
                 let obj = ObjectKind::Structure(Structure {
                     fields: RawStructure {
                         ptr: fields,

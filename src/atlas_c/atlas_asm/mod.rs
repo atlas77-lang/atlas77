@@ -678,7 +678,7 @@ impl Assembler {
                         .entry(func_ptr)
                         .or_insert(AsmFunction {
                             name: func_name.clone(),
-                            entry_point: 0, //Will be filled later
+                            entry_point: func_ptr, //Will be filled later
                             nb_args: *nb_args as usize,
                             declaration_span: Span::default(),
                         });
@@ -873,10 +873,10 @@ impl Display for AsmProgram {
 
                 // === Control flow ===
                 OpCode::JMP => {
-                    format!("JMP {}", instruction.arg.as_u24() as i32)
+                    format!("JMP {}", instruction.arg.as_i24())
                 }
                 OpCode::JMP_Z => {
-                    format!("JMP_Z {}", instruction.arg.as_u24() as i32)
+                    format!("JMP_Z {}", instruction.arg.as_i24())
                 }
 
                 // === Functions ===

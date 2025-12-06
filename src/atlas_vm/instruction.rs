@@ -176,6 +176,16 @@ impl Arg {
         (self.bytes[0] as u32) | ((self.bytes[1] as u32) << 8) | ((self.bytes[2] as u32) << 16)
     }
 
+    pub fn as_i24(&self) -> i32 {
+        let unsigned = self.as_u24();
+        // If the sign bit (bit 23) is set, extend the sign to the upper bits
+        if (unsigned & 0x0080_0000) != 0 {
+            (unsigned | 0xFF00_0000) as i32
+        } else {
+            unsigned as i32
+        }
+    }
+
     #[inline]
     pub fn first_16(&self) -> u16 {
         (self.bytes[0] as u16) | ((self.bytes[1] as u16) << 8)

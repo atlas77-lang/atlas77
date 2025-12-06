@@ -1,7 +1,7 @@
 import "std/io";
 
 fun main() {
-    println(fib(40));
+    println(fib_wrapper(15));
 }
 
 fun fib(n: int64) -> int64 {
@@ -10,4 +10,8 @@ fun fib(n: int64) -> int64 {
     } else {
         return fib(n - 1) + fib(n - 2);
     }
+}
+
+fun fib_wrapper(n: int64) -> int64 {
+    return fib(n);
 }

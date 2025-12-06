@@ -1,47 +1,15 @@
-import "std/string"
-import "std/io"
+import "std/io";
 
-public struct Vec<T> {
-    public:
-        data: [T];
+struct String {
+public:
+    s: string;
+    String(input: string) {
+        this.s = input;
+    }
 }
-
-public struct TestChars {
-    public:
-        chars: [char];
-    public:
-        TestChars(chars: [char]) {
-            this.chars = chars;            
-        }
-        fun get(this, i: int64) -> char {
-            return this.chars[i];
-        }
-        fun set(this, i: int64, c: char) -> unit {
-            this.chars[i] = c;
-            return;
-        }
-}
-
 
 fun main() {
-    let test_chars = test();
-    let i = 0;
-    while i < 10 {
-        new TestChars(['T', 'e', 's', 't']);
-        i = i + 1;
-    }
-    let my_vector = new Vector<int64>([0, 1, 2, 3, 4]);
-
-}
-fun test() -> TestChars{
-    let chars: [char] = ['T', 'e', 's', 't'];
-    let test_chars = new TestChars(chars);
-    test_chars.set(0, 'X');
-    test_chars.get(0);
-    let i = 0;
-    while i < 1022 {
-        new TestChars(chars);
-        i = i + 1;
-    }
-    return test_chars;
+    let str = new String("Hello, Atlas!");
+    print("Original string: ");
+    println(str.s);
 }
