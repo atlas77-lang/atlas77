@@ -19,7 +19,7 @@ public:
 
 //Let's try to lex brainfuck as a start
 public fun lex(source: String) -> Vector<Token> {
-    let tokens = new Vector<Token>(new [Token; 15]); //Later there will be a `Vector<T>::with_capacity` function to make this cleaner
+    let tokens = new Vector<Token>(new [Token; 0]); //Later there will be a `Vector<T>::with_capacity` function to make this cleaner
     let i: uint64 = 0;
     while i < source.len() {
         println(i);

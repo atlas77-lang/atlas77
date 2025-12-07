@@ -78,8 +78,8 @@ impl<'run> AtlasRuntime<'run> {
                 Some(i) => *i,
                 None => return Err(RuntimeError::OutOfBoundProgram(self.pc)),
             };
-            eprintln!("{}", self.stack); //--- IGNORE ---
-            eprintln!("Instr @ {}: {:?}", self.pc, instr.opcode); //--- IGNORE ---
+            //eprintln!("{}", self.stack); //--- IGNORE ---
+            //eprintln!("Instr @ {}: {:?}", self.pc, instr.opcode); //--- IGNORE ---
             self.pc += 1;
             match self.execute_instruction(instr) {
                 Ok(_) => {}
@@ -165,7 +165,6 @@ impl<'run> AtlasRuntime<'run> {
             OpCode::INDEX_LOAD => {
                 let ptr = self.stack.pop()?.as_object();
                 let index = self.stack.pop()?.as_u64() as usize;
-                eprintln!("Indexing object at ptr {} with index {}", ptr, index); //--- IGNORE ---
                 let raw_list = self.heap.get(ptr)?;
                 let list = raw_list.list();
                 let val = list[index];
@@ -478,7 +477,7 @@ impl<'run> AtlasRuntime<'run> {
                     self.args[i] = self.stack.pop()?;
                 }
                 //Only display nb_args args for clarity
-                eprintln!("Calling function {} with [{:?}] args", func_data.name, &self.args[0..nb_args]); //--- IGNORE ---
+                //eprintln!("Calling function {} with [{:?}] args", func_data.name, &self.args[0..nb_args]); //--- IGNORE ---
 
                 // Create new stack frame (save old pc & bp)
                 self.stack.new_stack_frame(self.pc, self.stack.base_ptr);
