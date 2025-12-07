@@ -70,7 +70,6 @@ impl<'run> AtlasRuntime<'run> {
             .entry_point
             .expect("There should be a main function");
         self.pc = entry_point;
-        let mut err: RuntimeResult<()> = Ok(());
         let mut instr_count: i64 = 0;
         let start = std::time::Instant::now();
         self.stack.new_stack_frame(self.pc, 0);
@@ -85,7 +84,7 @@ impl<'run> AtlasRuntime<'run> {
             match self.execute_instruction(instr) {
                 Ok(_) => {}
                 Err(RuntimeError::HaltEncountered) => break,
-                Err(e) => err = Err(e),
+                Err(e) => return Err(e),
             }
             instr_count += 1;
         }
@@ -96,7 +95,7 @@ impl<'run> AtlasRuntime<'run> {
             "Amount of mips (Million Instructions Per Second): {}",
             (instr_count as f64) / (duration.as_secs_f64() * 1_000_000.0)
         );
-        err
+        Ok(())
     }
 
     //TODO: Add more error handling
@@ -573,8 +572,9 @@ impl<'run> AtlasRuntime<'run> {
                 let casted_value = match target_type as VMTag {
                     VMTag::Int64 => match value.tag {
                         VMTag::String => {
-                            let s = value.to_string();
-                            let parsed = s
+                            let str_ptr = self.heap.get(value.as_object())?;
+                            let string = str_ptr.string();
+                            let parsed = string
                                 .parse::<i64>()
                                 .map_err(|_| RuntimeError::InvalidCast(value.tag, target_type))?;
                             VMData::new_i64(parsed)
@@ -588,8 +588,9 @@ impl<'run> AtlasRuntime<'run> {
                     },
                     VMTag::UInt64 => match value.tag {
                         VMTag::String => {
-                            let s = value.to_string();
-                            let parsed = s
+                            let str_ptr = self.heap.get(value.as_object())?;
+                            let string = str_ptr.string();
+                            let parsed = string
                                 .parse::<u64>()
                                 .map_err(|_| RuntimeError::InvalidCast(value.tag, target_type))?;
                             VMData::new_u64(parsed)
@@ -603,8 +604,9 @@ impl<'run> AtlasRuntime<'run> {
                     },
                     VMTag::Float64 => match value.tag {
                         VMTag::String => {
-                            let s = value.to_string();
-                            let parsed = s
+                            let str_ptr = self.heap.get(value.as_object())?;
+                            let string = str_ptr.string();
+                            let parsed = string
                                 .parse::<f64>()
                                 .map_err(|_| RuntimeError::InvalidCast(value.tag, target_type))?;
                             VMData::new_f64(parsed)
@@ -620,8 +622,9 @@ impl<'run> AtlasRuntime<'run> {
                     },
                     VMTag::Boolean => match value.tag {
                         VMTag::String => {
-                            let s = value.to_string().to_lowercase();
-                            let parsed = match s.as_str() {
+                            let str_ptr = self.heap.get(value.as_object())?;
+                            let string = str_ptr.string().to_lowercase();
+                            let parsed = match string.as_str() {
                                 "true" => true,
                                 "false" => false,
                                 _ => return Err(RuntimeError::InvalidCast(value.tag, target_type)),
@@ -637,8 +640,9 @@ impl<'run> AtlasRuntime<'run> {
                     },
                     VMTag::Char => match value.tag {
                         VMTag::String => {
-                            let s = value.to_string();
-                            let mut chars = s.chars();
+                            let str_ptr = self.heap.get(value.as_object())?;
+                            let string = str_ptr.string();
+                            let mut chars = string.chars();
                             let ch = chars
                                 .next()
                                 .ok_or(RuntimeError::InvalidCast(value.tag, target_type))?;
@@ -650,8 +654,9 @@ impl<'run> AtlasRuntime<'run> {
                         _ => return Err(RuntimeError::InvalidCast(value.tag, target_type)),
                     },
                     VMTag::String => {
-                        let string = value.to_string();
-                        let ptr = match self.heap.put(ObjectKind::String(string)) {
+                        let str_ptr = self.heap.get(value.as_object())?;
+                        let string = str_ptr.string();
+                        let ptr = match self.heap.put(ObjectKind::String(string.to_string())) {
                             Ok(idx) => idx,
                             Err(_) => return Err(RuntimeError::OutOfMemory),
                         };
