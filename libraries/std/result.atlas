@@ -1,65 +1,65 @@
-package std::result;
+//package std::result;
 
-import "std/io"
+import "std/io";
 
 struct Result<T, E> {
-    private:
-        data: T?;
-        err: E?;
+private:
+    data: T?;
+    err: E?;
 
-        Result(data: T?, err: E?) {
-            this.data = data;
-            this.err = err;
+    Result(data: T?, err: E?) {
+        this.data = data;
+        this.err = err;
+    }
+    ~Result() {
+        if this.is_ok {
+            delete this.data;
+        } else {
+            delete this.err;
         }
-        ~Result() {
-            if this.is_ok {
-                delete this.data;
-            } else {
-                delete this.err;
-            }
-        }
-    public:
-        fun ok(data: T) -> Result<T, E> {
-            return this.init(data, null);
-        }
+    }
+public:
+    fun ok(data: T) -> Result<T, E> {
+        return this.init(data, null);
+    }
 
-        fun err(err: E) -> Result<T, E> {
-            return new Result<T, E>(null, err);
-        }
+    fun err(err: E) -> Result<T, E> {
+        return new Result<T, E>(null, err);
+    }
 
-        fun is_ok(this) -> bool {
-            return this.data != null;
-        }
+    fun is_ok(this) -> bool {
+        return this.data != null;
+    }
 
-        fun is_err(this) -> bool {
-            return this.err != null;
-        }
+    fun is_err(this) -> bool {
+        return this.err != null;
+    }
 
-        fun unwrap(this) -> T {
-            if this.is_ok() {
-                return this.data;
-            }
-            panic("Unwrap called on an Err");
+    fun unwrap(this) -> T {
+        if this.is_ok() {
+            return this.data;
         }
+        panic("Unwrap called on an Err");
+    }
 
-        fun unwrap_err(this) -> E {
-            if this.is_err() {
-                return this.err;
-            }
-            panic("Unwrap_err called on an Ok");
+    fun unwrap_err(this) -> E {
+        if this.is_err() {
+            return this.err;
         }
+        panic("Unwrap_err called on an Ok");
+    }
 
-        fun unwrap_or(this, default: T) -> T {
-            if this.is_ok() {
-                return this.data;
-            }
-            return default;
+    fun unwrap_or(this, default: T) -> T {
+        if this.is_ok() {
+            return this.data;
         }
+        return default;
+    }
 
-        fun unwrap_err_or(this, default: E) -> E {
-            if this.is_err() {
-                return this.err;
-            }
-            return default;
+    fun unwrap_err_or(this, default: E) -> E {
+        if this.is_err() {
+            return this.err;
         }
+        return default;
+    }
 }

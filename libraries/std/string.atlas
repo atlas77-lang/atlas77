@@ -24,10 +24,13 @@ public:
         this.s = s;
         this.len = str_len(s);
     }
+
     ~String() {}
+
     fun from_chars(s: [char]) -> String {
         return new String(from_chars(s));
     }
+
     /// Example: String::str_len("Hello") -> 5
     fun str_len(s: string) -> uint64 {
         return str_len(s);
@@ -36,6 +39,7 @@ public:
     fun len(this) -> uint64 {
         return this.len;
     }
+
     fun is_empty(this) -> bool {
         return this.len == 0 as uint64;
     }
@@ -53,6 +57,7 @@ public:
         }
         return new String(from_chars(res));
     }
+
     fun push(this, c: char) -> unit {
         //Same... I should implement the <- operator
         let self_chars = to_chars(this.s);
@@ -67,6 +72,7 @@ public:
         this.len = str_len(this.s);
         return;
     }
+
     fun push_str(this, s: String) -> unit {
         let self_chars = to_chars(this.s);
         let s_chars = to_chars(s.s);
@@ -86,6 +92,7 @@ public:
         this.len = str_len(this.s);
         return;
     }
+
     fun find(this, sub_string: String) -> int64 {
         let res = -1;
         let i = 0;
@@ -112,6 +119,7 @@ public:
     fun get(this, i: uint64) -> char {
         return this.s[i];
     }
+
     fun set(this, i: uint64, c: char) -> unit {
         this.s[i] = c;
         return;
@@ -120,18 +128,23 @@ public:
     fun to_str(this) -> string {
         return this.s;
     }
+
     fun to_chars(this) -> [char] {
         return to_chars(this.s);
     }
+
     fun to_upper(this) -> String {
         return new String(to_upper(this.s));
     }
+
     fun to_lower(this) -> String {
         return new String(to_lower(this.s));
     }
+
     fun trim(this) -> String {
         return new String(trim(this.s));
     }
+    
     fun split(this, sep: string) -> [String] {
         let s: [string] = split(this.s, sep);
         let i = 0;

@@ -1,9 +1,9 @@
-extern read_dir(path: string) -> [string];
-extern read_file(path: string) -> string;
-extern write_file(path: string, content: string);
-extern remove_file(path: string);
-extern file_exists(path: string) -> bool;
-extern close_file(path: string);
+private extern read_dir(path: string) -> [string];
+private extern read_file(path: string) -> string;
+private extern write_file(path: string, content: string);
+private extern remove_file(path: string);
+private extern file_exists(path: string) -> bool;
+private extern close_file(path: string);
 
 //NB: This struct works for now, but because of the lack of move/copy semantics in Atlas,
 // it may lead to unexpected behavior.
