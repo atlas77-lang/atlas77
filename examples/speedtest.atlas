@@ -1,0 +1,22 @@
+import "std/io"
+
+fun main() {
+    let a = 0;
+    let b = 1;
+    let i = 0;
+    while i < 5 {
+        let temp = a;
+        a = b;
+        b = temp + b;
+        i = i + 1;
+    }
+    print(a);
+}
+
+fun fib(n: int64) -> int64 {
+    if n <= 1 {
+        return n;
+    } else {
+        return fib(n - 1) + fib(n - 2);
+    }
+}

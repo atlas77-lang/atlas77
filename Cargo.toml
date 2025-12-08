@@ -1,7 +1,7 @@
 [package]
 name = "atlas_77"
-version = "0.5.2"
-edition = "2021"
+version = "0.6.0-dev"
+edition = "2024"
 description = "Programming language with strong interoperability with Rust (WIP)"
 authors = ["Gipson62", "ElhamAryanpur"]
 license = "MIT"
@@ -13,7 +13,7 @@ readme = "README.md"
 
 
 [profile.release]
-#opt-level = 3
+opt-level = 3
 panic = "abort"
 lto = true
 codegen-units = 1
@@ -34,16 +34,13 @@ path = "src/main.rs"
 [dependencies]
 
 # For the CLI
-clap = { version = "4.5.26", features = ["derive"] }
-# For the Standard Library
-# For the Parser
-bumpalo = "3.16.0"
+clap = { version = "4.5.53", features = ["derive"] }
+bumpalo = "3.19.0"
 # For pretty printing of errors
-miette = { version = "7.4.0", features = ["fancy"] }
-ron = "0.8.1"
-thiserror = "2.0.11"
-logos = "0.15.0"
-serde = { version = "1.0.217", features = ["derive"] }
-rand = "0.9.0"
-time = { version = "0.3.37", features = ["formatting"] }
+miette = { version = "7.6.0", features = ["fancy"] }
+thiserror = "2.0.17"
+logos = "0.15.1"
 heck = "0.5.0"
+include_dir = "0.7.4"
+rand = "0.10.0-rc.5"
+time = { version = "0.3.44", features = ["formatting"] }

@@ -1,5 +1,5 @@
-import "std/io"
+import "std/io";
 
-func main() {
-    println("Hello World!");
+fun main() {
+    println("Hello, Atlas!");
 }

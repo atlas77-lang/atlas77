@@ -1,33 +1,92 @@
-import "std/list"
+import "std/io";
 
-public class String {
+struct Vector<T> {
     private:
-        s: [char];
-        len: uint64;
+        data: [T];
     public:
-        const HELLO_WORLD: [char] = ['h', 'e', 'l', 'l', 'o', ' ', 'w', 'o', 'r', 'l', 'd'];
+        length: uint64;
+        capacity: uint64;
+
+    Vector(data: [T]) {
+        this.length = len(data);
+        this.capacity = self.length;
+        this.data = data;
+    }
+    ~Vector() {
+        this.data = 0;
+        this.length = 0;
+        delete this.data;
+    }
+
+    /// A function that doesn't have a "this" parameter is a static function
+    /// static functions are called like this: "Vector::<T>::function_name()"
+    fun with_capacity(capacity: uint64) -> Vector<T> {
+        let data = new [T; capacity];
+        return new Vector<T>(data);
+    }
+
+    /// A function that has a "this" parameter is a method of the struct
+    /// and is called like this: "vector_instance.function_name()"
+    fun push(this, val: T) {
+        if this.capacity <= this.length {
+            let new_capacity = this.capacity * 2;
+
+            let new_data = new [T; new_capacity];
+            let i = 0;
+            while i < this.length {
+                new_data[i] = this.data[i];
+                i = i + 1;
+            }
+            let data_to_delete = this.data;
+            this.data = new_data;
+            this.capacity = new_capacity;
+
+            delete data_to_delete;
+        }
+        this.data[this.length] = val;
+        this.length = this.length + 1;
+    }
+
+    fun pop(this) -> T {
+        if this.length == 0 {
+            panic("Cannot pop from an empty vector");
+        }
+        this.length = this.length - 1;
+        return this.data[this.length];
+    }
+}
+
+/// A simple generic Box struct to hold a value of any type
+struct Box<T> {
+    value: T;
+
+    Box(value: T) {
+        self.value = value;
+    }
+
+    ~Box() {
+        delete value;
+    }
     public:
-        String(s: [char]) {
-            self.len = len(s) as uint64;
-            self.s = s;
+        fun get(this) -> T {
+            return this.value;
         }
-        ~String() {
-            delete self;
-        }
-        func hello_world() -> String {
-            return new String(String::HELLO_WORLD);
-        }
-        func len(self) -> uint64 {
-            return self.len + 5 as uint64;
+
+        fun set(this, value: T) {
+            this.value = value;
         }
 }
 
-func main() {
-    let array = ['h', 'e', 'l', 'l', 'o', ' ', 'w', 'o', 'r', 'l', 'd'];
-    let s = new String(array);
-    s.len();
-    s.len;
-    String::hello_world().len();
-    new String(String::HELLO_WORLD);
-    delete s;
+fun main() {
+    let vec = new Vector<int64>([1, 2, 3, 4, 5]);
+    vec.push(6);
+    let val: int64 = vec.pop();
+    print("Popped value: " + val as string);
+
+    let vec_of_box = new Vector<Box<int64>>([new Box<int64>(10),  new Box<int64>(20)]);
+    vec_of_box.push(new Box<int64>(30));
+    let box_val: Box<int64> = vec_of_box.pop();
+    print("Popped Box value: " + box_val.get() as string);
 }
+
+

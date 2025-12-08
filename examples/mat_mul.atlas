@@ -1,9 +1,10 @@
 import "std/io"
 import "std/list"
-import "std/string"
+
+extern str_cmp(a: string, b: string) -> int64;
 
 //mat-mul
-func mat_mul(a: [[int64]], b: [[int64]]) -> [[int64]] {
+fun mat_mul(a: [[int64]], b: [[int64]]) -> [[int64]] {
     let a_rows = len(a);
     let a_cols = len(a[0]);
     let b_rows = len(b);
@@ -32,7 +33,7 @@ func mat_mul(a: [[int64]], b: [[int64]]) -> [[int64]] {
     return result;
 }
 
-func main() {
+fun main() {
     let a: [[int64]] = [[1, 2, 3], [4, 5, 6]];
     let b: [[int64]] = [[7, 8], [9, 10], [11, 12]];
     let result = mat_mul(a, b);

@@ -1,8 +1,8 @@
-use crate::atlas_vm::errors::RuntimeError;
-use crate::atlas_vm::memory::vm_data::VMData;
+use crate::atlas_vm::error::RuntimeError;
+use crate::atlas_vm::runtime::CallBack;
 use crate::atlas_vm::runtime::vm_state::VMState;
-use crate::atlas_vm::CallBack;
-use rand::{rng, Rng};
+use crate::atlas_vm::vm_data::VMData;
+use rand::{Rng, rng};
 
 pub const MATH_FUNCTIONS: [(&str, CallBack); 7] = [
     ("abs", abs),
@@ -48,7 +48,10 @@ pub fn round(state: VMState) -> Result<VMData, RuntimeError> {
 }
 
 pub fn random(state: VMState) -> Result<VMData, RuntimeError> {
-    let range = (state.stack.pop_with_rc(state.object_map)?.as_i64(), state.stack.pop_with_rc(state.object_map)?.as_i64());
+    let range = (
+        state.stack.pop_with_rc(state.object_map)?.as_i64(),
+        state.stack.pop_with_rc(state.object_map)?.as_i64(),
+    );
     let mut rng = rng();
     let random = rng.random_range(range.1..range.0);
     Ok(VMData::new_i64(random))

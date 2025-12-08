@@ -1,0 +1,14 @@
+//TODO: all those functions should only takes reference to avoid copying datas.
+/// Print a value followed by a newline
+/// Example: println("Hello, World!")
+public extern println<T>(s: T);
+/// Print a value without a newline
+/// Example: print("Hello, ")
+/// print("World!")
+public extern print<T>(s: T);
+/// Read a line from standard input
+/// Example: let input = input()
+public extern input() -> string;
+/// Panic the program with a value
+/// Example: panic("Something went wrong!")
+public extern panic<T>(s: T);

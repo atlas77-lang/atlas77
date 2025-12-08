@@ -1,5 +1,0 @@
-//All of the functions in comments are not implemented yet
-
-public extern println<T>(s: T) -> unit
-public extern print<T>(s: T) -> unit
-public extern input() -> str

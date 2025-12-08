@@ -1,9 +1,11 @@
 use super::{signature::HirFunctionSignature, stmt::HirBlock};
-use crate::atlas_c::atlas_hir::signature::{HirClassFieldSignature, HirClassMethodSignature, HirClassSignature, HirFunctionParameterSignature, HirTypeParameterItemSignature};
-use logos::Span;
-use serde::Serialize;
+use crate::atlas_c::atlas_hir::signature::{
+    HirFunctionParameterSignature, HirStructFieldSignature, HirStructMethodSignature,
+    HirStructSignature, HirTypeParameterItemSignature, HirVisibility,
+};
+use crate::atlas_c::utils::Span;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirFunction<'hir> {
     pub span: Span,
     pub name: &'hir str,
@@ -13,7 +15,7 @@ pub struct HirFunction<'hir> {
 }
 
 /// Used by the type checker to import the API Signature of a module.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirImport<'hir> {
     pub span: Span,
     pub path: &'hir str,
@@ -23,32 +25,41 @@ pub struct HirImport<'hir> {
     pub alias: Option<&'hir str>,
     pub alias_span: Option<Span>,
 }
-#[derive(Debug, Clone, Serialize)]
-pub struct HirClass<'hir> {
+#[derive(Debug, Clone)]
+pub struct HirStruct<'hir> {
     pub span: Span,
     pub name: &'hir str,
     pub name_span: Span,
-    pub signature: &'hir HirClassSignature<'hir>,
-    pub methods: Vec<HirClassMethod<'hir>>,
-    pub fields: Vec<HirClassFieldSignature<'hir>>,
-    pub constructor: HirClassConstructor<'hir>,
-    pub destructor: HirClassConstructor<'hir>,
+    pub signature: HirStructSignature<'hir>,
+    pub methods: Vec<HirStructMethod<'hir>>,
+    pub fields: Vec<HirStructFieldSignature<'hir>>,
+    pub constructor: HirStructConstructor<'hir>,
+    pub destructor: HirStructConstructor<'hir>,
+    pub vis: HirVisibility,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct HirClassMethod<'hir> {
+#[derive(Debug, Clone)]
+pub struct HirStructMethod<'hir> {
     pub span: Span,
     pub name: &'hir str,
     pub name_span: Span,
-    pub signature: &'hir HirClassMethodSignature<'hir>,
+    pub signature: &'hir HirStructMethodSignature<'hir>,
     pub body: HirBlock<'hir>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 /// Also used for the destructor
-pub struct HirClassConstructor<'hir> {
+pub struct HirStructConstructor<'hir> {
     pub span: Span,
-    pub params: Vec<&'hir HirFunctionParameterSignature<'hir>>,
-    pub type_params: Vec<&'hir HirTypeParameterItemSignature<'hir>>,
+    pub params: Vec<HirFunctionParameterSignature<'hir>>,
+    pub type_params: Vec<HirTypeParameterItemSignature<'hir>>,
     pub body: HirBlock<'hir>,
+    pub vis: HirVisibility,
+}
+
+#[derive(Debug, Clone)]
+/// Represents a package path declaration like `package my_project::my_module;`
+pub struct HirPackage<'hir> {
+    pub span: Span,
+    pub path: &'hir [&'hir str],
 }

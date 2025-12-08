@@ -1,6 +1,6 @@
-import "std/io"
+import "std/io";
 
-public class Int64 {
+public struct Int64 {
     public:
         value: int64;
         //todo: Have a comptime runtime
@@ -10,80 +10,80 @@ public class Int64 {
     public:
         /// Constructor to initialize the value
         Int64(val: int64) {
-            self.value = val;
+            this.value = val;
         }
         
         /// Destructor
         ~Int64() {}
         
         /// Static function to create an Int64 with value 0
-        func zero() -> Int64 {
+        fun zero() -> Int64 {
             return new Int64(0);
         }
-        func max() -> Int64 {
+        fun max() -> Int64 {
             return new Int64(Int64::MAX_INT64);
         }
-        func min() -> Int64 {
+        fun min() -> Int64 {
             return new Int64(Int64::MIN_INT64);
         }
         
         /// Addition
-        func add(self, val: Int64) -> Int64 {
-            return new Int64(self.value + val.value);
+        fun add(this, val: Int64) -> Int64 {
+            return new Int64(this.value + val.value);
         }
         
         /// Subtraction
-        func sub(self, val: Int64) -> Int64 {
-            return new Int64(self.value - val.value);
+        fun sub(this, val: Int64) -> Int64 {
+            return new Int64(this.value - val.value);
         }
         
         /// Multiplication
-        func mul(self, val: Int64) -> Int64 {
-            return new Int64(self.value * val.value);
+        fun mul(this, val: Int64) -> Int64 {
+            return new Int64(this.value * val.value);
         }
         
         /// Division (Error handling for division by zero is done in the VM for now)
-        func div(self, val: Int64) -> Int64 {
-            return new Int64(self.value / val.value);
+        fun div(this, val: Int64) -> Int64 {
+            return new Int64(this.value / val.value);
         }
         
         /// Modulus (Error handling for division by zero is done in the VM for now)
-        func mod(self, val: Int64) -> Int64 {
-            return new Int64(self.value % val.value);
+        fun mod(this, val: Int64) -> Int64 {
+            return new Int64(this.value % val.value);
         }
         
         /// Equality
-        func eq(self, val: Int64) -> bool {
-            return self.value == val.value;
+        fun eq(this, val: Int64) -> bool {
+            return this.value == val.value;
         }
         
         /// Inequality
-        func ne(self, val: Int64) -> bool {
-            return self.value != val.value;
+        fun ne(this, val: Int64) -> bool {
+            return this.value != val.value;
         }
         
         /// Greater than
-        func gt(self, val: Int64) -> bool {
-            return self.value > val.value;
+        fun gt(this, val: Int64) -> bool {
+            return this.value > val.value;
         }
         
         /// Greater than or equal to
-        func ge(self, val: Int64) -> bool {
-            return self.value >= val.value;
+        fun ge(this, val: Int64) -> bool {
+            return this.value >= val.value;
         }
         
         /// Less than
-        func lt(self, val: Int64) -> bool {
-            return self.value < val.value;
+        fun lt(this, val: Int64) -> bool {
+            return this.value < val.value;
         }
         
         /// Less than or equal to
-        func le(self, val: Int64) -> bool {
-            return self.value <= val.value;
+        fun le(this, val: Int64) -> bool {
+            return this.value <= val.value;
         }
 }
 
-func main() {
+fun main() {    
     let a = new Int64(0);
     let b = new Int64(1);
     let i = new Int64(0);

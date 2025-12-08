@@ -1,46 +1,43 @@
 use super::ty::{HirTy, HirUnitTy};
 use crate::atlas_c::atlas_frontend::parser::ast::AstVisibility;
 use crate::atlas_c::atlas_hir::expr::HirUnaryOp;
-use crate::atlas_c::atlas_hir::expr::{HirBinaryOp, HirExpr};
-use logos::Span;
-use serde::Serialize;
+use crate::atlas_c::atlas_hir::expr::{HirBinaryOperator, HirExpr};
+use crate::atlas_c::utils::Span;
 use std::collections::BTreeMap;
+use std::fmt::Display;
 
 /// An HirModuleSignature represents the API of a module.
 ///
 /// Currently only functions exist in the language.
-#[derive(Debug, Clone, Serialize, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct HirModuleSignature<'hir> {
     pub functions: BTreeMap<&'hir str, &'hir HirFunctionSignature<'hir>>,
-    pub classes: BTreeMap<&'hir str, &'hir HirClassSignature<'hir>>,
+    pub structs: BTreeMap<&'hir str, &'hir HirStructSignature<'hir>>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-/// As of now, classes don't inherit from other classes or extend interfaces.
-///
-/// Generic classes are not supported yet.
-pub struct HirClassSignature<'hir> {
-    pub span: Span,
+#[derive(Debug, Clone)]
+/// As of now, structs don't inherit concepts.
+pub struct HirStructSignature<'hir> {
+    pub declaration_span: Span,
     pub vis: HirVisibility,
     pub name: &'hir str,
-    pub methods: BTreeMap<&'hir str, &'hir HirClassMethodSignature<'hir>>,
-    pub fields: BTreeMap<&'hir str, HirClassFieldSignature<'hir>>,
+    pub name_span: Span,
+    pub methods: BTreeMap<&'hir str, HirStructMethodSignature<'hir>>,
+    pub fields: BTreeMap<&'hir str, HirStructFieldSignature<'hir>>,
+    /// Generic type parameter names
+    pub generics: Vec<&'hir str>,
     /// This is enough to know if the class implement them or not
-    pub operators: Vec<HirBinaryOp>,
-    pub constants: BTreeMap<&'hir str, &'hir HirClassConstSignature<'hir>>,
-    pub constructor: HirClassConstructorSignature<'hir>,
-    pub destructor: HirClassConstructorSignature<'hir>,
+    pub operators: Vec<HirBinaryOperator>,
+    pub constants: BTreeMap<&'hir str, &'hir HirStructConstantSignature<'hir>>,
+    pub constructor: HirStructConstructorSignature<'hir>,
+    pub destructor: HirStructConstructorSignature<'hir>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Copy, Default)]
 pub enum HirVisibility {
+    #[default]
     Public,
     Private,
-}
-impl Default for HirVisibility {
-    fn default() -> Self {
-        Self::Public
-    }
 }
 impl From<AstVisibility> for HirVisibility {
     fn from(ast_vis: AstVisibility) -> Self {
@@ -51,16 +48,17 @@ impl From<AstVisibility> for HirVisibility {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 //Also used for the destructor
-pub struct HirClassConstructorSignature<'hir> {
+pub struct HirStructConstructorSignature<'hir> {
     pub span: Span,
-    pub params: Vec<&'hir HirFunctionParameterSignature<'hir>>,
-    pub type_params: Vec<&'hir HirTypeParameterItemSignature<'hir>>,
+    pub params: Vec<HirFunctionParameterSignature<'hir>>,
+    pub type_params: Vec<HirTypeParameterItemSignature<'hir>>,
+    pub vis: HirVisibility,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct HirClassConstSignature<'hir> {
+#[derive(Debug, Clone)]
+pub struct HirStructConstantSignature<'hir> {
     pub span: Span,
     pub vis: HirVisibility,
     pub name: &'hir str,
@@ -70,7 +68,7 @@ pub struct HirClassConstSignature<'hir> {
     pub value: &'hir ConstantValue,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
 pub enum ConstantValue {
     Int(i64),
     Float(f64),
@@ -78,7 +76,27 @@ pub enum ConstantValue {
     String(String),
     Bool(bool),
     Char(char),
+    #[default]
+    Unit,
     List(Vec<ConstantValue>),
+}
+
+impl Display for ConstantValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConstantValue::Int(i) => write!(f, "int64 : {}", i),
+            ConstantValue::Float(fl) => write!(f, "float64 : {}", fl),
+            ConstantValue::UInt(u) => write!(f, "uint64 : {}", u),
+            ConstantValue::String(s) => write!(f, "string : \"{}\"", s),
+            ConstantValue::Bool(b) => write!(f, "bool : {}", b),
+            ConstantValue::Char(c) => write!(f, "char : '{}'", c),
+            ConstantValue::Unit => write!(f, "()"),
+            ConstantValue::List(l) => {
+                let elements: Vec<String> = l.iter().map(|elem| format!("{}", elem)).collect();
+                write!(f, "[{}]", elements.join(", "))
+            }
+        }
+    }
 }
 
 impl TryFrom<HirExpr<'_>> for ConstantValue {
@@ -91,13 +109,6 @@ impl TryFrom<HirExpr<'_>> for ConstantValue {
             HirExpr::FloatLiteral(f) => Ok(ConstantValue::Float(f.value)),
             HirExpr::StringLiteral(s) => Ok(ConstantValue::String(String::from(s.value))),
             HirExpr::BooleanLiteral(b) => Ok(ConstantValue::Bool(b.value)),
-            HirExpr::ListLiteral(l) => {
-                let mut list = Vec::new();
-                for expr in l.items {
-                    list.push(ConstantValue::try_from(expr)?);
-                }
-                Ok(ConstantValue::List(list))
-            }
             HirExpr::Unary(u) => {
                 if u.op == Some(HirUnaryOp::Neg) {
                     match *u.expr {
@@ -114,13 +125,13 @@ impl TryFrom<HirExpr<'_>> for ConstantValue {
                     ConstantValue::try_from(*u.expr)
                 }
             }
-            _ => Err(())
+            _ => Err(()),
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct HirClassFieldSignature<'hir> {
+#[derive(Debug, Clone)]
+pub struct HirStructFieldSignature<'hir> {
     pub span: Span,
     pub vis: HirVisibility,
     pub name: &'hir str,
@@ -129,35 +140,35 @@ pub struct HirClassFieldSignature<'hir> {
     pub ty_span: Span,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct HirClassMethodSignature<'hir> {
+#[derive(Debug, Clone)]
+pub struct HirStructMethodSignature<'hir> {
     pub span: Span,
     pub vis: HirVisibility,
-    pub modifier: HirClassMethodModifier,
-    pub params: Vec<&'hir HirFunctionParameterSignature<'hir>>,
+    pub modifier: HirStructMethodModifier,
+    pub params: Vec<HirFunctionParameterSignature<'hir>>,
     pub generics: Option<Vec<&'hir HirTypeParameterItemSignature<'hir>>>,
     pub type_params: Vec<&'hir HirTypeParameterItemSignature<'hir>>,
-    pub return_ty: &'hir HirTy<'hir>,
+    pub return_ty: HirTy<'hir>,
     pub return_ty_span: Option<Span>,
 }
 
-#[derive(Debug, Default, Clone, Serialize, PartialEq)]
-pub enum HirClassMethodModifier {
+#[derive(Debug, Default, Clone, PartialEq)]
+pub enum HirStructMethodModifier {
     Static,
     Const,
     #[default]
     None,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirFunctionSignature<'hir> {
     pub span: Span,
     pub vis: HirVisibility,
-    pub params: Vec<&'hir HirFunctionParameterSignature<'hir>>,
+    pub params: Vec<HirFunctionParameterSignature<'hir>>,
     pub generics: Option<Vec<&'hir HirTypeParameterItemSignature<'hir>>>,
     pub type_params: Vec<&'hir HirTypeParameterItemSignature<'hir>>,
     /// The user can declare a function without a return type, in which case the return type is `()`.
-    pub return_ty: &'hir HirTy<'hir>,
+    pub return_ty: HirTy<'hir>,
     /// The span of the return type, if it exists.
     pub return_ty_span: Option<Span>,
     pub is_external: bool,
@@ -171,21 +182,21 @@ impl Default for HirFunctionSignature<'_> {
             params: Vec::new(),
             generics: None,
             type_params: Vec::new(),
-            return_ty: &HirTy::Unit(HirUnitTy {}),
+            return_ty: HirTy::Unit(HirUnitTy {}),
             return_ty_span: None,
             is_external: false,
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirTypeParameterItemSignature<'hir> {
     pub span: Span,
     pub name: &'hir str,
     pub name_span: Span,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirFunctionParameterSignature<'hir> {
     pub span: Span,
     pub name: &'hir str,

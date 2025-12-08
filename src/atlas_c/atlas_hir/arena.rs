@@ -5,11 +5,14 @@ use std::{
     rc::Rc,
 };
 
-use super::ty::{HirBooleanTy, HirCharTy, HirFloatTy, HirIntegerTy, HirListTy, HirNamedTy, HirStringTy, HirTy, HirTyId, HirUninitializedTy, HirUnitTy, HirUnsignedIntTy};
+use super::ty::{
+    HirBooleanTy, HirCharTy, HirConstTy, HirFloatTy, HirGenericTy, HirIntegerTy, HirListTy,
+    HirNamedTy, HirNullableTy, HirReferenceTy, HirStringTy, HirTy, HirTyId, HirUninitializedTy,
+    HirUnitTy, HirUnsignedIntTy,
+};
+use crate::atlas_c::utils::Span;
 use bumpalo::Bump;
-use logos::Span;
 
-//todo: Implement my own Arenas (maybe)
 pub struct HirArena<'arena> {
     allocator: Rc<Bump>,
     type_arena: TypeArena<'arena>,
@@ -135,6 +138,22 @@ impl<'arena> TypeArena<'arena> {
             .or_insert_with(|| self.allocator.alloc(HirTy::String(HirStringTy {})))
     }
 
+    pub fn get_nullable_ty(&'arena self, inner: &'arena HirTy<'arena>) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_nullable_ty_id(&HirTyId::from(inner));
+        self.intern.borrow_mut().entry(id).or_insert_with(|| {
+            self.allocator
+                .alloc(HirTy::Nullable(HirNullableTy { inner }))
+        })
+    }
+
+    pub fn get_readonly_ty(&'arena self, inner: &'arena HirTy<'arena>) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_readonly_ty_id(&HirTyId::from(inner));
+        self.intern
+            .borrow_mut()
+            .entry(id)
+            .or_insert_with(|| self.allocator.alloc(HirTy::Const(HirConstTy { inner })))
+    }
+
     pub fn get_unit_ty(&'arena self) -> &'arena HirTy<'arena> {
         let id = HirTyId::compute_unit_ty_id();
         self.intern
@@ -161,9 +180,38 @@ impl<'arena> TypeArena<'arena> {
 
     pub fn get_named_ty(&'arena self, name: &'arena str, span: Span) -> &'arena HirTy<'arena> {
         let id = HirTyId::compute_name_ty_id(name);
-        self.intern
-            .borrow_mut()
-            .entry(id)
-            .or_insert_with(|| self.allocator.alloc(HirTy::Named(HirNamedTy { name, span })))
+        self.intern.borrow_mut().entry(id).or_insert_with(|| {
+            self.allocator
+                .alloc(HirTy::Named(HirNamedTy { name, span }))
+        })
+    }
+
+    //This might need to be refactored, seems fishy
+    pub fn get_generic_ty(
+        &'arena self,
+        name: &'arena str,
+        inner: Vec<&'arena HirTy<'arena>>,
+        span: Span,
+    ) -> &'arena HirTy<'arena> {
+        // compute stable id from name + inner types
+        let param_ids = inner.iter().map(|t| HirTyId::from(*t)).collect::<Vec<_>>();
+        let id = HirTyId::compute_generic_ty_id(name, &param_ids);
+        self.intern.borrow_mut().entry(id).or_insert_with(|| {
+            // clone inner hir types to store inside the owned Vec
+            let inner_owned = inner.iter().map(|t| (*t).clone()).collect::<Vec<_>>();
+            self.allocator.alloc(HirTy::Generic(HirGenericTy {
+                name,
+                inner: inner_owned,
+                span,
+            }))
+        })
+    }
+
+    pub fn get_reference_ty(&'arena self, inner: &'arena HirTy<'arena>) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_ref_ty_id(&HirTyId::from(inner));
+        self.intern.borrow_mut().entry(id).or_insert_with(|| {
+            self.allocator
+                .alloc(HirTy::Reference(HirReferenceTy { inner }))
+        })
     }
 }

@@ -6,9 +6,8 @@ use std::path::PathBuf;
 use lexer::AtlasLexer;
 use parser::{arena::AstArena, ast::AstProgram, error::ParseResult};
 
-
 pub fn parse<'ast>(
-    path: &'ast str,
+    path: &'static str,
     arena: &'ast AstArena<'ast>,
     source: String,
 ) -> ParseResult<AstProgram<'ast>> {
@@ -18,6 +17,6 @@ pub fn parse<'ast>(
         Ok(tokens) => tokens,
         Err(e) => panic!("Error while lexing: {:?}", e),
     };
-    let mut parser = parser::Parser::new(arena, tokens, PathBuf::from(path), source);
+    let mut parser = parser::Parser::new(arena, tokens, PathBuf::from(path));
     parser.parse()
 }

@@ -1,8 +1,8 @@
-use crate::atlas_vm::errors::RuntimeError;
-use crate::atlas_vm::memory::object_map::ObjectKind;
-use crate::atlas_vm::memory::vm_data::VMData;
+use crate::atlas_vm::error::RuntimeError;
+use crate::atlas_vm::object::ObjectKind;
+use crate::atlas_vm::runtime::CallBack;
 use crate::atlas_vm::runtime::vm_state::VMState;
-use crate::atlas_vm::CallBack;
+use crate::atlas_vm::vm_data::VMData;
 
 pub const FILE_FUNCTIONS: [(&str, CallBack); 5] = [
     ("read_dir", read_dir),
@@ -68,7 +68,7 @@ pub fn file_exists(state: VMState) -> Result<VMData, RuntimeError> {
     let path = raw_path.string();
 
     let exists = std::path::Path::new(&path).exists();
-    Ok(VMData::new_bool(exists))
+    Ok(VMData::new_boolean(exists))
 }
 
 pub fn remove_file(state: VMState) -> Result<VMData, RuntimeError> {

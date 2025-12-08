@@ -3,3 +3,6 @@
 .vscode
 .VSCodeCounter
 .idea
+# No need to track that file, it's constantly changing
+*.atlas_asm
+*.atlasc

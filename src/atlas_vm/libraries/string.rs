@@ -1,8 +1,8 @@
-use crate::atlas_vm::errors::RuntimeError;
-use crate::atlas_vm::memory::object_map::ObjectKind;
-use crate::atlas_vm::memory::vm_data::VMData;
+use crate::atlas_vm::error::{RuntimeError, RuntimeResult};
+use crate::atlas_vm::object::ObjectKind;
+use crate::atlas_vm::runtime::CallBack;
 use crate::atlas_vm::runtime::vm_state::VMState;
-use crate::atlas_vm::{CallBack, RuntimeResult};
+use crate::atlas_vm::vm_data::VMData;
 
 pub const STRING_FUNCTIONS: [(&str, CallBack); 7] = [
     ("str_len", str_len),
@@ -14,7 +14,7 @@ pub const STRING_FUNCTIONS: [(&str, CallBack); 7] = [
     ("from_chars", from_chars),
 ];
 
-pub fn str_len(state: VMState) -> Result<VMData, RuntimeError> {
+pub fn str_len(state: VMState) -> RuntimeResult<VMData> {
     let string_ptr = state.stack.pop()?.as_object();
     let raw_string = state.object_map.get(string_ptr)?;
     let string = raw_string.string();
@@ -36,7 +36,7 @@ pub fn str_cmp(state: VMState) -> RuntimeResult<VMData> {
     Ok(VMData::new_i64(cmp as i64))
 }
 
-pub fn trim(state: VMState) -> Result<VMData, RuntimeError> {
+pub fn trim(state: VMState) -> RuntimeResult<VMData> {
     let string_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
     let string = state.object_map.get(string_ptr)?.string().clone();
 
@@ -49,7 +49,7 @@ pub fn trim(state: VMState) -> Result<VMData, RuntimeError> {
     }
 }
 
-pub fn to_upper(state: VMState) -> Result<VMData, RuntimeError> {
+pub fn to_upper(state: VMState) -> RuntimeResult<VMData> {
     let string_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
     let raw_string = state.object_map.get(string_ptr)?;
     let string = raw_string.string();
@@ -63,7 +63,7 @@ pub fn to_upper(state: VMState) -> Result<VMData, RuntimeError> {
     }
 }
 
-pub fn to_lower(state: VMState) -> Result<VMData, RuntimeError> {
+pub fn to_lower(state: VMState) -> RuntimeResult<VMData> {
     let string_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
     let raw_string = state.object_map.get(string_ptr)?;
     let string = raw_string.string();
@@ -77,7 +77,7 @@ pub fn to_lower(state: VMState) -> Result<VMData, RuntimeError> {
     }
 }
 
-pub fn split(state: VMState) -> Result<VMData, RuntimeError> {
+pub fn split(state: VMState) -> RuntimeResult<VMData> {
     let delimiter_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
     let string_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
 
@@ -109,12 +109,7 @@ pub fn from_chars(state: VMState) -> RuntimeResult<VMData> {
     let raw_list = state.object_map.get(list_ptr)?;
     let list = raw_list.list().clone();
 
-    let string: String = list
-        .iter()
-        .map(|data| {
-            data.as_char()
-        })
-        .collect();
+    let string: String = list.iter().map(|data| data.as_char()).collect();
 
     let obj_idx = state.object_map.put(ObjectKind::String(string));
     match obj_idx {

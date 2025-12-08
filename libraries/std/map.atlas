@@ -1,0 +1,44 @@
+import "std/vector";
+import "std/option";
+
+/// A simple map implementation using two parallel arrays.
+/// This will not make into production stdlib, I just wanted to see what could
+/// be done with the current language features.
+public struct Map<K, V> {
+private:
+    keys: Vector<K>;
+    values: Vector<V>;
+public:
+    Map() {
+        this.keys = new [K; 0];
+        this.values = new [V; 0];
+    }
+    ~Map() {}
+    fun get(this, key: K) -> Option<V> {
+        let i: uint64 = 0;
+        while i < this.keys.length {
+            if this.keys.get(i) == key {
+                return Option::some(this.values.get(i));
+            }
+            i = i + 1;
+        }
+        return Option::none();
+    }
+
+    /// Inserts a key-value pair into the map.
+    /// If the key already exists, updates its value.
+    fun insert(this, key: K, value: V) {
+        let i: uint64 = 0;
+        while i < this.keys.length {
+            if this.keys.get(i) == key {
+                // Key exists, update value
+                this.values.data[i] = value;
+                return;
+            }
+            i = i + 1;
+        }
+        // Key does not exist, add new key-value pair
+        this.keys.push(key);
+        this.values.push(value);
+    }
+}

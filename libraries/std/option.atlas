@@ -1,0 +1,37 @@
+//package std::option;
+
+import "std/io";
+ 
+// This will be in its own file, some kind of std/hallucinate
+// Basically it will provide a zero-value for any type T
+//
+// There will be a custom option_default<T>() -> T that does nothing
+// It returns some kind of NULL, because Option::none() does not need a value
+public extern default<T>() -> T;
+
+//std/option
+public struct Option<T> {
+private:
+  /// 0 = None, 1 = Some
+  tag: int64;
+  data: T;
+public:
+  Option(data: T, tag: int64) {
+    this.tag = tag;
+    this.data = data;
+  }
+public:
+  fun some(data: T) -> Option<T> {
+    return new Option<T>(data, 1);
+  }
+  fun none() -> Option<T> {
+    return new Option<T>(default(), 0);
+  }
+}
+
+fun main() {
+    let a = new Option<int64>(42, 1);
+    let b = new Option<int64>(default(), 0);
+    println("Option a tag: " + a.tag as string); // Should print 1
+    println("Option b tag: " + b.tag as string); // Should print 0
+}

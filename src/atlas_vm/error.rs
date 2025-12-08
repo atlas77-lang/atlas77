@@ -1,4 +1,4 @@
-use crate::atlas_vm::runtime::instruction::Type;
+use crate::atlas_vm::vm_data::VMTag;
 
 pub type RuntimeResult<T> = Result<T, RuntimeError>;
 
@@ -9,11 +9,16 @@ pub enum RuntimeError {
     StackUnderflow,
     NullReference,
     DivisionByZero,
-    InvalidCast(u8, Type),
+    InvalidCast(VMTag, VMTag),
     IndexOutOfBounds,
     InvalidOperation,
     TypeMismatchError,
     EntryPointNotFound(String),
+    ExternFunctionNotFound(String),
+    FunctionNotFound(usize),
+    InvalidConstantPoolPointer(usize),
+    HaltEncountered,
+    OutOfBoundProgram(usize),
 }
 
 impl std::fmt::Display for RuntimeError {
@@ -32,6 +37,17 @@ impl std::fmt::Display for RuntimeError {
             EntryPointNotFound(entry_point) => {
                 writeln!(f, "Entry point {} not found", entry_point)
             }
+            ExternFunctionNotFound(func_name) => {
+                writeln!(f, "Extern function {} not found", func_name)
+            }
+            FunctionNotFound(func_ptr) => {
+                writeln!(f, "Function not found at pointer: {}", func_ptr)
+            }
+            InvalidConstantPoolPointer(ptr) => {
+                writeln!(f, "Invalid constant pool pointer: {}", ptr)
+            }
+            HaltEncountered => writeln!(f, "Halt instruction encountered"),
+            OutOfBoundProgram(pos) => writeln!(f, "Program counter out of bounds: {}", pos),
         }
     }
 }

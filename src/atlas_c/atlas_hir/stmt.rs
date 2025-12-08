@@ -1,12 +1,10 @@
 use super::{expr::HirExpr, ty::HirTy};
-use logos::Span;
-use serde::Serialize;
-
+use crate::atlas_c::utils::Span;
 /// Most of the statements could actually be replaced with
 ///
 /// Statement::Expr(HirExpr)
 /// Only the HirBlock & HirReturn is useful
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub enum HirStatement<'hir> {
     _Block(HirBlock<'hir>),
     Return(HirReturn<'hir>),
@@ -23,32 +21,32 @@ pub enum HirStatement<'hir> {
 impl HirStatement<'_> {
     pub fn span(&self) -> Span {
         match self {
-            HirStatement::_Block(block) => block.span.clone(),
-            HirStatement::Return(ret) => ret.span.clone(),
-            HirStatement::Expr(expr) => expr.span.clone(),
-            HirStatement::Let(let_stmt) => let_stmt.span.clone(),
-            HirStatement::Const(const_stmt) => const_stmt.span.clone(),
-            HirStatement::IfElse(if_else) => if_else.span.clone(),
-            HirStatement::While(while_stmt) => while_stmt.span.clone(),
-            HirStatement::Break(span) => span.clone(),
-            HirStatement::Continue(span) => span.clone(),
+            HirStatement::_Block(block) => block.span,
+            HirStatement::Return(ret) => ret.span,
+            HirStatement::Expr(expr) => expr.span,
+            HirStatement::Let(let_stmt) => let_stmt.span,
+            HirStatement::Const(const_stmt) => const_stmt.span,
+            HirStatement::IfElse(if_else) => if_else.span,
+            HirStatement::While(while_stmt) => while_stmt.span,
+            HirStatement::Break(span) => *span,
+            HirStatement::Continue(span) => *span,
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirExprStmt<'hir> {
     pub span: Span,
     pub expr: HirExpr<'hir>,
 }
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirWhileStmt<'hir> {
     pub span: Span,
     pub condition: HirExpr<'hir>,
     pub body: HirBlock<'hir>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirLetStmt<'hir> {
     pub span: Span,
     pub name: &'hir str,
@@ -58,20 +56,20 @@ pub struct HirLetStmt<'hir> {
     pub value: HirExpr<'hir>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirIfElseStmt<'hir> {
     pub span: Span,
     pub condition: HirExpr<'hir>,
     pub then_branch: HirBlock<'hir>,
     pub else_branch: Option<HirBlock<'hir>>,
 }
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirReturn<'hir> {
     pub span: Span,
     pub value: HirExpr<'hir>,
     pub ty: &'hir HirTy<'hir>,
 }
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct HirBlock<'hir> {
     pub span: Span,
     pub statements: Vec<HirStatement<'hir>>,

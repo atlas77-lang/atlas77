@@ -1,29 +1,25 @@
-import "std/math"
-import "std/io"
+import "std/io";
+import "std/math"; // For random number generation
+import "std/string";
 
-func main() {
-    println("🎮 Welcome to the Guessing Game!");
-    println("I'm thinking of a number between 1 and 100...");
+fun main() {
+    println("Welcome to the Guessing Game!");
+    let secret_number = random(1, 101); // Random number between 1 and 100
+    let guessed_correctly = false;
 
-    let secret = random(1, 100);
-    let guess = -1;
-    let attempts = 0;
-
-    while guess != secret {
-        println("Enter your guess: ");
-        guess = input() as int64;
-        attempts = attempts + 1;
-
-        if guess < secret {
-            print("Too low! 📉 Try again.");
+    while !guessed_correctly {
+        print("Please enter your guess (1-100): ");
+        let input = input();
+        let guess = trim(input) as int64;
+        if guess < secret_number {
+            println("Too small!");
+        } else if guess > secret_number {
+            println("Too big!");
         } else {
-            if guess > secret {
-                print("Too high! 📈 Try again.");
-            } else {
-                print("🎉 Correct! You guessed it in ");
-                print(attempts as str);
-                println(" tries!");
-            }
-        }
+            print("You guessed it! The secret number was ");
+            print(secret_number);
+            println(".");
+            guessed_correctly = true;
+        }        
     }
 }

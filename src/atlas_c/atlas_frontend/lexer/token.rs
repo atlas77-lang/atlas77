@@ -1,6 +1,8 @@
-use logos::{Logos, Span};
+use logos::Logos;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::ParseBoolError;
+
+use crate::atlas_c::utils::Span;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
@@ -19,7 +21,7 @@ impl Token {
     }
     #[inline(always)]
     pub fn span(&self) -> Span {
-        self.span.clone()
+        self.span
     }
     #[inline(always)]
     pub fn start(&self) -> usize {
@@ -164,8 +166,8 @@ pub enum TokenKind {
     RFatArrow,
     #[token("~")]
     Tilde,
-    #[token("self")]
-    KwSelf,
+    #[token("this")]
+    KwThis,
     #[token("operator")]
     KwOperator,
     #[token("class")]
@@ -174,10 +176,10 @@ pub enum TokenKind {
     KwNew,
     #[token("delete")]
     KwDelete,
-    #[token("func")]
+    #[token("fun")]
     KwFunc,
     #[token("where")]
-    //Used for generics constraints and bounds (i.e. func foo(arg: @T) -> T where T: Add)
+    //Used for generics constraints and bounds (i.e. fn foo<T>(arg: T) -> T where T: Add)
     KwWhere,
     #[token("extern")]
     KwExtern,
@@ -196,6 +198,8 @@ pub enum TokenKind {
     KwPublic,
     #[token("private")]
     KwPrivate,
+    #[token("protected")]
+    KwProtected,
     //Control Flow
     #[token("if")]
     KwIf,
@@ -223,6 +227,8 @@ pub enum TokenKind {
     #[token("as")]
     KwAs,
     //Primitive Types
+    #[token("extern_ptr")]
+    ExternPtr,
     #[token("int64")]
     Int64Ty,
     #[token("float64")]
@@ -235,9 +241,9 @@ pub enum TokenKind {
     CharTy,
     #[token("bool")]
     BoolTy,
-    #[token("Self")]
-    SelfTy,
-    #[token("str")]
+    #[token("This")]
+    ThisTy,
+    #[token("string")]
     StrTy,
     EoI,
 }

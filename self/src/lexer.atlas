@@ -1,0 +1,52 @@
+import "std/string";
+import "std/vector";
+
+public struct Token {
+public:
+    kind: String;
+    value: String;
+    Token(kind: String, value: String) {
+        this.kind = kind;
+        this.value = value;
+    }
+    //~Token() {}
+    fun is_equal(this, other: Token) -> bool {
+        const kind_equal: int64 = str_cmp(this.kind.s, other.kind.s);
+        const value_equal: int64 = str_cmp(this.value.s, other.value.s);
+        return kind_equal == 0 && value_equal == 0;
+    }
+}
+
+//Let's try to lex brainfuck as a start
+public fun lex(source: String) -> Vector<Token> {
+    let tokens = new Vector<Token>(new [Token; 0]); //Later there will be a `Vector<T>::with_capacity` function to make this cleaner
+    let i: uint64 = 0;
+    while i < source.len() {
+        println(i);
+        let c = source.get(i);
+        if c != ' ' {
+            // Not whitespace
+            if c == '>' {
+                tokens.push(new Token(new String("SHIFT_RIGHT"), new String(">")));
+            } else if c == '<' {
+                tokens.push(new Token(new String("SHIFT_LEFT"), new String("<")));
+            } else if c == '+' {
+                tokens.push(new Token(new String("INCREMENT"), new String("+")));
+            } else if c == '-' {
+                tokens.push(new Token(new String("DECREMENT"), new String("-")));
+            } else if c == '.' {
+                tokens.push(new Token(new String("OUTPUT"), new String(".")));
+            } else if c == ',' {
+                tokens.push(new Token(new String("INPUT"), new String(",")));
+            } else if c == '[' {
+                tokens.push(new Token(new String("LOOP_START"), new String("[")));
+            } else if c == ']' {
+                tokens.push(new Token(new String("LOOP_END"), new String("]")));
+            } else {
+                // Unknown character, ignore for now
+            }
+        }
+        i = i + 1;
+    }
+    return tokens;
+}

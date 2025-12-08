@@ -32,45 +32,18 @@
   </p>
 </div>
 
-
-
-<!-- TABLE OF CONTENTS -->
-<details>
-  <summary>Table of Contents</summary>
-  <ol>
-    <li>
-      <a href="#about-the-project">About The Project</a>
-    </li>
-    <li>
-      <a href="#getting-started">Getting Started</a>
-      <ul>
-        <li><a href="#prerequisites">Prerequisites</a></li>
-        <li><a href="#installation">Installation</a></li>
-      </ul>
-    </li>
-    <li><a href="#usage">Usage</a></li>
-    <li><a href="#roadmap">Roadmap</a></li>
-    <li><a href="#goal-of-the-language">Goal of the language</a></li>
-    <li><a href="#contributing">Contributing</a></li>
-    <li><a href="#license">License</a></li>
-    <li><a href="#contact">Contact</a></li>
-  </ol>
-</details>
-
-
-
 <!-- ABOUT THE PROJECT -->
 
 ## About The Project
 
-Atlas77 is an experimental statically typed programming language with a strong interop with Rust.
-It will run on a custom VM. I'll implement a JIT compiler using cranelift later on.
-(There will be an AOT compiler too)
+Atlas77 is an experimental **statically typed systems language** designed around a **small core** and **strong interop
+with Rust**.  
+It runs on a **custom VM** and aims to provide a clear, minimal foundation for building higher-level abstractions in
+libraries rather than in the compiler itself.
 
+The philosophy is simple: **keep the core language tiny, make everything else userland.**
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-
+> [!Note] If you find the code to be messy, it's because it kinda is. I am sort of "speedrunning" the bootstrapping of the language, so the Rust implementation is not really the main focus right now.
 
 <!-- GETTING STARTED -->
 
@@ -102,123 +75,128 @@ Or directly from their website: [Rust](https://www.rust-lang.org/tools/install)
     ```
 3. Enjoy!
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
 <!-- USAGE EXAMPLES -->
 
 ## Usage
 
-### Fibonacci Example
+### Hello World
 
 ```
 import "std/io"
+fun main() {
+    println("Hello, World!");
+}
+```
 
-func fib(n: i64) -> i64 {
+### Fibonacci Example
+
+```
+import "std/io";
+
+fun fib(n: int64) -> int64 {
     if n <= 1 {
         return n;
     }
     return fib(n - 1) + fib(n - 2);
 }
 
-func main() -> i64 {
-    let n: i64 = 10;
+fun main() {
+    let n: int64 = 10;
     print(fib(n));
 }
 ```
 
-_For more examples, please refer to the [examples folder](./examples/README.MD)_
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-
+_For more examples, see the [examples folder](./examples/README.MD)_
 
 <!-- ROADMAP -->
 
 ## Roadmap
 
+### v0.1 & v0.2
+
+There never was any official v0.1 or v0.2 releases, they were just internal milestones.
+
 ### v0.3 "Foundation"
 
 > Deprecated, if you want to know more about the v0.3.x, check the releases page.
 
-- [v0.3](https://github.com/atlas77-lang/Atlas77/releases/tag/v0.3)
+- [v0.3 "Foundation"](https://github.com/atlas77-lang/Atlas77/releases/tag/v0.3)
 - [v0.3.1](https://github.com/atlas77-lang/Atlas77/releases/tag/v0.3.1)
 
 ### v0.4 "Keystone"
 
 > Deprecated, if you want to know more about the v0.4, check the releases page.
 
+> [!Warning] This version no longer compiles for some reason, so the source code is still accessible, but you can't build it.
+
 - [v0.4 "Keystone"](https://github.com/atlas77-lang/Atlas77/tag/v0.4)
 
-### v0.5 Phoenix Release Timeline
+### v0.5 "Phoenix"
 
-The v0.5 is a complete rewrite of Atlas77, it aligns better with the end goal of the language (see [_Goal of the
-language_](#goal-of-the-language)).
-> [!Note]
-> Up until the v1.0 the language will always be in alpha, tho I'll try to make every release as stable as possible.
-> I hope I can release the v0.5 this month (January 2025).
->
-> [Temporary documentation](https://atlas77-lang.github.io/atlas77-docs/docs/latest/index.html)
+The v0.5 was a complete rewrite of Atlas77, but because of some major design issues in syntax, semantic, memory
+management, compiler and everything it didn't get any more updates after the v0.5.2 (which is still accessible).
 
-| Feature                  | Expected Version | Description                                                             | Status |
-|--------------------------|------------------|-------------------------------------------------------------------------|--------|
-| Functions                | **v0.5**         | Define and call functions                                               | ✅      |
-| Variables                | **v0.5**         | Immutable (`const`) and mutable (`let`) variables                       | ✅      |
-| Basic `std` Library      | **v0.5**         | Core utilities for `time`, `file`, `io`, `math`, `string`, `list`       | ✅      |
-| Import                   | **v0.5**         | Limited to standard library imports for now                             | ✅      |
-| Control Flow             | **v0.5**         | `if/else` statements for conditional logic, `while` loops for iteration | ✅      |
-| Match Expressions        | **v0.5.x**       | Pattern matching                                                        | 💭     |
-| Structs                  | **v0.5.x**       | User-defined types with named fields                                    | 🔧     |
-| Unions                   | **v0.5.x**       | Low-level data structures allowing overlapping memory layouts           | 💤     |
-| Enums                    | **v0.5.x**       | Enumerations with optional associated data for flexible value sets      | 🔧     |
-| Garbage Collection       | **v0.5.x**       | Automatic memory management using Reference Counting                    | ✅      |
-| Lambdas & Closures       | **v0.5.x**       | Inline, anonymous functions with captured variables                     | 🔧     |
-| Classes                  | **v0.5.x**       | Object-oriented programming support                                     | 🔧     |
-| Traits                   | **v0.5.x**       | Interfaces for defining shared behavior                                 | 🔧     |
-| Pointers                 | **v0.5.x**       | Basic pointer manipulation for low-level programming                    | 🔧     |
-| Imports                  | **v0.5.x**       | Importing code from other files                                         | 🔧     |
-| Generics                 | **v0.5.x**       | Type parameters for writing reusable code                               | 🔧     |
-| Standard Library         | **v0.5.x**       | A comprehensive standard library                                        | 💭     |
-| UFCS                     | **unknown**      | Universal Function Call Syntax (i.e. `foo.bar()` becomes `bar(foo)`)    | 💭     |
-| Package Manager          | **unknown**      | A package manager for sharing code                                      | 💤     |
-| Language Server Protocol | **unknown**      | Editor support for code completion, diagnostics, and more               | 💤     |
-| Cranelift JIT            | **unknown**      | Just-in-time compilation for faster execution                           | 💤     |
+> Deprecated, if you want to know more about the v0.5.x, check the releases page.
 
-#### Legend
+- [v0.5 "Phoenix"](https://github.com/atlas77-lang/Atlas77/tag/v0.5)
+- [v0.5.1](https://github.com/atlas77-lang/Atlas77/tag/v0.5.1)
+- [v0.5.2](https://github.com/atlas77-lang/Atlas77/tag/v0.5.2)
 
-- 💤: Not implemented
-- 💭: Being thought of
-- 🔧: Being implemented
-- ✅: Working
+### v0.6.x "Bastion"
+
+This version will take the v0.5's good parts, but reimplement the VM,
+codegen & memory management from scratch, while still adding new features.
+
+The runtime focuses on a simple GC (refcount + cycle breaking) and Rust-backed interop.
+
+| Feature              | Status | Notes                                                 |
+|----------------------|:------:|-------------------------------------------------------|
+| Functions            |   ✅    | Self descriptive I would say                          |
+| Variables            |   ✅    | Immutable (`const`) and mutable (`let`)               |
+| Control Flow         |   ✅    | `if/else`, `while`                                    |
+| Imports              |   ✅    | Multi module projects                                 |
+| Packages             |   ❌    | Package manager + ecosystem                           |
+| Basic Types          |   ✅    | `int64`, `float64`, `bool`, `char`, `string`          |
+| Basic `std`          |   ✅    | I/O, string, math, time, vector, file                 |
+| Structs              |   ✅    | User-defined data types                               |
+| Enums                |   🔧    | C-like enumerator                                     |
+| Algebraic Data Types |   ❌    | Sum types with pattern matching                       |
+| Generics             |   ✅    | Type parameters for reusable code                     |
+| GC                   |   🔧    | Reference counting + cycle detection                  |
+| Type System          |   🔧    | Static, strong, inferred                              |
+| Rust FFI             |   🔧    | Core of the "everything else in libraries" philosophy |
+
+> NB: This is not really up to date as the rewrite is still taking place
+
+### Later (post v0.6 release)
+
+- Making a Brainfuck interpreter in Atlas77
+- Bootstrapping the compiler in Atlas77 itself
 
 #### Stability and Refinement
 
 > As the language is still in alpha (not 1.0 yet), I won't make "alpha"/"beta" build, it doesn't really make sense.
 
-The beta phase (aka after 0.5.x and beyond) will focus on stabilizing the language. All features will be finalized,
+The beta phase (aka after 0.6.x and beyond) will focus on stabilizing the language. All features will be finalized,
 tested extensively, and optimized for real-world use. This phase will serve as a release candidate.
 
 See the [open issues](https://github.com/atlas77-lang/Atlas77/issues) for a full list of proposed features (and known
 issues).
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+### Philosophy
 
+I am making this language for myself, to learn more about programming languages, compilers, VMs and all that stuff.
 
-<!-- GOAL OF THE LANGUAGE -->
+I'll try to make it easy to use, but still a bit "cringey". I hope I can at least hit one of the long-term goals.
 
-## Goal of the language
+### Long-Term Goals
 
-- Bootstrapping the compiler
-- Making a simple ECS
-- Making a simple Game Engine with Vulkan bindings (maybe OpenGL too)
-
-> At least it should be possible to make one with Atlas77
-
-- Using BlueEngine from the language (even if it's not really most efficient)
-- Ahead of time compilation using cranelift
-- Making the package manager directly in Atlas77
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
+- Bootstrapping the compiler in Atlas77 itself
+- Building a minimal ECS in pure Atlas77
+- Building a simple game engine with Vulkan bindings
+- Providing a package manager written in Atlas77
+- LSP support for editors
+- Ahead-of-time compilation with Cranelift
 
 <!-- CONTRIBUTING -->
 
@@ -245,19 +223,20 @@ Don't forget to give the project a star! Thanks again!
 
 Made with [contrib.rocks](https://contrib.rocks).
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+## Special thanks
 
+Here is a list of repositories that helped me a lot while making Atlas77:
+> I either used them as inspiration, reference or learning material.
 
+- [Margarine](https://github.com/todaymare/margarine)
+- [Nova-Lang](https://github.com/pyrotek45/nova-lang/tree/main)
+- [Rust](https://github.com/rust-lang/rust)
 
 <!-- LICENSE -->
 
 ## License
 
 Distributed under the MIT License. See `LICENSE.txt` for more information.
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-
 
 <!-- CONTACT -->
 
@@ -266,10 +245,6 @@ Distributed under the MIT License. See `LICENSE.txt` for more information.
 Your Name - [@Gipson62_8015](https://twitter.com/Gipson62_8015) - J.H.Gipson62@gmail.com
 
 Project Link: [https://github.com/atlas77-lang/Atlas77](https://github.com/atlas77-lang/Atlas77)
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-
 
 
 <!-- MARKDOWN LINKS & IMAGES -->

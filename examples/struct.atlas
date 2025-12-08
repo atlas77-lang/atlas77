@@ -1,18 +1,61 @@
-//Should work in Atlas v0.5.x
+import "std/io";
 
-struct Vector3 {
-    x: float64;
-    y: float64;
-    z: float64;
+struct Pair<T, U> {
+    public:
+        first: T;
+        second: U;
+
+    Pair(first: T, second: U) {
+        this.first = first;
+        this.second = second;
+    }
+
+    fun swap(this) -> Pair<U, T> {
+        return new Pair<U, T>(this.second, this.first);
+    }
+
+    fun fn_first(this) -> T {
+        return this.first;
+    }
+
+    fun fn_second(this) -> U {
+        return this.second;
+    }
+
+    fun get(this) -> Pair<T, U> {
+        return this;
+    }
+
+    fun test(this) -> Pair<T, Box<float64>> {
+        let boxed_value: Box<float64> = new Box<float64>(3.14);
+        return new Pair<T, Box<float64>>(this.first, boxed_value);
+    }
+
+    fun add(this) -> T {
+        return this.first + this.second;
+    }
 }
 
-func main() {
-    let my_vector: Vector3 = Vector3 {
-        x: 1.0,
-        y: 2.0,
-        z: 3.0
-    };
-    println(my_vector.x);
-    println(my_vector.y);
-    println(my_vector.z);
+struct Box<T> {
+    public:
+        value: T;
+
+    Box(value: T) {
+        this.value = value;
+    }
+}
+
+fun main() {
+    let p: Pair<int64, string> = new Pair<int64, string>(42, "Hello");
+    let p_get: Pair<int64, string> = p.get();
+    let first: int64 = p.fn_first();
+    let second: string = p.fn_second();
+    let swapped: Pair<string, int64> = p.swap();
+    let p_boxed: Pair<Box<int64>, Box<string>> = new Pair<Box<int64>, Box<string>>(new Box<int64>(p.first), new Box<string>(p.second));
+    print("Pair: (");
+    print(p.first);
+    print(", ");
+    print(p.second);
+    println(")");
+    let pair_of_pairs_of_boxes: Pair<Box<int64>, Pair<Box<string>, Box<float64>>> = new Pair<Box<int64>, Pair<Box<string>, Box<float64>>>(new Box<int64>(1), new Pair<Box<string>, Box<float64>>(new Box<string>("Nested"), new Box<float64>(2.718)));
 }

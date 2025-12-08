@@ -1,0 +1,63 @@
+import "std/io";
+
+public extern len<T>(data: [T]) -> uint64;
+
+public struct Vector<T> {
+private:
+    data: [T];
+public:
+    length: uint64;
+    capacity: uint64;
+
+    Vector(data: [T]) {
+        this.length = len(data);
+        this.capacity = this.length;
+        this.data = data;
+    }
+    ~Vector() {}
+
+    /// A function that doesn't have a "self" parameter is a static function
+    /// static functions are called like this: "Vector::<T>::function_name()"
+//    fun with_capacity(capacity: uint64) -> Vector<T> { //Still unstable feature
+//        return new Vector<T>(new [T; capacity]);
+//    }
+
+    fun get(this, index: uint64) -> T {
+        if index >= this.length {
+            panic("Index out of bounds");
+        }
+        return this.data[index];
+    }
+
+    /// A function that has a "self" parameter is a method of the struct
+    /// and is called like this: "vector_instance.function_name()"
+    fun push(this, val: T) {
+        if this.length >= this.capacity {
+            // Resize
+            let new_capacity: uint64 = 0;
+            if this.capacity == 0 {
+                new_capacity = 1;
+            } else {
+                new_capacity = this.capacity * 2;
+            }
+            let new_data = new [T; new_capacity];
+            let i: uint64 = 0;
+            while i < this.length {
+                new_data[i] = this.data[i];
+                i = i + 1;
+            }
+            this.data = new_data;
+            this.capacity = new_capacity;
+        }
+        this.data[this.length] = val;
+        this.length = this.length + 1;
+    }
+    
+    fun pop(this) -> T {
+        if this.length == 0 {
+            panic("Cannot pop from an empty vector");
+        }
+        this.length = this.length - 1;
+        return this.data[this.length];
+    }
+}
