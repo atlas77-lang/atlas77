@@ -8,50 +8,59 @@ private extern close_file(path: string);
 //NB: This struct works for now, but because of the lack of move/copy semantics in Atlas,
 // it may lead to unexpected behavior.
 public struct File {
-    private:
-        content: string;
-    public:
-        path: const string;
-    public:
-        /// Creates a new File object with the given path
-        /// Note: The file is not opened until the open() method is called
-        File(path: const string) {
-            this.content = "";
-            this.path = path;
-        }
-        ~File() {
-            //Following the RAII pattern, we close the file when it goes out of scope
-            this.close();
-        }
-        fun read(this) -> string {
-            let content = read_file(this.path);
-            this.content = content;
-            return this.content;
-        }
-        fun open(this) {
-            this.content = read_file(this.path);
-            return;
-        }
-        fun close(this) {
-            close_file(this.path);
-            return;
-        }
-        fun write(this, content: string) {
-            write_file(this.path, content);
-            return;
-        }
-        fun remove(this) {
-            remove_file(this.path);
-            return;
-        }
-        fun exists(this) -> bool {
-            return file_exists(this.path);
-        }
-        fun read_dir(this, path: string) -> [string] {
-            return read_dir(path);
-        }
-        fun read_file(this, path: string) -> string {
-            return read_file(path);
-        }
+private:
+    content: string;
+public:
+    path: string;
+public:
+    /// Creates a new File object with the given path
+    /// Note: The file is not opened until the open() method is called
+    File(path: string) {
+        this.content = "";
+        this.path = path;
+    }
+
+    ~File() {
+        //Following the RAII pattern, we close the file when it goes out of scope
+        this.close();
+    }
+
+    fun read(this) -> string {
+        let content = read_file(this.path);
+        this.content = content;
+        return this.content;
+    }
+
+    fun open(this) {
+        this.content = read_file(this.path);
+        return;
+    }
+
+    fun close(this) {
+        close_file(this.path);
+        return;
+    }
+
+    fun write(this, content: string) {
+        write_file(this.path, content);
+        return;
+    }
+
+    fun remove(this) {
+        remove_file(this.path);
+        return;
+    }
+
+    fun exists(this) -> bool {
+        return file_exists(this.path);
+    }
+
+    fun read_dir(this, path: string) -> [string] {
+        return read_dir(path);
+    }
+
+    fun read_file(this, path: string) -> string {
+        return read_file(path);
+    }
 }
 

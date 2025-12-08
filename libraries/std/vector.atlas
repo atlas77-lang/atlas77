@@ -3,11 +3,11 @@ import "std/io";
 public extern len<T>(data: [T]) -> uint64;
 
 public struct Vector<T> {
-    private:
-        data: [T];
-    public:
-        length: uint64;
-        capacity: uint64;
+private:
+    data: [T];
+public:
+    length: uint64;
+    capacity: uint64;
 
     Vector(data: [T]) {
         this.length = len(data);

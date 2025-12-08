@@ -7,33 +7,33 @@ private extern sleep(t: Time);
 
 
 public struct Time {
-    public:
-        sec: int64;
-        nsec: int64;
-    public:
-        Time(sec: int64, nsec: int64) {
-            this.sec = sec;
-            this.nsec = nsec;
+public:
+    sec: int64;
+    nsec: int64;
+public:
+    Time(sec: int64, nsec: int64) {
+        this.sec = sec;
+        this.nsec = nsec;
+    }
+    ~Time() {}
+    fun to_iso_string(this) -> string {
+        return format_time(this, "%Y-%m-%dT%H:%M:%S");
+    }
+    fun format(this, fmt: const string) -> string {
+        return format_time(this, fmt);
+    }
+    fun now() -> Time {
+        return now();
+    }
+    fun elapsed(this, since: Time) -> Time {
+        let sec_diff = this.sec - since.sec;
+        let nsec_diff = this.nsec - since.nsec;
+        if nsec_diff < 0 {
+            return Time(sec_diff - 1, nsec_diff + 1_000_000_000);
         }
-        ~Time() {}
-        fun to_iso_string(this) -> string {
-            return format_time(this, "%Y-%m-%dT%H:%M:%S");
-        }
-        fun format(this, fmt: const string) -> string {
-            return format_time(this, fmt);
-        }
-        fun now() -> Time {
-            return now();
-        }
-        fun elapsed(this, since: Time) -> Time {
-            let sec_diff = this.sec - since.sec;
-            let nsec_diff = this.nsec - since.nsec;
-            if nsec_diff < 0 {
-                return Time(sec_diff - 1, nsec_diff + 1_000_000_000);
-            }
-            return Time(sec_diff, nsec_diff);
-        }
-        fun sleep(this) {
-            sleep(this);
-        }
+        return Time(sec_diff, nsec_diff);
+    }
+    fun sleep(this) {
+        sleep(this);
+    }
 }
