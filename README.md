@@ -154,17 +154,17 @@ The runtime focuses on a simple GC (refcount + cycle breaking) and Rust-backed i
 | Functions            |   ✅    | Self descriptive I would say                          |
 | Variables            |   ✅    | Immutable (`const`) and mutable (`let`)               |
 | Control Flow         |   ✅    | `if/else`, `while`                                    |
-| Imports              |   ✅   | Multi module projects                                 |
-| Packages             |   ❌   | Package manager + ecosystem                           |
+| Imports              |   ✅    | Multi module projects                                 |
+| Packages             |   ❌    | Package manager + ecosystem                           |
 | Basic Types          |   ✅    | `int64`, `float64`, `bool`, `char`, `string`          |
 | Basic `std`          |   ✅    | I/O, string, math, time, vector, file                 |
-| Structs              |   ✅   | User-defined data types                               |
-| Enums                |   🔧   | C-like enumerator                                     |
-| Algebraic Data Types |   🔧   | Sum types with pattern matching                       |
-| Generics             |   ✅   | Type parameters for reusable code                     |
-| GC                   |   🔧   | Reference counting + cycle detection                  |
-| Type System          |   🔧   | Static, strong, inferred                              |
-| Rust FFI             |   🔧   | Core of the "everything else in libraries" philosophy |
+| Structs              |   ✅    | User-defined data types                               |
+| Enums                |   🔧    | C-like enumerator                                     |
+| Algebraic Data Types |   ❌    | Sum types with pattern matching                       |
+| Generics             |   ✅    | Type parameters for reusable code                     |
+| GC                   |   🔧    | Reference counting + cycle detection                  |
+| Type System          |   🔧    | Static, strong, inferred                              |
+| Rust FFI             |   🔧    | Core of the "everything else in libraries" philosophy |
 
 > NB: This is not really up to date as the rewrite is still taking place
 
