@@ -1,4 +1,4 @@
-import "std/io"
+import "std/io";
 
 fun check_perfect_number(n: int64) -> unit {
     let sum: int64 = sum_of_divisors(n, n - 1, 0);

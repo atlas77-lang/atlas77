@@ -20,11 +20,10 @@ use crate::atlas_c::atlas_hir::{
     stmt::{HirBlock, HirStatement},
     ty::HirTy,
 };
-use crate::atlas_c::{atlas_hir, utils};
+use crate::atlas_c::utils;
 use arena::CodeGenArena;
-use miette::{NamedSource, SourceOffset, SourceSpan};
+use miette::NamedSource;
 use std::collections::{BTreeMap, HashMap};
-use std::path::PathBuf;
 
 /// Result of codegen
 pub type CodegenResult<T> = Result<T, HirError>;
@@ -117,10 +116,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     Instruction::Return => {}
                     _ => {
                         return Err(HirError::NoReturnInFunction(NoReturnInFunctionError {
-                            span: SourceSpan::new(
-                                SourceOffset::from(function.span.start),
-                                function.span.end - function.span.start,
-                            ),
+                            span: function.span,
                             func_name: func_name.to_string(),
                             src: NamedSource::new(path, src),
                         }));
@@ -214,10 +210,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     Instruction::Return => {}
                     _ => {
                         return Err(HirError::NoReturnInFunction(NoReturnInFunctionError {
-                            span: SourceSpan::new(
-                                SourceOffset::from(method.span.start),
-                                method.span.end - method.span.start,
-                            ),
+                            span: method.span,
                             func_name: method.name.to_string(),
                             src: NamedSource::new(path, src),
                         }));
@@ -431,13 +424,9 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
             _ => {
                 let path = stmt.span().path;
-                let src = std::fs::read_to_string(PathBuf::from(&path))
-                    .unwrap_or_else(|_| panic!("{} is not a valid path", path));
+                let src = utils::get_file_content(path).unwrap();
                 return Err(HirError::UnsupportedStatement(UnsupportedStatement {
-                    span: SourceSpan::new(
-                        SourceOffset::from(stmt.span().start),
-                        stmt.span().end - stmt.span().start,
-                    ),
+                    span: stmt.span(),
                     stmt: format!("{:?}", stmt),
                     src: NamedSource::new(path, src),
                 }));
@@ -478,19 +467,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                 bytecode.push(Instruction::StringStore);
                             }
                             _ => {
-                                let path = expr.span().path;
-                                let src = utils::get_file_content(path).unwrap();
-                                return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                                    span: SourceSpan::new(
-                                        SourceOffset::from(expr.span().start),
-                                        expr.span().end - expr.span().start,
-                                    ),
-                                    expr: format!(
-                                        "Indexing assignment for non-list type: {}",
-                                        idx_expr.target.ty()
-                                    ),
-                                    src: NamedSource::new(path, src),
-                                }));
+                                return Err(Self::unsupported_expr_err(
+                                    expr,
+                                    format!("Indexing assignment for non-list type: {}", expr.ty()),
+                                ));
                             }
                         }
                     }
@@ -511,19 +491,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                 MonomorphizationPass::mangle_generic_struct_name(self.hir_arena, g)
                             }
                             _ => {
-                                let path = expr.span().path;
-                                let src = utils::get_file_content(path).unwrap();
-                                return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                                    span: SourceSpan::new(
-                                        SourceOffset::from(expr.span().start),
-                                        expr.span().end - expr.span().start,
-                                    ),
-                                    expr: format!(
-                                        "No field access for {}",
-                                        field_access.target.ty()
-                                    ),
-                                    src: NamedSource::new(path, src),
-                                }));
+                                return Err(Self::unsupported_expr_err(
+                                    expr,
+                                    format!("No field access for: {}", expr.ty()),
+                                ));
                             }
                         };
                         let struct_descriptor = self
@@ -544,16 +515,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         bytecode.push(Instruction::SetField { field })
                     }
                     _ => {
-                        let path = expr.span().path;
-                        let src = utils::get_file_content(path).unwrap();
-                        return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                            span: SourceSpan::new(
-                                SourceOffset::from(expr.span().start),
-                                expr.span().end - expr.span().start,
-                            ),
-                            expr: format!("{}", expr.ty()),
-                            src: NamedSource::new(path, src),
-                        }));
+                        return Err(Self::unsupported_expr_err(
+                            expr,
+                            format!("Unsupported type: {}", expr.ty()),
+                        ));
                     }
                 }
                 bytecode.push(Instruction::LoadConst(ConstantValue::Unit));
@@ -603,17 +568,9 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                     )));
                                 }
                                 _ => {
-                                    let path = u.span.path;
-                                    let src = utils::get_file_content(path).unwrap();
-                                    return Err(atlas_hir::error::HirError::UnsupportedExpr(
-                                        UnsupportedExpr {
-                                            span: SourceSpan::new(
-                                                SourceOffset::from(expr.span().start),
-                                                expr.span().end - expr.span().start,
-                                            ),
-                                            expr: format!("Can't negate: {}", expr.ty()),
-                                            src: NamedSource::new(path, src),
-                                        },
+                                    return Err(Self::unsupported_expr_err(
+                                        expr,
+                                        format!("Can't negate: {}", expr.ty()),
                                     ));
                                 }
                             }
@@ -625,16 +582,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                 bytecode.push(Instruction::LoadConst(ConstantValue::Bool(false)));
                                 bytecode.push(Instruction::Eq(Type::Boolean));
                             } else {
-                                let path = u.span.path;
-                                let src = utils::get_file_content(path).unwrap();
-                                return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                                    span: SourceSpan::new(
-                                        SourceOffset::from(expr.span().start),
-                                        expr.span().end - expr.span().start,
-                                    ),
-                                    expr: format!("Can't negate: {}", expr.ty()),
-                                    src: NamedSource::new(path, src),
-                                }));
+                                return Err(Self::unsupported_expr_err(
+                                    expr,
+                                    format!("Can't negate: {}", expr.ty()),
+                                ));
                             }
                         }
                     }
@@ -662,16 +613,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         bytecode.push(Instruction::CastTo(Type::Char));
                     }
                     _ => {
-                        let path = c.span.path;
-                        let src = utils::get_file_content(path).unwrap();
-                        return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                            span: SourceSpan::new(
-                                SourceOffset::from(expr.span().start),
-                                expr.span().end - expr.span().start,
-                            ),
-                            expr: format!("Can't cast: {} as {}", c.expr.ty(), c.ty),
-                            src: NamedSource::new(path, src),
-                        }));
+                        return Err(Self::unsupported_expr_err(
+                            expr,
+                            format!("Can't cast from {} to: {}", c.expr.ty(), c.ty),
+                        ));
                     }
                 }
             }
@@ -694,16 +639,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         bytecode.push(Instruction::StringLoad);
                     }
                     _ => {
-                        let path = expr.span().path;
-                        let src = utils::get_file_content(path).unwrap();
-                        return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                            span: SourceSpan::new(
-                                SourceOffset::from(expr.span().start),
-                                expr.span().end - expr.span().start,
-                            ),
-                            expr: format!("Indexing for non-list type: {}", idx.target.ty()),
-                            src: NamedSource::new(path, src),
-                        }));
+                        return Err(Self::unsupported_expr_err(
+                            expr,
+                            format!("Indexing for non list type: {}", expr.ty()),
+                        ));
                     }
                 }
             }
@@ -738,16 +677,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                 MonomorphizationPass::mangle_generic_struct_name(self.hir_arena, g)
                             }
                             _ => {
-                                let path = field_access.span.path;
-                                let src = utils::get_file_content(path).unwrap();
-                                return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                                    span: SourceSpan::new(
-                                        SourceOffset::from(expr.span().start),
-                                        expr.span().end - expr.span().start,
-                                    ),
-                                    expr: format!("Can't call from: {}", expr.ty()),
-                                    src: NamedSource::new(path, src),
-                                }));
+                                return Err(Self::unsupported_expr_err(
+                                    expr,
+                                    format!("Can't call from: {}", expr.ty()),
+                                ));
                             }
                         };
                         bytecode.push(Instruction::Call {
@@ -768,16 +701,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         })
                     }
                     _ => {
-                        let path = expr.span().path;
-                        let src = utils::get_file_content(path).unwrap();
-                        return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                            span: SourceSpan::new(
-                                SourceOffset::from(expr.span().start),
-                                expr.span().end - expr.span().start,
-                            ),
-                            expr: format!("Can't call from: {}", expr.ty()),
-                            src: NamedSource::new(path, src),
-                        }));
+                        return Err(Self::unsupported_expr_err(
+                            expr,
+                            format!("Can't call from: {}", expr.ty()),
+                        ));
                     }
                 }
             }
@@ -804,16 +731,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 let var_index = match self.local_variables.get_index(i.name) {
                     Some(idx) => idx,
                     None => {
-                        let path = i.span.path;
-                        let src = utils::get_file_content(path).unwrap();
-                        return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                            span: SourceSpan::new(
-                                SourceOffset::from(expr.span().start),
-                                expr.span().end - expr.span().start,
-                            ),
-                            expr: format!("Variable {} not found", i.name),
-                            src: NamedSource::new(path, src),
-                        }));
+                        return Err(Self::unsupported_expr_err(
+                            expr,
+                            format!("Variable {} not found", i.name),
+                        ));
                     }
                 };
                 bytecode.push(Instruction::LoadVar(var_index))
@@ -822,16 +743,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 let var_index = match self.local_variables.get_index(THIS_NAME) {
                     Some(idx) => idx,
                     None => {
-                        let path = this.span.path;
-                        let src = utils::get_file_content(path).unwrap();
-                        return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                            span: SourceSpan::new(
-                                SourceOffset::from(expr.span().start),
-                                expr.span().end - expr.span().start,
-                            ),
-                            expr: format!("'this' used in a non-struct context: {:?}", expr),
-                            src: NamedSource::new(path, src),
-                        }));
+                        return Err(Self::unsupported_expr_err(
+                            expr,
+                            format!("`this` isn't used in a struct context: {}", this.ty),
+                        ));
                     }
                 };
                 bytecode.push(Instruction::LoadVar(var_index))
@@ -844,16 +759,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         MonomorphizationPass::mangle_generic_struct_name(self.hir_arena, g)
                     }
                     _ => {
-                        let path = field_access.span.path;
-                        let src = utils::get_file_content(path).unwrap();
-                        return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                            span: SourceSpan::new(
-                                SourceOffset::from(expr.span().start),
-                                expr.span().end - expr.span().start,
-                            ),
-                            expr: format!("No field access for {}", field_access.target.ty()),
-                            src: NamedSource::new(path, src),
-                        }));
+                        return Err(Self::unsupported_expr_err(
+                            expr,
+                            format!("No field access for: {}", expr.ty()),
+                        ));
                     }
                 };
                 let struct_descriptor = self
@@ -884,19 +793,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     {
                         ConstantValue::String(s) => String::from(s),
                         _ => {
-                            let path = static_access.span.path;
-                            let src = utils::get_file_content(path).unwrap();
-                            return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                                span: SourceSpan::new(
-                                    SourceOffset::from(expr.span().start),
-                                    expr.span().end - expr.span().start,
-                                ),
-                                expr: format!(
-                                    "No string constant for {}",
-                                    static_access.field.name
-                                ),
-                                src: NamedSource::new(path, src),
-                            }));
+                            return Err(Self::unsupported_expr_err(
+                                expr,
+                                format!("No string constant for: {}", expr.ty()),
+                            ));
                         }
                     };
                     bytecode.push(Instruction::LoadConst(ConstantValue::String(value)));
@@ -916,16 +816,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     {
                         ConstantValue::Float(f) => *f,
                         _ => {
-                            let path = expr.span().path;
-                            let src = utils::get_file_content(path).unwrap();
-                            return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                                span: SourceSpan::new(
-                                    SourceOffset::from(expr.span().start),
-                                    expr.span().end - expr.span().start,
-                                ),
-                                expr: format!("No float constant for {}", static_access.field.name),
-                                src: NamedSource::new(path, src),
-                            }));
+                            return Err(Self::unsupported_expr_err(
+                                expr,
+                                format!("No float constant for: {}", expr.ty()),
+                            ));
                         }
                     };
                     bytecode.push(Instruction::LoadConst(ConstantValue::Float(value)));
@@ -945,16 +839,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     {
                         ConstantValue::Int(i) => *i,
                         _ => {
-                            let path = expr.span().path;
-                            let src = utils::get_file_content(path).unwrap();
-                            return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                                span: SourceSpan::new(
-                                    SourceOffset::from(expr.span().start),
-                                    expr.span().end - expr.span().start,
-                                ),
-                                expr: format!("No int constant for {}", static_access.field.name),
-                                src: NamedSource::new(path, src),
-                            }));
+                            return Err(Self::unsupported_expr_err(
+                                expr,
+                                format!("No int constant for: {}", expr.ty()),
+                            ));
                         }
                     };
                     bytecode.push(Instruction::LoadConst(ConstantValue::Int(value)));
@@ -974,16 +862,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     {
                         ConstantValue::Char(c) => *c,
                         _ => {
-                            let path = expr.span().path;
-                            let src = utils::get_file_content(path).unwrap();
-                            return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                                span: SourceSpan::new(
-                                    SourceOffset::from(expr.span().start),
-                                    expr.span().end - expr.span().start,
-                                ),
-                                expr: format!("No char constant for {}", static_access.field.name),
-                                src: NamedSource::new(path, src),
-                            }));
+                            return Err(Self::unsupported_expr_err(
+                                expr,
+                                format!("No char constant for: {}", expr.ty()),
+                            ));
                         }
                     };
                     bytecode.push(Instruction::LoadConst(ConstantValue::Char(value)));
@@ -1003,46 +885,25 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     {
                         ConstantValue::UInt(u) => *u,
                         _ => {
-                            let path = expr.span().path;
-                            let src = utils::get_file_content(path).unwrap();
-                            return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                                span: SourceSpan::new(
-                                    SourceOffset::from(expr.span().start),
-                                    expr.span().end - expr.span().start,
-                                ),
-                                expr: format!("No uint constant for {}", static_access.field.name),
-                                src: NamedSource::new(path, src),
-                            }));
+                            return Err(Self::unsupported_expr_err(
+                                expr,
+                                format!("No uint constant for: {}", expr.ty()),
+                            ));
                         }
                     };
                     bytecode.push(Instruction::LoadConst(ConstantValue::UInt(value)));
                 }
                 HirTy::List(_) => {
-                    let path = expr.span().path;
-                    let src = utils::get_file_content(path).unwrap();
-                    return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                        span: SourceSpan::new(
-                            SourceOffset::from(expr.span().start),
-                            expr.span().end - expr.span().start,
-                        ),
-                        expr: format!(
-                            "Lists aren't supported as constants for now {}",
-                            static_access.field.name
-                        ),
-                        src: NamedSource::new(path, src),
-                    }));
+                    return Err(Self::unsupported_expr_err(
+                        expr,
+                        format!("Lists aren't supported as constants now: {}", expr.ty()),
+                    ));
                 }
                 _ => {
-                    let path = expr.span().path;
-                    let src = utils::get_file_content(path).unwrap();
-                    return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                        span: SourceSpan::new(
-                            SourceOffset::from(expr.span().start),
-                            expr.span().end - expr.span().start,
-                        ),
-                        expr: format!("Unsupported type for now {}", static_access.field.name),
-                        src: NamedSource::new(path, src),
-                    }));
+                    return Err(Self::unsupported_expr_err(
+                        expr,
+                        format!("Unsupported type for now: {}", expr.ty()),
+                    ));
                 }
             },
             HirExpr::NewObj(new_obj) => {
@@ -1052,16 +913,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         MonomorphizationPass::mangle_generic_struct_name(self.hir_arena, g)
                     }
                     _ => {
-                        let path = expr.span().path;
-                        let src = utils::get_file_content(path).unwrap();
-                        return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                            span: SourceSpan::new(
-                                SourceOffset::from(expr.span().start),
-                                expr.span().end - expr.span().start,
-                            ),
-                            expr: format!("Can't instantiate object of type {}", new_obj.ty),
-                            src: NamedSource::new(path, src),
-                        }));
+                        return Err(Self::unsupported_expr_err(
+                            expr,
+                            format!("Can't instantiate objects of type: {}", expr.ty()),
+                        ));
                     }
                 };
                 let obj_descriptor = self
@@ -1095,16 +950,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         return Ok(());
                     }
                     _ => {
-                        let path = expr.span().path;
-                        let src = utils::get_file_content(path).unwrap();
-                        return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                            span: SourceSpan::new(
-                                SourceOffset::from(expr.span().start),
-                                expr.span().end - expr.span().start,
-                            ),
-                            expr: format!("Can't delete object of type {}", delete.expr.ty()),
-                            src: NamedSource::new(path, src),
-                        }));
+                        return Err(Self::unsupported_expr_err(
+                            expr,
+                            format!("Unsupported expression: {}", expr.ty()),
+                        ));
                     }
                 };
 
@@ -1126,19 +975,23 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 bytecode.push(Instruction::DeleteObj);
             }
             _ => {
-                let path = expr.span().path;
-                let src = utils::get_file_content(path).unwrap();
-                return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                    span: SourceSpan::new(
-                        SourceOffset::from(expr.span().start),
-                        expr.span().end - expr.span().start,
-                    ),
-                    expr: format!("{:?}", expr),
-                    src: NamedSource::new(path, src),
-                }));
+                return Err(Self::unsupported_expr_err(
+                    expr,
+                    format!("Unsupported expression: {}", expr.ty()),
+                ));
             }
         }
         Ok(())
+    }
+
+    fn unsupported_expr_err(expr: &HirExpr, message: String) -> HirError {
+        let path = expr.span().path;
+        let src = utils::get_file_content(path).unwrap();
+        HirError::UnsupportedExpr(UnsupportedExpr {
+            span: expr.span(),
+            expr: message,
+            src: NamedSource::new(path, src),
+        })
     }
 
     fn is_std(path: &str) -> bool {

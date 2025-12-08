@@ -1,29 +1,15 @@
-use crate::declare_warning_type;
-use miette::{Diagnostic, NamedSource, SourceSpan};
+use crate::{atlas_c::utils::Span, declare_warning_type};
+use miette::{Diagnostic, NamedSource};
 use thiserror::Error;
 
 declare_warning_type!(
     #[warning("semantic warning: {0}")]
     pub enum HirWarning {
-        NullableTypesAreUnstable(NullableTypesAreUnstableWarning),
+        ThisTypeIsStillUnstable(ThisTypeIsStillUnstableWarning),
         DeletingReferenceIsUnstable(DeletingReferenceIsUnstableWarning),
         NameShouldBeInDifferentCase(NameShouldBeInDifferentCaseWarning),
-        MultipleGenericParametersAreUnstable(MultipleGenericParametersAreUnstableWarning),
     }
 );
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
-    code(sema::multiple_generic_parameters_are_unstable),
-    severity(warning)
-)]
-#[error("Multiple generic parameters are still unstable. They may lead to unexpected behavior.")]
-pub struct MultipleGenericParametersAreUnstableWarning {
-    #[source_code]
-    pub src: NamedSource<String>,
-    #[label = "Multiple generic parameters are still unstable. Use with caution."]
-    pub span: SourceSpan,
-}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
@@ -36,7 +22,7 @@ pub struct NameShouldBeInDifferentCaseWarning {
     #[source_code]
     pub src: NamedSource<String>,
     #[label = "Name `{name}` should be in {case_kind} case: `{expected_name}`"]
-    pub span: SourceSpan,
+    pub span: Span,
     //The kind of case that is expected
     pub case_kind: String,
     //The kind of item (function, struct, variable, etc.)
@@ -54,15 +40,18 @@ pub struct DeletingReferenceIsUnstableWarning {
     #[source_code]
     pub src: NamedSource<String>,
     #[label = "Deleting references is still unstable. Use with caution."]
-    pub span: SourceSpan,
+    pub span: Span,
 }
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::nullable_types_are_unstable), severity(warning))]
-#[error("Nullable types are still unstable. They will later be replaced by a stable `Option<T>`")]
-pub struct NullableTypesAreUnstableWarning {
+#[error("{type_name} is still unstable. {info}")]
+pub struct ThisTypeIsStillUnstableWarning {
     #[source_code]
     pub src: NamedSource<String>,
     #[label = "There is no guarantee of this working properly. Beware."]
-    pub span: SourceSpan,
+    pub span: Span,
+    pub type_name: String,
+    //Additional info about why it's unstable
+    pub info: String,
 }

@@ -144,7 +144,7 @@ public:
     fun trim(this) -> String {
         return new String(trim(this.s));
     }
-    
+
     fun split(this, sep: string) -> [String] {
         let s: [string] = split(this.s, sep);
         let i = 0;

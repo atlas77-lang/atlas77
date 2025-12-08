@@ -3,13 +3,12 @@ mod context;
 use super::{
     HirFunction, HirModule, HirModuleSignature,
     arena::HirArena,
-    error::{FunctionTypeMismatchError, HirError, HirResult, TypeMismatchError, UnknownTypeError},
+    error::{HirError, HirResult, TypeMismatchError, UnknownTypeError},
     expr,
     expr::{HirBinaryOperator, HirExpr},
     stmt::HirStatement,
     ty::{HirTy, HirTyId},
 };
-use crate::atlas_c::atlas_hir::item::{HirStruct, HirStructMethod};
 use crate::atlas_c::atlas_hir::monomorphization_pass::MonomorphizationPass;
 use crate::atlas_c::atlas_hir::signature::{
     HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier, HirVisibility,
@@ -17,6 +16,10 @@ use crate::atlas_c::atlas_hir::signature::{
 use crate::atlas_c::atlas_hir::ty::HirNamedTy;
 use crate::atlas_c::atlas_hir::type_check_pass::context::{ContextFunction, ContextVariable};
 use crate::atlas_c::atlas_hir::warning::{DeletingReferenceIsUnstableWarning, HirWarning};
+use crate::atlas_c::atlas_hir::{
+    error::{NotEnoughArgumentsError, NotEnoughArgumentsOrigin},
+    item::{HirStruct, HirStructMethod},
+};
 use crate::atlas_c::atlas_hir::{
     expr::{HirFunctionCallExpr, HirIdentExpr},
     item::HirStructConstructor,
@@ -33,9 +36,8 @@ use crate::atlas_c::{
     },
     utils,
 };
-use miette::{ErrReport, NamedSource, SourceOffset, SourceSpan};
+use miette::{ErrReport, NamedSource};
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 pub struct TypeChecker<'hir> {
     arena: &'hir HirArena<'hir>,
@@ -383,17 +385,14 @@ impl<'hir> TypeChecker<'hir> {
             HirExpr::UnitLiteral(_) => Ok(self.arena.types().get_unit_ty()),
             HirExpr::CharLiteral(_) => Ok(self.arena.types().get_char_ty()),
             HirExpr::StringLiteral(_) => Ok(self.arena.types().get_str_ty()),
-            HirExpr::Delete(del) => {
-                let ty = self.check_expr(&mut del.expr)?;
+            HirExpr::Delete(del_expr) => {
+                let ty = self.check_expr(&mut del_expr.expr)?;
                 if Self::is_primitive_type(ty) {
-                    let path = del.span.path;
+                    let path = del_expr.span.path;
                     let src = utils::get_file_content(path).unwrap();
                     Err(HirError::CannotDeletePrimitiveType(
                         CannotDeletePrimitiveTypeError {
-                            span: SourceSpan::new(
-                                SourceOffset::from(del.expr.span().start),
-                                del.expr.span().end - del.expr.span().start,
-                            ),
+                            span: del_expr.span,
                             ty: format!("{}", ty),
                             src: NamedSource::new(path, src),
                         },
@@ -405,7 +404,7 @@ impl<'hir> TypeChecker<'hir> {
                     } else if let HirTy::Generic(g) = ty {
                         name = MonomorphizationPass::mangle_generic_struct_name(self.arena, g);
                     } else if let HirTy::Reference(_) = ty {
-                        Self::deleting_ref_is_unstable_warning(&del.span);
+                        Self::deleting_ref_is_unstable_warning(&del_expr.span);
                     } else {
                         return Ok(self.arena.types().get_unit_ty());
                     }
@@ -417,7 +416,7 @@ impl<'hir> TypeChecker<'hir> {
                     };
                     if class.destructor.vis != HirVisibility::Public {
                         Err(Self::accessing_private_constructor_err(
-                            &del.span,
+                            &del_expr.span,
                             "destructor",
                         ))
                     } else {
@@ -433,10 +432,7 @@ impl<'hir> TypeChecker<'hir> {
                         let src = utils::get_file_content(path).unwrap();
                         return Err(HirError::AccessingClassFieldOutsideClass(
                             AccessingClassFieldOutsideClassError {
-                                span: SourceSpan::new(
-                                    SourceOffset::from(expr.span().start),
-                                    expr.span().end - expr.span().start,
-                                ),
+                                span: expr.span(),
                                 src: NamedSource::new(path, src),
                             },
                         ));
@@ -518,11 +514,7 @@ impl<'hir> TypeChecker<'hir> {
                         let src = utils::get_file_content(path).unwrap();
                         Err(HirError::TryingToIndexNonIndexableType(
                             TryingToIndexNonIndexableTypeError {
-                                span: SourceSpan::new(
-                                    SourceOffset::from(indexing_expr.target.span().start),
-                                    indexing_expr.target.span().end
-                                        - indexing_expr.target.span().start,
-                                ),
+                                span: indexing_expr.span,
                                 ty: format!("{}", target),
                                 src: NamedSource::new(path, src),
                             },
@@ -603,10 +595,7 @@ impl<'hir> TypeChecker<'hir> {
                 if l.items.is_empty() {
                     let src = utils::get_file_content(path).unwrap();
                     return Err(HirError::EmptyListLiteral(EmptyListLiteralError {
-                        span: SourceSpan::new(
-                            SourceOffset::from(l.span.start),
-                            l.span.end - l.span.start,
-                        ),
+                        span: l.span,
                         src: NamedSource::new(path, src),
                     }));
                 }
@@ -671,10 +660,7 @@ impl<'hir> TypeChecker<'hir> {
                     let src = utils::get_file_content(path).unwrap();
                     return Err(HirError::CanOnlyConstructStructs(
                         CanOnlyConstructStructsError {
-                            span: SourceSpan::new(
-                                SourceOffset::from(obj.span.start),
-                                obj.span.end - obj.span.start,
-                            ),
+                            span: obj.span,
                             src: NamedSource::new(path, src),
                         },
                     ));
@@ -705,10 +691,7 @@ impl<'hir> TypeChecker<'hir> {
                     let src = utils::get_file_content(path).unwrap();
                     return Err(HirError::AccessingPrivateConstructor(
                         AccessingPrivateConstructorError {
-                            span: SourceSpan::new(
-                                SourceOffset::from(obj.span.start),
-                                obj.span.end - obj.span.start,
-                            ),
+                            span: obj.span,
                             kind: String::from("constructor"),
                             src: NamedSource::new(path, src),
                         },
@@ -779,17 +762,12 @@ impl<'hir> TypeChecker<'hir> {
                         }
 
                         if func.params.len() != func_expr.args.len() {
-                            let path = expr.span().path;
-                            let src = utils::get_file_content(path).unwrap();
-                            return Err(HirError::FunctionTypeMismatch(
-                                FunctionTypeMismatchError {
-                                    expected_ty: format!("{:?}", func),
-                                    span: SourceSpan::new(
-                                        SourceOffset::from(func.span.start),
-                                        func.span.end - func.span.start,
-                                    ),
-                                    src: NamedSource::new(path, src),
-                                },
+                            return Err(Self::not_enough_arguments_err(
+                                "function".to_string(),
+                                func.params.len(),
+                                &func.span,
+                                func_expr.args.len(),
+                                &func_expr.span,
                             ));
                         }
 
@@ -818,10 +796,7 @@ impl<'hir> TypeChecker<'hir> {
                             let src = utils::get_file_content(path).unwrap();
                             return Err(HirError::CanOnlyConstructStructs(
                                 CanOnlyConstructStructsError {
-                                    span: SourceSpan::new(
-                                        SourceOffset::from(field_access.span.start),
-                                        field_access.span.end - field_access.span.start,
-                                    ),
+                                    span: field_access.span,
                                     src: NamedSource::new(path, src),
                                 },
                             ));
@@ -863,39 +838,32 @@ impl<'hir> TypeChecker<'hir> {
                                 let src = utils::get_file_content(path).unwrap();
                                 return Err(HirError::AccessingPrivateField(
                                     AccessingPrivateFieldError {
-                                        span: SourceSpan::new(
-                                            SourceOffset::from(expr.span().start),
-                                            expr.span().end - expr.span().start,
-                                        ),
+                                        span: field_access.span,
                                         kind: FieldKind::Function,
                                         src: NamedSource::new(path, src),
                                     },
                                 ));
                             }
+
                             if method_signature.modifier == HirStructMethodModifier::Static {
                                 let src = utils::get_file_content(path).unwrap();
                                 return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                                    span: SourceSpan::new(
-                                        SourceOffset::from(field_access.span.start),
-                                        field_access.span.end - field_access.span.start,
-                                    ),
+                                    span: field_access.span,
                                     expr: "Static method call".to_string(),
                                     src: NamedSource::new(path, src),
                                 }));
                             }
+
                             if method_signature.params.len() != func_expr.args.len() {
-                                let src = utils::get_file_content(path).unwrap();
-                                return Err(HirError::FunctionTypeMismatch(
-                                    FunctionTypeMismatchError {
-                                        expected_ty: format!("{:?}", method_signature),
-                                        span: SourceSpan::new(
-                                            SourceOffset::from(field_access.span.start),
-                                            field_access.span.end - field_access.span.start,
-                                        ),
-                                        src: NamedSource::new(path, src),
-                                    },
+                                return Err(Self::not_enough_arguments_err(
+                                    "method".to_string(),
+                                    method_signature.params.len(),
+                                    &method_signature.span,
+                                    func_expr.args.len(),
+                                    &func_expr.span,
                                 ));
                             }
+
                             for (param, arg) in method_signature
                                 .params
                                 .iter()
@@ -935,29 +903,20 @@ impl<'hir> TypeChecker<'hir> {
                             if method_signature.modifier == HirStructMethodModifier::None
                                 || method_signature.modifier == HirStructMethodModifier::Const
                             {
-                                let src = std::fs::read_to_string(PathBuf::from(&path))
-                                    .unwrap_or_else(|_| panic!("{} is not a valid path", path));
+                                let src = utils::get_file_content(path).unwrap();
                                 return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                                    span: SourceSpan::new(
-                                        SourceOffset::from(static_access.span.start),
-                                        static_access.span.end - static_access.span.start,
-                                    ),
+                                    span: static_access.span,
                                     expr: "Instance method call".to_string(),
                                     src: NamedSource::new(path, src),
                                 }));
                             }
                             if method_signature.params.len() != func_expr.args.len() {
-                                let src = std::fs::read_to_string(PathBuf::from(&path))
-                                    .unwrap_or_else(|_| panic!("{} is not a valid path", path));
-                                return Err(HirError::FunctionTypeMismatch(
-                                    FunctionTypeMismatchError {
-                                        expected_ty: format!("{:?}", method_signature),
-                                        span: SourceSpan::new(
-                                            SourceOffset::from(static_access.span.start),
-                                            static_access.span.end - static_access.span.start,
-                                        ),
-                                        src: NamedSource::new(path, src),
-                                    },
+                                return Err(Self::not_enough_arguments_err(
+                                    "static method".to_string(),
+                                    method_signature.params.len(),
+                                    &method_signature.span,
+                                    func_expr.args.len(),
+                                    &func_expr.span,
                                 ));
                             }
                             for (param, arg) in method_signature
@@ -1030,10 +989,7 @@ impl<'hir> TypeChecker<'hir> {
                     let src = utils::get_file_content(path).unwrap();
                     return Err(HirError::CanOnlyConstructStructs(
                         CanOnlyConstructStructsError {
-                            span: SourceSpan::new(
-                                SourceOffset::from(field_access.span.start),
-                                field_access.span.end - field_access.span.start,
-                            ),
+                            span: field_access.span,
                             src: NamedSource::new(path, src),
                         },
                     ));
@@ -1056,10 +1012,7 @@ impl<'hir> TypeChecker<'hir> {
                         let src = utils::get_file_content(path).unwrap();
                         return Err(HirError::AccessingPrivateField(
                             AccessingPrivateFieldError {
-                                span: SourceSpan::new(
-                                    SourceOffset::from(expr.span().start),
-                                    expr.span().end - expr.span().start,
-                                ),
+                                span: expr.span(),
                                 kind: FieldKind::Field,
                                 src: NamedSource::new(path, src),
                             },
@@ -1241,16 +1194,10 @@ impl<'hir> TypeChecker<'hir> {
                 let path = ty1_span.path;
                 let src = utils::get_file_content(path).unwrap();
                 Err(HirError::ConstTyToNonConstTy(ConstTyToNonConstTyError {
-                    const_val: SourceSpan::new(
-                        SourceOffset::from(ty1_span.start),
-                        ty1_span.end - ty1_span.start,
-                    ),
+                    const_val: ty1_span,
                     const_type: ty1.to_string(),
                     non_const_type: ty2.to_string(),
-                    non_const_val: SourceSpan::new(
-                        SourceOffset::from(ty2_span.start),
-                        ty2_span.end - ty2_span.start,
-                    ),
+                    non_const_val: ty2_span,
                     src: NamedSource::new(path, src),
                 }))
             }
@@ -1333,7 +1280,7 @@ impl<'hir> TypeChecker<'hir> {
         let src = utils::get_file_content(path).unwrap();
         HirError::UnknownType(UnknownTypeError {
             name: name.to_string(),
-            span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
+            span: *span,
             src: NamedSource::new(path, src),
         })
     }
@@ -1342,7 +1289,7 @@ impl<'hir> TypeChecker<'hir> {
         let path = span.path;
         let src = utils::get_file_content(path).unwrap();
         HirError::AccessingPrivateConstructor(AccessingPrivateConstructorError {
-            span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
+            span: *span,
             kind: kind.to_string(),
             src: NamedSource::new(path, src),
         })
@@ -1354,12 +1301,39 @@ impl<'hir> TypeChecker<'hir> {
         let src = utils::get_file_content(path).unwrap();
         let warning: ErrReport =
             HirWarning::DeletingReferenceIsUnstable(DeletingReferenceIsUnstableWarning {
-                span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
+                span: *span,
                 src: NamedSource::new(path, src),
             })
             .into();
         eprintln!("{:?}", warning);
     }
+
+    fn not_enough_arguments_err(
+        kind: String,
+        expected: usize,
+        expected_span: &Span,
+        found: usize,
+        found_span: &Span,
+    ) -> HirError {
+        let expected_path = expected_span.path;
+        let expected_src = utils::get_file_content(expected_path).unwrap();
+        let origin = NotEnoughArgumentsOrigin {
+            expected,
+            span: *expected_span,
+            src: NamedSource::new(expected_path, expected_src),
+        };
+
+        let found_path = found_span.path;
+        let found_src = utils::get_file_content(found_path).unwrap();
+        HirError::NotEnoughArguments(NotEnoughArgumentsError {
+            kind,
+            found,
+            span: *found_span,
+            src: NamedSource::new(found_path, found_src),
+            origin,
+        })
+    }
+
     fn illegal_operation_err(
         ty1: &HirTy,
         ty2: &HirTy,
@@ -1376,6 +1350,7 @@ impl<'hir> TypeChecker<'hir> {
             ty2: ty2.to_string(),
         })
     }
+
     /// + - * / %
     fn is_arithmetic_type(ty: &HirTy) -> bool {
         matches!(
@@ -1383,6 +1358,7 @@ impl<'hir> TypeChecker<'hir> {
             HirTy::Int64(_) | HirTy::UInt64(_) | HirTy::Float64(_) | HirTy::Char(_)
         )
     }
+
     /// == !=
     fn is_equality_comparable(ty: &HirTy) -> bool {
         matches!(
@@ -1395,6 +1371,7 @@ impl<'hir> TypeChecker<'hir> {
                 | HirTy::Unit(_)
         )
     }
+
     fn is_orderable_type(ty: &HirTy) -> bool {
         matches!(
             ty,

@@ -3,7 +3,8 @@ use crate::atlas_c::{
         HirModule,
         arena::HirArena,
         error::{
-            HirError, HirError::UnknownType, HirResult, NotEnoughGenericsError, UnknownTypeError,
+            HirError::{self, UnknownType},
+            HirResult, NotEnoughGenericsError, NotEnoughGenericsOrigin, UnknownTypeError,
         },
         expr::HirExpr,
         generic_pool::HirGenericPool,
@@ -12,9 +13,9 @@ use crate::atlas_c::{
         stmt::HirStatement,
         ty::{HirGenericTy, HirListTy, HirNamedTy, HirTy},
     },
-    utils::Span,
+    utils::{self, Span},
 };
-use miette::{NamedSource, SourceOffset, SourceSpan};
+use miette::NamedSource;
 
 //Maybe all the passes should share a common trait? Or be linked to a common context struct?
 pub struct MonomorphizationPass<'hir> {
@@ -99,7 +100,7 @@ impl<'hir> MonomorphizationPass<'hir> {
                 let src = crate::atlas_c::utils::get_file_content(path).unwrap();
                 return Err(UnknownType(UnknownTypeError {
                     name: base_name.to_string(),
-                    span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
+                    span,
                     src: NamedSource::new(path, src),
                 }));
             }
@@ -110,19 +111,13 @@ impl<'hir> MonomorphizationPass<'hir> {
         let generic_names = template.signature.generics.clone();
         if generic_names.len() != actual_type.inner.len() {
             let declaration_span = template.name_span;
-            let path = span.path;
-            let src = crate::atlas_c::utils::get_file_content(path).unwrap();
-            return Err(HirError::NotEnoughGenerics(NotEnoughGenericsError {
-                ty_name: base_name.to_string(),
-                expected: generic_names.len(),
-                found: actual_type.inner.len(),
-                declaration_span: SourceSpan::new(
-                    SourceOffset::from(declaration_span.start),
-                    declaration_span.end - declaration_span.start,
-                ),
-                error_span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
-                src: NamedSource::new(path, src),
-            }));
+            return Err(Self::not_enough_generics_err(
+                base_name,
+                actual_type.inner.len(),
+                span,
+                generic_names.len(),
+                declaration_span,
+            ));
         }
 
         let types_to_change: Vec<(&'hir str, &'hir HirTy<'hir>)> = generic_names
@@ -383,6 +378,31 @@ impl<'hir> MonomorphizationPass<'hir> {
         }
 
         Ok(())
+    }
+
+    fn not_enough_generics_err(
+        ty_name: &str,
+        found: usize,
+        error_span: Span,
+        expected: usize,
+        declaration_span: Span,
+    ) -> HirError {
+        let expected_path = declaration_span.path;
+        let expected_src = utils::get_file_content(expected_path).unwrap();
+        let origin = NotEnoughGenericsOrigin {
+            expected,
+            declaration_span,
+            src: NamedSource::new(expected_path, expected_src),
+        };
+        let found_path = error_span.path;
+        let found_src = utils::get_file_content(found_path).unwrap();
+        HirError::NotEnoughGenerics(NotEnoughGenericsError {
+            ty_name: ty_name.to_string(),
+            origin,
+            found,
+            error_span,
+            src: NamedSource::new(found_path, found_src),
+        })
     }
 
     //This function swaps generic types in a given type according to the provided mapping.

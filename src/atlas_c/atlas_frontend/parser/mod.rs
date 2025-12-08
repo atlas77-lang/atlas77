@@ -5,7 +5,7 @@ pub mod error;
 
 use std::path::PathBuf;
 
-use miette::{NamedSource, SourceOffset, SourceSpan};
+use miette::NamedSource;
 
 use crate::atlas_c::atlas_frontend::parser::error::{
     NoFieldInStructError, OnlyOneConstructorAllowedError, ParseResult, SyntaxError,
@@ -293,19 +293,18 @@ impl<'ast> Parser<'ast> {
             }
         }
 
-        let end = self.expect(TokenKind::RBrace)?.span();
+        self.expect(TokenKind::RBrace)?;
 
         if fields.is_empty() {
             let path = self.current().span.path;
             let src = crate::atlas_c::utils::get_file_content(path)
                 .expect("Failed to get source content for error reporting");
-            return Err(SyntaxError::NoFieldInStruct(NoFieldInStructError {
-                span: SourceSpan::new(
-                    SourceOffset::from(struct_identifier.span.start),
-                    end.end - struct_identifier.span.start,
-                ),
-                src: NamedSource::new(path, src),
-            }));
+            return Err(Box::new(SyntaxError::NoFieldInStruct(
+                NoFieldInStructError {
+                    span: struct_identifier.span,
+                    src: NamedSource::new(path, src),
+                },
+            )));
         }
 
         let node = AstStruct {
@@ -1461,24 +1460,26 @@ impl<'ast> Parser<'ast> {
         Ok(node)
     }
 
-    fn unexpected_token_error(&self, expected: TokenVec, span: &Span) -> SyntaxError {
+    fn unexpected_token_error(&self, expected: TokenVec, span: &Span) -> Box<SyntaxError> {
         let path = span.path;
         let src = get_file_content(path).expect("Failed to read source file");
-        SyntaxError::UnexpectedToken(UnexpectedTokenError {
+        Box::new(SyntaxError::UnexpectedToken(UnexpectedTokenError {
             token: self.current().clone(),
             expected,
-            span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
+            span: *span,
             src: NamedSource::new(path, src),
-        })
+        }))
     }
 
-    fn only_one_constructor_allowed_error(&self, span: &Span) -> SyntaxError {
+    fn only_one_constructor_allowed_error(&self, span: &Span) -> Box<SyntaxError> {
         let path = span.path;
         let src = get_file_content(path).expect("Failed to read source file");
-        SyntaxError::OnlyOneConstructorAllowed(OnlyOneConstructorAllowedError {
-            span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
-            src: NamedSource::new(path, src),
-        })
+        Box::new(SyntaxError::OnlyOneConstructorAllowed(
+            OnlyOneConstructorAllowedError {
+                span: *span,
+                src: NamedSource::new(path, src),
+            },
+        ))
     }
 }
 
@@ -1509,7 +1510,7 @@ mod tests {
                 Ok(())
             }
             Err(e) => {
-                let report: ErrReport = e.into();
+                let report: ErrReport = (*e).into();
                 panic!("Parsing error: {:?}", report);
             }
         }

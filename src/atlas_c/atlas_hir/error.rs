@@ -1,6 +1,6 @@
 use crate::atlas_c::utils::Span;
 use crate::declare_error_type;
-use miette::{Diagnostic, NamedSource, SourceSpan};
+use miette::{Diagnostic, NamedSource};
 use std::fmt;
 use std::fmt::Formatter;
 use thiserror::Error;
@@ -11,11 +11,11 @@ declare_error_type! {
     pub enum HirError {
         UnknownFileImport(UnknownFileImportError),
         NotEnoughGenerics(NotEnoughGenericsError),
+        NotEnoughArguments(NotEnoughArgumentsError),
         UnknownType(UnknownTypeError),
         BreakOutsideLoop(BreakOutsideLoopError),
         ContinueOutsideLoop(ContinueOutsideLoopError),
         TypeMismatch(TypeMismatchError),
-        FunctionTypeMismatch(FunctionTypeMismatchError),
         UnsupportedStatement(UnsupportedStatement),
         UnsupportedExpr(UnsupportedExpr),
         UnsupportedType(UnsupportedTypeError),
@@ -42,6 +42,34 @@ declare_error_type! {
 
 /// Handy type alias for all HIR-related errors.
 pub type HirResult<T> = Result<T, HirError>;
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::not_enough_arguments),
+    help("Provide the required number of arguments")
+)]
+#[error("Not enough arguments provided to {kind}, expected {} but found {found}", origin.expected)]
+pub struct NotEnoughArgumentsError {
+    //The kind of callable (function, method, constructor, destructor etc.)
+    pub kind: String,
+    pub found: usize,
+    #[label = "only {found} were provided"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[source]
+    #[diagnostic_source]
+    pub origin: NotEnoughArgumentsOrigin,
+}
+#[derive(Error, Diagnostic, Debug)]
+#[error("")]
+pub struct NotEnoughArgumentsOrigin {
+    pub expected: usize,
+    #[label = "function requires {expected} arguments"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
@@ -104,7 +132,6 @@ pub struct AccessingPrivateStructError {
     pub origin: AccessingPrivateStructOrigin,
 }
 #[derive(Error, Diagnostic, Debug)]
-#[diagnostic()]
 #[error("")]
 pub struct AccessingPrivateStructOrigin {
     #[label = "You marked it as private"]
@@ -118,10 +145,12 @@ pub struct AccessingPrivateStructOrigin {
     code(sema::no_return_in_function),
     help("Add a return statement at the end of the function")
 )]
-#[error("a function that is not of type `unit` must end with a return statement")]
+#[error(
+    "a function that is not of type `unit` must end with a return statement. NB: the compiler won't notice if you actually return in a loop. We still don't do Control Flow Graph analysis to check that."
+)]
 pub struct NoReturnInFunctionError {
     #[label("function {func_name} requires a return statement")]
-    pub span: SourceSpan,
+    pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
     pub func_name: String,
@@ -134,7 +163,7 @@ pub struct StructNameCannotBeOneLetterError {
     #[source_code]
     pub src: NamedSource<String>,
     #[label = "Struct names cannot be a single letter. One letter name is reserved for generic type parameters."]
-    pub span: SourceSpan,
+    pub span: Span,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -142,7 +171,7 @@ pub struct StructNameCannotBeOneLetterError {
 #[error("cannot delete a value of primitive type {ty}")]
 pub struct CannotDeletePrimitiveTypeError {
     #[label("cannot delete a value of primitive type")]
-    pub span: SourceSpan,
+    pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
     pub ty: String,
@@ -153,7 +182,7 @@ pub struct CannotDeletePrimitiveTypeError {
 #[error("Can't access private {kind} outside of its class")]
 pub struct AccessingPrivateConstructorError {
     #[label("Trying to access a private {kind}")]
-    pub span: SourceSpan,
+    pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
     //Either "constructor" or "destructor"
@@ -169,7 +198,7 @@ pub struct AccessingPrivateConstructorError {
 //A const type can only hold a reference. It doesn't make sense to have a `const T` where T is not a reference.
 pub struct InvalidReadOnlyTypeError {
     #[label = "only reference types can be const"]
-    pub span: SourceSpan,
+    pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
     pub ty: String,
@@ -185,7 +214,7 @@ pub struct UselessError {}
 #[error("trying to index a non-indexable type {ty}")]
 pub struct TryingToIndexNonIndexableTypeError {
     #[label = "type {ty} is not indexable"]
-    pub span: SourceSpan,
+    pub span: Span,
     pub ty: String,
     #[source_code]
     pub src: NamedSource<String>,
@@ -196,7 +225,7 @@ pub struct TryingToIndexNonIndexableTypeError {
 #[error("You cannot construct non-struct types")]
 pub struct CanOnlyConstructStructsError {
     #[label = "only struct types can be constructed"]
-    pub span: SourceSpan,
+    pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }
@@ -207,7 +236,7 @@ pub struct CanOnlyConstructStructsError {
 pub struct UnknownFileImportError {
     pub file_name: String,
     #[label = "could not find import file {file_name}"]
-    pub span: SourceSpan,
+    pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }
@@ -215,20 +244,25 @@ pub struct UnknownFileImportError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::not_enough_generics))]
 #[error(
-    "not enough generics provided {ty_name} requires {expected} generics, but only {found} were provided"
+    "not enough generics provided {ty_name} requires {} generics, but only {found} were provided", origin.expected
 )]
-///TODO: Find a way to use 2 #[source_code] for both spans (declaration and error).
-/// Because they could be in different files.
-///
-/// Maybe I could do something like having a Vec<NamedSource> and then have a mapping from span to source?
 pub struct NotEnoughGenericsError {
     pub ty_name: String,
-    pub expected: usize,
     pub found: usize,
-    #[label = "type declared here"]
-    pub declaration_span: SourceSpan,
-    #[label = "here"]
-    pub error_span: SourceSpan,
+    #[label = "only {found} generics were provided"]
+    pub error_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[source]
+    #[diagnostic_source]
+    pub origin: NotEnoughGenericsOrigin,
+}
+#[derive(Error, Diagnostic, Debug)]
+#[error("")]
+pub struct NotEnoughGenericsOrigin {
+    pub expected: usize,
+    #[label = "{expected} generics were expected"]
+    pub declaration_span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }
@@ -238,10 +272,10 @@ pub struct NotEnoughGenericsError {
 #[error("Can't assign a constant type to a non constant type")]
 pub struct ConstTyToNonConstTyError {
     #[label("This is of type {const_type} which is a constant type")]
-    pub const_val: SourceSpan,
+    pub const_val: Span,
     pub const_type: String,
     #[label("This is of type {non_const_type} which is not a constant type")]
-    pub non_const_val: SourceSpan,
+    pub non_const_val: Span,
     pub non_const_type: String,
     #[source_code]
     pub src: NamedSource<String>,
@@ -252,7 +286,7 @@ pub struct ConstTyToNonConstTyError {
 #[error("You can't assign a non-constant value to a constant field")]
 pub struct NonConstantValueError {
     #[label("Trying to assign a non-constant value to a constant field")]
-    pub span: SourceSpan,
+    pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }
@@ -262,7 +296,7 @@ pub struct NonConstantValueError {
 #[error("Can't access fields of self outside of a class")]
 pub struct AccessingPrivateFieldError {
     #[label("Trying to access a private {kind}")]
-    pub span: SourceSpan,
+    pub span: Span,
     pub kind: FieldKind,
     #[source_code]
     pub src: NamedSource<String>,
@@ -289,7 +323,7 @@ impl fmt::Display for FieldKind {
 #[error("Can't access fields of self outside of a class")]
 pub struct AccessingClassFieldOutsideClassError {
     #[label("Trying to access a class field from `self` while outside of a class")]
-    pub span: SourceSpan,
+    pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }
@@ -298,7 +332,7 @@ pub struct AccessingClassFieldOutsideClassError {
 #[diagnostic(code(sema::empty_list_literal))]
 #[error("empty list literals are not allowed")]
 pub struct EmptyListLiteralError {
-    pub span: SourceSpan,
+    pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }
@@ -308,10 +342,10 @@ pub struct EmptyListLiteralError {
 #[error("trying to mutate an immutable variable")]
 pub struct TryingToMutateImmutableVariableError {
     #[label = "{var_name} is immutable, try to use `let` instead"]
-    pub const_loc: SourceSpan,
+    pub const_loc: Span,
     pub var_name: String,
     #[label = "cannot mutate an immutable variable"]
-    pub span: SourceSpan,
+    pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }
@@ -321,7 +355,7 @@ pub struct TryingToMutateImmutableVariableError {
 #[error("trying to negate an unsigned integer")]
 pub struct TryingToNegateUnsignedError {
     #[label = "unsigned integers cannot be negated"]
-    pub span: SourceSpan,
+    pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }
@@ -331,7 +365,7 @@ pub struct TryingToNegateUnsignedError {
 #[error("{expr} isn't supported yet")]
 pub struct UnsupportedExpr {
     #[label = "unsupported expr"]
-    pub span: SourceSpan,
+    pub span: Span,
     pub expr: String,
     #[source_code]
     pub src: NamedSource<String>,
@@ -342,7 +376,7 @@ pub struct UnsupportedExpr {
 #[error("{ty} isn't supported yet")]
 pub struct UnsupportedTypeError {
     #[label = "unsupported type"]
-    pub span: SourceSpan,
+    pub span: Span,
     pub ty: String,
     #[source_code]
     pub src: NamedSource<String>,
@@ -353,7 +387,7 @@ pub struct UnsupportedTypeError {
 #[error("{stmt} isn't supported yet")]
 pub struct UnsupportedStatement {
     #[label = "unsupported statement"]
-    pub span: SourceSpan,
+    pub span: Span,
     pub stmt: String,
     #[source_code]
     pub src: NamedSource<String>,
@@ -365,7 +399,7 @@ pub struct UnsupportedStatement {
 pub struct UnknownTypeError {
     pub name: String,
     #[label = "could not find type {name}"]
-    pub span: SourceSpan,
+    pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }
@@ -375,7 +409,7 @@ pub struct UnknownTypeError {
 #[error("break statement outside of loop")]
 pub struct BreakOutsideLoopError {
     #[label = "there is no enclosing loop"]
-    pub span: SourceSpan,
+    pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }
@@ -385,7 +419,7 @@ pub struct BreakOutsideLoopError {
 #[error("continue statement outside of loop")]
 pub struct ContinueOutsideLoopError {
     #[label = "there is no enclosing loop"]
-    pub span: SourceSpan,
+    pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }
@@ -411,17 +445,6 @@ pub struct TypeMismatchActual {
     pub actual_ty: String,
     #[label = "found {actual_ty}"]
     pub span: Span,
-    #[source_code]
-    pub src: NamedSource<String>,
-}
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(code(sema::function_type_mismatch))]
-#[error("function type mismatch: expected {expected_ty}")]
-pub struct FunctionTypeMismatchError {
-    pub expected_ty: String,
-    #[label = "the function has type {expected_ty}"]
-    pub span: SourceSpan,
     #[source_code]
     pub src: NamedSource<String>,
 }

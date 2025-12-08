@@ -1,15 +1,9 @@
 pub mod case;
 
 use heck::{ToPascalCase, ToSnakeCase};
-use miette::{ErrReport, NamedSource, SourceOffset, SourceSpan};
-use std::{collections::BTreeMap, path::PathBuf};
+use miette::{ErrReport, NamedSource};
+use std::collections::BTreeMap;
 
-use crate::atlas_c::atlas_hir::error::{
-    InvalidReadOnlyTypeError, StructNameCannotBeOneLetterError,
-};
-use crate::atlas_c::atlas_hir::warning::{
-    MultipleGenericParametersAreUnstableWarning, NameShouldBeInDifferentCaseWarning,
-};
 use crate::atlas_c::{
     atlas_frontend::{
         parse,
@@ -27,7 +21,8 @@ use crate::atlas_c::{
         HirImport, HirModule, HirModuleBody,
         arena::HirArena,
         error::{
-            HirError, HirResult, NonConstantValueError, UnsupportedExpr, UnsupportedStatement,
+            HirError, HirResult, InvalidReadOnlyTypeError, NonConstantValueError,
+            StructNameCannotBeOneLetterError, UnsupportedExpr, UnsupportedStatement,
             UnsupportedTypeError, UselessError,
         },
         expr::{
@@ -51,9 +46,9 @@ use crate::atlas_c::{
         },
         syntax_lowering_pass::case::Case,
         ty::{HirGenericTy, HirTy},
-        warning::{HirWarning, NullableTypesAreUnstableWarning},
+        warning::{HirWarning, NameShouldBeInDifferentCaseWarning, ThisTypeIsStillUnstableWarning},
     },
-    utils::Span,
+    utils::{self, Span},
 };
 
 pub struct AstSyntaxLoweringPass<'ast, 'hir> {
@@ -261,9 +256,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 generics.push(self.arena.intern(generic.name.name.to_owned()));
             }
         }
-        if node.generics.len() > 1 {
-            Self::multiple_generic_parameters_are_unstable_warning(&node.name.span);
-        }
 
         let mut fields = Vec::new();
         for field in node.fields.iter() {
@@ -294,13 +286,9 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 Ok(value) => value,
                 Err(_) => {
                     let path = constant.value.span().path;
-                    let src = std::fs::read_to_string(PathBuf::from(&path))
-                        .unwrap_or_else(|_| panic!("{} is not a valid path", path));
+                    let src = utils::get_file_content(path).unwrap();
                     return Err(HirError::NonConstantValue(NonConstantValueError {
-                        span: SourceSpan::new(
-                            SourceOffset::from(constant.value.span().start),
-                            constant.value.span().end - constant.value.span().start,
-                        ),
+                        span: constant.value.span(),
                         src: NamedSource::new(path, src),
                     }));
                 }
@@ -549,7 +537,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             let ast: AstProgram<'ast> = match parse(path, self.ast_arena, src) {
                 Ok(ast) => ast,
                 Err(e) => {
-                    let report: ErrReport = e.into();
+                    let report: ErrReport = (*e).into();
                     eprintln!("{:?}", report);
                     std::process::exit(1);
                 }
@@ -698,10 +686,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 let path = node.span().path;
                 let src = crate::atlas_c::utils::get_file_content(path).unwrap();
                 Err(HirError::UnsupportedStatement(UnsupportedStatement {
-                    span: SourceSpan::new(
-                        SourceOffset::from(node.span().start),
-                        node.span().end - node.span().start,
-                    ),
+                    span: node.span(),
                     stmt: format!("{:?}", node),
                     src: NamedSource::new(path, src),
                 }))
@@ -944,10 +929,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 let path = node.span().path;
                 let src = crate::atlas_c::utils::get_file_content(path).unwrap();
                 Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                    span: SourceSpan::new(
-                        SourceOffset::from(node.span().start),
-                        node.span().end - node.span().start,
-                    ),
+                    span: node.span(),
                     expr: format!("{:?}", node),
                     src: NamedSource::new(path, src),
                 }))
@@ -1067,6 +1049,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 let ty = self.visit_ty(l.inner)?;
                 self.arena.types().get_list_ty(ty)
             }
+            //TODO: Nullable types should be replaced by `Option<T>` in the future IF std library is added
             AstType::Nullable(n) => {
                 Self::nullable_types_are_unstable_warning(&node.span());
                 let ty = self.visit_ty(n.inner)?;
@@ -1080,10 +1063,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         let path = node.span().path;
                         let src = crate::atlas_c::utils::get_file_content(path).unwrap();
                         return Err(HirError::InvalidReadOnlyType(InvalidReadOnlyTypeError {
-                            span: SourceSpan::new(
-                                SourceOffset::from(node.span().start),
-                                node.span().end - node.span().start,
-                            ),
+                            span: node.span(),
                             ty: format!("{}", ty),
                             src: NamedSource::new(path, src),
                         }));
@@ -1117,10 +1097,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 let path = node.span().path;
                 let src = crate::atlas_c::utils::get_file_content(path).unwrap();
                 return Err(HirError::UnsupportedType(UnsupportedTypeError {
-                    span: SourceSpan::new(
-                        SourceOffset::from(node.span().start),
-                        node.span().end - node.span().start,
-                    ),
+                    span: node.span(),
                     ty: format!("{:?}", node),
                     src: NamedSource::new(path, src),
                 }));
@@ -1133,9 +1110,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         let path = span.path;
         let src = crate::atlas_c::utils::get_file_content(path).unwrap();
         let report: ErrReport =
-            HirWarning::NullableTypesAreUnstable(NullableTypesAreUnstableWarning {
+            HirWarning::ThisTypeIsStillUnstable(ThisTypeIsStillUnstableWarning {
                 src: NamedSource::new(path, src),
-                span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
+                span: *span,
+                type_name: "Nullable type".to_string(),
+                info: "They will later be replaced by a stable `Option<T>`".to_string(),
             })
             .into();
         eprintln!("{:?}", report);
@@ -1153,7 +1132,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         let report: ErrReport =
             HirWarning::NameShouldBeInDifferentCase(NameShouldBeInDifferentCaseWarning {
                 src: NamedSource::new(path, src),
-                span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
+                span: *span,
                 case_kind: case_kind.to_string(),
                 item_kind: item_kind.to_string(),
                 name: name.to_string(),
@@ -1163,25 +1142,12 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         eprintln!("{:?}", report);
     }
 
-    fn multiple_generic_parameters_are_unstable_warning(span: &Span) {
-        let path = span.path;
-        let src = crate::atlas_c::utils::get_file_content(path).unwrap();
-        let report: ErrReport = HirWarning::MultipleGenericParametersAreUnstable(
-            MultipleGenericParametersAreUnstableWarning {
-                src: NamedSource::new(path, src),
-                span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
-            },
-        )
-        .into();
-        eprintln!("{:?}", report);
-    }
-
     fn name_single_character_error(span: &Span) -> HirError {
         let path = span.path;
         let src = crate::atlas_c::utils::get_file_content(path).unwrap();
         HirError::StructNameCannotBeOneLetter(StructNameCannotBeOneLetterError {
             src: NamedSource::new(path, src),
-            span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
+            span: *span,
         })
     }
 }

@@ -52,7 +52,12 @@ pub fn build(
     let bump = Bump::new();
     let ast_arena = AstArena::new(&bump);
     let file_path = atlas_c::utils::string_to_static_str(path_buf.to_str().unwrap().to_owned());
-    let program = parse(file_path, &ast_arena, source)?;
+    let program = match parse(file_path, &ast_arena, source) {
+        Ok(prog) => prog,
+        Err(e) => {
+            return Err((*e).into());
+        }
+    };
 
     //hir
     let hir_arena = HirArena::new();
@@ -87,7 +92,6 @@ pub fn build(
 
     let end = Instant::now();
     println!("Build completed in {}µs", (end - start).as_micros());
-
     Ok(asm)
 }
 
