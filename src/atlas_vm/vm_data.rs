@@ -293,7 +293,7 @@ impl fmt::Debug for VMData {
             f,
             "VMData {{ tag: {}, data: {}}}",
             self.tag,
-            format!("{}", self)
+            format_args!("{}", self)
         )
     }
 }

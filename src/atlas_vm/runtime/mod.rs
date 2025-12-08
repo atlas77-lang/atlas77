@@ -441,7 +441,7 @@ impl<'run> AtlasRuntime<'run> {
             OpCode::JMP => {
                 let where_to = instr.arg.as_i24();
                 if where_to.is_negative() {
-                    self.pc -= where_to.abs() as usize;
+                    self.pc -= where_to.unsigned_abs() as usize;
                 } else {
                     self.pc += where_to as usize;
                 }
@@ -452,7 +452,7 @@ impl<'run> AtlasRuntime<'run> {
                 let condition = self.stack.pop()?.as_boolean();
                 if !condition {
                     if where_to.is_negative() {
-                        self.pc -= where_to.abs() as usize;
+                        self.pc -= where_to.unsigned_abs() as usize;
                     } else {
                         self.pc += where_to as usize
                     }

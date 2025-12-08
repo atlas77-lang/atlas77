@@ -21,6 +21,7 @@ pub const STACK_SIZE: usize = 16 * 16384 / size_of::<VMData>();
 ///
 /// A stack frame takes this form:
 /// - `[[previous_pc, previous_base_ptr], [arguments], [local_variables], [temporary_values]]`
+///
 /// ``arguments`` & ``local variables`` are fixed-size arrays as they are known at compile time.
 #[derive(Debug)]
 pub struct Stack {

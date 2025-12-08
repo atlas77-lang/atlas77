@@ -31,10 +31,10 @@ impl AstItem<'_> {
     }
     pub fn span(&self) -> Span {
         match self {
-            AstItem::Import(v) => v.span.clone(),
-            AstItem::Struct(v) => v.span.clone(),
-            AstItem::ExternFunction(v) => v.span.clone(),
-            AstItem::Function(v) => v.span.clone(),
+            AstItem::Import(v) => v.span,
+            AstItem::Struct(v) => v.span,
+            AstItem::ExternFunction(v) => v.span,
+            AstItem::Function(v) => v.span,
         }
     }
 }
@@ -185,13 +185,13 @@ pub enum AstStatement<'ast> {
 impl AstStatement<'_> {
     pub fn span(&self) -> Span {
         match self {
-            AstStatement::Let(e) => e.span.clone(),
-            AstStatement::Const(e) => e.span.clone(),
-            AstStatement::IfElse(e) => e.span.clone(),
-            AstStatement::Block(e) => e.span.clone(),
-            AstStatement::While(e) => e.span.clone(),
+            AstStatement::Let(e) => e.span,
+            AstStatement::Const(e) => e.span,
+            AstStatement::IfElse(e) => e.span,
+            AstStatement::Block(e) => e.span,
+            AstStatement::While(e) => e.span,
             AstStatement::Expr(e) => e.span(),
-            AstStatement::Return(e) => e.span.clone(),
+            AstStatement::Return(e) => e.span,
         }
     }
 }
@@ -242,24 +242,24 @@ pub enum AstExpr<'ast> {
 impl AstExpr<'_> {
     pub(crate) fn span(&self) -> Span {
         match self {
-            AstExpr::Lambda(e) => e.span.clone(),
-            AstExpr::ConstExpr(e) => e.span.clone(),
-            AstExpr::IfElse(e) => e.span.clone(),
-            AstExpr::BinaryOp(e) => e.span.clone(),
-            AstExpr::UnaryOp(e) => e.span.clone(),
-            AstExpr::Call(e) => e.span.clone(),
+            AstExpr::Lambda(e) => e.span,
+            AstExpr::ConstExpr(e) => e.span,
+            AstExpr::IfElse(e) => e.span,
+            AstExpr::BinaryOp(e) => e.span,
+            AstExpr::UnaryOp(e) => e.span,
+            AstExpr::Call(e) => e.span,
             AstExpr::Literal(e) => e.span(),
-            AstExpr::Identifier(e) => e.span.clone(),
-            AstExpr::Indexing(e) => e.span.clone(),
+            AstExpr::Identifier(e) => e.span,
+            AstExpr::Indexing(e) => e.span,
 
-            AstExpr::FieldAccess(e) => e.span.clone(),
-            AstExpr::StaticAccess(e) => e.span.clone(),
-            AstExpr::NewObj(e) => e.span.clone(),
-            AstExpr::Delete(e) => e.span.clone(),
-            AstExpr::NewArray(e) => e.span.clone(),
-            AstExpr::_Block(e) => e.span.clone(),
-            AstExpr::Assign(e) => e.span.clone(),
-            AstExpr::Casting(e) => e.span.clone(),
+            AstExpr::FieldAccess(e) => e.span,
+            AstExpr::StaticAccess(e) => e.span,
+            AstExpr::NewObj(e) => e.span,
+            AstExpr::Delete(e) => e.span,
+            AstExpr::NewArray(e) => e.span,
+            AstExpr::_Block(e) => e.span,
+            AstExpr::Assign(e) => e.span,
+            AstExpr::Casting(e) => e.span,
         }
     }
 }
@@ -446,15 +446,15 @@ pub enum AstLiteral<'ast> {
 impl AstLiteral<'_> {
     pub(crate) fn span(&self) -> Span {
         match self {
-            AstLiteral::Integer(l) => l.span.clone(),
-            AstLiteral::UnsignedInteger(l) => l.span.clone(),
-            AstLiteral::Float(l) => l.span.clone(),
-            AstLiteral::Char(l) => l.span.clone(),
-            AstLiteral::Unit(l) => l.span.clone(),
-            AstLiteral::ThisLiteral(l) => l.span.clone(),
-            AstLiteral::String(l) => l.span.clone(),
-            AstLiteral::Boolean(l) => l.span.clone(),
-            AstLiteral::List(l) => l.span.clone(),
+            AstLiteral::Integer(l) => l.span,
+            AstLiteral::UnsignedInteger(l) => l.span,
+            AstLiteral::Float(l) => l.span,
+            AstLiteral::Char(l) => l.span,
+            AstLiteral::Unit(l) => l.span,
+            AstLiteral::ThisLiteral(l) => l.span,
+            AstLiteral::String(l) => l.span,
+            AstLiteral::Boolean(l) => l.span,
+            AstLiteral::List(l) => l.span,
         }
     }
 }
@@ -533,21 +533,21 @@ pub enum AstType<'ast> {
 impl AstType<'_> {
     pub(crate) fn span(&self) -> Span {
         match self {
-            AstType::Unit(t) => t.span.clone(),
-            AstType::Boolean(t) => t.span.clone(),
-            AstType::Integer(t) => t.span.clone(),
-            AstType::Float(t) => t.span.clone(),
-            AstType::UnsignedInteger(t) => t.span.clone(),
-            AstType::Char(t) => t.span.clone(),
-            AstType::ThisTy(t) => t.span.clone(),
-            AstType::String(t) => t.span.clone(),
-            AstType::Named(t) => t.span.clone(),
-            AstType::Reference(t) => t.span.clone(),
-            AstType::Function(t) => t.span.clone(),
-            AstType::Nullable(t) => t.span.clone(),
-            AstType::ReadOnly(r) => r.span.clone(),
-            AstType::List(t) => t.span.clone(),
-            AstType::Generic(t) => t.span.clone(),
+            AstType::Unit(t) => t.span,
+            AstType::Boolean(t) => t.span,
+            AstType::Integer(t) => t.span,
+            AstType::Float(t) => t.span,
+            AstType::UnsignedInteger(t) => t.span,
+            AstType::Char(t) => t.span,
+            AstType::ThisTy(t) => t.span,
+            AstType::String(t) => t.span,
+            AstType::Named(t) => t.span,
+            AstType::Reference(t) => t.span,
+            AstType::Function(t) => t.span,
+            AstType::Nullable(t) => t.span,
+            AstType::ReadOnly(r) => r.span,
+            AstType::List(t) => t.span,
+            AstType::Generic(t) => t.span,
         }
     }
 }

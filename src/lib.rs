@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 pub mod atlas_c;
 pub mod atlas_lib;
 pub mod atlas_vm;
@@ -50,7 +52,7 @@ pub fn build(
     let bump = Bump::new();
     let ast_arena = AstArena::new(&bump);
     let file_path = atlas_c::utils::string_to_static_str(path_buf.to_str().unwrap().to_owned());
-    let program = parse(file_path.into(), &ast_arena, source)?;
+    let program = parse(file_path, &ast_arena, source)?;
 
     //hir
     let hir_arena = HirArena::new();

@@ -15,7 +15,7 @@ pub const TIME_FUNCTIONS: [(&str, CallBack); 4] = [
 ];
 
 //now() -> &Time
-pub fn now<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
+pub fn now(state: VMState) -> Result<VMData, RuntimeError> {
     let time = std::time::SystemTime::now();
     let duration = time.duration_since(std::time::UNIX_EPOCH).unwrap();
 
@@ -34,7 +34,7 @@ pub fn now<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
 }
 
 //format_time_iso(time: &Time) -> &string
-pub fn format_time_iso<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
+pub fn format_time_iso(state: VMState) -> Result<VMData, RuntimeError> {
     let time_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
     let raw_time_obj = state.object_map.get(time_ptr)?;
     let time_obj = raw_time_obj.structure();
@@ -58,7 +58,7 @@ pub fn format_time_iso<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
 }
 
 //format_time(time: &Time, format: &string) -> &string
-pub fn format_time<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
+pub fn format_time(state: VMState) -> Result<VMData, RuntimeError> {
     let format_ptr = state.stack.pop_with_rc(state.object_map)?.as_object(); // a string is an object
     let time_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
 
@@ -83,7 +83,7 @@ pub fn format_time<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
 }
 
 // elapsed(start: &Time, end: &Time) -> &Time
-pub fn elapsed<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
+pub fn elapsed(state: VMState) -> Result<VMData, RuntimeError> {
     let end_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
     let start_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
 

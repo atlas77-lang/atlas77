@@ -21,7 +21,7 @@ impl Token {
     }
     #[inline(always)]
     pub fn span(&self) -> Span {
-        self.span.clone()
+        self.span
     }
     #[inline(always)]
     pub fn start(&self) -> usize {

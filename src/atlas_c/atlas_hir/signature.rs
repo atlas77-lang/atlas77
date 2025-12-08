@@ -33,15 +33,11 @@ pub struct HirStructSignature<'hir> {
     pub destructor: HirStructConstructorSignature<'hir>,
 }
 
-#[derive(Debug, Clone, PartialEq, Copy)]
+#[derive(Debug, Clone, PartialEq, Copy, Default)]
 pub enum HirVisibility {
+    #[default]
     Public,
     Private,
-}
-impl Default for HirVisibility {
-    fn default() -> Self {
-        Self::Public
-    }
 }
 impl From<AstVisibility> for HirVisibility {
     fn from(ast_vis: AstVisibility) -> Self {

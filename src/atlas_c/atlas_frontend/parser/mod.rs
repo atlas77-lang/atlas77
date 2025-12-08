@@ -310,7 +310,7 @@ impl<'ast> Parser<'ast> {
 
         let node = AstStruct {
             span: Span::union_span(&struct_identifier.span, &self.current().span()),
-            name_span: struct_identifier.span.clone(),
+            name_span: struct_identifier.span,
             name: self.arena.alloc(struct_identifier),
             field_span: Span::union_span(
                 &fields.first().unwrap().span,
@@ -437,7 +437,7 @@ impl<'ast> Parser<'ast> {
         }
 
         Ok(AstGeneric {
-            span: name.span.clone(),
+            span: name.span,
             name: self.arena.alloc(name),
             constraints: self.arena.alloc_vec(constraints),
         })
@@ -891,11 +891,11 @@ impl<'ast> Parser<'ast> {
                     }
                 }
                 self.expect(TokenKind::RBracket)?;
-                let node = AstExpr::Literal(AstLiteral::List(AstListLiteral {
+
+                AstExpr::Literal(AstLiteral::List(AstListLiteral {
                     span: start.span(),
                     items: self.arena.alloc_vec(elements),
-                }));
-                node
+                }))
             }
             TokenKind::KwThis => {
                 let node =
@@ -1038,16 +1038,15 @@ impl<'ast> Parser<'ast> {
         let if_body = self.parse_block()?;
         let else_body = if self.current().kind() == TokenKind::KwElse {
             self.expect(TokenKind::KwElse)?;
-            let else_body;
-            if self.current().kind() == TokenKind::KwIf {
+            let else_body = if self.current().kind() == TokenKind::KwIf {
                 let if_stmt = self.parse_if_expr()?;
-                else_body = AstBlock {
-                    span: if_stmt.span.clone(),
+                AstBlock {
+                    span: if_stmt.span,
                     stmts: self.arena.alloc_vec(vec![AstStatement::IfElse(if_stmt)]),
-                };
+                }
             } else {
-                else_body = self.parse_block()?;
-            }
+                self.parse_block()?
+            };
             Some(else_body)
         } else {
             None
@@ -1124,15 +1123,14 @@ impl<'ast> Parser<'ast> {
             }
         }
         self.expect(TokenKind::RParen)?;
-        let ret_ty;
-        if self.current().kind() == TokenKind::RArrow {
+        let ret_ty = if self.current().kind() == TokenKind::RArrow {
             let _ = self.expect(TokenKind::RArrow)?;
-            ret_ty = self.parse_type()?;
+            self.parse_type()?
         } else {
-            ret_ty = AstType::Unit(AstUnitType {
+            AstType::Unit(AstUnitType {
                 span: self.current().span(),
             })
-        }
+        };
         self.expect(TokenKind::Semicolon)?;
         let node = AstExternFunction {
             span: Span::union_span(&name.span, &ret_ty.span()),
@@ -1183,16 +1181,16 @@ impl<'ast> Parser<'ast> {
         if self.current().kind == TokenKind::KwThis {
             self.expect(TokenKind::KwThis)?;
             let name = AstIdentifier {
-                span: self.current().span.clone(),
+                span: self.current().span,
                 name: self.arena.alloc("this"),
             };
             let node = AstObjField {
                 vis: AstVisibility::Public,
-                span: self.current().span.clone(),
+                span: self.current().span,
                 name: self.arena.alloc(name.clone()),
-                ty: self.arena.alloc(AstType::ThisTy(AstThisType {
-                    span: name.span.clone(),
-                })),
+                ty: self
+                    .arena
+                    .alloc(AstType::ThisTy(AstThisType { span: name.span })),
             };
             return Ok(node);
         }
@@ -1374,15 +1372,16 @@ impl<'ast> Parser<'ast> {
             TokenKind::Ampersand => {
                 let _ = self.advance();
                 let ty = self.parse_type()?;
-                let node = AstType::Reference(AstPointerType {
+
+                AstType::Reference(AstPointerType {
                     span: Span::union_span(&start, &ty.span()),
                     inner: self.arena.alloc(ty),
-                });
-                node
+                })
             }
             TokenKind::Identifier(_) => {
                 let name = self.parse_identifier()?;
-                let node = if self.current().kind == TokenKind::LAngle {
+
+                if self.current().kind == TokenKind::LAngle {
                     //Manage generics i.e. `Foo[T, E, Array[B, T], ...]`
                     self.expect(TokenKind::LAngle)?;
                     let mut inner_types = vec![];
@@ -1404,18 +1403,17 @@ impl<'ast> Parser<'ast> {
                         span: Span::union_span(&start, &self.current().span()),
                         name: self.arena.alloc(name),
                     })
-                };
-                node
+                }
             }
             TokenKind::LBracket => {
                 let _ = self.advance();
                 let ty = self.parse_type()?;
                 self.expect(TokenKind::RBracket)?;
-                let node = AstType::List(AstListType {
+
+                AstType::List(AstListType {
                     span: Span::union_span(&start, &self.current().span()),
                     inner: self.arena.alloc(ty),
-                });
-                node
+                })
             }
             TokenKind::LParen => {
                 let _ = self.advance();
@@ -1432,12 +1430,11 @@ impl<'ast> Parser<'ast> {
 
                 let ret = self.parse_type()?;
 
-                let node = AstType::Function(AstFunctionType {
+                AstType::Function(AstFunctionType {
                     span: Span::union_span(&start, &self.current().span()),
                     args: self.arena.alloc_vec(types),
                     ret: self.arena.alloc(ret),
-                });
-                node
+                })
             }
             _ => {
                 return Err(self.unexpected_token_error(

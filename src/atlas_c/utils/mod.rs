@@ -13,14 +13,14 @@ impl Default for Span {
         Self {
             start: 0,
             end: 0,
-            path: "<stdin>".into(),
+            path: "<stdin>",
         }
     }
 }
 
 impl From<Span> for SourceSpan {
     fn from(span: Span) -> Self {
-        SourceSpan::new(span.start.into(), (span.end - span.start).into())
+        SourceSpan::new(span.start.into(), span.end - span.start)
     }
 }
 

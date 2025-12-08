@@ -14,14 +14,14 @@ pub const STRING_FUNCTIONS: [(&str, CallBack); 7] = [
     ("from_chars", from_chars),
 ];
 
-pub fn str_len<'lib>(state: VMState) -> RuntimeResult<VMData> {
+pub fn str_len(state: VMState) -> RuntimeResult<VMData> {
     let string_ptr = state.stack.pop()?.as_object();
     let raw_string = state.object_map.get(string_ptr)?;
     let string = raw_string.string();
     Ok(VMData::new_i64(string.len() as i64))
 }
 
-pub fn str_cmp<'lib>(state: VMState) -> RuntimeResult<VMData> {
+pub fn str_cmp(state: VMState) -> RuntimeResult<VMData> {
     let string1 = state
         .object_map
         .get(state.stack.pop()?.as_object())?
@@ -36,7 +36,7 @@ pub fn str_cmp<'lib>(state: VMState) -> RuntimeResult<VMData> {
     Ok(VMData::new_i64(cmp as i64))
 }
 
-pub fn trim<'lib>(state: VMState) -> RuntimeResult<VMData> {
+pub fn trim(state: VMState) -> RuntimeResult<VMData> {
     let string_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
     let string = state.object_map.get(string_ptr)?.string().clone();
 
@@ -49,7 +49,7 @@ pub fn trim<'lib>(state: VMState) -> RuntimeResult<VMData> {
     }
 }
 
-pub fn to_upper<'lib>(state: VMState) -> RuntimeResult<VMData> {
+pub fn to_upper(state: VMState) -> RuntimeResult<VMData> {
     let string_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
     let raw_string = state.object_map.get(string_ptr)?;
     let string = raw_string.string();
@@ -63,7 +63,7 @@ pub fn to_upper<'lib>(state: VMState) -> RuntimeResult<VMData> {
     }
 }
 
-pub fn to_lower<'lib>(state: VMState) -> RuntimeResult<VMData> {
+pub fn to_lower(state: VMState) -> RuntimeResult<VMData> {
     let string_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
     let raw_string = state.object_map.get(string_ptr)?;
     let string = raw_string.string();
@@ -77,7 +77,7 @@ pub fn to_lower<'lib>(state: VMState) -> RuntimeResult<VMData> {
     }
 }
 
-pub fn split<'lib>(state: VMState) -> RuntimeResult<VMData> {
+pub fn split(state: VMState) -> RuntimeResult<VMData> {
     let delimiter_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
     let string_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
 
@@ -104,7 +104,7 @@ pub fn split<'lib>(state: VMState) -> RuntimeResult<VMData> {
     }
 }
 
-pub fn from_chars<'lib>(state: VMState) -> RuntimeResult<VMData> {
+pub fn from_chars(state: VMState) -> RuntimeResult<VMData> {
     let list_ptr = state.stack.pop()?.as_object();
     let raw_list = state.object_map.get(list_ptr)?;
     let list = raw_list.list().clone();

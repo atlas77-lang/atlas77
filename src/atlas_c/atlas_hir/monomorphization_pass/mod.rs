@@ -67,9 +67,9 @@ impl<'hir> MonomorphizationPass<'hir> {
                 let generic_ty = self.arena.intern(HirGenericTy {
                     name: instance.name,
                     inner: instance.args.clone(),
-                    span: instance.span.clone(),
+                    span: instance.span,
                 });
-                self.monomorphize_struct(module, generic_ty, instance.span.clone())?;
+                self.monomorphize_struct(module, generic_ty, instance.span)?;
                 instance.is_done = true;
                 is_done = false;
             }
@@ -88,7 +88,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             MonomorphizationPass::mangle_generic_struct_name(self.arena, actual_type);
         if module.body.structs.contains_key(&mangled_name) {
             //Already monomorphized
-            return Ok(self.arena.types().get_named_ty(mangled_name, span.clone()));
+            return Ok(self.arena.types().get_named_ty(mangled_name, span));
         }
 
         let base_name = actual_type.name;
@@ -96,7 +96,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             Some(s) => s,
             None => {
                 let path = span.path;
-                let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+                let src = crate::atlas_c::utils::get_file_content(path).unwrap();
                 return Err(UnknownType(UnknownTypeError {
                     name: base_name.to_string(),
                     span: SourceSpan::new(SourceOffset::from(span.start), span.end - span.start),
@@ -109,9 +109,9 @@ impl<'hir> MonomorphizationPass<'hir> {
         //Collect generic names
         let generic_names = template.signature.generics.clone();
         if generic_names.len() != actual_type.inner.len() {
-            let declaration_span = template.name_span.clone();
+            let declaration_span = template.name_span;
             let path = span.path;
-            let src = crate::atlas_c::utils::get_file_content(&path).unwrap();
+            let src = crate::atlas_c::utils::get_file_content(path).unwrap();
             return Err(HirError::NotEnoughGenerics(NotEnoughGenericsError {
                 ty_name: base_name.to_string(),
                 expected: generic_names.len(),
@@ -155,7 +155,7 @@ impl<'hir> MonomorphizationPass<'hir> {
                             self.arena,
                             self.arena.intern(g),
                         ),
-                        span: arg.span.clone(),
+                        span: arg.span,
                     }))
                 } else {
                     new_ty
@@ -164,10 +164,10 @@ impl<'hir> MonomorphizationPass<'hir> {
                 if new_ty != arg.ty {
                     new_struct.signature.constructor.params[i] = HirFunctionParameterSignature {
                         name: arg.name,
-                        name_span: arg.name_span.clone(),
-                        span: arg.span.clone(),
+                        name_span: arg.name_span,
+                        span: arg.span,
                         ty: new_ty,
-                        ty_span: arg.ty_span.clone(),
+                        ty_span: arg.ty_span,
                     };
                 }
             }
@@ -191,7 +191,7 @@ impl<'hir> MonomorphizationPass<'hir> {
                                 self.arena,
                                 self.arena.intern(g),
                             ),
-                            span: param.span.clone(),
+                            span: param.span,
                         })
                     } else {
                         new_ty
@@ -235,7 +235,7 @@ impl<'hir> MonomorphizationPass<'hir> {
 
         for method in new_struct.methods.iter_mut() {
             for statement in method.body.statements.iter_mut() {
-                self.monomorphize_statement(module, statement, types_to_change.clone())?;
+                self.monomorphize_statement(statement, types_to_change.clone())?;
             }
         }
 
@@ -249,7 +249,7 @@ impl<'hir> MonomorphizationPass<'hir> {
         );
         module.body.structs.insert(mangled_name, new_struct);
 
-        Ok(self.arena.types().get_named_ty(mangled_name, span.clone()))
+        Ok(self.arena.types().get_named_ty(mangled_name, span))
     }
 
     fn monomorphize_fields(
@@ -272,36 +272,35 @@ impl<'hir> MonomorphizationPass<'hir> {
 
     fn monomorphize_statement(
         &mut self,
-        module: &mut HirModule<'hir>,
         statement: &mut HirStatement<'hir>,
         types_to_change: Vec<(&'hir str, &'hir HirTy<'hir>)>,
     ) -> HirResult<()> {
         match statement {
             HirStatement::Expr(expr_stmt) => {
-                self.monomorphize_expression(module, &mut expr_stmt.expr, types_to_change)?;
+                self.monomorphize_expression(&mut expr_stmt.expr, types_to_change)?;
             }
             HirStatement::Let(let_stmt) => {
-                self.monomorphize_expression(module, &mut let_stmt.value, types_to_change)?;
+                self.monomorphize_expression(&mut let_stmt.value, types_to_change)?;
             }
             HirStatement::While(while_stmt) => {
                 for stmt in while_stmt.body.statements.iter_mut() {
-                    self.monomorphize_statement(module, stmt, types_to_change.clone())?;
+                    self.monomorphize_statement(stmt, types_to_change.clone())?;
                 }
-                self.monomorphize_expression(module, &mut while_stmt.condition, types_to_change)?;
+                self.monomorphize_expression(&mut while_stmt.condition, types_to_change)?;
             }
             HirStatement::IfElse(if_else_stmt) => {
                 for stmt in if_else_stmt.then_branch.statements.iter_mut() {
-                    self.monomorphize_statement(module, stmt, types_to_change.clone())?;
+                    self.monomorphize_statement(stmt, types_to_change.clone())?;
                 }
                 if let Some(else_branch) = &mut if_else_stmt.else_branch {
                     for stmt in else_branch.statements.iter_mut() {
-                        self.monomorphize_statement(module, stmt, types_to_change.clone())?;
+                        self.monomorphize_statement(stmt, types_to_change.clone())?;
                     }
                 }
-                self.monomorphize_expression(module, &mut if_else_stmt.condition, types_to_change)?;
+                self.monomorphize_expression(&mut if_else_stmt.condition, types_to_change)?;
             }
             HirStatement::Return(return_stmt) => {
-                self.monomorphize_expression(module, &mut return_stmt.value, types_to_change)?;
+                self.monomorphize_expression(&mut return_stmt.value, types_to_change)?;
             }
             _ => {}
         }
@@ -310,7 +309,6 @@ impl<'hir> MonomorphizationPass<'hir> {
 
     fn monomorphize_expression(
         &mut self,
-        module: &mut HirModule<'hir>,
         expr: &mut HirExpr<'hir>,
         types_to_change: Vec<(&'hir str, &'hir HirTy<'hir>)>,
     ) -> HirResult<()> {
@@ -324,7 +322,7 @@ impl<'hir> MonomorphizationPass<'hir> {
                         self.generic_pool.register_struct_instance(g.clone());
                         self.arena.intern(HirTy::Named(HirNamedTy {
                             name: MonomorphizationPass::mangle_generic_struct_name(self.arena, g),
-                            span: new_obj_expr.span.clone(),
+                            span: new_obj_expr.span,
                         }))
                     } else {
                         monomorphized_ty
@@ -332,68 +330,54 @@ impl<'hir> MonomorphizationPass<'hir> {
                     new_obj_expr.ty = monomorphized_ty;
                 }
                 for arg in new_obj_expr.args.iter_mut() {
-                    self.monomorphize_expression(module, arg, types_to_change.clone())?;
+                    self.monomorphize_expression(arg, types_to_change.clone())?;
                 }
             }
             HirExpr::Indexing(idx_expr) => {
-                self.monomorphize_expression(
-                    module,
-                    &mut idx_expr.target,
-                    types_to_change.clone(),
-                )?;
-                self.monomorphize_expression(module, &mut idx_expr.index, types_to_change)?;
+                self.monomorphize_expression(&mut idx_expr.target, types_to_change.clone())?;
+                self.monomorphize_expression(&mut idx_expr.index, types_to_change)?;
             }
             HirExpr::Assign(assign_expr) => {
-                self.monomorphize_expression(
-                    module,
-                    &mut assign_expr.lhs,
-                    types_to_change.clone(),
-                )?;
-                self.monomorphize_expression(module, &mut assign_expr.rhs, types_to_change)?;
+                self.monomorphize_expression(&mut assign_expr.lhs, types_to_change.clone())?;
+                self.monomorphize_expression(&mut assign_expr.rhs, types_to_change)?;
             }
             HirExpr::Unary(unary_expr) => {
-                self.monomorphize_expression(module, &mut unary_expr.expr, types_to_change)?;
+                self.monomorphize_expression(&mut unary_expr.expr, types_to_change)?;
             }
             HirExpr::HirBinaryOperation(binary_expr) => {
-                self.monomorphize_expression(
-                    module,
-                    &mut binary_expr.lhs,
-                    types_to_change.clone(),
-                )?;
-                self.monomorphize_expression(module, &mut binary_expr.rhs, types_to_change)?;
+                self.monomorphize_expression(&mut binary_expr.lhs, types_to_change.clone())?;
+                self.monomorphize_expression(&mut binary_expr.rhs, types_to_change)?;
             }
             HirExpr::Call(call_expr) => {
                 for arg in call_expr.args.iter_mut() {
-                    self.monomorphize_expression(module, arg, types_to_change.clone())?;
+                    self.monomorphize_expression(arg, types_to_change.clone())?;
                 }
-                self.monomorphize_expression(module, &mut call_expr.callee, types_to_change)?;
+                self.monomorphize_expression(&mut call_expr.callee, types_to_change)?;
             }
             HirExpr::Casting(casting_expr) => {
-                self.monomorphize_expression(module, &mut casting_expr.expr, types_to_change)?;
+                self.monomorphize_expression(&mut casting_expr.expr, types_to_change)?;
             }
             HirExpr::Delete(delete_expr) => {
-                self.monomorphize_expression(module, &mut delete_expr.expr, types_to_change)?;
+                self.monomorphize_expression(&mut delete_expr.expr, types_to_change)?;
             }
             HirExpr::ListLiteral(list_expr) => {
                 for item in list_expr.items.iter_mut() {
-                    self.monomorphize_expression(module, item, types_to_change.clone())?;
+                    self.monomorphize_expression(item, types_to_change.clone())?;
                 }
             }
             HirExpr::NewArray(new_array_expr) => {
                 if let HirTy::List(l) = new_array_expr.ty {
                     if let HirTy::Generic(g) = l.inner {
                         self.generic_pool.register_struct_instance(g.clone());
-                    } else if let HirTy::Named(n) = l.inner {
-                        if n.name.len() == 1 {
-                            let ty = self.swap_generic_types_in_ty(
-                                new_array_expr.ty,
-                                types_to_change.clone(),
-                            );
-                            new_array_expr.ty = ty;
-                        }
+                    } else if let HirTy::Named(n) = l.inner
+                        && n.name.len() == 1
+                    {
+                        let ty = self
+                            .swap_generic_types_in_ty(new_array_expr.ty, types_to_change.clone());
+                        new_array_expr.ty = ty;
                     }
                 }
-                self.monomorphize_expression(module, &mut new_array_expr.size, types_to_change)?;
+                self.monomorphize_expression(&mut new_array_expr.size, types_to_change)?;
             }
             _ => {}
         }
@@ -434,7 +418,7 @@ impl<'hir> MonomorphizationPass<'hir> {
                 self.arena.intern(HirTy::Generic(HirGenericTy {
                     name: g.name,
                     inner: new_inner_types,
-                    span: g.span.clone(),
+                    span: g.span,
                 }))
             }
             _ => ty,
@@ -473,7 +457,7 @@ impl<'hir> MonomorphizationPass<'hir> {
     /// Add a new struct signature to the module signature.
     ///
     /// The name of the new struct will be `__atlas77__StructType_actual_type_names`, so it's actually mangled.
-
+    ///
     /// Helper function to change the inner type of generic type recursively if matches.
     fn change_inner_type(
         &self,
@@ -504,7 +488,7 @@ impl<'hir> MonomorphizationPass<'hir> {
                 self.arena.intern(HirTy::Generic(HirGenericTy {
                     name: g.name,
                     inner: new_inner_types,
-                    span: g.span.clone(),
+                    span: g.span,
                 }))
             }
             _ => type_to_change,

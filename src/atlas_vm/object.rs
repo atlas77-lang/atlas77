@@ -158,9 +158,7 @@ impl Clone for RawStructure {
 
 impl Debug for RawStructure {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_list()
-            .entries(self.ptr.clone().into_iter())
-            .finish()
+        f.debug_list().entries(self.ptr.clone()).finish()
     }
 }
 /*

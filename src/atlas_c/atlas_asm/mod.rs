@@ -43,6 +43,12 @@ pub enum WipConstantValueTag {
     String,
 }
 
+impl Default for AsmConstantMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AsmConstantMap {
     pub fn new() -> Self {
         Self {
@@ -84,6 +90,12 @@ pub struct AsmFunction {
     pub nb_args: usize,
     /// Useful for debugging and error reporting
     pub declaration_span: Span,
+}
+
+impl Default for Assembler {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Assembler {
@@ -752,13 +764,18 @@ impl Assembler {
             i += 1;
         }
 
-        let entry_point = source.functions.get("main").map(|main_func| *main_func);
+        let entry_point = source.functions.get("main").copied();
         let mut struct_descriptors = Vec::new();
         for struct_descriptor in source.structs.iter() {
             struct_descriptors.push(StructDescriptor {
                 name: struct_descriptor.name.to_owned(),
                 nb_fields: struct_descriptor.fields.len(),
-                fields: struct_descriptor.fields.clone().into_iter().map(|s| s.to_owned()).collect(),
+                fields: struct_descriptor
+                    .fields
+                    .clone()
+                    .into_iter()
+                    .map(|s| s.to_owned())
+                    .collect(),
             });
         }
         Ok(AsmProgram {

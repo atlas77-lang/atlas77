@@ -153,9 +153,9 @@ pub enum Type {
     Object,
 }
 
-impl Into<VMTag> for Type {
-    fn into(self) -> VMTag {
-        match self {
+impl From<Type> for VMTag {
+    fn from(val: Type) -> Self {
+        match val {
             Type::Integer => VMTag::Int64,
             Type::Float => VMTag::Float64,
             Type::UnsignedInteger => VMTag::UInt64,

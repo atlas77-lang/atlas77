@@ -10,7 +10,7 @@ pub const IO_FUNCTIONS: [(&str, CallBack); 4] = [
     ("input", input),
     ("panic", panic),
 ];
-pub fn println<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
+pub fn println(state: VMState) -> Result<VMData, RuntimeError> {
     let val = state.stack.pop()?;
     match val.tag {
         VMTag::Unit
@@ -34,7 +34,7 @@ pub fn println<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
     Ok(VMData::new_unit())
 }
 
-pub fn print<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
+pub fn print(state: VMState) -> Result<VMData, RuntimeError> {
     let val = state.stack.pop()?;
     match val.tag {
         VMTag::Unit
@@ -58,7 +58,7 @@ pub fn print<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
     Ok(VMData::new_unit())
 }
 
-pub fn input<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
+pub fn input(state: VMState) -> Result<VMData, RuntimeError> {
     let mut input = String::new();
     std::io::stdin().read_line(&mut input).unwrap();
     let obj_index = state
@@ -70,7 +70,7 @@ pub fn input<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
     }
 }
 
-pub fn panic<'lib>(state: VMState) -> Result<VMData, RuntimeError> {
+pub fn panic(state: VMState) -> Result<VMData, RuntimeError> {
     let val = state.stack.pop()?;
     match val.tag {
         VMTag::Unit

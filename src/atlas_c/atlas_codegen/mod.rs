@@ -82,10 +82,13 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             for arg in function.signature.params.iter() {
                 self.local_variables.insert(arg.name);
             }
-            
+
             self.generate_bytecode_block(&function.body, &mut bytecode)?;
-            
-            eprintln!("Function: {} has {:?} local variables", func_name, self.local_variables); //--- IGNORE ---
+
+            eprintln!(
+                "Function: {} has {:?} local variables",
+                func_name, self.local_variables
+            ); //--- IGNORE ---
             //There is no need to reserve space for local variables if there is none
             if self.local_variables.len() > 0 {
                 bytecode.insert(
@@ -798,9 +801,8 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 ConstantValue::String(s.value.to_string()),
             )),
             HirExpr::Ident(i) => {
-                let var_index;
-                match self.local_variables.get_index(i.name) {
-                    Some(idx) => var_index = idx,
+                let var_index = match self.local_variables.get_index(i.name) {
+                    Some(idx) => idx,
                     None => {
                         let path = i.span.path;
                         let src = utils::get_file_content(path).unwrap();
@@ -813,13 +815,12 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                             src: NamedSource::new(path, src),
                         }));
                     }
-                }
+                };
                 bytecode.push(Instruction::LoadVar(var_index))
             }
             HirExpr::ThisLiteral(this) => {
-                let var_index;
-                match self.local_variables.get_index(THIS_NAME) {
-                    Some(idx) => var_index = idx,
+                let var_index = match self.local_variables.get_index(THIS_NAME) {
+                    Some(idx) => idx,
                     None => {
                         let path = this.span.path;
                         let src = utils::get_file_content(path).unwrap();
@@ -832,7 +833,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                             src: NamedSource::new(path, src),
                         }));
                     }
-                }
+                };
                 bytecode.push(Instruction::LoadVar(var_index))
             }
             HirExpr::FieldAccess(field_access) => {
