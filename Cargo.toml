@@ -42,7 +42,7 @@ bumpalo = "3.16.0"
 miette = { version = "7.4.0", features = ["fancy"] }
 ron = "0.8.1"
 thiserror = "2.0.11"
-logos = "0.15.0"
+logos = "0.16.0"
 serde = { version = "1.0.217", features = ["derive"] }
 rand = "0.9.0"
 time = { version = "0.3.37", features = ["formatting"] }
