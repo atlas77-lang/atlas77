@@ -9,7 +9,7 @@ use super::{
     stmt::HirStatement,
     ty::{HirTy, HirTyId},
 };
-use crate::atlas_c::atlas_hir::{error::TryingToAccessFieldOnNonObjectTypeError, expr::HirUnaryOp, monomorphization_pass::MonomorphizationPass};
+use crate::atlas_c::atlas_hir::{error::TryingToAccessFieldOnNonObjectTypeError, expr::HirUnaryOp, monomorphization_pass::MonomorphizationPass, warning::TryingToCastToTheSameTypeWarning};
 use crate::atlas_c::atlas_hir::signature::{
     HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier, HirVisibility,
 };
@@ -496,6 +496,17 @@ impl<'hir> TypeChecker<'hir> {
                         "int64, float64, uint64, bool, char or str",
                         &c.expr.span(),
                     ));
+                }
+                if self.is_equivalent_ty(
+                    expr_ty,
+                    c.expr.span(),
+                    c.ty,
+                    c.span,
+                ).is_ok() {
+                    Self::trying_to_cast_to_the_same_type_warning(&c.span, &format!("{}", c.ty));
+                    // Unwrap the redundant cast by replacing the casting expression with the inner expression
+                    *expr = (*c.expr).clone();
+                    return Ok(expr_ty);
                 }
 
                 Ok(c.ty)
@@ -1388,6 +1399,19 @@ impl<'hir> TypeChecker<'hir> {
             ty1: ty1.to_string(),
             ty2: ty2.to_string(),
         })
+    }
+
+    fn trying_to_cast_to_the_same_type_warning(span: &Span, ty: &str) {
+        let path = span.path;
+        let src = utils::get_file_content(path).unwrap();
+        let warning: ErrReport =
+            HirWarning::TryingToCastToTheSameType(TryingToCastToTheSameTypeWarning {
+                span: *span,
+                src: NamedSource::new(path, src),
+                ty: ty.to_string(),
+            })
+            .into();
+        eprintln!("{:?}", warning);
     }
 
     /// + - * / %

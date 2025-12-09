@@ -8,8 +8,25 @@ declare_warning_type!(
         ThisTypeIsStillUnstable(ThisTypeIsStillUnstableWarning),
         DeletingReferenceIsNotSafe(DeletingReferenceMightLeadToUB),
         NameShouldBeInDifferentCase(NameShouldBeInDifferentCaseWarning),
+        TryingToCastToTheSameType(TryingToCastToTheSameTypeWarning),
     }
 );
+
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::trying_to_cast_to_the_same_type),
+    severity(warning),
+    help("Remove the cast (`as {ty}`) as it is redundant")
+)]
+#[error("Trying to cast something which is of type `{ty}` to `{ty}`")]
+pub struct TryingToCastToTheSameTypeWarning {
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label = "Casting to the same type is redundant"]
+    pub span: Span,
+    pub ty: String,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
