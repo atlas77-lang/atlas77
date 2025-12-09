@@ -9,13 +9,18 @@ use super::{
     stmt::HirStatement,
     ty::{HirTy, HirTyId},
 };
-use crate::atlas_c::atlas_hir::{error::TryingToAccessFieldOnNonObjectTypeError, expr::HirUnaryOp, monomorphization_pass::MonomorphizationPass, warning::TryingToCastToTheSameTypeWarning};
 use crate::atlas_c::atlas_hir::signature::{
     HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier, HirVisibility,
 };
 use crate::atlas_c::atlas_hir::ty::HirNamedTy;
 use crate::atlas_c::atlas_hir::type_check_pass::context::{ContextFunction, ContextVariable};
 use crate::atlas_c::atlas_hir::warning::{DeletingReferenceMightLeadToUB, HirWarning};
+use crate::atlas_c::atlas_hir::{
+    error::TryingToAccessFieldOnNonObjectTypeError,
+    expr::{HirUnaryOp, HirUnsignedIntegerLiteralExpr},
+    monomorphization_pass::MonomorphizationPass,
+    warning::TryingToCastToTheSameTypeWarning,
+};
 use crate::atlas_c::atlas_hir::{
     error::{NotEnoughArgumentsError, NotEnoughArgumentsOrigin},
     item::{HirStruct, HirStructMethod},
@@ -30,9 +35,8 @@ use crate::atlas_c::{
         AccessingClassFieldOutsideClassError, AccessingPrivateConstructorError,
         AccessingPrivateFieldError, AccessingPrivateFunctionError, AccessingPrivateFunctionOrigin,
         AccessingPrivateStructError, AccessingPrivateStructOrigin, CanOnlyConstructStructsError,
-        CannotDeletePrimitiveTypeError, EmptyListLiteralError, FieldKind,
-        IllegalOperationError, TryingToIndexNonIndexableTypeError, TypeMismatchActual,
-        UnsupportedExpr,
+        CannotDeletePrimitiveTypeError, EmptyListLiteralError, FieldKind, IllegalOperationError,
+        TryingToIndexNonIndexableTypeError, TypeMismatchActual, UnsupportedExpr,
     },
     utils,
 };
@@ -66,7 +70,10 @@ impl<'hir> TypeChecker<'hir> {
         }
     }
 
-    pub fn check(&mut self, hir: &mut HirModule<'hir>) -> HirResult<()> {
+    pub fn check(
+        &mut self,
+        hir: &'hir mut HirModule<'hir>,
+    ) -> HirResult<&'hir mut HirModule<'hir>> {
         self.signature = hir.signature.clone();
         for func in &mut hir.body.functions {
             self.current_func_name = Some(func.0);
@@ -76,7 +83,7 @@ impl<'hir> TypeChecker<'hir> {
             self.current_class_name = Some(class.0);
             self.check_class(class.1)?;
         }
-        Ok(())
+        Ok(hir)
     }
 
     pub fn check_class(&mut self, class: &mut HirStruct<'hir>) -> HirResult<()> {
@@ -497,12 +504,10 @@ impl<'hir> TypeChecker<'hir> {
                         &c.expr.span(),
                     ));
                 }
-                if self.is_equivalent_ty(
-                    expr_ty,
-                    c.expr.span(),
-                    c.ty,
-                    c.span,
-                ).is_ok() {
+                if self
+                    .is_equivalent_ty(expr_ty, c.expr.span(), c.ty, c.span)
+                    .is_ok()
+                {
                     Self::trying_to_cast_to_the_same_type_warning(&c.span, &format!("{}", c.ty));
                     // Unwrap the redundant cast by replacing the casting expression with the inner expression
                     *expr = (*c.expr).clone();
@@ -585,7 +590,7 @@ impl<'hir> TypeChecker<'hir> {
                         Ok(lhs)
                     }
                     HirBinaryOperator::Eq | HirBinaryOperator::Neq => {
-                        if !TypeChecker::is_equality_comparable(lhs) {
+                        if !self.is_equality_comparable(lhs) {
                             return Err(Self::illegal_operation_err(
                                 lhs,
                                 rhs,
@@ -862,6 +867,7 @@ impl<'hir> TypeChecker<'hir> {
                                         span: field_access.span,
                                         kind: FieldKind::Function,
                                         src: NamedSource::new(path, src),
+                                        field_name: field_access.field.name.to_string(),
                                     },
                                 ));
                             }
@@ -907,7 +913,7 @@ impl<'hir> TypeChecker<'hir> {
                         }
                     }
                     HirExpr::StaticAccess(static_access) => {
-                        let name = match static_access.target.as_ref() {
+                        let name = match static_access.target {
                             HirTy::Named(n) => n.name,
                             HirTy::Generic(g) => {
                                 MonomorphizationPass::mangle_generic_struct_name(self.arena, g)
@@ -1014,11 +1020,13 @@ impl<'hir> TypeChecker<'hir> {
                     None => {
                         let path = field_access.span.path;
                         let src = utils::get_file_content(path).unwrap();
-                        return Err(HirError::TryingToAccessFieldOnNonObjectType(TryingToAccessFieldOnNonObjectTypeError {
-                            span: field_access.span,
-                            ty: format!("{}", target_ty),
-                            src: NamedSource::new(path, src),
-                        }));
+                        return Err(HirError::TryingToAccessFieldOnNonObjectType(
+                            TryingToAccessFieldOnNonObjectTypeError {
+                                span: field_access.span,
+                                ty: format!("{}", target_ty),
+                                src: NamedSource::new(path, src),
+                            },
+                        ));
                     }
                 };
                 let class = match self.signature.structs.get(name) {
@@ -1035,13 +1043,18 @@ impl<'hir> TypeChecker<'hir> {
                     if self.current_class_name != Some(name)
                         && field_signature.vis != HirVisibility::Public
                     {
-                        let path = expr.span().path;
+                        eprintln!(
+                            "Accessing private field: {} of {}",
+                            field_signature.vis as u8, name
+                        );
+                        let path = field_access.span.path;
                         let src = utils::get_file_content(path).unwrap();
                         return Err(HirError::AccessingPrivateField(
                             AccessingPrivateFieldError {
-                                span: expr.span(),
+                                span: field_access.span,
                                 kind: FieldKind::Field,
                                 src: NamedSource::new(path, src),
+                                field_name: field_access.field.name.to_string(),
                             },
                         ));
                     }
@@ -1056,25 +1069,51 @@ impl<'hir> TypeChecker<'hir> {
                 }
             }
             HirExpr::StaticAccess(static_access) => {
-                let name = match static_access.target.as_ref() {
-                    HirTy::Named(n) => n.name,
-                    HirTy::Generic(g) => {
-                        MonomorphizationPass::mangle_generic_struct_name(self.arena, g)
-                    }
-                    _ => {
+                let name = match self.get_class_name_of_type(static_access.target) {
+                    Some(n) => n,
+                    None => {
                         let path = static_access.span.path;
                         let src = utils::get_file_content(path).unwrap();
-                        return Err(HirError::CanOnlyConstructStructs(
-                            CanOnlyConstructStructsError {
+                        return Err(HirError::TryingToAccessFieldOnNonObjectType(
+                            TryingToAccessFieldOnNonObjectTypeError {
                                 span: static_access.span,
+                                ty: format!("{}", static_access.target),
                                 src: NamedSource::new(path, src),
                             },
                         ));
                     }
                 };
+
                 let class = match self.signature.structs.get(name) {
                     Some(c) => *c,
                     None => {
+                        //We might be trying to access an enum variant
+                        if let Some(enum_signature) = self.signature.enums.get(name) {
+                            let variant = enum_signature
+                                .variants
+                                .iter()
+                                .find(|v| v.name == static_access.field.name);
+                            match variant {
+                                Some(var) => {
+                                    let replaced_expr = HirExpr::UnsignedIntegerLiteral(
+                                        HirUnsignedIntegerLiteralExpr {
+                                            value: var.value as u64,
+                                            span: static_access.span,
+                                            ty: self.arena.types().get_uint64_ty(),
+                                        },
+                                    );
+                                    *expr = replaced_expr;
+                                    return Ok(self.arena.types().get_uint64_ty());
+                                }
+                                None => {
+                                    return Err(Self::unknown_type_err(
+                                        &format!("{}::{}", name, static_access.field.name),
+                                        &static_access.span,
+                                    ));
+                                }
+                            }
+                        }
+                        eprintln!("Unknown type accessed in static access: {}", name);
                         return Err(Self::unknown_type_err(name, &static_access.span));
                     }
                 };
@@ -1223,7 +1262,7 @@ impl<'hir> TypeChecker<'hir> {
             (HirTy::Nullable(n1), HirTy::Nullable(n2)) => {
                 self.is_equivalent_ty(n1.inner, ty1_span, n2.inner, ty2_span)
             }
-            (HirTy::Int64(_), HirTy::UInt64(_)) | (HirTy::UInt64(_), HirTy::Int64(_)) => Ok(()),
+            //(HirTy::Int64(_), HirTy::UInt64(_)) | (HirTy::UInt64(_), HirTy::Int64(_)) => Ok(()),
             (HirTy::Nullable(n1), _) => self.is_equivalent_ty(n1.inner, ty1_span, ty2, ty2_span),
             (_, HirTy::Nullable(n2)) => self.is_equivalent_ty(ty1, ty1_span, n2.inner, ty2_span),
             (HirTy::Generic(g), HirTy::Named(n)) | (HirTy::Named(n), HirTy::Generic(g)) => {
@@ -1238,21 +1277,24 @@ impl<'hir> TypeChecker<'hir> {
                     ))
                 }
             }
+            //Check for enums
+            (HirTy::Named(n), HirTy::UInt64(_)) | (HirTy::UInt64(_), HirTy::Named(n)) => {
+                if let Some(_) = self.signature.enums.get(n.name) {
+                    Ok(())
+                } else {
+                    Err(Self::type_mismatch_err(
+                        &format!("{}", ty1),
+                        &ty1_span,
+                        &format!("{}", ty2),
+                        &ty2_span,
+                    ))
+                }
+            }
             (HirTy::ReadOnlyReference(read_only1), HirTy::ReadOnlyReference(read_only2)) => {
-                self.is_equivalent_ty(
-                    read_only1.inner,
-                    ty1_span,
-                    read_only2.inner,
-                    ty2_span,
-                )
+                self.is_equivalent_ty(read_only1.inner, ty1_span, read_only2.inner, ty2_span)
             }
             (HirTy::MutableReference(mutable1), HirTy::MutableReference(mutable2)) => {
-                self.is_equivalent_ty(
-                    mutable1.inner,
-                    ty1_span,
-                    mutable2.inner,
-                    ty2_span,
-                )
+                self.is_equivalent_ty(mutable1.inner, ty1_span, mutable2.inner, ty2_span)
             }
             _ => {
                 if HirTyId::from(ty1) == HirTyId::from(ty2) {
@@ -1289,8 +1331,7 @@ impl<'hir> TypeChecker<'hir> {
         match ty {
             HirTy::Named(n) => Some(n.name),
             HirTy::Generic(g) => Some(MonomorphizationPass::mangle_generic_struct_name(
-                self.arena,
-                g,
+                self.arena, g,
             )),
             HirTy::ReadOnlyReference(read_only) => self.get_class_name_of_type(read_only.inner),
             HirTy::MutableReference(mutable) => self.get_class_name_of_type(mutable.inner),
@@ -1423,16 +1464,23 @@ impl<'hir> TypeChecker<'hir> {
     }
 
     /// == !=
-    fn is_equality_comparable(ty: &HirTy) -> bool {
-        matches!(
-            ty,
+    fn is_equality_comparable(&self, ty: &HirTy) -> bool {
+        match ty {
             HirTy::Int64(_)
-                | HirTy::UInt64(_)
-                | HirTy::Float64(_)
-                | HirTy::Char(_)
-                | HirTy::Boolean(_)
-                | HirTy::Unit(_)
-        )
+            | HirTy::UInt64(_)
+            | HirTy::Float64(_)
+            | HirTy::Char(_)
+            | HirTy::Boolean(_)
+            | HirTy::Unit(_) => true,
+            HirTy::Named(n) => {
+                if let Some(_) = self.signature.enums.get(n.name) {
+                    true
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
     }
 
     fn is_orderable_type(ty: &HirTy) -> bool {

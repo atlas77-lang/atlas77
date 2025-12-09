@@ -55,7 +55,7 @@ pub struct AstEnumVariant<'ast> {
     pub span: Span,
     pub name: &'ast AstIdentifier<'ast>,
     /// Currently, enum variants can only have a single unsigned integer value
-    pub value: usize,
+    pub value: u64,
 }
 
 /// And ASTGeneric carries the name of the generic type as well as the constraints
@@ -634,7 +634,6 @@ impl<'ast> AstType<'ast> {
         }
     }
 }
-
 
 #[derive(Debug, Clone)]
 /// A nullable type in atlas has the form of `T?`

@@ -503,15 +503,19 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         self.generate_bytecode_expr(&field_access.target, bytecode)?;
                         //Get the value
                         self.generate_bytecode_expr(&a.rhs, bytecode)?;
-                        let struct_name = match self.get_class_name_of_type(field_access.target.ty()) {
-                            Some(n) => n,
-                            None => {
-                                return Err(Self::unsupported_expr_err(
-                                    expr,
-                                    format!("[CodeGen] No field access for: {}", field_access.target.ty()),
-                                ));
-                            }
-                        };
+                        let struct_name =
+                            match self.get_class_name_of_type(field_access.target.ty()) {
+                                Some(n) => n,
+                                None => {
+                                    return Err(Self::unsupported_expr_err(
+                                        expr,
+                                        format!(
+                                            "[CodeGen] No field access for: {}",
+                                            field_access.target.ty()
+                                        ),
+                                    ));
+                                }
+                            };
                         let struct_descriptor = self
                             .struct_pool
                             .iter()
@@ -690,22 +694,23 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         for arg in &f.args {
                             self.generate_bytecode_expr(arg, bytecode)?;
                         }
-                        let struct_name = match self.get_class_name_of_type(field_access.target.ty()) {
-                            Some(n) => n,
-                            _ => {
-                                return Err(Self::unsupported_expr_err(
-                                    expr,
-                                    format!("Can't call from: {}", field_access.target.ty()),
-                                ));
-                            }
-                        };
+                        let struct_name =
+                            match self.get_class_name_of_type(field_access.target.ty()) {
+                                Some(n) => n,
+                                _ => {
+                                    return Err(Self::unsupported_expr_err(
+                                        expr,
+                                        format!("Can't call from: {}", field_access.target.ty()),
+                                    ));
+                                }
+                            };
                         bytecode.push(Instruction::Call {
                             func_name: format!("{}.{}", struct_name, field_access.field.name),
                             nb_args: f.args.len() as u8 + 1,
                         })
                     }
                     HirExpr::StaticAccess(static_access) => {
-                        let name = match static_access.target.as_ref() {
+                        let name = match static_access.target {
                             HirTy::Named(n) => n.name,
                             HirTy::Generic(g) => {
                                 MonomorphizationPass::mangle_generic_struct_name(self.hir_arena, g)
@@ -804,7 +809,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 bytecode.push(Instruction::GetField { field })
             }
             HirExpr::StaticAccess(static_access) => {
-                let struct_name = match static_access.target.as_ref() {
+                let struct_name = match static_access.target {
                     HirTy::Named(n) => n.name,
                     HirTy::Generic(g) => {
                         MonomorphizationPass::mangle_generic_struct_name(self.hir_arena, g)
@@ -954,9 +959,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
             HirExpr::Delete(delete) => {
                 let name = match &delete.expr.ty() {
-                    HirTy::Named(_) | HirTy::ReadOnlyReference(_) | HirTy::MutableReference(_) | HirTy::Generic(_) => {
-                        self.get_class_name_of_type(delete.expr.ty()).unwrap()
-                    },
+                    HirTy::Named(_)
+                    | HirTy::ReadOnlyReference(_)
+                    | HirTy::MutableReference(_)
+                    | HirTy::Generic(_) => self.get_class_name_of_type(delete.expr.ty()).unwrap(),
                     HirTy::String(_) | HirTy::List(_) => {
                         //Strings and Lists have their own delete instruction
                         self.generate_bytecode_expr(&delete.expr, bytecode)?;
@@ -1024,5 +1030,4 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             _ => None,
         }
     }
-
 }

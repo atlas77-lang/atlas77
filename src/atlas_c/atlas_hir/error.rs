@@ -45,7 +45,6 @@ declare_error_type! {
 /// Handy type alias for all HIR-related errors.
 pub type HirResult<T> = Result<T, HirError>;
 
-
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::trying_to_access_field_on_non_object_type))]
 #[error("Trying to access field on non-object type: {ty}")]
@@ -318,13 +317,14 @@ pub struct NonConstantValueError {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::self_access_outside_class))]
-#[error("Can't access fields of self outside of a class")]
+#[error("Can't access private {kind} `{field_name}` outside of its class")]
 pub struct AccessingPrivateFieldError {
-    #[label("Trying to access a private {kind}")]
+    #[label("Trying to access private {kind} `{field_name}` from outside its class")]
     pub span: Span,
     pub kind: FieldKind,
     #[source_code]
     pub src: NamedSource<String>,
+    pub field_name: String,
 }
 
 #[derive(Debug)]

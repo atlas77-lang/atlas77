@@ -18,9 +18,9 @@ use ast::{
     AstAssignExpr, AstBinaryOp, AstBinaryOpExpr, AstBlock, AstBooleanLiteral, AstBooleanType,
     AstCallExpr, AstConst, AstExpr, AstExternFunction, AstFieldAccessExpr, AstFloatLiteral,
     AstFloatType, AstFunction, AstFunctionType, AstIdentifier, AstIfElseExpr, AstImport,
-    AstIntegerLiteral, AstIntegerType, AstItem, AstLet, AstLiteral, AstNamedType, AstObjField,
-    AstMutableRefType, AstProgram, AstReturnStmt, AstStatement, AstStringLiteral, AstStringType,
-    AstType, AstUnaryOp, AstUnaryOpExpr, AstUnitType, AstUnsignedIntegerLiteral,
+    AstIntegerLiteral, AstIntegerType, AstItem, AstLet, AstLiteral, AstMutableRefType,
+    AstNamedType, AstObjField, AstProgram, AstReturnStmt, AstStatement, AstStringLiteral,
+    AstStringType, AstType, AstUnaryOp, AstUnaryOpExpr, AstUnitType, AstUnsignedIntegerLiteral,
     AstUnsignedIntegerType, AstWhileExpr,
 };
 
@@ -32,8 +32,8 @@ use crate::atlas_c::atlas_frontend::parser::ast::{
     AstCastingExpr, AstCharLiteral, AstCharType, AstConstructor, AstDeleteObjExpr, AstDestructor,
     AstGeneric, AstGenericConstraint, AstGenericType, AstIndexingExpr, AstListLiteral, AstListType,
     AstMethod, AstMethodModifier, AstNewArrayExpr, AstNewObjExpr, AstNullableType,
-    AstOperatorOverload, AstStaticAccessExpr, AstStruct, AstThisLiteral,
-    AstThisType, AstUnitLiteral, AstVisibility,
+    AstOperatorOverload, AstStaticAccessExpr, AstStruct, AstThisLiteral, AstThisType,
+    AstUnitLiteral, AstVisibility,
 };
 use crate::atlas_c::utils::{Span, get_file_content};
 use arena::AstArena;
@@ -163,7 +163,7 @@ impl<'ast> Parser<'ast> {
         let enum_identifier = self.parse_identifier()?;
         self.expect(TokenKind::LBrace)?;
         let mut variants = vec![];
-        let mut variant_value: usize = 0;
+        let mut variant_value: u64 = 0;
         while self.current().kind() != TokenKind::RBrace {
             let variant_name = self.parse_identifier()?;
             let value = if self.current().kind() == TokenKind::OpAssign {
@@ -171,11 +171,11 @@ impl<'ast> Parser<'ast> {
                 match self.current().kind() {
                     TokenKind::Integer(val) => {
                         let _ = self.advance();
-                        val as usize
+                        val as u64
                     }
                     TokenKind::UnsignedInteger(val) => {
                         let _ = self.advance();
-                        val as usize
+                        val
                     }
                     _ => {
                         return Err(self.unexpected_token_error(
@@ -1057,7 +1057,9 @@ impl<'ast> Parser<'ast> {
                             }
                             TokenKind::DoubleColon => {
                                 //Static access with generics like `Foo::<Bar>::baz::qux`
-                                node = AstExpr::StaticAccess(self.parse_static_access(node, generics)?);
+                                node = AstExpr::StaticAccess(
+                                    self.parse_static_access(node, generics)?,
+                                );
                             }
                             _ => {
                                 return Err(self.unexpected_token_error(

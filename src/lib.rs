@@ -4,7 +4,9 @@ pub mod atlas_c;
 pub mod atlas_lib;
 pub mod atlas_vm;
 
-use crate::atlas_c::atlas_asm::AsmProgram;
+use crate::atlas_c::{
+    atlas_asm::AsmProgram, atlas_hir::dead_code_elimination_pass::DeadCodeEliminationPass,
+};
 use atlas_c::{
     atlas_asm,
     atlas_codegen::{CodeGenUnit, arena::CodeGenArena},
@@ -19,6 +21,7 @@ use std::{collections::BTreeMap, io::Write, path::PathBuf, time::Instant};
 //todo: The pipeline of the compiler should be more straightforward and should include the "debug" and "release" modes
 //todo: There should also be a function for each stage of the pipeline
 
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum CompilationFlag {
     Release,
     Debug,
@@ -38,7 +41,7 @@ fn get_path(path: &str) -> PathBuf {
 
 pub fn build(
     path: String,
-    _flag: CompilationFlag,
+    flag: CompilationFlag,
     has_standard_library: bool,
 ) -> miette::Result<AsmProgram> {
     let start = Instant::now();
@@ -66,11 +69,17 @@ pub fn build(
 
     //monomorphize
     let mut monomorphizer = MonomorphizationPass::new(&hir_arena, lower.generic_pool);
-    monomorphizer.monomorphize(hir)?;
+    let mut hir = monomorphizer.monomorphize(hir)?;
 
+    if flag == CompilationFlag::Release {
+        let mut dce_pass = DeadCodeEliminationPass::new(&hir_arena);
+        hir = dce_pass.eliminate_dead_code(hir)?;
+    }
     //type-check
     let mut type_checker = TypeChecker::new(&hir_arena);
-    type_checker.check(hir)?;
+    let hir = type_checker.check(hir)?;
+
+    //Todo: Lifetime analysis pass
 
     //codegen
     let bump = Bump::new();

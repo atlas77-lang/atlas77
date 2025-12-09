@@ -7,8 +7,8 @@ use std::{
 
 use super::ty::{
     HirBooleanTy, HirCharTy, HirFloatTy, HirGenericTy, HirIntegerTy, HirListTy,
-    HirNamedTy, HirNullableTy, HirMutableReferenceTy, HirStringTy, HirTy, HirTyId, HirUninitializedTy,
-    HirUnitTy, HirUnsignedIntTy,
+    HirMutableReferenceTy, HirNamedTy, HirNullableTy, HirStringTy, HirTy, HirTyId,
+    HirUninitializedTy, HirUnitTy, HirUnsignedIntTy,
 };
 use crate::atlas_c::{atlas_hir::ty::HirReadOnlyReferenceTy, utils::Span};
 use bumpalo::Bump;
@@ -199,7 +199,10 @@ impl<'arena> TypeArena<'arena> {
         })
     }
 
-    pub fn get_mutable_reference_ty(&'arena self, inner: &'arena HirTy<'arena>) -> &'arena HirTy<'arena> {
+    pub fn get_mutable_reference_ty(
+        &'arena self,
+        inner: &'arena HirTy<'arena>,
+    ) -> &'arena HirTy<'arena> {
         let id = HirTyId::compute_mutable_ref_ty_id(&HirTyId::from(inner));
         self.intern.borrow_mut().entry(id).or_insert_with(|| {
             self.allocator
@@ -207,12 +210,14 @@ impl<'arena> TypeArena<'arena> {
         })
     }
 
-    pub fn get_readonly_reference_ty(&'arena self, inner: &'arena HirTy<'arena>) -> &'arena HirTy<'arena> {
+    pub fn get_readonly_reference_ty(
+        &'arena self,
+        inner: &'arena HirTy<'arena>,
+    ) -> &'arena HirTy<'arena> {
         let id = HirTyId::compute_readonly_ref_ty_id(&HirTyId::from(inner));
         self.intern.borrow_mut().entry(id).or_insert_with(|| {
             self.allocator
                 .alloc(HirTy::ReadOnlyReference(HirReadOnlyReferenceTy { inner }))
         })
     }
-
 }

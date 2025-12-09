@@ -18,9 +18,9 @@ private enum OptionTag {
 public struct Option<T> {
 public:
   	/// 0 = None, 1 = Some
-  	tag: int64;
+  	tag: OptionTag;
   	data: T;
-  	Option(data: T, tag: int64) {
+  	Option(data: T, tag: OptionTag) {
 		this.tag = tag;
 		this.data = data;
 	}
@@ -37,16 +37,4 @@ public:
 	fun is_none(this) -> bool {
 		return this.tag == OptionTag::NONE;
 	}
-	fun map<U>(this, other: U) -> Option<U> {
-		if this.tag == OptionTag::SOME {
-			return Option::some(other);
-		}
-		return Option::none();
-	}
-}
-
-fun main() {
-    let a = Option::<int64>::some(42);
-    let b = Option::<int64>::none();
-	let c = a.map::<string>("Hello");
 }

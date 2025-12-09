@@ -10,10 +10,10 @@ use crate::atlas_c::{
         parser::{
             arena::AstArena,
             ast::{
-                AstBinaryOp, AstBlock, AstConstructor, AstDestructor, AstExpr, AstExternFunction,
-                AstFunction, AstIdentifier, AstImport, AstItem, AstLiteral, AstMethod,
-                AstMethodModifier, AstNamedType, AstObjField, AstProgram, AstStatement, AstStruct,
-                AstType, AstUnaryOp,
+                AstBinaryOp, AstBlock, AstConstructor, AstDestructor, AstEnum, AstExpr,
+                AstExternFunction, AstFunction, AstIdentifier, AstImport, AstItem, AstLiteral,
+                AstMethod, AstMethodModifier, AstNamedType, AstObjField, AstProgram, AstStatement,
+                AstStruct, AstType, AstUnaryOp,
             },
         },
     },
@@ -21,9 +21,8 @@ use crate::atlas_c::{
         HirImport, HirModule, HirModuleBody,
         arena::HirArena,
         error::{
-            HirError, HirResult, NonConstantValueError,
-            StructNameCannotBeOneLetterError, UnsupportedExpr,
-            UnsupportedStatement, UnsupportedTypeError, UselessError,
+            HirError, HirResult, NonConstantValueError, StructNameCannotBeOneLetterError,
+            UnsupportedExpr, UnsupportedStatement, UnsupportedTypeError, UselessError,
         },
         expr::{
             HirAssignExpr, HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr,
@@ -34,7 +33,9 @@ use crate::atlas_c::{
             HirUnsignedIntegerLiteralExpr, UnaryOpExpr,
         },
         generic_pool::HirGenericPool,
-        item::{HirFunction, HirStruct, HirStructConstructor, HirStructMethod},
+        item::{
+            HirEnum, HirEnumVariant, HirFunction, HirStruct, HirStructConstructor, HirStructMethod,
+        },
         signature::{
             ConstantValue, HirFunctionParameterSignature, HirFunctionSignature, HirModuleSignature,
             HirStructConstantSignature, HirStructConstructorSignature, HirStructFieldSignature,
@@ -141,6 +142,12 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     for (name, hir_func) in allocated_hir.body.functions.iter() {
                         self.module_body.functions.insert(name, hir_func.clone());
                     }
+                    for (name, hir_enum) in allocated_hir.body.enums.iter() {
+                        self.module_body.enums.insert(name, hir_enum.clone());
+                    }
+                    for (name, signature) in allocated_hir.signature.enums.iter() {
+                        self.module_signature.enums.insert(name, signature);
+                    }
                     self.generic_pool.structs.append(&mut generic_pool.structs);
                 }
                 Err(e) => match e {
@@ -151,9 +158,53 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             AstItem::ExternFunction(ast_extern_func) => {
                 self.visit_extern_func(ast_extern_func)?;
             }
-            AstItem::Enum(_e) => {}
+            AstItem::Enum(e) => {
+                let hir_enum = self.visit_enum(e)?;
+                eprintln!("Lowered enum: {}", hir_enum.name);
+                self.module_body
+                    .enums
+                    .insert(self.arena.names().get(e.name.name), hir_enum.clone());
+                self.module_signature.enums.insert(
+                    self.arena.names().get(e.name.name),
+                    self.arena.intern(hir_enum),
+                );
+            }
         }
         Ok(())
+    }
+
+    fn visit_enum(&mut self, ast_enum: &'ast AstEnum<'ast>) -> HirResult<HirEnum<'hir>> {
+        let name = self.arena.names().get(ast_enum.name.name);
+        if !name.is_pascal_case() {
+            Self::name_should_be_in_different_case_warning(
+                &ast_enum.name.span,
+                "PascalCase",
+                "enum",
+                name,
+                &name.to_pascal_case(),
+            );
+        }
+        if name.len() == 1 {
+            return Err(Self::name_single_character_error(&ast_enum.name.span));
+        }
+        let mut variants = Vec::new();
+        for variant in ast_enum.variants.iter() {
+            let variant = HirEnumVariant {
+                span: variant.span,
+                name: self.arena.names().get(variant.name.name),
+                name_span: variant.name.span,
+                value: variant.value,
+            };
+            variants.push(variant);
+        }
+        let hir = HirEnum {
+            span: ast_enum.span,
+            name,
+            name_span: ast_enum.name.span,
+            variants,
+            vis: ast_enum.vis.into(),
+        };
+        Ok(hir)
     }
 
     fn visit_extern_func(&mut self, ast_extern_func: &AstExternFunction<'ast>) -> HirResult<()> {
@@ -316,19 +367,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         let constructor = self.visit_constructor(node.constructor, &fields)?;
         let destructor = self.visit_destructor(node.destructor)?;
 
-        let constructor_signature = HirStructConstructorSignature {
-            span: node.span,
-            params: constructor.params.to_vec(),
-            type_params: constructor.type_params.to_vec(),
-            vis: constructor.vis,
-        };
-        let destructor_signature = HirStructConstructorSignature {
-            span: node.span,
-            params: destructor.params.to_vec(),
-            type_params: destructor.type_params.to_vec(),
-            vis: destructor.vis,
-        };
-
         let signature = HirStructSignature {
             declaration_span: node.span,
             name_span: node.name.span,
@@ -351,8 +389,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             operators,
             constants,
             generics,
-            constructor: constructor_signature,
-            destructor: destructor_signature,
+            constructor: constructor.signature.clone(),
+            destructor: destructor.signature.clone(),
         };
 
         Ok(HirStruct {
@@ -435,8 +473,17 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     name_span: type_param.name_span,
                 });
             }
+
+            let constructor_signature = HirStructConstructorSignature {
+                span: Span::default(),
+                params: params.clone(),
+                type_params: type_params.clone(),
+                vis: HirVisibility::Public,
+            };
+
             let hir = HirStructConstructor {
                 span: Span::default(),
+                signature: self.arena.intern(constructor_signature),
                 params,
                 type_params,
                 body: HirBlock {
@@ -470,8 +517,17 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 name_span: type_param.name_span,
             });
         }
+
+        let constructor_signature = HirStructConstructorSignature {
+            span: constructor.span,
+            params: params.clone(),
+            type_params: type_params.clone(),
+            vis: constructor.vis.into(),
+        };
+
         let hir = HirStructConstructor {
             span: constructor.span,
+            signature: self.arena.intern(constructor_signature),
             params,
             type_params,
             body: self.visit_block(constructor.body)?,
@@ -485,8 +541,15 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         destructor: Option<&'ast AstDestructor<'ast>>,
     ) -> HirResult<HirStructConstructor<'hir>> {
         if destructor.is_none() {
+            let signature = HirStructConstructorSignature {
+                span: Span::default(),
+                params: Vec::new(),
+                type_params: Vec::new(),
+                vis: HirVisibility::Public,
+            };
             let hir = HirStructConstructor {
                 span: Span::default(),
+                signature: self.arena.intern(signature),
                 params: Vec::new(),
                 type_params: Vec::new(),
                 body: HirBlock {
@@ -520,8 +583,15 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 name_span: type_param.name_span,
             });
         }
+        let signature = HirStructConstructorSignature {
+            span: destructor.span,
+            params: params.clone(),
+            type_params: type_params.clone(),
+            vis: destructor.vis.into(),
+        };
         let hir = HirStructConstructor {
             span: destructor.span,
+            signature: self.arena.intern(signature),
             params,
             type_params,
             body: self.visit_block(destructor.body)?,
@@ -909,7 +979,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             AstExpr::StaticAccess(ast_static_access) => {
                 let hir = HirExpr::StaticAccess(HirStaticAccessExpr {
                     span: node.span(),
-                    target: Box::new(self.visit_ty(ast_static_access.target)?.clone()),
+                    target: self.visit_ty(ast_static_access.target)?,
                     field: Box::new(HirIdentExpr {
                         name: self.arena.names().get(ast_static_access.field.name),
                         span: ast_static_access.field.span,

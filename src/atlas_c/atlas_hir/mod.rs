@@ -1,22 +1,21 @@
 use std::collections::BTreeMap;
 
-use crate::atlas_c::atlas_hir::item::HirStruct;
+use crate::atlas_c::atlas_hir::item::{HirEnum, HirStruct};
 use item::{HirFunction, HirImport};
 use signature::HirModuleSignature;
 
 //Should try to run even with a faulty AST
-/// Pass not run in debug mode
-pub mod syntax_lowering_pass;
-pub mod monomorphization_pass;
-pub mod type_check_pass;
-pub mod lifetime_pass;
+/// Always run
+pub mod arena;
 /// Passes not run in debug mode
 pub mod constant_folding_pass;
 pub mod dead_code_elimination_pass;
-/// Always run
-
-pub mod arena;
 pub mod error;
+pub mod lifetime_pass;
+pub mod monomorphization_pass;
+/// Pass not run in debug mode
+pub mod syntax_lowering_pass;
+pub mod type_check_pass;
 //todo: The Hir needs a little rework to correctly define what is an item, a statement, an expression, a type, etc.
 pub mod expr;
 mod generic_pool;
@@ -42,6 +41,7 @@ pub struct HirModuleBody<'hir> {
     pub functions: BTreeMap<&'hir str, HirFunction<'hir>>,
     pub structs: BTreeMap<&'hir str, HirStruct<'hir>>,
     pub imports: Vec<&'hir HirImport<'hir>>,
+    pub enums: BTreeMap<&'hir str, HirEnum<'hir>>,
 }
 
 #[derive(Debug, Clone, Default)]

@@ -2,6 +2,7 @@ use super::ty::{HirTy, HirUnitTy};
 use crate::atlas_c::atlas_frontend::parser::ast::AstVisibility;
 use crate::atlas_c::atlas_hir::expr::HirUnaryOp;
 use crate::atlas_c::atlas_hir::expr::{HirBinaryOperator, HirExpr};
+use crate::atlas_c::atlas_hir::item::HirEnum;
 use crate::atlas_c::utils::Span;
 use std::collections::BTreeMap;
 use std::fmt::Display;
@@ -13,6 +14,8 @@ use std::fmt::Display;
 pub struct HirModuleSignature<'hir> {
     pub functions: BTreeMap<&'hir str, &'hir HirFunctionSignature<'hir>>,
     pub structs: BTreeMap<&'hir str, &'hir HirStructSignature<'hir>>,
+    //No need for enum signatures for now
+    pub enums: BTreeMap<&'hir str, &'hir HirEnum<'hir>>,
 }
 
 #[derive(Debug, Clone)]

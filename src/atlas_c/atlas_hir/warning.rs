@@ -12,7 +12,6 @@ declare_warning_type!(
     }
 );
 
-
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
     code(sema::trying_to_cast_to_the_same_type),
