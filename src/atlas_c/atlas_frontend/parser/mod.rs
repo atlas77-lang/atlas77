@@ -215,7 +215,7 @@ impl<'ast> Parser<'ast> {
         class_name: String,
         vis: AstVisibility,
     ) -> ParseResult<AstConstructor<'ast>> {
-        self.expect(TokenKind::Identifier(class_name))?;
+        let start_span = self.expect(TokenKind::Identifier(class_name))?.span;
         self.expect(TokenKind::LParen)?;
         let mut params = vec![];
         while self.current().kind() != TokenKind::RParen {
@@ -227,7 +227,7 @@ impl<'ast> Parser<'ast> {
         self.expect(TokenKind::RParen)?;
         let body = self.parse_block()?;
         let node = AstConstructor {
-            span: Span::union_span(&params.first().unwrap().span, &body.span),
+            span: Span::union_span(&start_span, &body.span),
             args: self.arena.alloc_vec(params),
             body: self.arena.alloc(body),
             vis,
@@ -239,7 +239,7 @@ impl<'ast> Parser<'ast> {
         class_name: String,
         vis: AstVisibility,
     ) -> ParseResult<AstDestructor<'ast>> {
-        self.expect(TokenKind::Tilde)?;
+        let start_span = self.expect(TokenKind::Tilde)?.span;
         self.expect(TokenKind::Identifier(class_name))?;
         self.expect(TokenKind::LParen)?;
         let mut params = vec![];
@@ -252,7 +252,7 @@ impl<'ast> Parser<'ast> {
         self.expect(TokenKind::RParen)?;
         let body = self.parse_block()?;
         let node = AstDestructor {
-            span: Span::union_span(&body.span, &body.span),
+            span: Span::union_span(&start_span, &body.span),
             args: self.arena.alloc_vec(params),
             body: self.arena.alloc(body),
             vis,

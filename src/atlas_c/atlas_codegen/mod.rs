@@ -252,6 +252,17 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
 
         self.generate_bytecode_block(&constructor.body, &mut bytecode)?;
 
+        let local_space = self.local_variables.len() - params.len();
+        if local_space > 0 {
+            bytecode.insert(
+                0,
+                Instruction::LocalSpace {
+                    // Reserve space for local variables excluding parameters
+                    nb_vars: local_space as u8,
+                },
+            );
+        }
+
         //Return the self reference
         bytecode.push(Instruction::LoadVar(this_idx));
         bytecode.push(Instruction::Return);
@@ -289,6 +300,17 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
         }
 
         self.generate_bytecode_block(&destructor.body, &mut bytecode)?;
+
+        let local_space = self.local_variables.len() - params.len();
+        if local_space > 0 {
+            bytecode.insert(
+                0,
+                Instruction::LocalSpace {
+                    // Reserve space for local variables excluding parameters
+                    nb_vars: local_space as u8,
+                },
+            );
+        }
 
         //Return Unit
         bytecode.push(Instruction::LoadConst(ConstantValue::Unit));
