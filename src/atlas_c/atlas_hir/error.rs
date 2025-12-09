@@ -37,11 +37,36 @@ declare_error_type! {
         AccessingPrivateStruct(AccessingPrivateStructError),
         IllegalOperation(IllegalOperationError),
         AccessingPrivateFunction(AccessingPrivateFunctionError),
+        UnsupportedItem(UnsupportedItemError),
+        TryingToAccessFieldOnNonObjectType(TryingToAccessFieldOnNonObjectTypeError),
     }
 }
 
 /// Handy type alias for all HIR-related errors.
 pub type HirResult<T> = Result<T, HirError>;
+
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::trying_to_access_field_on_non_object_type))]
+#[error("Trying to access field on non-object type: {ty}")]
+pub struct TryingToAccessFieldOnNonObjectTypeError {
+    #[label = "trying to access field on non-object type"]
+    pub span: Span,
+    pub ty: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::unsupported_item))]
+#[error("{item} isn't supported yet")]
+pub struct UnsupportedItemError {
+    #[label = "unsupported item"]
+    pub span: Span,
+    pub item: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(

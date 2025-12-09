@@ -84,10 +84,6 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
 
             self.generate_bytecode_block(&function.body, &mut bytecode)?;
 
-            eprintln!(
-                "Function: {} has {:?} local variables",
-                func_name, self.local_variables
-            ); //--- IGNORE ---
             //There is no need to reserve space for local variables if there is none
             if self.local_variables.len() > 0 {
                 bytecode.insert(
@@ -485,15 +481,12 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         self.generate_bytecode_expr(&field_access.target, bytecode)?;
                         //Get the value
                         self.generate_bytecode_expr(&a.rhs, bytecode)?;
-                        let struct_name = match field_access.target.ty() {
-                            HirTy::Named(struct_name) => struct_name.name,
-                            HirTy::Generic(g) => {
-                                MonomorphizationPass::mangle_generic_struct_name(self.hir_arena, g)
-                            }
-                            _ => {
+                        let struct_name = match self.get_class_name_of_type(field_access.target.ty()) {
+                            Some(n) => n,
+                            None => {
                                 return Err(Self::unsupported_expr_err(
                                     expr,
-                                    format!("No field access for: {}", expr.ty()),
+                                    format!("[CodeGen] No field access for: {}", field_access.target.ty()),
                                 ));
                             }
                         };
@@ -588,6 +581,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                 ));
                             }
                         }
+                        HirUnaryOp::AsReadOnlyRef | HirUnaryOp::AsMutableRef => {
+                            //No instruction needed, just a type change &const T and T are represented the same in memory
+                            //It's the type system that prevents misuse
+                        }
                     }
                 }
             }
@@ -671,8 +668,23 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         for arg in &f.args {
                             self.generate_bytecode_expr(arg, bytecode)?;
                         }
-                        let struct_name = match field_access.target.ty() {
-                            HirTy::Named(struct_name) => struct_name.name,
+                        let struct_name = match self.get_class_name_of_type(field_access.target.ty()) {
+                            Some(n) => n,
+                            _ => {
+                                return Err(Self::unsupported_expr_err(
+                                    expr,
+                                    format!("Can't call from: {}", field_access.target.ty()),
+                                ));
+                            }
+                        };
+                        bytecode.push(Instruction::Call {
+                            func_name: format!("{}.{}", struct_name, field_access.field.name),
+                            nb_args: f.args.len() as u8 + 1,
+                        })
+                    }
+                    HirExpr::StaticAccess(static_access) => {
+                        let name = match static_access.target.as_ref() {
+                            HirTy::Named(n) => n.name,
                             HirTy::Generic(g) => {
                                 MonomorphizationPass::mangle_generic_struct_name(self.hir_arena, g)
                             }
@@ -683,20 +695,11 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                 ));
                             }
                         };
-                        bytecode.push(Instruction::Call {
-                            func_name: format!("{}.{}", struct_name, field_access.field.name),
-                            nb_args: f.args.len() as u8 + 1,
-                        })
-                    }
-                    HirExpr::StaticAccess(static_access) => {
                         for arg in &f.args {
                             self.generate_bytecode_expr(arg, bytecode)?;
                         }
                         bytecode.push(Instruction::Call {
-                            func_name: format!(
-                                "{}::{}",
-                                static_access.target.name, static_access.field.name
-                            ),
+                            func_name: format!("{}::{}", name, static_access.field.name),
                             nb_args: f.args.len() as u8,
                         })
                     }
@@ -753,15 +756,12 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
             HirExpr::FieldAccess(field_access) => {
                 self.generate_bytecode_expr(field_access.target.as_ref(), bytecode)?;
-                let struct_name = match field_access.target.ty() {
-                    HirTy::Named(struct_name) => struct_name.name,
-                    HirTy::Generic(g) => {
-                        MonomorphizationPass::mangle_generic_struct_name(self.hir_arena, g)
-                    }
-                    _ => {
+                let struct_name = match self.get_class_name_of_type(field_access.target.ty()) {
+                    Some(n) => n,
+                    None => {
                         return Err(Self::unsupported_expr_err(
                             expr,
-                            format!("No field access for: {}", expr.ty()),
+                            format!("Field access for: {}", field_access.target.ty()),
                         ));
                     }
                 };
@@ -781,131 +781,124 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     .unwrap();
                 bytecode.push(Instruction::GetField { field })
             }
-            HirExpr::StaticAccess(static_access) => match static_access.field.ty {
-                HirTy::String(_) => {
-                    let target_name = static_access.target.name;
-                    let struct_signature = self.hir.signature.structs.get(target_name).unwrap();
-                    let value = match struct_signature
-                        .constants
-                        .get(static_access.field.name)
-                        .unwrap()
-                        .value
-                    {
-                        ConstantValue::String(s) => String::from(s),
-                        _ => {
-                            return Err(Self::unsupported_expr_err(
-                                expr,
-                                format!("No string constant for: {}", expr.ty()),
-                            ));
-                        }
-                    };
-                    bytecode.push(Instruction::LoadConst(ConstantValue::String(value)));
+            HirExpr::StaticAccess(static_access) => {
+                let struct_name = match static_access.target.as_ref() {
+                    HirTy::Named(n) => n.name,
+                    HirTy::Generic(g) => {
+                        MonomorphizationPass::mangle_generic_struct_name(self.hir_arena, g)
+                    }
+                    _ => {
+                        return Err(Self::unsupported_expr_err(
+                            expr,
+                            format!("Can't call from: {}", expr.ty()),
+                        ));
+                    }
+                };
+                match static_access.field.ty {
+                    HirTy::String(_) => {
+                        let struct_signature = self.hir.signature.structs.get(struct_name).unwrap();
+                        let value = match struct_signature
+                            .constants
+                            .get(static_access.field.name)
+                            .unwrap()
+                            .value
+                        {
+                            ConstantValue::String(s) => String::from(s),
+                            _ => {
+                                return Err(Self::unsupported_expr_err(
+                                    expr,
+                                    format!("No string constant for: {}", expr.ty()),
+                                ));
+                            }
+                        };
+                        bytecode.push(Instruction::LoadConst(ConstantValue::String(value)));
+                    }
+                    HirTy::Float64(_) => {
+                        let struct_signature = self.hir.signature.structs.get(struct_name).unwrap();
+                        let value = match struct_signature
+                            .constants
+                            .get(static_access.field.name)
+                            .unwrap()
+                            .value
+                        {
+                            ConstantValue::Float(f) => *f,
+                            _ => {
+                                return Err(Self::unsupported_expr_err(
+                                    expr,
+                                    format!("No float constant for: {}", expr.ty()),
+                                ));
+                            }
+                        };
+                        bytecode.push(Instruction::LoadConst(ConstantValue::Float(value)));
+                    }
+                    HirTy::Int64(_) => {
+                        let struct_signature = self.hir.signature.structs.get(struct_name).unwrap();
+                        let value = match struct_signature
+                            .constants
+                            .get(static_access.field.name)
+                            .unwrap()
+                            .value
+                        {
+                            ConstantValue::Int(i) => *i,
+                            _ => {
+                                return Err(Self::unsupported_expr_err(
+                                    expr,
+                                    format!("No int constant for: {}", expr.ty()),
+                                ));
+                            }
+                        };
+                        bytecode.push(Instruction::LoadConst(ConstantValue::Int(value)));
+                    }
+                    HirTy::Char(_) => {
+                        let struct_signature = self.hir.signature.structs.get(struct_name).unwrap();
+                        let value = match struct_signature
+                            .constants
+                            .get(static_access.field.name)
+                            .unwrap()
+                            .value
+                        {
+                            ConstantValue::Char(c) => *c,
+                            _ => {
+                                return Err(Self::unsupported_expr_err(
+                                    expr,
+                                    format!("No char constant for: {}", expr.ty()),
+                                ));
+                            }
+                        };
+                        bytecode.push(Instruction::LoadConst(ConstantValue::Char(value)));
+                    }
+                    HirTy::UInt64(_) => {
+                        let struct_signature = self.hir.signature.structs.get(struct_name).unwrap();
+                        let value = match struct_signature
+                            .constants
+                            .get(static_access.field.name)
+                            .unwrap()
+                            .value
+                        {
+                            ConstantValue::UInt(u) => *u,
+                            _ => {
+                                return Err(Self::unsupported_expr_err(
+                                    expr,
+                                    format!("No uint constant for: {}", expr.ty()),
+                                ));
+                            }
+                        };
+                        bytecode.push(Instruction::LoadConst(ConstantValue::UInt(value)));
+                    }
+                    HirTy::List(_) => {
+                        return Err(Self::unsupported_expr_err(
+                            expr,
+                            format!("Lists aren't supported as constants now: {}", expr.ty()),
+                        ));
+                    }
+                    _ => {
+                        return Err(Self::unsupported_expr_err(
+                            expr,
+                            format!("Unsupported type for now: {}", expr.ty()),
+                        ));
+                    }
                 }
-                HirTy::Float64(_) => {
-                    let struct_signature = self
-                        .hir
-                        .signature
-                        .structs
-                        .get(static_access.target.name)
-                        .unwrap();
-                    let value = match struct_signature
-                        .constants
-                        .get(static_access.field.name)
-                        .unwrap()
-                        .value
-                    {
-                        ConstantValue::Float(f) => *f,
-                        _ => {
-                            return Err(Self::unsupported_expr_err(
-                                expr,
-                                format!("No float constant for: {}", expr.ty()),
-                            ));
-                        }
-                    };
-                    bytecode.push(Instruction::LoadConst(ConstantValue::Float(value)));
-                }
-                HirTy::Int64(_) => {
-                    let struct_signature = self
-                        .hir
-                        .signature
-                        .structs
-                        .get(static_access.target.name)
-                        .unwrap();
-                    let value = match struct_signature
-                        .constants
-                        .get(static_access.field.name)
-                        .unwrap()
-                        .value
-                    {
-                        ConstantValue::Int(i) => *i,
-                        _ => {
-                            return Err(Self::unsupported_expr_err(
-                                expr,
-                                format!("No int constant for: {}", expr.ty()),
-                            ));
-                        }
-                    };
-                    bytecode.push(Instruction::LoadConst(ConstantValue::Int(value)));
-                }
-                HirTy::Char(_) => {
-                    let struct_signature = self
-                        .hir
-                        .signature
-                        .structs
-                        .get(static_access.target.name)
-                        .unwrap();
-                    let value = match struct_signature
-                        .constants
-                        .get(static_access.field.name)
-                        .unwrap()
-                        .value
-                    {
-                        ConstantValue::Char(c) => *c,
-                        _ => {
-                            return Err(Self::unsupported_expr_err(
-                                expr,
-                                format!("No char constant for: {}", expr.ty()),
-                            ));
-                        }
-                    };
-                    bytecode.push(Instruction::LoadConst(ConstantValue::Char(value)));
-                }
-                HirTy::UInt64(_) => {
-                    let struct_signature = self
-                        .hir
-                        .signature
-                        .structs
-                        .get(static_access.target.name)
-                        .unwrap();
-                    let value = match struct_signature
-                        .constants
-                        .get(static_access.field.name)
-                        .unwrap()
-                        .value
-                    {
-                        ConstantValue::UInt(u) => *u,
-                        _ => {
-                            return Err(Self::unsupported_expr_err(
-                                expr,
-                                format!("No uint constant for: {}", expr.ty()),
-                            ));
-                        }
-                    };
-                    bytecode.push(Instruction::LoadConst(ConstantValue::UInt(value)));
-                }
-                HirTy::List(_) => {
-                    return Err(Self::unsupported_expr_err(
-                        expr,
-                        format!("Lists aren't supported as constants now: {}", expr.ty()),
-                    ));
-                }
-                _ => {
-                    return Err(Self::unsupported_expr_err(
-                        expr,
-                        format!("Unsupported type for now: {}", expr.ty()),
-                    ));
-                }
-            },
+            }
             HirExpr::NewObj(new_obj) => {
                 let name = match &new_obj.ty {
                     HirTy::Named(n) => n.name,
@@ -939,10 +932,9 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
             HirExpr::Delete(delete) => {
                 let name = match &delete.expr.ty() {
-                    HirTy::Named(n) => n.name,
-                    HirTy::Generic(g) => {
-                        MonomorphizationPass::mangle_generic_struct_name(self.hir_arena, g)
-                    }
+                    HirTy::Named(_) | HirTy::ReadOnlyReference(_) | HirTy::MutableReference(_) | HirTy::Generic(_) => {
+                        self.get_class_name_of_type(delete.expr.ty()).unwrap()
+                    },
                     HirTy::String(_) | HirTy::List(_) => {
                         //Strings and Lists have their own delete instruction
                         self.generate_bytecode_expr(&delete.expr, bytecode)?;
@@ -997,4 +989,18 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
     fn is_std(path: &str) -> bool {
         path.starts_with("std")
     }
+
+    fn get_class_name_of_type(&self, ty: &HirTy<'hir>) -> Option<&'hir str> {
+        match ty {
+            HirTy::Named(n) => Some(n.name),
+            HirTy::Generic(g) => Some(MonomorphizationPass::mangle_generic_struct_name(
+                self.hir_arena,
+                g,
+            )),
+            HirTy::ReadOnlyReference(read_only) => self.get_class_name_of_type(read_only.inner),
+            HirTy::MutableReference(mutable) => self.get_class_name_of_type(mutable.inner),
+            _ => None,
+        }
+    }
+
 }

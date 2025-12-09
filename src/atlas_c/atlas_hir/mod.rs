@@ -6,12 +6,14 @@ use signature::HirModuleSignature;
 
 //Should try to run even with a faulty AST
 /// Pass not run in debug mode
-pub mod constant_folding;
-/// Pass not run in debug mode
-pub mod dead_code;
 pub mod syntax_lowering_pass;
-/// Always run
+pub mod monomorphization_pass;
 pub mod type_check_pass;
+pub mod lifetime_pass;
+/// Passes not run in debug mode
+pub mod constant_folding_pass;
+pub mod dead_code_elimination_pass;
+/// Always run
 
 pub mod arena;
 pub mod error;
@@ -19,7 +21,6 @@ pub mod error;
 pub mod expr;
 mod generic_pool;
 pub mod item;
-pub mod monomorphization_pass;
 mod scope;
 pub mod signature;
 pub mod stmt;

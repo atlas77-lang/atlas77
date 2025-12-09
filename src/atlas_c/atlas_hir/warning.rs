@@ -6,7 +6,7 @@ declare_warning_type!(
     #[warning("semantic warning: {0}")]
     pub enum HirWarning {
         ThisTypeIsStillUnstable(ThisTypeIsStillUnstableWarning),
-        DeletingReferenceIsUnstable(DeletingReferenceIsUnstableWarning),
+        DeletingReferenceIsNotSafe(DeletingReferenceMightLeadToUB),
         NameShouldBeInDifferentCase(NameShouldBeInDifferentCaseWarning),
     }
 );
@@ -34,12 +34,12 @@ pub struct NameShouldBeInDifferentCaseWarning {
 }
 
 #[derive(Error, Diagnostic, Debug)]
-#[diagnostic(code(sema::deleting_reference_is_unstable), severity(warning))]
-#[error("Deleting references is still unstable. They may lead to unexpected behavior.")]
-pub struct DeletingReferenceIsUnstableWarning {
+#[diagnostic(code(sema::deleting_reference_is_not_safe), severity(warning))]
+#[error("Deleting a reference might lead to undefined behavior")]
+pub struct DeletingReferenceMightLeadToUB {
     #[source_code]
     pub src: NamedSource<String>,
-    #[label = "Deleting references is still unstable. Use with caution."]
+    #[label = "Deleting references might lead to undefined behavior. Use with caution."]
     pub span: Span,
 }
 

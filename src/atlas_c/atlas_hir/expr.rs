@@ -104,7 +104,7 @@ pub struct HirThisLiteral<'hir> {
 #[derive(Debug, Clone)]
 pub struct HirStaticAccessExpr<'hir> {
     pub span: Span,
-    pub target: Box<HirIdentExpr<'hir>>,
+    pub target: Box<HirTy<'hir>>,
     pub field: Box<HirIdentExpr<'hir>>,
     pub ty: &'hir HirTy<'hir>,
 }
@@ -248,6 +248,8 @@ pub struct UnaryOpExpr<'hir> {
 pub enum HirUnaryOp {
     Neg,
     Not,
+    AsMutableRef,
+    AsReadOnlyRef,
 }
 
 #[derive(Debug, Clone)]

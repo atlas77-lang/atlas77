@@ -11,7 +11,7 @@ use crate::atlas_c::{
         item::HirStruct,
         signature::HirFunctionParameterSignature,
         stmt::HirStatement,
-        ty::{HirGenericTy, HirListTy, HirNamedTy, HirTy},
+        ty::{HirGenericTy, HirListTy, HirMutableReferenceTy, HirNamedTy, HirReadOnlyReferenceTy, HirTy},
     },
     utils::{self, Span},
 };
@@ -441,6 +441,20 @@ impl<'hir> MonomorphizationPass<'hir> {
                     span: g.span,
                 }))
             }
+            HirTy::MutableReference(m) => {
+                let new_inner =
+                    self.swap_generic_types_in_ty(m.inner, types_to_change.clone());
+                self.arena.intern(HirTy::MutableReference(HirMutableReferenceTy {
+                    inner: new_inner,
+                }))
+            }
+            HirTy::ReadOnlyReference(r) => {
+                let new_inner =
+                    self.swap_generic_types_in_ty(r.inner, types_to_change.clone());
+                self.arena.intern(HirTy::ReadOnlyReference(HirReadOnlyReferenceTy {
+                    inner: new_inner,
+                }))
+            }
             _ => ty,
         }
     }
@@ -511,6 +525,16 @@ impl<'hir> MonomorphizationPass<'hir> {
                     span: g.span,
                 }))
             }
+            HirTy::MutableReference(m) => self.arena.intern(HirTy::MutableReference(
+                HirMutableReferenceTy {
+                    inner: self.change_inner_type(m.inner, generic_name, new_type),
+                },
+            )),
+            HirTy::ReadOnlyReference(r) => self.arena.intern(HirTy::ReadOnlyReference(
+                HirReadOnlyReferenceTy {
+                    inner: self.change_inner_type(r.inner, generic_name, new_type),
+                },
+            )),
             _ => type_to_change,
         }
     }

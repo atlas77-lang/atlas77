@@ -119,8 +119,7 @@ pub fn run(path: String, _flag: CompilationFlag, has_standard_library: bool) -> 
     Ok(())
 }
 
-pub const DEFAULT_INIT_CODE: &str = r#"
-import "std/io";
+pub const DEFAULT_INIT_CODE: &str = r#"import "std/io";
 
 fun main() {
     print("Hello, Atlas!");

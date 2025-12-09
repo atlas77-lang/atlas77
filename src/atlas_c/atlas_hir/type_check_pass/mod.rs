@@ -9,13 +9,13 @@ use super::{
     stmt::HirStatement,
     ty::{HirTy, HirTyId},
 };
-use crate::atlas_c::atlas_hir::monomorphization_pass::MonomorphizationPass;
+use crate::atlas_c::atlas_hir::{error::TryingToAccessFieldOnNonObjectTypeError, expr::HirUnaryOp, monomorphization_pass::MonomorphizationPass};
 use crate::atlas_c::atlas_hir::signature::{
     HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier, HirVisibility,
 };
 use crate::atlas_c::atlas_hir::ty::HirNamedTy;
 use crate::atlas_c::atlas_hir::type_check_pass::context::{ContextFunction, ContextVariable};
-use crate::atlas_c::atlas_hir::warning::{DeletingReferenceIsUnstableWarning, HirWarning};
+use crate::atlas_c::atlas_hir::warning::{DeletingReferenceMightLeadToUB, HirWarning};
 use crate::atlas_c::atlas_hir::{
     error::{NotEnoughArgumentsError, NotEnoughArgumentsOrigin},
     item::{HirStruct, HirStructMethod},
@@ -30,7 +30,7 @@ use crate::atlas_c::{
         AccessingClassFieldOutsideClassError, AccessingPrivateConstructorError,
         AccessingPrivateFieldError, AccessingPrivateFunctionError, AccessingPrivateFunctionOrigin,
         AccessingPrivateStructError, AccessingPrivateStructOrigin, CanOnlyConstructStructsError,
-        CannotDeletePrimitiveTypeError, ConstTyToNonConstTyError, EmptyListLiteralError, FieldKind,
+        CannotDeletePrimitiveTypeError, EmptyListLiteralError, FieldKind,
         IllegalOperationError, TryingToIndexNonIndexableTypeError, TypeMismatchActual,
         UnsupportedExpr,
     },
@@ -403,8 +403,8 @@ impl<'hir> TypeChecker<'hir> {
                         name = n.name;
                     } else if let HirTy::Generic(g) = ty {
                         name = MonomorphizationPass::mangle_generic_struct_name(self.arena, g);
-                    } else if let HirTy::Reference(_) = ty {
-                        Self::deleting_ref_is_unstable_warning(&del_expr.span);
+                    } else if let HirTy::MutableReference(_) = ty {
+                        Self::deleting_ref_is_not_safe_warning(&del_expr.span);
                     } else {
                         return Ok(self.arena.types().get_unit_ty());
                     }
@@ -460,6 +460,16 @@ impl<'hir> TypeChecker<'hir> {
                         }
                         u.ty = ty;
                         Ok(ty)
+                    }
+                    Some(HirUnaryOp::AsMutableRef) => {
+                        let ref_ty = self.arena.types().get_mutable_reference_ty(ty);
+                        u.ty = ref_ty;
+                        Ok(ref_ty)
+                    }
+                    Some(HirUnaryOp::AsReadOnlyRef) => {
+                        let ref_ty = self.arena.types().get_readonly_reference_ty(ty);
+                        u.ty = ref_ty;
+                        Ok(ref_ty)
                     }
                     _ => {
                         u.ty = ty;
@@ -886,13 +896,26 @@ impl<'hir> TypeChecker<'hir> {
                         }
                     }
                     HirExpr::StaticAccess(static_access) => {
-                        let class = match self.signature.structs.get(static_access.target.name) {
+                        let name = match static_access.target.as_ref() {
+                            HirTy::Named(n) => n.name,
+                            HirTy::Generic(g) => {
+                                MonomorphizationPass::mangle_generic_struct_name(self.arena, g)
+                            }
+                            _ => {
+                                let path = static_access.span.path;
+                                let src = utils::get_file_content(path).unwrap();
+                                return Err(HirError::CanOnlyConstructStructs(
+                                    CanOnlyConstructStructsError {
+                                        span: static_access.span,
+                                        src: NamedSource::new(path, src),
+                                    },
+                                ));
+                            }
+                        };
+                        let class = match self.signature.structs.get(name) {
                             Some(c) => *c,
                             None => {
-                                return Err(Self::unknown_type_err(
-                                    static_access.target.name,
-                                    &static_access.span,
-                                ));
+                                return Err(Self::unknown_type_err(name, &static_access.span));
                             }
                         };
                         let func = class
@@ -938,10 +961,6 @@ impl<'hir> TypeChecker<'hir> {
                             static_access.ty =
                                 self.arena.intern(method_signature.return_ty.clone());
                             func_expr.ty = self.arena.intern(method_signature.return_ty.clone());
-                            static_access.target.ty = self
-                                .arena
-                                .types()
-                                .get_named_ty(class.name, class.declaration_span);
                             static_access.field.ty =
                                 self.arena.intern(method_signature.return_ty.clone());
 
@@ -979,21 +998,18 @@ impl<'hir> TypeChecker<'hir> {
             }
             HirExpr::FieldAccess(field_access) => {
                 let target_ty = self.check_expr(&mut field_access.target)?;
-                let name;
-                if let HirTy::Named(n) = target_ty {
-                    name = n.name;
-                } else if let HirTy::Generic(g) = target_ty {
-                    name = MonomorphizationPass::mangle_generic_struct_name(self.arena, g);
-                } else {
-                    let path = field_access.span.path;
-                    let src = utils::get_file_content(path).unwrap();
-                    return Err(HirError::CanOnlyConstructStructs(
-                        CanOnlyConstructStructsError {
+                let name = match self.get_class_name_of_type(target_ty) {
+                    Some(n) => n,
+                    None => {
+                        let path = field_access.span.path;
+                        let src = utils::get_file_content(path).unwrap();
+                        return Err(HirError::TryingToAccessFieldOnNonObjectType(TryingToAccessFieldOnNonObjectTypeError {
                             span: field_access.span,
+                            ty: format!("{}", target_ty),
                             src: NamedSource::new(path, src),
-                        },
-                    ));
-                }
+                        }));
+                    }
+                };
                 let class = match self.signature.structs.get(name) {
                     Some(c) => *c,
                     None => {
@@ -1029,13 +1045,26 @@ impl<'hir> TypeChecker<'hir> {
                 }
             }
             HirExpr::StaticAccess(static_access) => {
-                let class = match self.signature.structs.get(static_access.target.name) {
+                let name = match static_access.target.as_ref() {
+                    HirTy::Named(n) => n.name,
+                    HirTy::Generic(g) => {
+                        MonomorphizationPass::mangle_generic_struct_name(self.arena, g)
+                    }
+                    _ => {
+                        let path = static_access.span.path;
+                        let src = utils::get_file_content(path).unwrap();
+                        return Err(HirError::CanOnlyConstructStructs(
+                            CanOnlyConstructStructsError {
+                                span: static_access.span,
+                                src: NamedSource::new(path, src),
+                            },
+                        ));
+                    }
+                };
+                let class = match self.signature.structs.get(name) {
                     Some(c) => *c,
                     None => {
-                        return Err(Self::unknown_type_err(
-                            static_access.target.name,
-                            &static_access.span,
-                        ));
+                        return Err(Self::unknown_type_err(name, &static_access.span));
                     }
                 };
                 let constant = class
@@ -1043,10 +1072,6 @@ impl<'hir> TypeChecker<'hir> {
                     .iter()
                     .find(|f| *f.0 == static_access.field.name);
                 if let Some((_, const_signature)) = constant {
-                    static_access.target.ty = self
-                        .arena
-                        .types()
-                        .get_named_ty(class.name, class.declaration_span);
                     static_access.field.ty = const_signature.ty;
                     static_access.ty = const_signature.ty;
                     Ok(const_signature.ty)
@@ -1187,22 +1212,7 @@ impl<'hir> TypeChecker<'hir> {
             (HirTy::Nullable(n1), HirTy::Nullable(n2)) => {
                 self.is_equivalent_ty(n1.inner, ty1_span, n2.inner, ty2_span)
             }
-            (HirTy::Const(c1), HirTy::Const(c2)) => {
-                self.is_equivalent_ty(c1.inner, ty1_span, c2.inner, ty2_span)
-            }
-            (HirTy::Const(_), _) => {
-                let path = ty1_span.path;
-                let src = utils::get_file_content(path).unwrap();
-                Err(HirError::ConstTyToNonConstTy(ConstTyToNonConstTyError {
-                    const_val: ty1_span,
-                    const_type: ty1.to_string(),
-                    non_const_type: ty2.to_string(),
-                    non_const_val: ty2_span,
-                    src: NamedSource::new(path, src),
-                }))
-            }
             (HirTy::Int64(_), HirTy::UInt64(_)) | (HirTy::UInt64(_), HirTy::Int64(_)) => Ok(()),
-            (_, HirTy::Const(r2)) => self.is_equivalent_ty(ty1, ty1_span, r2.inner, ty2_span),
             (HirTy::Nullable(n1), _) => self.is_equivalent_ty(n1.inner, ty1_span, ty2, ty2_span),
             (_, HirTy::Nullable(n2)) => self.is_equivalent_ty(ty1, ty1_span, n2.inner, ty2_span),
             (HirTy::Generic(g), HirTy::Named(n)) | (HirTy::Named(n), HirTy::Generic(g)) => {
@@ -1216,6 +1226,22 @@ impl<'hir> TypeChecker<'hir> {
                         &ty2_span,
                     ))
                 }
+            }
+            (HirTy::ReadOnlyReference(read_only1), HirTy::ReadOnlyReference(read_only2)) => {
+                self.is_equivalent_ty(
+                    read_only1.inner,
+                    ty1_span,
+                    read_only2.inner,
+                    ty2_span,
+                )
+            }
+            (HirTy::MutableReference(mutable1), HirTy::MutableReference(mutable2)) => {
+                self.is_equivalent_ty(
+                    mutable1.inner,
+                    ty1_span,
+                    mutable2.inner,
+                    ty2_span,
+                )
             }
             _ => {
                 if HirTyId::from(ty1) == HirTyId::from(ty2) {
@@ -1246,6 +1272,19 @@ impl<'hir> TypeChecker<'hir> {
                 | HirTy::String(_)
                 | HirTy::Unit(_)
         )
+    }
+
+    fn get_class_name_of_type(&self, ty: &HirTy<'hir>) -> Option<&'hir str> {
+        match ty {
+            HirTy::Named(n) => Some(n.name),
+            HirTy::Generic(g) => Some(MonomorphizationPass::mangle_generic_struct_name(
+                self.arena,
+                g,
+            )),
+            HirTy::ReadOnlyReference(read_only) => self.get_class_name_of_type(read_only.inner),
+            HirTy::MutableReference(mutable) => self.get_class_name_of_type(mutable.inner),
+            _ => None,
+        }
     }
 
     #[inline(always)]
@@ -1296,11 +1335,11 @@ impl<'hir> TypeChecker<'hir> {
     }
 
     #[inline(always)]
-    fn deleting_ref_is_unstable_warning(span: &Span) {
+    fn deleting_ref_is_not_safe_warning(span: &Span) {
         let path = span.path;
         let src = utils::get_file_content(path).unwrap();
         let warning: ErrReport =
-            HirWarning::DeletingReferenceIsUnstable(DeletingReferenceIsUnstableWarning {
+            HirWarning::DeletingReferenceIsNotSafe(DeletingReferenceMightLeadToUB {
                 span: *span,
                 src: NamedSource::new(path, src),
             })

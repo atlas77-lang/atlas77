@@ -9,36 +9,44 @@ import "std/io";
 // It returns some kind of NULL, because Option::none() does not need a value
 public extern default<T>() -> T;
 
+private enum OptionTag {
+	NONE = 0;
+	SOME = 256;
+}
+
 //std/option
 public struct Option<T> {
-private:
+public:
   	/// 0 = None, 1 = Some
   	tag: int64;
   	data: T;
-public:
   	Option(data: T, tag: int64) {
 		this.tag = tag;
 		this.data = data;
 	}
 public:
 	fun some(data: T) -> Option<T> {
-		return new Option<T>(data, 1);
+		return new Option<T>(data, OptionTag::SOME);
+	}
+	fun is_some(this) -> bool {
+		return this.tag == OptionTag::SOME;
 	}
 	fun none() -> Option<T> {
-		return new Option<T>(default(), 0);
+		return new Option<T>(default::<T>(), OptionTag::NONE);
 	}
-	fun map<U>(this, f: (T) -> U) -> Option<U> {
-		if this.tag == 1 {
-			return Option::some(f(this.data));
-		} else {
-			return Option::none();
+	fun is_none(this) -> bool {
+		return this.tag == OptionTag::NONE;
+	}
+	fun map<U>(this, other: U) -> Option<U> {
+		if this.tag == OptionTag::SOME {
+			return Option::some(other);
 		}
+		return Option::none();
 	}
 }
 
 fun main() {
-    let a = new Option<int64>(42, 1);
-    let b = new Option<int64>(default(), 0);
-    println("Option a tag: " + a.tag as string); // Should print 1
-    println("Option b tag: " + b.tag as string); // Should print 0
+    let a = Option::<int64>::some(42);
+    let b = Option::<int64>::none();
+	let c = a.map::<string>("Hello");
 }

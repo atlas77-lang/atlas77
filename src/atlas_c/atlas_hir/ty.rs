@@ -16,11 +16,11 @@ const STR_TY_ID: u8 = 0x10;
 const FUNCTION_TY_ID: u8 = 0x28;
 const LIST_TY_ID: u8 = 0x39;
 const NULLABLE_TY_ID: u8 = 0x40;
-const READONLY_TY_ID: u8 = 0x41;
 const UNINITIALIZED_TY_ID: u8 = 0x50;
 const NAMED_TY_ID: u8 = 0x60;
 const GENERIC_TY_ID: u8 = 0x70;
-const REFERENCE_TY_ID: u8 = 0x80;
+const MUT_REFERENCE_TY_ID: u8 = 0x80;
+const CONST_REFERENCE_TY_ID: u8 = 0x81;
 
 impl HirTyId {
     pub fn compute_integer64_ty_id() -> Self {
@@ -84,13 +84,6 @@ impl HirTyId {
         Self(hasher.finish())
     }
 
-    /// Not used in type system yet.
-    pub fn compute_readonly_ty_id(inner: &HirTyId) -> Self {
-        let mut hasher = DefaultHasher::new();
-        (READONLY_TY_ID, inner).hash(&mut hasher);
-        Self(hasher.finish())
-    }
-
     pub fn compute_uninitialized_ty_id() -> Self {
         let mut hasher = DefaultHasher::new();
         UNINITIALIZED_TY_ID.hash(&mut hasher);
@@ -109,9 +102,15 @@ impl HirTyId {
         Self(hasher.finish())
     }
 
-    pub fn compute_ref_ty_id(inner: &HirTyId) -> Self {
+    pub fn compute_mutable_ref_ty_id(inner: &HirTyId) -> Self {
         let mut hasher = DefaultHasher::new();
-        (REFERENCE_TY_ID, inner).hash(&mut hasher);
+        (MUT_REFERENCE_TY_ID, inner).hash(&mut hasher);
+        Self(hasher.finish())
+    }
+
+    pub fn compute_readonly_ref_ty_id(inner: &HirTyId) -> Self {
+        let mut hasher = DefaultHasher::new();
+        (CONST_REFERENCE_TY_ID, inner).hash(&mut hasher);
         Self(hasher.finish())
     }
 }
@@ -130,12 +129,12 @@ impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
             HirTy::Named(ty) => HirTyId::compute_name_ty_id(ty.name),
             HirTy::Uninitialized(_) => Self::compute_uninitialized_ty_id(),
             HirTy::Nullable(ty) => HirTyId::compute_nullable_ty_id(&HirTyId::from(ty.inner)),
-            HirTy::Const(ty) => HirTyId::compute_readonly_ty_id(&HirTyId::from(ty.inner)),
             HirTy::Generic(g) => {
                 let params = g.inner.iter().map(HirTyId::from).collect::<Vec<_>>();
                 HirTyId::compute_generic_ty_id(g.name, &params)
             }
-            HirTy::Reference(ty) => HirTyId::from(ty.inner),
+            HirTy::MutableReference(ty) => HirTyId::from(ty.inner),
+            HirTy::ReadOnlyReference(ty) => HirTyId::from(ty.inner),
             HirTy::_Function(f) => {
                 let parameters = f.params.iter().map(HirTyId::from).collect::<Vec<_>>();
                 let ret_ty = HirTyId::from(f.ret_ty);
@@ -158,15 +157,18 @@ pub enum HirTy<'hir> {
     Named(HirNamedTy<'hir>),
     Uninitialized(HirUninitializedTy),
     Nullable(HirNullableTy<'hir>),
-    Const(HirConstTy<'hir>),
     Generic(HirGenericTy<'hir>),
-    Reference(HirReferenceTy<'hir>),
+    MutableReference(HirMutableReferenceTy<'hir>),
+    ReadOnlyReference(HirReadOnlyReferenceTy<'hir>),
     _Function(HirFunctionTy<'hir>),
 }
 
 impl HirTy<'_> {
     pub fn is_const(&self) -> bool {
-        matches!(self, HirTy::Const(_))
+        match self {
+            HirTy::ReadOnlyReference(_) => true,
+            _ => false,
+        }
     }
 }
 
@@ -184,7 +186,6 @@ impl fmt::Display for HirTy<'_> {
             HirTy::Named(ty) => write!(f, "{}", ty.name),
             HirTy::Uninitialized(_) => write!(f, "uninitialized"),
             HirTy::Nullable(ty) => write!(f, "{}?", ty.inner),
-            HirTy::Const(ty) => write!(f, "const {}", ty.inner),
             HirTy::Generic(ty) => {
                 if ty.inner.is_empty() {
                     write!(f, "{}", ty.name)
@@ -198,7 +199,8 @@ impl fmt::Display for HirTy<'_> {
                     write!(f, "{}<{}>", ty.name, params)
                 }
             }
-            HirTy::Reference(ty) => write!(f, "&{}", ty.inner),
+            HirTy::MutableReference(ty) => write!(f, "&{}", ty.inner),
+            HirTy::ReadOnlyReference(ty) => write!(f, "&const {}", ty.inner),
             HirTy::_Function(func) => {
                 let params = func
                     .params
@@ -213,12 +215,12 @@ impl fmt::Display for HirTy<'_> {
 }
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
-pub struct HirReferenceTy<'hir> {
+pub struct HirMutableReferenceTy<'hir> {
     pub inner: &'hir HirTy<'hir>,
 }
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
-pub struct HirConstTy<'hir> {
+pub struct HirReadOnlyReferenceTy<'hir> {
     pub inner: &'hir HirTy<'hir>,
 }
 
