@@ -140,6 +140,7 @@ impl<'hir> MonomorphizationPass<'hir> {
         self.monomorphize_fields(&mut new_struct, &generic_names, actual_type)?;
 
         self.monomorphize_constructor(&mut new_struct.constructor, types_to_change.clone())?;
+        self.monomorphize_constructor(&mut new_struct.destructor, types_to_change.clone())?;
 
         for (i, arg) in new_struct
             .signature
