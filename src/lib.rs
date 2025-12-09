@@ -42,7 +42,7 @@ fn get_path(path: &str) -> PathBuf {
 pub fn build(
     path: String,
     flag: CompilationFlag,
-    has_standard_library: bool,
+    using_std: bool,
 ) -> miette::Result<AsmProgram> {
     let start = Instant::now();
     println!("Building project at path: {}", path);
@@ -64,7 +64,7 @@ pub fn build(
 
     //hir
     let hir_arena = HirArena::new();
-    let mut lower = AstSyntaxLoweringPass::new(&hir_arena, &program, &ast_arena);
+    let mut lower = AstSyntaxLoweringPass::new(&hir_arena, &program, &ast_arena, using_std);
     let hir = lower.lower()?;
 
     //monomorphize
@@ -95,7 +95,7 @@ pub fn build(
 
     let mut file2 = std::fs::File::create("output.atlas_asm").unwrap();
     let mut assembler = atlas_asm::Assembler::new();
-    let asm = assembler.asm_from_instruction(!has_standard_library, program)?;
+    let asm = assembler.asm_from_instruction(!using_std, program)?;
     let content2 = format!("{}", asm);
     file2.write_all(content2.as_bytes()).unwrap();
 

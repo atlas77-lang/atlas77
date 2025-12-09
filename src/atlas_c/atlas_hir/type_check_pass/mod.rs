@@ -551,7 +551,6 @@ impl<'hir> TypeChecker<'hir> {
             HirExpr::HirBinaryOperation(b) => {
                 let lhs = self.check_expr(&mut b.lhs)?;
                 b.ty = lhs;
-                eprintln!("Binary operation lhs type: {}", lhs);
                 let rhs = self.check_expr(&mut b.rhs)?;
                 let is_equivalent = self.is_equivalent_ty(lhs, b.lhs.span(), rhs, b.rhs.span());
                 if is_equivalent.is_err() {
@@ -1110,10 +1109,6 @@ impl<'hir> TypeChecker<'hir> {
                                             span: static_access.span,
                                             ty: self.arena.types().get_uint64_ty(),
                                         },
-                                    );
-                                    eprintln!(
-                                        "Replaced enum variant access {}::{} with value {}",
-                                        name, var.name, var.value
                                     );
                                     *expr = replaced_expr;
                                     return Ok(self.arena.types().get_uint64_ty());

@@ -81,7 +81,7 @@ fn main() -> miette::Result<()> {
                 } else {
                     CompilationFlag::Debug
                 },
-                no_standard_lib,
+                !no_standard_lib,
             )
         }
         AtlasRuntimeCLI::Build {
@@ -102,7 +102,7 @@ fn main() -> miette::Result<()> {
                 } else {
                     CompilationFlag::Debug
                 },
-                no_standard_lib,
+                !no_standard_lib,
             )
             .map(|_| ())
         }

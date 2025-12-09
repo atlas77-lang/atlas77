@@ -60,7 +60,7 @@ pub struct DeletingReferenceMightLeadToUB {
 }
 
 #[derive(Error, Diagnostic, Debug)]
-#[diagnostic(code(sema::nullable_types_are_unstable), severity(warning))]
+#[diagnostic(code(sema::type_is_still_unstable), severity(warning))]
 #[error("{type_name} is still unstable. {info}")]
 pub struct ThisTypeIsStillUnstableWarning {
     #[source_code]

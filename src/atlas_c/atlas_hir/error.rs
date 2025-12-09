@@ -39,11 +39,22 @@ declare_error_type! {
         AccessingPrivateFunction(AccessingPrivateFunctionError),
         UnsupportedItem(UnsupportedItemError),
         TryingToAccessFieldOnNonObjectType(TryingToAccessFieldOnNonObjectTypeError),
+        NullableTypeRequiresStdLibrary(NullableTypeRequiresStdLibraryError),
     }
 }
 
 /// Handy type alias for all HIR-related errors.
 pub type HirResult<T> = Result<T, HirError>;
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::nullable_type_requires_std_library))]
+#[error("nullable types require the standard library")]
+pub struct NullableTypeRequiresStdLibraryError {
+    #[label = "nullable types require the standard library"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::trying_to_access_field_on_non_object_type))]

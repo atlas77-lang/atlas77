@@ -21,8 +21,7 @@ use crate::atlas_c::{
         HirImport, HirModule, HirModuleBody,
         arena::HirArena,
         error::{
-            HirError, HirResult, NonConstantValueError, StructNameCannotBeOneLetterError,
-            UnsupportedExpr, UnsupportedStatement, UnsupportedTypeError, UselessError,
+            HirError, HirResult, NonConstantValueError, NullableTypeRequiresStdLibraryError, StructNameCannotBeOneLetterError, UnsupportedExpr, UnsupportedStatement, UnsupportedTypeError, UselessError
         },
         expr::{
             HirAssignExpr, HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr,
@@ -63,6 +62,7 @@ pub struct AstSyntaxLoweringPass<'ast, 'hir> {
     warnings: Vec<HirWarning>,
     /// Keep track of already imported modules to avoid duplicate imports
     pub already_imported: BTreeMap<&'hir str, ()>,
+    pub using_std: bool,
 }
 
 impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
@@ -70,6 +70,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         arena: &'hir HirArena<'hir>,
         ast: &'ast AstProgram,
         ast_arena: &'ast AstArena<'ast>,
+        using_std: bool,
     ) -> Self {
         Self {
             arena,
@@ -80,6 +81,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             module_signature: HirModuleSignature::default(),
             warnings: Vec::new(),
             already_imported: BTreeMap::new(),
+            using_std
         }
     }
 }
@@ -619,7 +621,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             };
             let allocated_ast = self.ast_arena.alloc(ast);
             let mut ast_lowering_pass =
-                AstSyntaxLoweringPass::<'ast, 'hir>::new(self.arena, allocated_ast, self.ast_arena);
+                AstSyntaxLoweringPass::<'ast, 'hir>::new(self.arena, allocated_ast, self.ast_arena, self.using_std);
             ast_lowering_pass
                 .already_imported
                 .append(&mut self.already_imported);
@@ -1135,12 +1137,21 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 let ty = self.visit_ty(l.inner)?;
                 self.arena.types().get_list_ty(ty)
             }
-            //TODO: Nullable types should be replaced by `Option<T>` in the future IF std library is added
-            //Else it should return an error e.g.: "Nullable types require the std library"
             AstType::Nullable(n) => {
+                if !self.using_std {
+                    let path = node.span().path;
+                    let src = crate::atlas_c::utils::get_file_content(path).unwrap();
+                    return Err(HirError::NullableTypeRequiresStdLibrary(
+                        NullableTypeRequiresStdLibraryError {
+                            span: node.span(),
+                            src: NamedSource::new(path, src),
+                        },
+                    ));
+                }
+                //They should not be unstable, but who knows
                 Self::nullable_types_are_unstable_warning(&node.span());
                 let ty = self.visit_ty(n.inner)?;
-                self.arena.types().get_nullable_ty(ty)
+                self.arena.types().get_generic_ty("Option", vec![ty], n.span)
             }
             AstType::ReadOnlyRef(const_ref) => {
                 let inner_ty = self.visit_ty(const_ref.inner)?;
@@ -1188,8 +1199,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             HirWarning::ThisTypeIsStillUnstable(ThisTypeIsStillUnstableWarning {
                 src: NamedSource::new(path, src),
                 span: *span,
-                type_name: "Nullable type".to_string(),
-                info: "They will later be replaced by a stable `Option<T>`".to_string(),
+                type_name: "The nullable type".to_string(),
+                info: "Nullable types haven't been properly stabilized yet. Also they are just syntactic sugar for `Option<T>`".to_string(),
             })
             .into();
         eprintln!("{:?}", report);
