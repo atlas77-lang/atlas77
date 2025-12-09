@@ -29,7 +29,7 @@ pub struct AtlasRuntime<'run> {
 impl<'run> AtlasRuntime<'run> {
     pub fn new(asm_program: AsmProgram, extern_fn: BTreeMap<&'run str, CallBack>) -> Self {
         let mut extern_fn = extern_fn;
-        if asm_program.has_standard_lib {
+        if asm_program.using_std {
             //std/io
             for (name, func) in atlas_vm::libraries::io::IO_FUNCTIONS.iter() {
                 extern_fn.insert(name, *func as CallBack);

@@ -105,8 +105,8 @@ pub fn build(
 }
 
 //The "run" function needs a bit of refactoring
-pub fn run(path: String, _flag: CompilationFlag, has_standard_library: bool) -> miette::Result<()> {
-    let res = build(path.clone(), _flag, has_standard_library)?;
+pub fn run(path: String, _flag: CompilationFlag, using_std: bool) -> miette::Result<()> {
+    let res = build(path.clone(), _flag, using_std)?;
 
     let extern_fn = BTreeMap::new();
     let mut vm = AtlasRuntime::new(res, extern_fn);
