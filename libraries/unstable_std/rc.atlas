@@ -1,0 +1,32 @@
+import "std/io";
+
+// Ref-counted pointer implementation
+public struct ref_counted<T> {
+private:
+    value: T;
+    count: uint64;
+public:
+    ref_counted(value: T) {
+        this.value = value;
+        this.count = 1;
+    }
+
+    fun clone(this) -> ref_counted<T> {
+        this.count = this.count + 1;
+        return this;
+    }
+
+    fun release(this) {
+        if this.count == 0 {
+            panic("Double free detected in ref_counted");
+        }
+        this.count = this.count - 1;
+        if this.count == 0 {
+            delete this;
+        }
+    }
+
+    fun get(this) -> &T {
+        return &this.value;
+    }
+}

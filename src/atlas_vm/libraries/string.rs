@@ -37,7 +37,7 @@ pub fn str_cmp(state: VMState) -> RuntimeResult<VMData> {
 }
 
 pub fn trim(state: VMState) -> RuntimeResult<VMData> {
-    let string_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
+    let string_ptr = state.stack.pop()?.as_object();
     let string = state.object_map.get(string_ptr)?.string().clone();
 
     let trimmed = string.trim().to_string();
@@ -50,7 +50,7 @@ pub fn trim(state: VMState) -> RuntimeResult<VMData> {
 }
 
 pub fn to_upper(state: VMState) -> RuntimeResult<VMData> {
-    let string_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
+    let string_ptr = state.stack.pop()?.as_object();
     let raw_string = state.object_map.get(string_ptr)?;
     let string = raw_string.string();
 
@@ -64,7 +64,7 @@ pub fn to_upper(state: VMState) -> RuntimeResult<VMData> {
 }
 
 pub fn to_lower(state: VMState) -> RuntimeResult<VMData> {
-    let string_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
+    let string_ptr = state.stack.pop()?.as_object();
     let raw_string = state.object_map.get(string_ptr)?;
     let string = raw_string.string();
 
@@ -78,8 +78,8 @@ pub fn to_lower(state: VMState) -> RuntimeResult<VMData> {
 }
 
 pub fn split(state: VMState) -> RuntimeResult<VMData> {
-    let delimiter_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
-    let string_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
+    let delimiter_ptr = state.stack.pop()?.as_object();
+    let string_ptr = state.stack.pop()?.as_object();
 
     let delimiter = &state.object_map.get(delimiter_ptr)?.string().clone();
     let raw_string = state.object_map.get(string_ptr)?;
