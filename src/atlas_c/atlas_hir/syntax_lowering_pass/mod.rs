@@ -21,7 +21,9 @@ use crate::atlas_c::{
         HirImport, HirModule, HirModuleBody,
         arena::HirArena,
         error::{
-            HirError, HirResult, NonConstantValueError, NullableTypeRequiresStdLibraryError, StructNameCannotBeOneLetterError, UnsupportedExpr, UnsupportedStatement, UnsupportedTypeError, UselessError
+            HirError, HirResult, NonConstantValueError, NullableTypeRequiresStdLibraryError,
+            StructNameCannotBeOneLetterError, UnsupportedExpr, UnsupportedStatement,
+            UnsupportedTypeError, UselessError,
         },
         expr::{
             HirAssignExpr, HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr,
@@ -81,7 +83,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             module_signature: HirModuleSignature::default(),
             warnings: Vec::new(),
             already_imported: BTreeMap::new(),
-            using_std
+            using_std,
         }
     }
 }
@@ -620,8 +622,12 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 }
             };
             let allocated_ast = self.ast_arena.alloc(ast);
-            let mut ast_lowering_pass =
-                AstSyntaxLoweringPass::<'ast, 'hir>::new(self.arena, allocated_ast, self.ast_arena, self.using_std);
+            let mut ast_lowering_pass = AstSyntaxLoweringPass::<'ast, 'hir>::new(
+                self.arena,
+                allocated_ast,
+                self.ast_arena,
+                self.using_std,
+            );
             ast_lowering_pass
                 .already_imported
                 .append(&mut self.already_imported);
@@ -1151,7 +1157,9 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 //They should not be unstable, but who knows
                 Self::nullable_types_are_unstable_warning(&node.span());
                 let ty = self.visit_ty(n.inner)?;
-                self.arena.types().get_generic_ty("Option", vec![ty], n.span)
+                self.arena
+                    .types()
+                    .get_generic_ty("Option", vec![ty], n.span)
             }
             AstType::ReadOnlyRef(const_ref) => {
                 let inner_ty = self.visit_ty(const_ref.inner)?;

@@ -4,9 +4,12 @@ pub mod atlas_c;
 pub mod atlas_lib;
 pub mod atlas_vm;
 
-use crate::{atlas_c::{
-    atlas_asm::AsmProgram, atlas_hir::dead_code_elimination_pass::DeadCodeEliminationPass,
-}, atlas_vm::runtime::AtlasRuntime};
+use crate::{
+    atlas_c::{
+        atlas_asm::AsmProgram, atlas_hir::dead_code_elimination_pass::DeadCodeEliminationPass,
+    },
+    atlas_vm::runtime::AtlasRuntime,
+};
 use atlas_c::{
     atlas_asm,
     atlas_codegen::{CodeGenUnit, arena::CodeGenArena},
@@ -39,11 +42,7 @@ fn get_path(path: &str) -> PathBuf {
     path_buf
 }
 
-pub fn build(
-    path: String,
-    flag: CompilationFlag,
-    using_std: bool,
-) -> miette::Result<AsmProgram> {
+pub fn build(path: String, flag: CompilationFlag, using_std: bool) -> miette::Result<AsmProgram> {
     let start = Instant::now();
     println!("Building project at path: {}", path);
     let path_buf = get_path(&path);

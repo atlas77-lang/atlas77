@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0-dev-2] - 2025-12-09
+
+### Bug Fixes
+
+- The --no-std flag was inverted, and the runtime wouldn't load the std lib ([385776d](https://github.com/atlas77-lang/Atlas77/commit/385776d3ebdac0c880e0bb078e02377c56cd74cb))
+- Constructor & Destructor body not being monomorphized ([edc577e](https://github.com/atlas77-lang/Atlas77/commit/edc577ef9d03878dc92d604d69b75c7536bd39be))
+- Redundant casts are removed, and now int64 & uint64 can be casted to char ([9e49df7](https://github.com/atlas77-lang/Atlas77/commit/9e49df77a2eb03412c69a643c8730863a5f10250))
+- Constructor/Destructor can now have local variables ([1dcc693](https://github.com/atlas77-lang/Atlas77/commit/1dcc69373a49069e1856e12c4f6f8abffcec8516))
+
+### Features
+
+- Result<T, E> is now working ([e342835](https://github.com/atlas77-lang/Atlas77/commit/e3428357dbacc76f9d0d0b78da294fc4123ca193))
+- Made it so `T?` is now a syntactic sugar for `Option<T>` ([8381d4c](https://github.com/atlas77-lang/Atlas77/commit/8381d4cbce93176be0bec5a1459438fe93415f95))
+- Enums are finally working and stable. ([9d01a04](https://github.com/atlas77-lang/Atlas77/commit/9d01a047e4bb109f700c210a48853cd827537a65))
+- Added enums to the language. They get replaced by their uint64 value. You can compare them but not do arithmetic on them ([2c7f101](https://github.com/atlas77-lang/Atlas77/commit/2c7f1012b9dc04fc1143758ef01ae21254404599))
+- Added &T and &const T in the compiler. They should be fully working ([995de03](https://github.com/atlas77-lang/Atlas77/commit/995de031ef1d9f74ee6c432cf4adce23df3df852))
+- The parser now correctly parses function & method generics ([e2c474b](https://github.com/atlas77-lang/Atlas77/commit/e2c474b2334e96888b54fedb450082bec6932cec))
+
+### Refactor
+
+- Removed completely the Runtime rc. It will now be done through a library as an opt-in feature ([f2751ab](https://github.com/atlas77-lang/Atlas77/commit/f2751ab86554ac082e9f75d366c0a11fece43e38))
+
+### Misc
+
+- The brainfuck interpreter is working in `self/` ([9d482c2](https://github.com/atlas77-lang/Atlas77/commit/9d482c2ddd7123d4ae90179d96c16f36f07be518))
+
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
 ## [0.6.0-dev] - 2025-12-08
 
 ### Bug Fixes

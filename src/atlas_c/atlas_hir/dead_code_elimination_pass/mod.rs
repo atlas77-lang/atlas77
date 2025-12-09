@@ -37,6 +37,6 @@ impl<'hir> DeadCodeEliminationPass<'hir> {
         //3. Remove unmarked functions and structs from the HIR module
 
         //Note: Implementation of these steps is pending
-        return Ok(hir_module);
+        Ok(hir_module)
     }
 }

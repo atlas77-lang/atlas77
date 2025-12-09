@@ -54,8 +54,10 @@ pub struct TypeChecker<'hir> {
     current_func_name: Option<&'hir str>,
     current_class_name: Option<&'hir str>,
     //TODO: Move this to the MonomorphizationPass in the future
-    extern_monomorphized:
-        HashMap<(&'hir str, Vec<&'hir HirTy<'hir>>, Vec<&'hir HirTy<'hir>>), &'hir HirFunctionSignature<'hir>>,
+    extern_monomorphized: HashMap<
+        (&'hir str, Vec<&'hir HirTy<'hir>>, Vec<&'hir HirTy<'hir>>),
+        &'hir HirFunctionSignature<'hir>,
+    >,
 }
 
 impl<'hir> TypeChecker<'hir> {
@@ -965,12 +967,7 @@ impl<'hir> TypeChecker<'hir> {
                                 .zip(func_expr.args.iter_mut())
                             {
                                 let arg_ty = self.check_expr(arg)?;
-                                self.is_equivalent_ty(
-                                    arg_ty,
-                                    arg.span(),
-                                    param.ty,
-                                    param.span,
-                                )?;
+                                self.is_equivalent_ty(arg_ty, arg.span(), param.ty, param.span)?;
                             }
 
                             static_access.ty =
@@ -1066,9 +1063,8 @@ impl<'hir> TypeChecker<'hir> {
                                 Ok(field_signature.ty)
                             }
                         }
-                        _ => Ok(field_signature.ty)
+                        _ => Ok(field_signature.ty),
                     }
-                    
                 } else {
                     Err(Self::unknown_type_err(
                         field_access.field.name,
@@ -1154,22 +1150,25 @@ impl<'hir> TypeChecker<'hir> {
             .iter_mut()
             .map(|a| self.check_expr(a))
             .collect::<HirResult<Vec<_>>>()?;
-        
+
         // Create cache key including explicit generics to distinguish calls like default::<int64>() from default::<string>()
         let explicit_generics = expr.generics.clone();
-        let monomorphized = self.extern_monomorphized.get(&(name, args_ty.clone(), explicit_generics.clone()));
+        let monomorphized =
+            self.extern_monomorphized
+                .get(&(name, args_ty.clone(), explicit_generics.clone()));
         if let Some(m) = monomorphized {
             return Ok(self.arena.intern(m.return_ty.clone()));
         }
         //Contains the name + the actual type of that generic
         let mut generics: Vec<(&'hir str, &'hir HirTy<'hir>)> = Vec::new();
         let mut params = vec![];
-        
+
         // Check if explicit generic type arguments are provided (e.g., `default::<Int64>()`)
         if !expr.generics.is_empty() {
             // Use explicit type arguments from the function call
             if let Some(generic_params) = &signature.generics {
-                for (generic_param, concrete_ty) in generic_params.iter().zip(expr.generics.iter()) {
+                for (generic_param, concrete_ty) in generic_params.iter().zip(expr.generics.iter())
+                {
                     generics.push((generic_param.name, concrete_ty));
                 }
             }
@@ -1214,7 +1213,7 @@ impl<'hir> TypeChecker<'hir> {
             }
         } else if expr.generics.is_empty() {
             // Parameterless function with no explicit type arguments - error
-            if let Some(_) = &signature.generics {
+            if signature.generics.is_some() {
                 return Err(Self::type_mismatch_err(
                     "parameterless generic function",
                     &expr.span,
@@ -1232,7 +1231,6 @@ impl<'hir> TypeChecker<'hir> {
             let actual_generic_ty = match generics.iter().find(|(n, _)| *n == name) {
                 Some((_, ty)) => *ty,
                 None => {
-                    
                     return Err(Self::type_mismatch_err(
                         &format!("{}", monomorphized.return_ty),
                         &expr.span,
@@ -1251,7 +1249,8 @@ impl<'hir> TypeChecker<'hir> {
 
         monomorphized.generics = None;
         let signature = self.arena.intern(monomorphized);
-        self.extern_monomorphized.insert((name, args_ty, explicit_generics), signature);
+        self.extern_monomorphized
+            .insert((name, args_ty, explicit_generics), signature);
         Ok(self.arena.intern(signature.return_ty.clone()))
     }
 
@@ -1334,7 +1333,7 @@ impl<'hir> TypeChecker<'hir> {
             }
             //Check for enums
             (HirTy::Named(n), HirTy::UInt64(_)) | (HirTy::UInt64(_), HirTy::Named(n)) => {
-                if let Some(_) = self.signature.enums.get(n.name) {
+                if self.signature.enums.get(n.name).is_some() {
                     Ok(())
                 } else {
                     Err(Self::type_mismatch_err(
@@ -1528,7 +1527,7 @@ impl<'hir> TypeChecker<'hir> {
             | HirTy::Boolean(_)
             | HirTy::Unit(_) => true,
             HirTy::Named(n) => {
-                if let Some(_) = self.signature.enums.get(n.name) {
+                if self.signature.enums.get(n.name).is_some() {
                     true
                 } else {
                     false
