@@ -17,7 +17,6 @@ use crate::atlas_c::atlas_hir::HirModule;
 ///
 /// Stack allocation is not yet implemented; when added, this same pass will
 /// determine whether a value is stack-allocated or heap-allocated.
-
 pub struct LifeTimePass<'hir> {
     pub hir: &'hir mut HirModule<'hir>,
 }

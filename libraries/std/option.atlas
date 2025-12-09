@@ -8,6 +8,8 @@ import "std/io";
 // There will be a custom option_default<T>() -> T that does nothing
 // It returns some kind of NULL, because Option::none() does not need a value
 public extern default<T>() -> T;
+/// Does nothing apart from tricking the type system
+private extern option_default<T>() -> T;
 
 private enum OptionTag {
 	NONE = 0;
@@ -32,9 +34,16 @@ public:
 		return this.tag == OptionTag::SOME;
 	}
 	fun none() -> Option<T> {
-		return new Option<T>(default::<T>(), OptionTag::NONE);
+		return new Option<T>(option_default::<T>(), OptionTag::NONE);
 	}
 	fun is_none(this) -> bool {
 		return this.tag == OptionTag::NONE;
+	}
+
+	fun unwrap(this) -> T {
+		if this.is_none() {
+			panic("Unwrap called on a None value");
+		}
+		return this.data;
 	}
 }

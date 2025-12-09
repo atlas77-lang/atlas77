@@ -546,17 +546,17 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 self.generate_bytecode_expr(&b.lhs, bytecode)?;
                 self.generate_bytecode_expr(&b.rhs, bytecode)?;
                 match b.op {
-                    HirBinaryOperator::Add => bytecode.push(Instruction::Add(b.ty.into())),
-                    HirBinaryOperator::Sub => bytecode.push(Instruction::Sub(b.ty.into())),
-                    HirBinaryOperator::Mul => bytecode.push(Instruction::Mul(b.ty.into())),
-                    HirBinaryOperator::Div => bytecode.push(Instruction::Div(b.ty.into())),
-                    HirBinaryOperator::Mod => bytecode.push(Instruction::Mod(b.ty.into())),
-                    HirBinaryOperator::Eq => bytecode.push(Instruction::Eq(b.ty.into())),
-                    HirBinaryOperator::Neq => bytecode.push(Instruction::Neq(b.ty.into())),
-                    HirBinaryOperator::Gt => bytecode.push(Instruction::Gt(b.ty.into())),
-                    HirBinaryOperator::Gte => bytecode.push(Instruction::Gte(b.ty.into())),
-                    HirBinaryOperator::Lt => bytecode.push(Instruction::Lt(b.ty.into())),
-                    HirBinaryOperator::Lte => bytecode.push(Instruction::Lte(b.ty.into())),
+                    HirBinaryOperator::Add => bytecode.push(Instruction::Add(b.lhs.ty().into())),
+                    HirBinaryOperator::Sub => bytecode.push(Instruction::Sub(b.lhs.ty().into())),
+                    HirBinaryOperator::Mul => bytecode.push(Instruction::Mul(b.lhs.ty().into())),
+                    HirBinaryOperator::Div => bytecode.push(Instruction::Div(b.lhs.ty().into())),
+                    HirBinaryOperator::Mod => bytecode.push(Instruction::Mod(b.lhs.ty().into())),
+                    HirBinaryOperator::Eq => bytecode.push(Instruction::Eq(b.lhs.ty().into())),
+                    HirBinaryOperator::Neq => bytecode.push(Instruction::Neq(b.lhs.ty().into())),
+                    HirBinaryOperator::Gt => bytecode.push(Instruction::Gt(b.lhs.ty().into())),
+                    HirBinaryOperator::Gte => bytecode.push(Instruction::Gte(b.lhs.ty().into())),
+                    HirBinaryOperator::Lt => bytecode.push(Instruction::Lt(b.lhs.ty().into())),
+                    HirBinaryOperator::Lte => bytecode.push(Instruction::Lte(b.lhs.ty().into())),
                     HirBinaryOperator::And => {
                         bytecode.push(Instruction::And);
                     }

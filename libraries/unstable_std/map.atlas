@@ -32,7 +32,7 @@ public:
         while i < this.keys.length {
             if this.keys.get(i) == key {
                 // Key exists, update value
-                this.values.get(i) = value;
+                this.values.set(i, value);
                 return;
             }
             i = i + 1_uint64;

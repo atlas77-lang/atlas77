@@ -126,13 +126,13 @@ pub struct AccessingPrivateFunctionOrigin {
     code(sema::illegal_operation),
     help("ensure that the operation is valid for the given types")
 )]
-#[error("Imcompatible {operation} on {ty1} & {ty2}")]
+#[error("Incompatible {operation} on {ty1} & {ty2}")]
 pub struct IllegalOperationError {
     #[source_code]
     pub src: NamedSource<String>,
     pub operation: String,
     pub ty1: String,
-    #[label("Imcompatible {operation} on {ty1} & {ty2}")]
+    #[label("Incompatible {operation} on {ty1} & {ty2}")]
     pub expr_span: Span,
     pub ty2: String,
 }

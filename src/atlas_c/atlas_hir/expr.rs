@@ -203,6 +203,7 @@ pub struct HirFunctionCallExpr<'hir> {
     pub callee_span: Span,
     pub args: Vec<HirExpr<'hir>>,
     pub args_ty: Vec<&'hir HirTy<'hir>>,
+    pub generics: Vec<&'hir HirTy<'hir>>,
     /// Result type of the call
     pub ty: &'hir HirTy<'hir>,
 }

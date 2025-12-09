@@ -4,9 +4,9 @@ pub mod atlas_c;
 pub mod atlas_lib;
 pub mod atlas_vm;
 
-use crate::atlas_c::{
+use crate::{atlas_c::{
     atlas_asm::AsmProgram, atlas_hir::dead_code_elimination_pass::DeadCodeEliminationPass,
-};
+}, atlas_vm::runtime::AtlasRuntime};
 use atlas_c::{
     atlas_asm,
     atlas_codegen::{CodeGenUnit, arena::CodeGenArena},
@@ -109,7 +109,7 @@ pub fn run(path: String, _flag: CompilationFlag, has_standard_library: bool) -> 
     let res = build(path.clone(), _flag, has_standard_library)?;
 
     let extern_fn = BTreeMap::new();
-    let mut vm = atlas_vm::runtime::AtlasRuntime::new(res, extern_fn);
+    let mut vm = AtlasRuntime::new(res, extern_fn);
     let start = Instant::now();
     let res = vm.run();
     let end = Instant::now();

@@ -365,6 +365,13 @@ impl<'hir> MonomorphizationPass<'hir> {
                 for arg in call_expr.args.iter_mut() {
                     self.monomorphize_expression(arg, types_to_change.clone())?;
                 }
+
+                for generic in call_expr.generics.iter_mut() {
+                    let monomorphized_ty =
+                        self.swap_generic_types_in_ty(generic, types_to_change.clone());
+                    *generic = monomorphized_ty;
+                }
+
                 self.monomorphize_expression(&mut call_expr.callee, types_to_change)?;
             }
             HirExpr::Casting(casting_expr) => {

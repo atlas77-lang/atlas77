@@ -551,6 +551,7 @@ impl<'hir> TypeChecker<'hir> {
             HirExpr::HirBinaryOperation(b) => {
                 let lhs = self.check_expr(&mut b.lhs)?;
                 b.ty = lhs;
+                eprintln!("Binary operation lhs type: {}", lhs);
                 let rhs = self.check_expr(&mut b.rhs)?;
                 let is_equivalent = self.is_equivalent_ty(lhs, b.lhs.span(), rhs, b.rhs.span());
                 if is_equivalent.is_err() {
@@ -965,14 +966,12 @@ impl<'hir> TypeChecker<'hir> {
                                 .zip(func_expr.args.iter_mut())
                             {
                                 let arg_ty = self.check_expr(arg)?;
-                                if HirTyId::from(arg_ty) != HirTyId::from(param.ty) {
-                                    return Err(Self::type_mismatch_err(
-                                        &format!("{}", arg_ty),
-                                        &arg.span(),
-                                        &format!("{}", param.ty),
-                                        &param.span,
-                                    ));
-                                }
+                                self.is_equivalent_ty(
+                                    arg_ty,
+                                    arg.span(),
+                                    param.ty,
+                                    param.span,
+                                )?;
                             }
 
                             static_access.ty =
@@ -1060,7 +1059,17 @@ impl<'hir> TypeChecker<'hir> {
                     }
                     field_access.ty = field_signature.ty;
                     field_access.field.ty = field_signature.ty;
-                    Ok(field_signature.ty)
+                    match field_signature.ty {
+                        HirTy::Named(n) => {
+                            if self.signature.enums.contains_key(n.name) {
+                                Ok(self.arena.types().get_uint64_ty())
+                            } else {
+                                Ok(field_signature.ty)
+                            }
+                        }
+                        _ => Ok(field_signature.ty)
+                    }
+                    
                 } else {
                     Err(Self::unknown_type_err(
                         field_access.field.name,
@@ -1097,10 +1106,14 @@ impl<'hir> TypeChecker<'hir> {
                                 Some(var) => {
                                     let replaced_expr = HirExpr::UnsignedIntegerLiteral(
                                         HirUnsignedIntegerLiteralExpr {
-                                            value: var.value as u64,
+                                            value: var.value,
                                             span: static_access.span,
                                             ty: self.arena.types().get_uint64_ty(),
                                         },
+                                    );
+                                    eprintln!(
+                                        "Replaced enum variant access {}::{} with value {}",
+                                        name, var.name, var.value
                                     );
                                     *expr = replaced_expr;
                                     return Ok(self.arena.types().get_uint64_ty());
@@ -1153,31 +1166,64 @@ impl<'hir> TypeChecker<'hir> {
         //Contains the name + the actual type of that generic
         let mut generics: Vec<(&'hir str, &'hir HirTy<'hir>)> = Vec::new();
         let mut params = vec![];
-        for (i, (param, arg)) in signature.params.iter().zip(args_ty.iter()).enumerate() {
-            //This only take the name of the generic type (e.g. `T` in `extern foo<T>(a: T) -> T`)
-            //So `extern foo<T>(a: [T]) -> T` won't be correctly type checked
-
-            if let Some(name) = Self::get_generic_name(param.ty) {
-                let ty = if let Some(ty) = Self::get_generic_ty(param.ty, arg) {
-                    ty
-                } else {
-                    return Err(Self::type_mismatch_err(
-                        &format!("{}", arg),
-                        &expr.args[i].span(),
-                        &format!("{}", param.ty),
-                        &param.span,
-                    ));
-                };
-                generics.push((name, ty));
+        
+        // Check if explicit generic type arguments are provided (e.g., `default::<Int64>()`)
+        if !expr.generics.is_empty() {
+            // Use explicit type arguments from the function call
+            if let Some(generic_params) = &signature.generics {
+                for (generic_param, concrete_ty) in generic_params.iter().zip(expr.generics.iter()) {
+                    generics.push((generic_param.name, concrete_ty));
+                }
             }
-            let param_sign: HirFunctionParameterSignature = HirFunctionParameterSignature {
-                name: param.name,
-                name_span: param.name_span,
-                span: param.span,
-                ty: arg,
-                ty_span: param.ty_span,
-            };
-            params.push(param_sign);
+            // Still need to create params even with explicit generics
+            for (param, arg) in signature.params.iter().zip(args_ty.iter()) {
+                let param_sign: HirFunctionParameterSignature = HirFunctionParameterSignature {
+                    name: param.name,
+                    name_span: param.name_span,
+                    span: param.span,
+                    ty: arg,
+                    ty_span: param.ty_span,
+                };
+                params.push(param_sign);
+            }
+        } else if !signature.params.is_empty() {
+            // Try to infer generic types from arguments if no explicit type arguments provided
+            for (i, (param, arg)) in signature.params.iter().zip(args_ty.iter()).enumerate() {
+                //This only take the name of the generic type (e.g. `T` in `extern foo<T>(a: T) -> T`)
+                //So `extern foo<T>(a: [T]) -> T` won't be correctly type checked
+
+                if let Some(name) = Self::get_generic_name(param.ty) {
+                    let ty = if let Some(ty) = Self::get_generic_ty(param.ty, arg) {
+                        ty
+                    } else {
+                        return Err(Self::type_mismatch_err(
+                            &format!("{}", arg),
+                            &expr.args[i].span(),
+                            &format!("{}", param.ty),
+                            &param.span,
+                        ));
+                    };
+                    generics.push((name, ty));
+                }
+                let param_sign: HirFunctionParameterSignature = HirFunctionParameterSignature {
+                    name: param.name,
+                    name_span: param.name_span,
+                    span: param.span,
+                    ty: arg,
+                    ty_span: param.ty_span,
+                };
+                params.push(param_sign);
+            }
+        } else if expr.generics.is_empty() {
+            // Parameterless function with no explicit type arguments - error
+            if let Some(_) = &signature.generics {
+                return Err(Self::type_mismatch_err(
+                    "parameterless generic function",
+                    &expr.span,
+                    "explicit type arguments (e.g., `function::<Int64>()`)",
+                    &signature.span,
+                ));
+            }
         }
 
         let mut monomorphized = signature.clone();
@@ -1185,7 +1231,18 @@ impl<'hir> TypeChecker<'hir> {
         if let Some(name) =
             Self::get_generic_name(self.arena.intern(monomorphized.return_ty.clone()))
         {
-            let actual_generic_ty = generics.iter().find(|(n, _)| *n == name).unwrap().1;
+            let actual_generic_ty = match generics.iter().find(|(n, _)| *n == name) {
+                Some((_, ty)) => *ty,
+                None => {
+                    
+                    return Err(Self::type_mismatch_err(
+                        &format!("{}", monomorphized.return_ty),
+                        &expr.span,
+                        "concrete type (check explicit type arguments match generic parameters)",
+                        &signature.span,
+                    ));
+                }
+            };
             let return_ty = self.get_generic_ret_ty(
                 self.arena.intern(monomorphized.return_ty.clone()),
                 actual_generic_ty,

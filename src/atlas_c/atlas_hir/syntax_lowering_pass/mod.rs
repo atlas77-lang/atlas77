@@ -160,7 +160,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
             AstItem::Enum(e) => {
                 let hir_enum = self.visit_enum(e)?;
-                eprintln!("Lowered enum: {}", hir_enum.name);
                 self.module_body
                     .enums
                     .insert(self.arena.names().get(e.name.name), hir_enum.clone());
@@ -856,11 +855,20 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     .iter()
                     .map(|arg| self.visit_expr(arg))
                     .collect::<HirResult<Vec<_>>>()?;
+                let mut generics = vec![];
+                for generic in c.generics.iter() {
+                    let generic_ty = match self.visit_ty(generic)? {
+                        HirTy::Generic(ty) => self.register_generic_type(ty),
+                        other => other,
+                    };
+                    generics.push(generic_ty);
+                }
                 let hir = HirExpr::Call(HirFunctionCallExpr {
                     span: node.span(),
                     callee: Box::new(callee.clone()),
                     callee_span: callee.span(),
                     args,
+                    generics,
                     args_ty: Vec::new(),
                     ty: self.arena.types().get_uninitialized_ty(),
                 });

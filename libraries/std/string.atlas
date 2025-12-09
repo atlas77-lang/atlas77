@@ -10,7 +10,7 @@ public extern trim(s: string) -> string;
 public extern to_upper(s: string) -> string;
 public extern to_lower(s: string) -> string;
 public extern split(s: string, sep: string) -> [string];
-public extern str_cmp(s1: string, s2: string) -> int64;
+public extern str_cmp(s1: string, s2: string) -> uint64;
 public extern to_chars(s: string) -> [char];
 public extern from_chars(s: [char]) -> string;
 
@@ -50,10 +50,10 @@ public:
         let self_chars = to_chars(this.s);
         let other_chars = to_chars(other.s);
         let res = new [char; len(self_chars) + len(other_chars)];
-        let i = 0;
+        let i = 0_uint64;
         while i < len(self_chars) {
             res[i] = self_chars[i];
-            i = i + 1;
+            i = i + 1_uint64;
         }
         return new String(from_chars(res));
     }
@@ -61,11 +61,11 @@ public:
     fun push(this, c: char) -> unit {
         //Same... I should implement the <- operator
         let self_chars = to_chars(this.s);
-        let res = new [char; len(self_chars) + 1];
-        let i = 0;
+        let res = new [char; len(self_chars) + 1_uint64];
+        let i = 0_uint64;
         while i < len(self_chars) {
             res[i] = self_chars[i];
-            i = i + 1;
+            i = i + 1_uint64;
         }
         res[i] = c;
         this.s = from_chars(res);
@@ -77,16 +77,16 @@ public:
         let self_chars = to_chars(this.s);
         let s_chars = to_chars(s.s);
         let res = new [char; len(self_chars) + len(s_chars)];
-        let i = 0;
+        let i = 0_uint64;
         while i < len(self_chars) {
             res[i] = self_chars[i];
-            i = i + 1;
+            i = i + 1_uint64;
         }
-        let j = 0;
+        let j = 0_uint64;
         while j < len(s_chars) {
             res[i] = s_chars[j];
-            i = i + 1;
-            j = j + 1;
+            i = i + 1_uint64;
+            j = j + 1_uint64;
         }
         this.s = from_chars(res);
         this.len = str_len(this.s);
@@ -95,23 +95,23 @@ public:
 
     fun find(this, sub_string: String) -> int64 {
         let res = -1;
-        let i = 0;
-        let j = 0;
+        let i = 0_uint64;
+        let j = 0_uint64;
         let self_chars = to_chars(this.s);
         let sub_chars = to_chars(sub_string.s);
         while i < len(self_chars) {
             if self_chars[i] == sub_chars[j] {
                 const size_sub_chars: int64 = len(sub_chars) as int64 - 1;
-                if j == size_sub_chars {
-                    res = i - j;
+                if j as int64 == size_sub_chars {
+                    res = i as int64 - j as int64;
                     //break is not implemented yet...
                     //break;
                 }
-                j = j + 1;
+                j = j + 1_uint64;
             } else {
-                j = 0;
+                j = 0_uint64;
             }
-            i = i + 1;
+            i = i + 1_uint64;
         }
         return res;
     }
@@ -147,11 +147,11 @@ public:
 
     fun split(this, sep: string) -> [String] {
         let s: [string] = split(this.s, sep);
-        let i = 0;
+        let i = 0_uint64;
         let res = new [String; len(s)];
         while i < len(s) {
             res[i] = new String(s[i]);
-            i = i + 1;
+            i = i + 1_uint64;
         }
         return res;
     }

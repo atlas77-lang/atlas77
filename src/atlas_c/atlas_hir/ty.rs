@@ -165,10 +165,7 @@ pub enum HirTy<'hir> {
 
 impl HirTy<'_> {
     pub fn is_const(&self) -> bool {
-        match self {
-            HirTy::ReadOnlyReference(_) => true,
-            _ => false,
-        }
+        matches!(self, HirTy::ReadOnlyReference(_))
     }
 }
 
