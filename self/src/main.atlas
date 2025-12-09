@@ -1,20 +1,18 @@
 import "std/io";
 import "src/lexer";
 import "std/string";
+import "src/interpreter";
 
 fun main() {
-    let source = new String("+>-<.");
+    //Brainfuck lexer, let's do Hello without loops for now
+    let source = new String(
+        "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++.+++++++++++++++++++++++++++++.+++++++..+++.",
+    );
     let tokens = lex(source);
-    print(tokens);
     let i: uint64 = 0_uint64;
     println("Lexed tokens:");
-    while i < tokens.length {
-        let token = tokens.get(i);
-        print("Token kind: ");
-        print(token.kind);
-        print(", value: ");
-        println(token.value);
-        i = i + 1;
-    }
-    println("Hello, Atlas!");
+    println("Starting interpreter...");
+    let interpreter = new BrainFuckInterpreter();
+    println("Running code...");
+    interpreter.run(tokens);
 }
