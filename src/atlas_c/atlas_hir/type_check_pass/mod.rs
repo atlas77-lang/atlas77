@@ -55,7 +55,7 @@ pub struct TypeChecker<'hir> {
     current_class_name: Option<&'hir str>,
     //TODO: Move this to the MonomorphizationPass in the future
     extern_monomorphized:
-        HashMap<(&'hir str, Vec<&'hir HirTy<'hir>>), &'hir HirFunctionSignature<'hir>>,
+        HashMap<(&'hir str, Vec<&'hir HirTy<'hir>>, Vec<&'hir HirTy<'hir>>), &'hir HirFunctionSignature<'hir>>,
 }
 
 impl<'hir> TypeChecker<'hir> {
@@ -1154,7 +1154,10 @@ impl<'hir> TypeChecker<'hir> {
             .iter_mut()
             .map(|a| self.check_expr(a))
             .collect::<HirResult<Vec<_>>>()?;
-        let monomorphized = self.extern_monomorphized.get(&(name, args_ty.clone()));
+        
+        // Create cache key including explicit generics to distinguish calls like default::<int64>() from default::<string>()
+        let explicit_generics = expr.generics.clone();
+        let monomorphized = self.extern_monomorphized.get(&(name, args_ty.clone(), explicit_generics.clone()));
         if let Some(m) = monomorphized {
             return Ok(self.arena.intern(m.return_ty.clone()));
         }
@@ -1248,7 +1251,7 @@ impl<'hir> TypeChecker<'hir> {
 
         monomorphized.generics = None;
         let signature = self.arena.intern(monomorphized);
-        self.extern_monomorphized.insert((name, args_ty), signature);
+        self.extern_monomorphized.insert((name, args_ty, explicit_generics), signature);
         Ok(self.arena.intern(signature.return_ty.clone()))
     }
 

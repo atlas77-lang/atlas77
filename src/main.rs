@@ -32,7 +32,7 @@ enum AtlasRuntimeCLI {
         /// As of now, it just means the Runtime won't load all the extern functions from the standard library
         ///
         /// BEWARE: It is not stable yet, so using this flag may lead to unexpected behavior
-        no_standard_lib: bool,
+        no_std: bool,
     },
     #[command(
         about = "Compile a local package and all of its dependencies",
@@ -51,7 +51,7 @@ enum AtlasRuntimeCLI {
         /// As of now, it just means the Runtime won't load all the extern functions from the standard library
         ///
         /// BEWARE: It is not stable yet, so using this flag may lead to unexpected behavior
-        no_standard_lib: bool,
+        no_std: bool,
     },
     #[command(
         arg_required_else_help = true,
@@ -67,7 +67,7 @@ fn main() -> miette::Result<()> {
             file_path,
             release,
             debug,
-            no_standard_lib,
+            no_std: no_standard_lib,
         } => {
             if release && debug {
                 eprintln!("Cannot run in both release and debug mode");
@@ -88,7 +88,7 @@ fn main() -> miette::Result<()> {
             file_path,
             release,
             debug,
-            no_standard_lib,
+            no_std: no_standard_lib,
         } => {
             if release && debug {
                 eprintln!("Cannot build in both release and debug mode");
