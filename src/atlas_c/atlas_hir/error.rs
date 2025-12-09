@@ -37,11 +37,46 @@ declare_error_type! {
         AccessingPrivateStruct(AccessingPrivateStructError),
         IllegalOperation(IllegalOperationError),
         AccessingPrivateFunction(AccessingPrivateFunctionError),
+        UnsupportedItem(UnsupportedItemError),
+        TryingToAccessFieldOnNonObjectType(TryingToAccessFieldOnNonObjectTypeError),
+        NullableTypeRequiresStdLibrary(NullableTypeRequiresStdLibraryError),
     }
 }
 
 /// Handy type alias for all HIR-related errors.
 pub type HirResult<T> = Result<T, HirError>;
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::nullable_type_requires_std_library))]
+#[error("nullable types require the standard library")]
+pub struct NullableTypeRequiresStdLibraryError {
+    #[label = "nullable types require the standard library"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::trying_to_access_field_on_non_object_type))]
+#[error("Trying to access field on non-object type: {ty}")]
+pub struct TryingToAccessFieldOnNonObjectTypeError {
+    #[label = "trying to access field on non-object type"]
+    pub span: Span,
+    pub ty: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::unsupported_item))]
+#[error("{item} isn't supported yet")]
+pub struct UnsupportedItemError {
+    #[label = "unsupported item"]
+    pub span: Span,
+    pub item: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
@@ -102,13 +137,13 @@ pub struct AccessingPrivateFunctionOrigin {
     code(sema::illegal_operation),
     help("ensure that the operation is valid for the given types")
 )]
-#[error("Imcompatible {operation} on {ty1} & {ty2}")]
+#[error("Incompatible {operation} on {ty1} & {ty2}")]
 pub struct IllegalOperationError {
     #[source_code]
     pub src: NamedSource<String>,
     pub operation: String,
     pub ty1: String,
-    #[label("Imcompatible {operation} on {ty1} & {ty2}")]
+    #[label("Incompatible {operation} on {ty1} & {ty2}")]
     pub expr_span: Span,
     pub ty2: String,
 }
@@ -293,13 +328,14 @@ pub struct NonConstantValueError {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::self_access_outside_class))]
-#[error("Can't access fields of self outside of a class")]
+#[error("Can't access private {kind} `{field_name}` outside of its class")]
 pub struct AccessingPrivateFieldError {
-    #[label("Trying to access a private {kind}")]
+    #[label("Trying to access private {kind} `{field_name}` from outside its class")]
     pub span: Span,
     pub kind: FieldKind,
     #[source_code]
     pub src: NamedSource<String>,
+    pub field_name: String,
 }
 
 #[derive(Debug)]

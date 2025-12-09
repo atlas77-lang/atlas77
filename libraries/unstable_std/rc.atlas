@@ -1,0 +1,81 @@
+import "std/io";
+
+private struct RcBlock<T> {
+public:
+    strong: uint64;
+    value: T;
+    RcBlock(strong: uint64, value: T) {
+        this.strong = strong;
+        this.value = value;
+    }
+}
+
+// Ref-counted pointer implementation
+public struct rc_ptr<T> {
+private:
+    block: &RcBlock<T>;
+    /// Private constructor
+    /// Used internally to create a rc_ptr from an existing RcBlock
+    rc_ptr(block: &RcBlock<T>) {
+        this.block = block;
+    }
+public:
+    // custom destructor
+    ~rc_ptr() {
+        this.release();
+    }
+    fun new_rc_ptr(val: T) -> rc_ptr<T> {
+        let block = new RcBlock<T>(1, val);
+        return new rc_ptr<T>(&block); //it should be return rc_ptr::<T>( &block );
+    }
+
+    fun clone(this) -> rc_ptr<T> {
+        let strong = this.block.strong;
+        this.block.strong = strong + 1 as uint64;
+        return new rc_ptr<T>(this.block);
+    }
+
+    fun release(this) {
+        let old = this.block.strong;
+        if old == 0 {
+            panic("double release");
+        }
+        let new_counter = old - 1 as uint64;
+        this.block.strong = new_counter;
+
+        if new_counter == 0 {
+            delete this.block; //Shouldn't we also free the ``rc_ptr`` itself?
+        }
+    }
+
+    fun get(this) -> &const T {
+        return &const this.block.value;
+    }
+
+    fun get_mut(this) -> &T {
+        return &this.block.value;
+    }
+}
+
+extern len<T>(data: [T]) -> uint64;
+
+struct vector<T> {
+public:
+    data: [T];
+    length: uint64;
+public:
+    vector(data: [T]) {
+        this.data = data;
+        this.length = len(data);
+    }
+}
+
+fun main() {
+    let stack_allocated_vec = new vector<int64>(new [int64; 3]);
+    let rc_vec = rc_ptr::<vector<int64>>::new_rc_ptr(stack_allocated_vec);
+    let rc_vec_clone = rc_vec.clone();
+    println("Length of rc_vec: ");
+    println(rc_vec.get().length);
+    println("Length of rc_vec_clone: ");
+    println(rc_vec_clone.get().length);
+}

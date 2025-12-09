@@ -13,7 +13,7 @@ pub const FILE_FUNCTIONS: [(&str, CallBack); 5] = [
 ];
 
 pub fn read_dir(state: VMState) -> Result<VMData, RuntimeError> {
-    let path_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
+    let path_ptr = state.stack.pop()?.as_object();
     let raw_path = state.object_map.get(path_ptr)?;
     let path = raw_path.string();
 
@@ -38,7 +38,7 @@ pub fn read_dir(state: VMState) -> Result<VMData, RuntimeError> {
 }
 
 pub fn read_file(state: VMState) -> Result<VMData, RuntimeError> {
-    let path_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
+    let path_ptr = state.stack.pop()?.as_object();
     let raw_path = state.object_map.get(path_ptr)?;
     let path = raw_path.string();
 
@@ -51,8 +51,8 @@ pub fn read_file(state: VMState) -> Result<VMData, RuntimeError> {
 }
 
 pub fn write_file(state: VMState) -> Result<VMData, RuntimeError> {
-    let content_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
-    let path_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
+    let content_ptr = state.stack.pop()?.as_object();
+    let path_ptr = state.stack.pop()?.as_object();
 
     let path = state.object_map.get(path_ptr)?.string().clone();
     let raw_content = state.object_map.get(content_ptr)?;
@@ -63,7 +63,7 @@ pub fn write_file(state: VMState) -> Result<VMData, RuntimeError> {
 }
 
 pub fn file_exists(state: VMState) -> Result<VMData, RuntimeError> {
-    let path_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
+    let path_ptr = state.stack.pop()?.as_object();
     let raw_path = state.object_map.get(path_ptr)?;
     let path = raw_path.string();
 
@@ -72,7 +72,7 @@ pub fn file_exists(state: VMState) -> Result<VMData, RuntimeError> {
 }
 
 pub fn remove_file(state: VMState) -> Result<VMData, RuntimeError> {
-    let path_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
+    let path_ptr = state.stack.pop()?.as_object();
     let raw_path = state.object_map.get(path_ptr)?;
     let path = raw_path.string();
 

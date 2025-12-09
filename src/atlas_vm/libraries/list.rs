@@ -15,9 +15,9 @@ pub fn len(state: VMState) -> Result<VMData, RuntimeError> {
 }
 
 pub fn slice(state: VMState) -> Result<VMData, RuntimeError> {
-    let end = state.stack.pop_with_rc(state.object_map)?.as_i64();
-    let start = state.stack.pop_with_rc(state.object_map)?.as_i64();
-    let list_ptr = state.stack.pop_with_rc(state.object_map)?.as_object();
+    let end = state.stack.pop()?.as_i64();
+    let start = state.stack.pop()?.as_i64();
+    let list_ptr = state.stack.pop()?.as_object();
     let raw_list = state.object_map.get(list_ptr)?;
     let list = raw_list.list();
     let sliced = list[start as usize..end as usize].to_vec();

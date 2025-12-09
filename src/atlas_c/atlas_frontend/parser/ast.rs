@@ -18,6 +18,7 @@ pub enum AstItem<'ast> {
     Struct(AstStruct<'ast>),
     ExternFunction(AstExternFunction<'ast>),
     Function(AstFunction<'ast>),
+    Enum(AstEnum<'ast>),
 }
 
 impl AstItem<'_> {
@@ -27,6 +28,7 @@ impl AstItem<'_> {
             AstItem::Struct(v) => v.vis = vis,
             AstItem::ExternFunction(v) => v.vis = vis,
             AstItem::Function(v) => v.vis = vis,
+            AstItem::Enum(v) => v.vis = vis,
         }
     }
     pub fn span(&self) -> Span {
@@ -35,16 +37,33 @@ impl AstItem<'_> {
             AstItem::Struct(v) => v.span,
             AstItem::ExternFunction(v) => v.span,
             AstItem::Function(v) => v.span,
+            AstItem::Enum(v) => v.span,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct AstEnum<'ast> {
+    pub span: Span,
+    pub name: &'ast AstIdentifier<'ast>,
+    pub name_span: Span,
+    pub vis: AstVisibility,
+    pub variants: &'ast [&'ast AstEnumVariant<'ast>],
+}
+#[derive(Debug, Clone)]
+pub struct AstEnumVariant<'ast> {
+    pub span: Span,
+    pub name: &'ast AstIdentifier<'ast>,
+    /// Currently, enum variants can only have a single unsigned integer value
+    pub value: u64,
 }
 
 /// And ASTGeneric carries the name of the generic type as well as the constraints
 ///
 /// Example:
 /// ```
-/// struct Foo[T: Display + Debug] {
-///     var x: T;
+/// struct Foo<T: Display + Debug> {
+///     x: T;
 ///     fun print(self) {
 ///         println(x);
 ///     }
@@ -81,10 +100,8 @@ pub struct AstStruct<'ast> {
     pub constructor: Option<&'ast AstConstructor<'ast>>,
     pub destructor: Option<&'ast AstDestructor<'ast>>,
     pub generics: &'ast [&'ast AstGeneric<'ast>],
-    /// Will be ignored until we add support for traits
     pub operators: &'ast [&'ast AstOperatorOverload<'ast>],
     pub constants: &'ast [&'ast AstConst<'ast>],
-    //todo: Add support for methods (AstFunction -> AstMethod)
     pub methods: &'ast [&'ast AstMethod<'ast>],
 }
 
@@ -97,13 +114,40 @@ pub enum AstMethodModifier {
 }
 
 #[derive(Debug, Clone)]
-/// Will be used when we add support for traits
 pub struct AstOperatorOverload<'ast> {
     pub span: Span,
+    //TODO: Replace AstBinaryOp with AstOverloadableOperator
     pub op: AstBinaryOp,
     pub args: &'ast [&'ast AstObjField<'ast>],
     pub body: &'ast AstBlock<'ast>,
     pub ret: &'ast AstType<'ast>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AstOverloadableOperator {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    Eq,
+    NEq,
+    Lt,
+    Lte,
+    Gt,
+    Gte,
+    And,
+    Or,
+    /// Copy constructor like in C++
+    /// ```
+    /// struct Foo {
+    ///   x: int64;
+    ///   operator Copy(&const Foo) -> Foo {
+    ///     let other = &const Foo;
+    ///     return new Foo(other.x);
+    ///   }
+    /// }
+    Copy,
 }
 
 #[derive(Debug, Clone)]
@@ -128,6 +172,7 @@ pub struct AstMethod<'ast> {
     pub vis: AstVisibility,
     pub span: Span,
     pub name: &'ast AstIdentifier<'ast>,
+    pub generics: Option<&'ast [&'ast AstGeneric<'ast>]>,
     pub args: &'ast [&'ast AstObjField<'ast>],
     pub ret: &'ast AstType<'ast>,
     pub body: &'ast AstBlock<'ast>,
@@ -137,6 +182,7 @@ pub struct AstMethod<'ast> {
 pub struct AstFunction<'ast> {
     pub span: Span,
     pub name: &'ast AstIdentifier<'ast>,
+    pub generics: Option<&'ast [&'ast AstGeneric<'ast>]>,
     pub args: &'ast [&'ast AstObjField<'ast>],
     pub ret: &'ast AstType<'ast>,
     pub body: &'ast AstBlock<'ast>,
@@ -307,7 +353,7 @@ pub struct AstNewArrayExpr<'ast> {
 #[derive(Debug, Clone)]
 pub struct AstStaticAccessExpr<'ast> {
     pub span: Span,
-    pub target: &'ast AstIdentifier<'ast>,
+    pub target: &'ast AstType<'ast>,
     pub field: &'ast AstIdentifier<'ast>,
 }
 
@@ -345,7 +391,8 @@ pub enum AstUnaryOp {
     Neg,
     Not,
     _Deref,
-    _AsRef,
+    AsMutableRef,
+    AsReadOnlyRef,
 }
 
 #[derive(Debug, Clone)]
@@ -522,10 +569,10 @@ pub enum AstType<'ast> {
     ThisTy(AstThisType),
     String(AstStringType),
     Named(AstNamedType<'ast>),
-    Reference(AstPointerType<'ast>),
+    MutableRef(AstMutableRefType<'ast>),
+    ReadOnlyRef(AstReadOnlyRefType<'ast>),
     Function(AstFunctionType<'ast>),
     Nullable(AstNullableType<'ast>),
-    ReadOnly(AstReadOnlyType<'ast>),
     List(AstListType<'ast>),
     Generic(AstGenericType<'ast>),
 }
@@ -542,10 +589,10 @@ impl AstType<'_> {
             AstType::ThisTy(t) => t.span,
             AstType::String(t) => t.span,
             AstType::Named(t) => t.span,
-            AstType::Reference(t) => t.span,
+            AstType::MutableRef(t) => t.span,
             AstType::Function(t) => t.span,
             AstType::Nullable(t) => t.span,
-            AstType::ReadOnly(r) => r.span,
+            AstType::ReadOnlyRef(t) => t.span,
             AstType::List(t) => t.span,
             AstType::Generic(t) => t.span,
         }
@@ -564,9 +611,9 @@ impl<'ast> AstType<'ast> {
             AstType::ThisTy(_) => "This".to_owned(),
             AstType::String(_) => "string".to_owned(),
             AstType::Named(t) => t.name.name.to_owned(),
-            AstType::Reference(t) => format!("&{}", t.inner.name()),
+            AstType::MutableRef(t) => format!("&{}", t.inner.name()),
             AstType::Nullable(t) => format!("{}?", t.inner.name()),
-            AstType::ReadOnly(r) => format!("const {}", r.inner.name()),
+            AstType::ReadOnlyRef(t) => format!("&const {}", t.inner.name()),
             AstType::List(t) => format!("[{}]", t.inner.name()),
             AstType::Generic(t) => {
                 if t.inner_types.is_empty() {
@@ -586,13 +633,6 @@ impl<'ast> AstType<'ast> {
             }
         }
     }
-}
-
-#[derive(Debug, Clone)]
-/// A readonly type in atlas has the form of `const T`
-pub struct AstReadOnlyType<'ast> {
-    pub span: Span,
-    pub inner: &'ast AstType<'ast>,
 }
 
 #[derive(Debug, Clone)]
@@ -638,7 +678,13 @@ pub struct AstFunctionType<'ast> {
 
 #[derive(Debug, Clone)]
 ///A pointer type in atlas as the form of `&T`
-pub struct AstPointerType<'ast> {
+pub struct AstMutableRefType<'ast> {
+    pub span: Span,
+    pub inner: &'ast AstType<'ast>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AstReadOnlyRefType<'ast> {
     pub span: Span,
     pub inner: &'ast AstType<'ast>,
 }

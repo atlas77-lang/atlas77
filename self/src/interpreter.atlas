@@ -1,0 +1,48 @@
+import "std/io";
+import "std/vector";
+import "src/lexer";
+import "std/string";
+
+public struct BrainFuckInterpreter {
+public:
+    cells: [uint64];
+    pointer: uint64;
+
+    BrainFuckInterpreter() {
+        this.cells = new [uint64; 50];
+        let i: uint64 = 0_uint64;
+        while i < 50_uint64 {
+            this.cells[i] = 0_uint64;
+            i = i + 1_uint64;
+        }
+        this.pointer = 0_uint64;
+    }
+    fun run(this, tokens: Vector<Token>) {
+        println("Running BrainFuck Interpreter...");
+        let i: uint64 = 0_uint64;
+        while i < tokens.length {
+            let token = tokens.get(i);
+            if token.kind == TokenKind::SHIFT_RIGHT {
+                this.pointer = this.pointer + 1_uint64;
+            } else if token.kind == TokenKind::SHIFT_LEFT {
+                this.pointer = this.pointer - 1_uint64;
+            } else if token.kind == TokenKind::INCREMENT {
+                this.cells[this.pointer] = this.cells[this.pointer] + 1_uint64;
+            } else if token.kind == TokenKind::DECREMENT {
+                this.cells[this.pointer] = this.cells[this.pointer] - 1_uint64;
+            } else if token.kind == TokenKind::OUTPUT {
+                let char_value = this.cells[this.pointer] as char;
+                print(char_value);
+            } else if token.kind == TokenKind::INPUT {
+                let input_char = input() as char;
+                this.cells[this.pointer] = input_char as uint64;
+            } else if token.kind == TokenKind::LOOP_START {
+                // Loop handling not implemented yet
+            } else if token.kind == TokenKind::LOOP_END {
+                // Loop handling not implemented yet
+            }
+            i = i + 1_uint64;
+        }
+    }
+
+}

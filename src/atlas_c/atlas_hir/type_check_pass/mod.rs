@@ -9,13 +9,18 @@ use super::{
     stmt::HirStatement,
     ty::{HirTy, HirTyId},
 };
-use crate::atlas_c::atlas_hir::monomorphization_pass::MonomorphizationPass;
 use crate::atlas_c::atlas_hir::signature::{
     HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier, HirVisibility,
 };
 use crate::atlas_c::atlas_hir::ty::HirNamedTy;
 use crate::atlas_c::atlas_hir::type_check_pass::context::{ContextFunction, ContextVariable};
-use crate::atlas_c::atlas_hir::warning::{DeletingReferenceIsUnstableWarning, HirWarning};
+use crate::atlas_c::atlas_hir::warning::{DeletingReferenceMightLeadToUB, HirWarning};
+use crate::atlas_c::atlas_hir::{
+    error::TryingToAccessFieldOnNonObjectTypeError,
+    expr::{HirUnaryOp, HirUnsignedIntegerLiteralExpr},
+    monomorphization_pass::MonomorphizationPass,
+    warning::TryingToCastToTheSameTypeWarning,
+};
 use crate::atlas_c::atlas_hir::{
     error::{NotEnoughArgumentsError, NotEnoughArgumentsOrigin},
     item::{HirStruct, HirStructMethod},
@@ -30,9 +35,8 @@ use crate::atlas_c::{
         AccessingClassFieldOutsideClassError, AccessingPrivateConstructorError,
         AccessingPrivateFieldError, AccessingPrivateFunctionError, AccessingPrivateFunctionOrigin,
         AccessingPrivateStructError, AccessingPrivateStructOrigin, CanOnlyConstructStructsError,
-        CannotDeletePrimitiveTypeError, ConstTyToNonConstTyError, EmptyListLiteralError, FieldKind,
-        IllegalOperationError, TryingToIndexNonIndexableTypeError, TypeMismatchActual,
-        UnsupportedExpr,
+        CannotDeletePrimitiveTypeError, EmptyListLiteralError, FieldKind, IllegalOperationError,
+        TryingToIndexNonIndexableTypeError, TypeMismatchActual, UnsupportedExpr,
     },
     utils,
 };
@@ -50,8 +54,10 @@ pub struct TypeChecker<'hir> {
     current_func_name: Option<&'hir str>,
     current_class_name: Option<&'hir str>,
     //TODO: Move this to the MonomorphizationPass in the future
-    extern_monomorphized:
-        HashMap<(&'hir str, Vec<&'hir HirTy<'hir>>), &'hir HirFunctionSignature<'hir>>,
+    extern_monomorphized: HashMap<
+        (&'hir str, Vec<&'hir HirTy<'hir>>, Vec<&'hir HirTy<'hir>>),
+        &'hir HirFunctionSignature<'hir>,
+    >,
 }
 
 impl<'hir> TypeChecker<'hir> {
@@ -66,7 +72,10 @@ impl<'hir> TypeChecker<'hir> {
         }
     }
 
-    pub fn check(&mut self, hir: &mut HirModule<'hir>) -> HirResult<()> {
+    pub fn check(
+        &mut self,
+        hir: &'hir mut HirModule<'hir>,
+    ) -> HirResult<&'hir mut HirModule<'hir>> {
         self.signature = hir.signature.clone();
         for func in &mut hir.body.functions {
             self.current_func_name = Some(func.0);
@@ -76,7 +85,7 @@ impl<'hir> TypeChecker<'hir> {
             self.current_class_name = Some(class.0);
             self.check_class(class.1)?;
         }
-        Ok(())
+        Ok(hir)
     }
 
     pub fn check_class(&mut self, class: &mut HirStruct<'hir>) -> HirResult<()> {
@@ -403,8 +412,8 @@ impl<'hir> TypeChecker<'hir> {
                         name = n.name;
                     } else if let HirTy::Generic(g) = ty {
                         name = MonomorphizationPass::mangle_generic_struct_name(self.arena, g);
-                    } else if let HirTy::Reference(_) = ty {
-                        Self::deleting_ref_is_unstable_warning(&del_expr.span);
+                    } else if let HirTy::MutableReference(_) = ty {
+                        Self::deleting_ref_is_not_safe_warning(&del_expr.span);
                     } else {
                         return Ok(self.arena.types().get_unit_ty());
                     }
@@ -461,6 +470,16 @@ impl<'hir> TypeChecker<'hir> {
                         u.ty = ty;
                         Ok(ty)
                     }
+                    Some(HirUnaryOp::AsMutableRef) => {
+                        let ref_ty = self.arena.types().get_mutable_reference_ty(ty);
+                        u.ty = ref_ty;
+                        Ok(ref_ty)
+                    }
+                    Some(HirUnaryOp::AsReadOnlyRef) => {
+                        let ref_ty = self.arena.types().get_readonly_reference_ty(ty);
+                        u.ty = ref_ty;
+                        Ok(ref_ty)
+                    }
                     _ => {
                         u.ty = ty;
                         Ok(ty)
@@ -486,6 +505,15 @@ impl<'hir> TypeChecker<'hir> {
                         "int64, float64, uint64, bool, char or str",
                         &c.expr.span(),
                     ));
+                }
+                if self
+                    .is_equivalent_ty(expr_ty, c.expr.span(), c.ty, c.span)
+                    .is_ok()
+                {
+                    Self::trying_to_cast_to_the_same_type_warning(&c.span, &format!("{}", c.ty));
+                    // Unwrap the redundant cast by replacing the casting expression with the inner expression
+                    *expr = (*c.expr).clone();
+                    return Ok(expr_ty);
                 }
 
                 Ok(c.ty)
@@ -564,7 +592,7 @@ impl<'hir> TypeChecker<'hir> {
                         Ok(lhs)
                     }
                     HirBinaryOperator::Eq | HirBinaryOperator::Neq => {
-                        if !TypeChecker::is_equality_comparable(lhs) {
+                        if !self.is_equality_comparable(lhs) {
                             return Err(Self::illegal_operation_err(
                                 lhs,
                                 rhs,
@@ -841,6 +869,7 @@ impl<'hir> TypeChecker<'hir> {
                                         span: field_access.span,
                                         kind: FieldKind::Function,
                                         src: NamedSource::new(path, src),
+                                        field_name: field_access.field.name.to_string(),
                                     },
                                 ));
                             }
@@ -886,13 +915,26 @@ impl<'hir> TypeChecker<'hir> {
                         }
                     }
                     HirExpr::StaticAccess(static_access) => {
-                        let class = match self.signature.structs.get(static_access.target.name) {
+                        let name = match static_access.target {
+                            HirTy::Named(n) => n.name,
+                            HirTy::Generic(g) => {
+                                MonomorphizationPass::mangle_generic_struct_name(self.arena, g)
+                            }
+                            _ => {
+                                let path = static_access.span.path;
+                                let src = utils::get_file_content(path).unwrap();
+                                return Err(HirError::CanOnlyConstructStructs(
+                                    CanOnlyConstructStructsError {
+                                        span: static_access.span,
+                                        src: NamedSource::new(path, src),
+                                    },
+                                ));
+                            }
+                        };
+                        let class = match self.signature.structs.get(name) {
                             Some(c) => *c,
                             None => {
-                                return Err(Self::unknown_type_err(
-                                    static_access.target.name,
-                                    &static_access.span,
-                                ));
+                                return Err(Self::unknown_type_err(name, &static_access.span));
                             }
                         };
                         let func = class
@@ -925,23 +967,12 @@ impl<'hir> TypeChecker<'hir> {
                                 .zip(func_expr.args.iter_mut())
                             {
                                 let arg_ty = self.check_expr(arg)?;
-                                if HirTyId::from(arg_ty) != HirTyId::from(param.ty) {
-                                    return Err(Self::type_mismatch_err(
-                                        &format!("{}", arg_ty),
-                                        &arg.span(),
-                                        &format!("{}", param.ty),
-                                        &param.span,
-                                    ));
-                                }
+                                self.is_equivalent_ty(arg_ty, arg.span(), param.ty, param.span)?;
                             }
 
                             static_access.ty =
                                 self.arena.intern(method_signature.return_ty.clone());
                             func_expr.ty = self.arena.intern(method_signature.return_ty.clone());
-                            static_access.target.ty = self
-                                .arena
-                                .types()
-                                .get_named_ty(class.name, class.declaration_span);
                             static_access.field.ty =
                                 self.arena.intern(method_signature.return_ty.clone());
 
@@ -979,21 +1010,20 @@ impl<'hir> TypeChecker<'hir> {
             }
             HirExpr::FieldAccess(field_access) => {
                 let target_ty = self.check_expr(&mut field_access.target)?;
-                let name;
-                if let HirTy::Named(n) = target_ty {
-                    name = n.name;
-                } else if let HirTy::Generic(g) = target_ty {
-                    name = MonomorphizationPass::mangle_generic_struct_name(self.arena, g);
-                } else {
-                    let path = field_access.span.path;
-                    let src = utils::get_file_content(path).unwrap();
-                    return Err(HirError::CanOnlyConstructStructs(
-                        CanOnlyConstructStructsError {
-                            span: field_access.span,
-                            src: NamedSource::new(path, src),
-                        },
-                    ));
-                }
+                let name = match self.get_class_name_of_type(target_ty) {
+                    Some(n) => n,
+                    None => {
+                        let path = field_access.span.path;
+                        let src = utils::get_file_content(path).unwrap();
+                        return Err(HirError::TryingToAccessFieldOnNonObjectType(
+                            TryingToAccessFieldOnNonObjectTypeError {
+                                span: field_access.span,
+                                ty: format!("{}", target_ty),
+                                src: NamedSource::new(path, src),
+                            },
+                        ));
+                    }
+                };
                 let class = match self.signature.structs.get(name) {
                     Some(c) => *c,
                     None => {
@@ -1008,19 +1038,33 @@ impl<'hir> TypeChecker<'hir> {
                     if self.current_class_name != Some(name)
                         && field_signature.vis != HirVisibility::Public
                     {
-                        let path = expr.span().path;
+                        eprintln!(
+                            "Accessing private field: {} of {}",
+                            field_signature.vis as u8, name
+                        );
+                        let path = field_access.span.path;
                         let src = utils::get_file_content(path).unwrap();
                         return Err(HirError::AccessingPrivateField(
                             AccessingPrivateFieldError {
-                                span: expr.span(),
+                                span: field_access.span,
                                 kind: FieldKind::Field,
                                 src: NamedSource::new(path, src),
+                                field_name: field_access.field.name.to_string(),
                             },
                         ));
                     }
                     field_access.ty = field_signature.ty;
                     field_access.field.ty = field_signature.ty;
-                    Ok(field_signature.ty)
+                    match field_signature.ty {
+                        HirTy::Named(n) => {
+                            if self.signature.enums.contains_key(n.name) {
+                                Ok(self.arena.types().get_uint64_ty())
+                            } else {
+                                Ok(field_signature.ty)
+                            }
+                        }
+                        _ => Ok(field_signature.ty),
+                    }
                 } else {
                     Err(Self::unknown_type_err(
                         field_access.field.name,
@@ -1029,13 +1073,52 @@ impl<'hir> TypeChecker<'hir> {
                 }
             }
             HirExpr::StaticAccess(static_access) => {
-                let class = match self.signature.structs.get(static_access.target.name) {
+                let name = match self.get_class_name_of_type(static_access.target) {
+                    Some(n) => n,
+                    None => {
+                        let path = static_access.span.path;
+                        let src = utils::get_file_content(path).unwrap();
+                        return Err(HirError::TryingToAccessFieldOnNonObjectType(
+                            TryingToAccessFieldOnNonObjectTypeError {
+                                span: static_access.span,
+                                ty: format!("{}", static_access.target),
+                                src: NamedSource::new(path, src),
+                            },
+                        ));
+                    }
+                };
+
+                let class = match self.signature.structs.get(name) {
                     Some(c) => *c,
                     None => {
-                        return Err(Self::unknown_type_err(
-                            static_access.target.name,
-                            &static_access.span,
-                        ));
+                        //We might be trying to access an enum variant
+                        if let Some(enum_signature) = self.signature.enums.get(name) {
+                            let variant = enum_signature
+                                .variants
+                                .iter()
+                                .find(|v| v.name == static_access.field.name);
+                            match variant {
+                                Some(var) => {
+                                    let replaced_expr = HirExpr::UnsignedIntegerLiteral(
+                                        HirUnsignedIntegerLiteralExpr {
+                                            value: var.value,
+                                            span: static_access.span,
+                                            ty: self.arena.types().get_uint64_ty(),
+                                        },
+                                    );
+                                    *expr = replaced_expr;
+                                    return Ok(self.arena.types().get_uint64_ty());
+                                }
+                                None => {
+                                    return Err(Self::unknown_type_err(
+                                        &format!("{}::{}", name, static_access.field.name),
+                                        &static_access.span,
+                                    ));
+                                }
+                            }
+                        }
+                        eprintln!("Unknown type accessed in static access: {}", name);
+                        return Err(Self::unknown_type_err(name, &static_access.span));
                     }
                 };
                 let constant = class
@@ -1043,10 +1126,6 @@ impl<'hir> TypeChecker<'hir> {
                     .iter()
                     .find(|f| *f.0 == static_access.field.name);
                 if let Some((_, const_signature)) = constant {
-                    static_access.target.ty = self
-                        .arena
-                        .types()
-                        .get_named_ty(class.name, class.declaration_span);
                     static_access.field.ty = const_signature.ty;
                     static_access.ty = const_signature.ty;
                     Ok(const_signature.ty)
@@ -1071,38 +1150,77 @@ impl<'hir> TypeChecker<'hir> {
             .iter_mut()
             .map(|a| self.check_expr(a))
             .collect::<HirResult<Vec<_>>>()?;
-        let monomorphized = self.extern_monomorphized.get(&(name, args_ty.clone()));
+
+        // Create cache key including explicit generics to distinguish calls like default::<int64>() from default::<string>()
+        let explicit_generics = expr.generics.clone();
+        let monomorphized =
+            self.extern_monomorphized
+                .get(&(name, args_ty.clone(), explicit_generics.clone()));
         if let Some(m) = monomorphized {
             return Ok(self.arena.intern(m.return_ty.clone()));
         }
         //Contains the name + the actual type of that generic
         let mut generics: Vec<(&'hir str, &'hir HirTy<'hir>)> = Vec::new();
         let mut params = vec![];
-        for (i, (param, arg)) in signature.params.iter().zip(args_ty.iter()).enumerate() {
-            //This only take the name of the generic type (e.g. `T` in `extern foo<T>(a: T) -> T`)
-            //So `extern foo<T>(a: [T]) -> T` won't be correctly type checked
 
-            if let Some(name) = Self::get_generic_name(param.ty) {
-                let ty = if let Some(ty) = Self::get_generic_ty(param.ty, arg) {
-                    ty
-                } else {
-                    return Err(Self::type_mismatch_err(
-                        &format!("{}", arg),
-                        &expr.args[i].span(),
-                        &format!("{}", param.ty),
-                        &param.span,
-                    ));
-                };
-                generics.push((name, ty));
+        // Check if explicit generic type arguments are provided (e.g., `default::<Int64>()`)
+        if !expr.generics.is_empty() {
+            // Use explicit type arguments from the function call
+            if let Some(generic_params) = &signature.generics {
+                for (generic_param, concrete_ty) in generic_params.iter().zip(expr.generics.iter())
+                {
+                    generics.push((generic_param.name, concrete_ty));
+                }
             }
-            let param_sign: HirFunctionParameterSignature = HirFunctionParameterSignature {
-                name: param.name,
-                name_span: param.name_span,
-                span: param.span,
-                ty: arg,
-                ty_span: param.ty_span,
-            };
-            params.push(param_sign);
+            // Still need to create params even with explicit generics
+            for (param, arg) in signature.params.iter().zip(args_ty.iter()) {
+                let param_sign: HirFunctionParameterSignature = HirFunctionParameterSignature {
+                    name: param.name,
+                    name_span: param.name_span,
+                    span: param.span,
+                    ty: arg,
+                    ty_span: param.ty_span,
+                };
+                params.push(param_sign);
+            }
+        } else if !signature.params.is_empty() {
+            // Try to infer generic types from arguments if no explicit type arguments provided
+            for (i, (param, arg)) in signature.params.iter().zip(args_ty.iter()).enumerate() {
+                //This only take the name of the generic type (e.g. `T` in `extern foo<T>(a: T) -> T`)
+                //So `extern foo<T>(a: [T]) -> T` won't be correctly type checked
+
+                if let Some(name) = Self::get_generic_name(param.ty) {
+                    let ty = if let Some(ty) = Self::get_generic_ty(param.ty, arg) {
+                        ty
+                    } else {
+                        return Err(Self::type_mismatch_err(
+                            &format!("{}", arg),
+                            &expr.args[i].span(),
+                            &format!("{}", param.ty),
+                            &param.span,
+                        ));
+                    };
+                    generics.push((name, ty));
+                }
+                let param_sign: HirFunctionParameterSignature = HirFunctionParameterSignature {
+                    name: param.name,
+                    name_span: param.name_span,
+                    span: param.span,
+                    ty: arg,
+                    ty_span: param.ty_span,
+                };
+                params.push(param_sign);
+            }
+        } else if expr.generics.is_empty() {
+            // Parameterless function with no explicit type arguments - error
+            if signature.generics.is_some() {
+                return Err(Self::type_mismatch_err(
+                    "parameterless generic function",
+                    &expr.span,
+                    "explicit type arguments (e.g., `function::<Int64>()`)",
+                    &signature.span,
+                ));
+            }
         }
 
         let mut monomorphized = signature.clone();
@@ -1110,7 +1228,17 @@ impl<'hir> TypeChecker<'hir> {
         if let Some(name) =
             Self::get_generic_name(self.arena.intern(monomorphized.return_ty.clone()))
         {
-            let actual_generic_ty = generics.iter().find(|(n, _)| *n == name).unwrap().1;
+            let actual_generic_ty = match generics.iter().find(|(n, _)| *n == name) {
+                Some((_, ty)) => *ty,
+                None => {
+                    return Err(Self::type_mismatch_err(
+                        &format!("{}", monomorphized.return_ty),
+                        &expr.span,
+                        "concrete type (check explicit type arguments match generic parameters)",
+                        &signature.span,
+                    ));
+                }
+            };
             let return_ty = self.get_generic_ret_ty(
                 self.arena.intern(monomorphized.return_ty.clone()),
                 actual_generic_ty,
@@ -1121,7 +1249,8 @@ impl<'hir> TypeChecker<'hir> {
 
         monomorphized.generics = None;
         let signature = self.arena.intern(monomorphized);
-        self.extern_monomorphized.insert((name, args_ty), signature);
+        self.extern_monomorphized
+            .insert((name, args_ty, explicit_generics), signature);
         Ok(self.arena.intern(signature.return_ty.clone()))
     }
 
@@ -1187,22 +1316,7 @@ impl<'hir> TypeChecker<'hir> {
             (HirTy::Nullable(n1), HirTy::Nullable(n2)) => {
                 self.is_equivalent_ty(n1.inner, ty1_span, n2.inner, ty2_span)
             }
-            (HirTy::Const(c1), HirTy::Const(c2)) => {
-                self.is_equivalent_ty(c1.inner, ty1_span, c2.inner, ty2_span)
-            }
-            (HirTy::Const(_), _) => {
-                let path = ty1_span.path;
-                let src = utils::get_file_content(path).unwrap();
-                Err(HirError::ConstTyToNonConstTy(ConstTyToNonConstTyError {
-                    const_val: ty1_span,
-                    const_type: ty1.to_string(),
-                    non_const_type: ty2.to_string(),
-                    non_const_val: ty2_span,
-                    src: NamedSource::new(path, src),
-                }))
-            }
-            (HirTy::Int64(_), HirTy::UInt64(_)) | (HirTy::UInt64(_), HirTy::Int64(_)) => Ok(()),
-            (_, HirTy::Const(r2)) => self.is_equivalent_ty(ty1, ty1_span, r2.inner, ty2_span),
+            //(HirTy::Int64(_), HirTy::UInt64(_)) | (HirTy::UInt64(_), HirTy::Int64(_)) => Ok(()),
             (HirTy::Nullable(n1), _) => self.is_equivalent_ty(n1.inner, ty1_span, ty2, ty2_span),
             (_, HirTy::Nullable(n2)) => self.is_equivalent_ty(ty1, ty1_span, n2.inner, ty2_span),
             (HirTy::Generic(g), HirTy::Named(n)) | (HirTy::Named(n), HirTy::Generic(g)) => {
@@ -1216,6 +1330,25 @@ impl<'hir> TypeChecker<'hir> {
                         &ty2_span,
                     ))
                 }
+            }
+            //Check for enums
+            (HirTy::Named(n), HirTy::UInt64(_)) | (HirTy::UInt64(_), HirTy::Named(n)) => {
+                if self.signature.enums.get(n.name).is_some() {
+                    Ok(())
+                } else {
+                    Err(Self::type_mismatch_err(
+                        &format!("{}", ty1),
+                        &ty1_span,
+                        &format!("{}", ty2),
+                        &ty2_span,
+                    ))
+                }
+            }
+            (HirTy::ReadOnlyReference(read_only1), HirTy::ReadOnlyReference(read_only2)) => {
+                self.is_equivalent_ty(read_only1.inner, ty1_span, read_only2.inner, ty2_span)
+            }
+            (HirTy::MutableReference(mutable1), HirTy::MutableReference(mutable2)) => {
+                self.is_equivalent_ty(mutable1.inner, ty1_span, mutable2.inner, ty2_span)
             }
             _ => {
                 if HirTyId::from(ty1) == HirTyId::from(ty2) {
@@ -1246,6 +1379,18 @@ impl<'hir> TypeChecker<'hir> {
                 | HirTy::String(_)
                 | HirTy::Unit(_)
         )
+    }
+
+    fn get_class_name_of_type(&self, ty: &HirTy<'hir>) -> Option<&'hir str> {
+        match ty {
+            HirTy::Named(n) => Some(n.name),
+            HirTy::Generic(g) => Some(MonomorphizationPass::mangle_generic_struct_name(
+                self.arena, g,
+            )),
+            HirTy::ReadOnlyReference(read_only) => self.get_class_name_of_type(read_only.inner),
+            HirTy::MutableReference(mutable) => self.get_class_name_of_type(mutable.inner),
+            _ => None,
+        }
     }
 
     #[inline(always)]
@@ -1296,11 +1441,11 @@ impl<'hir> TypeChecker<'hir> {
     }
 
     #[inline(always)]
-    fn deleting_ref_is_unstable_warning(span: &Span) {
+    fn deleting_ref_is_not_safe_warning(span: &Span) {
         let path = span.path;
         let src = utils::get_file_content(path).unwrap();
         let warning: ErrReport =
-            HirWarning::DeletingReferenceIsUnstable(DeletingReferenceIsUnstableWarning {
+            HirWarning::DeletingReferenceIsNotSafe(DeletingReferenceMightLeadToUB {
                 span: *span,
                 src: NamedSource::new(path, src),
             })
@@ -1351,6 +1496,19 @@ impl<'hir> TypeChecker<'hir> {
         })
     }
 
+    fn trying_to_cast_to_the_same_type_warning(span: &Span, ty: &str) {
+        let path = span.path;
+        let src = utils::get_file_content(path).unwrap();
+        let warning: ErrReport =
+            HirWarning::TryingToCastToTheSameType(TryingToCastToTheSameTypeWarning {
+                span: *span,
+                src: NamedSource::new(path, src),
+                ty: ty.to_string(),
+            })
+            .into();
+        eprintln!("{:?}", warning);
+    }
+
     /// + - * / %
     fn is_arithmetic_type(ty: &HirTy) -> bool {
         matches!(
@@ -1360,16 +1518,23 @@ impl<'hir> TypeChecker<'hir> {
     }
 
     /// == !=
-    fn is_equality_comparable(ty: &HirTy) -> bool {
-        matches!(
-            ty,
+    fn is_equality_comparable(&self, ty: &HirTy) -> bool {
+        match ty {
             HirTy::Int64(_)
-                | HirTy::UInt64(_)
-                | HirTy::Float64(_)
-                | HirTy::Char(_)
-                | HirTy::Boolean(_)
-                | HirTy::Unit(_)
-        )
+            | HirTy::UInt64(_)
+            | HirTy::Float64(_)
+            | HirTy::Char(_)
+            | HirTy::Boolean(_)
+            | HirTy::Unit(_) => true,
+            HirTy::Named(n) => {
+                if self.signature.enums.get(n.name).is_some() {
+                    true
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
     }
 
     fn is_orderable_type(ty: &HirTy) -> bool {

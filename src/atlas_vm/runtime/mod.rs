@@ -29,7 +29,7 @@ pub struct AtlasRuntime<'run> {
 impl<'run> AtlasRuntime<'run> {
     pub fn new(asm_program: AsmProgram, extern_fn: BTreeMap<&'run str, CallBack>) -> Self {
         let mut extern_fn = extern_fn;
-        if asm_program.has_standard_lib {
+        if asm_program.using_std {
             //std/io
             for (name, func) in atlas_vm::libraries::io::IO_FUNCTIONS.iter() {
                 extern_fn.insert(name, *func as CallBack);
@@ -52,6 +52,14 @@ impl<'run> AtlasRuntime<'run> {
             }
             //std/list
             for (name, func) in atlas_vm::libraries::list::LIST_FUNCTIONS.iter() {
+                extern_fn.insert(name, *func as CallBack);
+            }
+            //std/option
+            for (name, func) in atlas_vm::libraries::option::OPTION_FUNCTIONS.iter() {
+                extern_fn.insert(name, *func as CallBack);
+            }
+            //std/result
+            for (name, func) in atlas_vm::libraries::result::RESULT_FUNCTIONS.iter() {
                 extern_fn.insert(name, *func as CallBack);
             }
         }
@@ -565,6 +573,7 @@ impl<'run> AtlasRuntime<'run> {
                 let obj_ptr = self.stack.pop()?.as_object();
                 self.heap.free(obj_ptr)
             }
+            //CAST_TO should really be reworked, it's shitty right now
             OpCode::CAST_TO => {
                 let target_type = VMTag::from(instr.arg.as_u24() as u8);
                 let value = self.stack.pop()?;
@@ -649,6 +658,20 @@ impl<'run> AtlasRuntime<'run> {
                                 return Err(RuntimeError::InvalidCast(value.tag, target_type));
                             }
                             VMData::new_char(ch)
+                        }
+                        VMTag::Int64 => {
+                            let i = value.as_i64();
+                            if i < 0 || i > u8::MAX as i64 {
+                                return Err(RuntimeError::InvalidCast(value.tag, target_type));
+                            }
+                            VMData::new_char(i as u8 as char)
+                        }
+                        VMTag::UInt64 => {
+                            let u = value.as_u64();
+                            if u > u8::MAX as u64 {
+                                return Err(RuntimeError::InvalidCast(value.tag, target_type));
+                            }
+                            VMData::new_char(u as u8 as char)
                         }
                         _ => return Err(RuntimeError::InvalidCast(value.tag, target_type)),
                     },

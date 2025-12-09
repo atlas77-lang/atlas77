@@ -1,0 +1,5 @@
+// Cast a value of type T to type U at compile time.
+public extern comptime_cast<U, T>(val: T) -> U;
+// Cast a read-only reference of type T to a mutable reference of type T.
+//Shouldn't it be named "mut_cast" instead?
+public extern mut_cast<T>(val: &const T) -> &T;

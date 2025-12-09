@@ -104,7 +104,6 @@ impl ObjectKind {
 #[derive(Debug, Clone)]
 pub struct Object {
     pub kind: ObjectKind,
-    pub rc: usize,
 }
 
 impl Borrow<ObjectKind> for Object {
@@ -115,7 +114,7 @@ impl Borrow<ObjectKind> for Object {
 
 impl Display for Object {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{} (rc: {})", self.kind, self.rc)
+        write!(f, "{}", self.kind)
     }
 }
 

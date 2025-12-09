@@ -1,7 +1,7 @@
 use super::{signature::HirFunctionSignature, stmt::HirBlock};
 use crate::atlas_c::atlas_hir::signature::{
-    HirFunctionParameterSignature, HirStructFieldSignature, HirStructMethodSignature,
-    HirStructSignature, HirTypeParameterItemSignature, HirVisibility,
+    HirFunctionParameterSignature, HirStructConstructorSignature, HirStructFieldSignature,
+    HirStructMethodSignature, HirStructSignature, HirTypeParameterItemSignature, HirVisibility,
 };
 use crate::atlas_c::utils::Span;
 
@@ -39,6 +39,24 @@ pub struct HirStruct<'hir> {
 }
 
 #[derive(Debug, Clone)]
+pub struct HirEnum<'hir> {
+    pub span: Span,
+    pub name: &'hir str,
+    pub name_span: Span,
+    pub variants: Vec<HirEnumVariant<'hir>>,
+    pub vis: HirVisibility,
+}
+
+#[derive(Debug, Clone)]
+pub struct HirEnumVariant<'hir> {
+    pub span: Span,
+    pub name: &'hir str,
+    pub name_span: Span,
+    //Only supporting discriminant values for now
+    pub value: u64,
+}
+
+#[derive(Debug, Clone)]
 pub struct HirStructMethod<'hir> {
     pub span: Span,
     pub name: &'hir str,
@@ -51,6 +69,7 @@ pub struct HirStructMethod<'hir> {
 /// Also used for the destructor
 pub struct HirStructConstructor<'hir> {
     pub span: Span,
+    pub signature: &'hir HirStructConstructorSignature<'hir>,
     pub params: Vec<HirFunctionParameterSignature<'hir>>,
     pub type_params: Vec<HirTypeParameterItemSignature<'hir>>,
     pub body: HirBlock<'hir>,

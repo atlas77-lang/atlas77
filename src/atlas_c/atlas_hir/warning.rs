@@ -6,10 +6,26 @@ declare_warning_type!(
     #[warning("semantic warning: {0}")]
     pub enum HirWarning {
         ThisTypeIsStillUnstable(ThisTypeIsStillUnstableWarning),
-        DeletingReferenceIsUnstable(DeletingReferenceIsUnstableWarning),
+        DeletingReferenceIsNotSafe(DeletingReferenceMightLeadToUB),
         NameShouldBeInDifferentCase(NameShouldBeInDifferentCaseWarning),
+        TryingToCastToTheSameType(TryingToCastToTheSameTypeWarning),
     }
 );
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::trying_to_cast_to_the_same_type),
+    severity(warning),
+    help("Remove the cast (`as {ty}`) as it is redundant")
+)]
+#[error("Trying to cast something which is of type `{ty}` to `{ty}`")]
+pub struct TryingToCastToTheSameTypeWarning {
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label = "Casting to the same type is redundant"]
+    pub span: Span,
+    pub ty: String,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
@@ -34,17 +50,17 @@ pub struct NameShouldBeInDifferentCaseWarning {
 }
 
 #[derive(Error, Diagnostic, Debug)]
-#[diagnostic(code(sema::deleting_reference_is_unstable), severity(warning))]
-#[error("Deleting references is still unstable. They may lead to unexpected behavior.")]
-pub struct DeletingReferenceIsUnstableWarning {
+#[diagnostic(code(sema::deleting_reference_is_not_safe), severity(warning))]
+#[error("Deleting a reference might lead to undefined behavior")]
+pub struct DeletingReferenceMightLeadToUB {
     #[source_code]
     pub src: NamedSource<String>,
-    #[label = "Deleting references is still unstable. Use with caution."]
+    #[label = "Deleting references might lead to undefined behavior. Use with caution."]
     pub span: Span,
 }
 
 #[derive(Error, Diagnostic, Debug)]
-#[diagnostic(code(sema::nullable_types_are_unstable), severity(warning))]
+#[diagnostic(code(sema::type_is_still_unstable), severity(warning))]
 #[error("{type_name} is still unstable. {info}")]
 pub struct ThisTypeIsStillUnstableWarning {
     #[source_code]

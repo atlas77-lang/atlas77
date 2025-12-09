@@ -77,12 +77,15 @@ pub enum TokenKind {
     Integer(i64),
     #[regex("[0-9]+\\.[0-9]+", |lex| lex.slice().parse())]
     Float(f64),
-    //#[regex("[0-9]+", |lex| lex.slice().parse())]
-    /// Unused for now, once trailing is implemented, this will be used
+    /// Let's add it with trailing as in 123_uint64
+    #[regex("[0-9]+_uint64", |lex| {
+        let slice = &lex.slice()[..lex.slice().len() - 7];
+        slice.parse()
+    })]
     UnsignedInteger(u64),
     #[regex("true|false", |lex| lex.slice().parse())]
     Bool(bool),
-    #[regex(r"//.*", |lex| lex.slice().to_string())]
+    #[regex(r"//.*", |lex| lex.slice().to_string(), allow_greedy = true)]
     Comments(String),
     #[token("(")]
     LParen,

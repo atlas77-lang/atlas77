@@ -4,7 +4,12 @@ pub mod atlas_c;
 pub mod atlas_lib;
 pub mod atlas_vm;
 
-use crate::atlas_c::atlas_asm::AsmProgram;
+use crate::{
+    atlas_c::{
+        atlas_asm::AsmProgram, atlas_hir::dead_code_elimination_pass::DeadCodeEliminationPass,
+    },
+    atlas_vm::runtime::AtlasRuntime,
+};
 use atlas_c::{
     atlas_asm,
     atlas_codegen::{CodeGenUnit, arena::CodeGenArena},
@@ -19,6 +24,7 @@ use std::{collections::BTreeMap, io::Write, path::PathBuf, time::Instant};
 //todo: The pipeline of the compiler should be more straightforward and should include the "debug" and "release" modes
 //todo: There should also be a function for each stage of the pipeline
 
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum CompilationFlag {
     Release,
     Debug,
@@ -36,11 +42,7 @@ fn get_path(path: &str) -> PathBuf {
     path_buf
 }
 
-pub fn build(
-    path: String,
-    _flag: CompilationFlag,
-    has_standard_library: bool,
-) -> miette::Result<AsmProgram> {
+pub fn build(path: String, flag: CompilationFlag, using_std: bool) -> miette::Result<AsmProgram> {
     let start = Instant::now();
     println!("Building project at path: {}", path);
     let path_buf = get_path(&path);
@@ -61,16 +63,22 @@ pub fn build(
 
     //hir
     let hir_arena = HirArena::new();
-    let mut lower = AstSyntaxLoweringPass::new(&hir_arena, &program, &ast_arena);
+    let mut lower = AstSyntaxLoweringPass::new(&hir_arena, &program, &ast_arena, using_std);
     let hir = lower.lower()?;
 
     //monomorphize
     let mut monomorphizer = MonomorphizationPass::new(&hir_arena, lower.generic_pool);
-    monomorphizer.monomorphize(hir)?;
+    let mut hir = monomorphizer.monomorphize(hir)?;
 
+    if flag == CompilationFlag::Release {
+        let mut dce_pass = DeadCodeEliminationPass::new(&hir_arena);
+        hir = dce_pass.eliminate_dead_code(hir)?;
+    }
     //type-check
     let mut type_checker = TypeChecker::new(&hir_arena);
-    type_checker.check(hir)?;
+    let hir = type_checker.check(hir)?;
+
+    //Todo: Lifetime analysis pass
 
     //codegen
     let bump = Bump::new();
@@ -86,7 +94,7 @@ pub fn build(
 
     let mut file2 = std::fs::File::create("output.atlas_asm").unwrap();
     let mut assembler = atlas_asm::Assembler::new();
-    let asm = assembler.asm_from_instruction(!has_standard_library, program)?;
+    let asm = assembler.asm_from_instruction(!using_std, program)?;
     let content2 = format!("{}", asm);
     file2.write_all(content2.as_bytes()).unwrap();
 
@@ -96,11 +104,11 @@ pub fn build(
 }
 
 //The "run" function needs a bit of refactoring
-pub fn run(path: String, _flag: CompilationFlag, has_standard_library: bool) -> miette::Result<()> {
-    let res = build(path.clone(), _flag, has_standard_library)?;
+pub fn run(path: String, _flag: CompilationFlag, using_std: bool) -> miette::Result<()> {
+    let res = build(path.clone(), _flag, using_std)?;
 
     let extern_fn = BTreeMap::new();
-    let mut vm = atlas_vm::runtime::AtlasRuntime::new(res, extern_fn);
+    let mut vm = AtlasRuntime::new(res, extern_fn);
     let start = Instant::now();
     let res = vm.run();
     let end = Instant::now();
@@ -119,8 +127,7 @@ pub fn run(path: String, _flag: CompilationFlag, has_standard_library: bool) -> 
     Ok(())
 }
 
-pub const DEFAULT_INIT_CODE: &str = r#"
-import "std/io";
+pub const DEFAULT_INIT_CODE: &str = r#"import "std/io";
 
 fun main() {
     print("Hello, Atlas!");

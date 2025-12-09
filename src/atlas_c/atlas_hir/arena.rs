@@ -6,11 +6,11 @@ use std::{
 };
 
 use super::ty::{
-    HirBooleanTy, HirCharTy, HirConstTy, HirFloatTy, HirGenericTy, HirIntegerTy, HirListTy,
-    HirNamedTy, HirNullableTy, HirReferenceTy, HirStringTy, HirTy, HirTyId, HirUninitializedTy,
-    HirUnitTy, HirUnsignedIntTy,
+    HirBooleanTy, HirCharTy, HirFloatTy, HirGenericTy, HirIntegerTy, HirListTy,
+    HirMutableReferenceTy, HirNamedTy, HirNullableTy, HirStringTy, HirTy, HirTyId,
+    HirUninitializedTy, HirUnitTy, HirUnsignedIntTy,
 };
-use crate::atlas_c::utils::Span;
+use crate::atlas_c::{atlas_hir::ty::HirReadOnlyReferenceTy, utils::Span};
 use bumpalo::Bump;
 
 pub struct HirArena<'arena> {
@@ -146,14 +146,6 @@ impl<'arena> TypeArena<'arena> {
         })
     }
 
-    pub fn get_readonly_ty(&'arena self, inner: &'arena HirTy<'arena>) -> &'arena HirTy<'arena> {
-        let id = HirTyId::compute_readonly_ty_id(&HirTyId::from(inner));
-        self.intern
-            .borrow_mut()
-            .entry(id)
-            .or_insert_with(|| self.allocator.alloc(HirTy::Const(HirConstTy { inner })))
-    }
-
     pub fn get_unit_ty(&'arena self) -> &'arena HirTy<'arena> {
         let id = HirTyId::compute_unit_ty_id();
         self.intern
@@ -207,11 +199,25 @@ impl<'arena> TypeArena<'arena> {
         })
     }
 
-    pub fn get_reference_ty(&'arena self, inner: &'arena HirTy<'arena>) -> &'arena HirTy<'arena> {
-        let id = HirTyId::compute_ref_ty_id(&HirTyId::from(inner));
+    pub fn get_mutable_reference_ty(
+        &'arena self,
+        inner: &'arena HirTy<'arena>,
+    ) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_mutable_ref_ty_id(&HirTyId::from(inner));
         self.intern.borrow_mut().entry(id).or_insert_with(|| {
             self.allocator
-                .alloc(HirTy::Reference(HirReferenceTy { inner }))
+                .alloc(HirTy::MutableReference(HirMutableReferenceTy { inner }))
+        })
+    }
+
+    pub fn get_readonly_reference_ty(
+        &'arena self,
+        inner: &'arena HirTy<'arena>,
+    ) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_readonly_ref_ty_id(&HirTyId::from(inner));
+        self.intern.borrow_mut().entry(id).or_insert_with(|| {
+            self.allocator
+                .alloc(HirTy::ReadOnlyReference(HirReadOnlyReferenceTy { inner }))
         })
     }
 }

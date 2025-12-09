@@ -1,6 +1,6 @@
 [package]
 name = "atlas_77"
-version = "0.6.0-dev"
+version = "0.6.0-dev2"
 edition = "2024"
 description = "Programming language with strong interoperability with Rust (WIP)"
 authors = ["Gipson62", "ElhamAryanpur"]
@@ -39,7 +39,7 @@ bumpalo = "3.19.0"
 # For pretty printing of errors
 miette = { version = "7.6.0", features = ["fancy"] }
 thiserror = "2.0.17"
-logos = "0.15.1"
+logos = "0.16.0"
 heck = "0.5.0"
 include_dir = "0.7.4"
 rand = "0.10.0-rc.5"

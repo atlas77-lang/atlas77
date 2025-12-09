@@ -1,6 +1,5 @@
 use crate::atlas_vm::error::{RuntimeError, RuntimeResult};
-use crate::atlas_vm::heap::Heap;
-use crate::atlas_vm::vm_data::{VMData, VMTag};
+use crate::atlas_vm::vm_data::VMData;
 use std::fmt::Display;
 use std::ops::{Index, IndexMut};
 
@@ -186,32 +185,9 @@ impl Stack {
             Self::push_stack_overflow()
         }
     }
-    pub fn push_with_rc(&mut self, val: VMData, mem: &mut Heap) -> Result<(), RuntimeError> {
-        if self.top < STACK_SIZE {
-            self.values[self.top] = val;
-            match val.tag {
-                VMTag::String | VMTag::List | VMTag::Object => {
-                    mem.rc_inc(val.as_object());
-                }
-                _ => {}
-            }
-            self.top += 1;
-            Ok(())
-        } else {
-            Self::push_stack_overflow()
-        }
-    }
 
     #[inline(always)]
-    pub fn truncate(&mut self, new_top: usize, mem: &mut Heap) -> RuntimeResult<()> {
-        for i in new_top..=self.top {
-            match self.values[i].tag {
-                VMTag::String | VMTag::List | VMTag::Object => {
-                    mem.rc_dec(self.values[i].as_object())?;
-                }
-                _ => {}
-            }
-        }
+    pub fn truncate(&mut self, new_top: usize) -> RuntimeResult<()> {
         self.top = new_top;
         Ok(())
     }
@@ -227,7 +203,7 @@ impl Stack {
         }
         Ok(self.values[self.top])
     }
-    pub fn pop_with_rc(&mut self, mem: &mut Heap) -> Result<VMData, RuntimeError> {
+    pub fn pop_with_rc(&mut self) -> Result<VMData, RuntimeError> {
         self.top = self.top.wrapping_sub(1); // Always decrement
 
         if self.top == usize::MAX {
@@ -236,12 +212,6 @@ impl Stack {
         }
 
         let r = self.values[self.top];
-        match r.tag {
-            VMTag::String | VMTag::List | VMTag::Object => {
-                mem.rc_dec(r.as_object())?;
-            }
-            _ => {}
-        }
         Ok(r)
     }
 

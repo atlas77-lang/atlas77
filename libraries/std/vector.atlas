@@ -29,35 +29,42 @@ public:
         return this.data[index];
     }
 
+    fun set(this, index: uint64, val: T) {
+        if index >= this.length {
+            panic("Index out of bounds");
+        }
+        this.data[index] = val;
+    }
+
     /// A function that has a "self" parameter is a method of the struct
     /// and is called like this: "vector_instance.function_name()"
     fun push(this, val: T) {
         if this.length >= this.capacity {
             // Resize
-            let new_capacity: uint64 = 0;
-            if this.capacity == 0 {
-                new_capacity = 1;
+            let new_capacity: uint64 = 0_uint64;
+            if this.capacity == 0_uint64 {
+                new_capacity = 1_uint64;
             } else {
-                new_capacity = this.capacity * 2;
+                new_capacity = this.capacity * 2_uint64;
             }
             let new_data = new [T; new_capacity];
-            let i: uint64 = 0;
+            let i: uint64 = 0_uint64;
             while i < this.length {
                 new_data[i] = this.data[i];
-                i = i + 1;
+                i = i + 1_uint64;
             }
             this.data = new_data;
             this.capacity = new_capacity;
         }
         this.data[this.length] = val;
-        this.length = this.length + 1;
+        this.length = this.length + 1_uint64;
     }
     
     fun pop(this) -> T {
-        if this.length == 0 {
+        if this.length == 0_uint64 {
             panic("Cannot pop from an empty vector");
         }
-        this.length = this.length - 1;
+        this.length = this.length - 1_uint64;
         return this.data[this.length];
     }
 }

@@ -2,51 +2,55 @@
 
 import "std/io";
 
-struct Result<T, E> {
-private:
-    data: T?;
-    err: E?;
+/// Does nothing apart from tricking the type system
+private extern result_default<T>() -> T;
 
-    Result(data: T?, err: E?) {
+private enum ResultTag {
+    OK = 0;
+    ERR = 256;
+}
+
+public struct Result<T, E> {
+private:
+    data: T;
+    err: E;
+    tag: ResultTag;
+
+    Result(data: T, err: E, tag: ResultTag) {
         this.data = data;
         this.err = err;
+        this.tag = tag;
     }
-    ~Result() {
-        if this.is_ok {
-            delete this.data;
-        } else {
-            delete this.err;
-        }
-    }
+    ~Result() {}
 public:
     fun ok(data: T) -> Result<T, E> {
-        return this.init(data, null);
+        return new Result<T, E>(data, result_default::<E>(), ResultTag::OK);
     }
 
     fun err(err: E) -> Result<T, E> {
-        return new Result<T, E>(null, err);
+        return new Result<T, E>(result_default::<T>(), err, ResultTag::ERR);
     }
 
     fun is_ok(this) -> bool {
-        return this.data != null;
+        return this.tag == ResultTag::OK;
     }
 
     fun is_err(this) -> bool {
-        return this.err != null;
+        return this.tag == ResultTag::ERR;
     }
 
     fun unwrap(this) -> T {
-        if this.is_ok() {
-            return this.data;
+        if this.is_err() {
+            panic("Unwrap called on an Err");
         }
-        panic("Unwrap called on an Err");
+        return this.data;
     }
 
     fun unwrap_err(this) -> E {
-        if this.is_err() {
-            return this.err;
+        if this.is_ok() {
+            panic("Unwrap_err called on an Ok");
         }
-        panic("Unwrap_err called on an Ok");
+        return this.err;
     }
 
     fun unwrap_or(this, default: T) -> T {

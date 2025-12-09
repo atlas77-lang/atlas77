@@ -104,7 +104,7 @@ pub struct HirThisLiteral<'hir> {
 #[derive(Debug, Clone)]
 pub struct HirStaticAccessExpr<'hir> {
     pub span: Span,
-    pub target: Box<HirIdentExpr<'hir>>,
+    pub target: &'hir HirTy<'hir>,
     pub field: Box<HirIdentExpr<'hir>>,
     pub ty: &'hir HirTy<'hir>,
 }
@@ -203,6 +203,7 @@ pub struct HirFunctionCallExpr<'hir> {
     pub callee_span: Span,
     pub args: Vec<HirExpr<'hir>>,
     pub args_ty: Vec<&'hir HirTy<'hir>>,
+    pub generics: Vec<&'hir HirTy<'hir>>,
     /// Result type of the call
     pub ty: &'hir HirTy<'hir>,
 }
@@ -248,6 +249,8 @@ pub struct UnaryOpExpr<'hir> {
 pub enum HirUnaryOp {
     Neg,
     Not,
+    AsMutableRef,
+    AsReadOnlyRef,
 }
 
 #[derive(Debug, Clone)]

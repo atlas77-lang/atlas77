@@ -78,7 +78,7 @@ pub struct AsmProgram {
     /// Mapping of function_id to its data
     pub function_map: BTreeMap<usize, AsmFunction>,
     pub entry_point: Option<usize>,
-    pub has_standard_lib: bool,
+    pub using_std: bool,
     //A Vec for fast access
     pub struct_descriptors: Vec<StructDescriptor>,
 }
@@ -107,7 +107,7 @@ impl Assembler {
     }
     pub fn asm_from_instruction(
         &mut self,
-        has_standard_lib: bool,
+        using_std: bool,
         source: ProgramDescriptor,
     ) -> ASMResult<AsmProgram> {
         let mut bytecode: Vec<Instr> = vec![];
@@ -784,7 +784,7 @@ impl Assembler {
             entry_point,
             function_map: self.asm_function_map.clone(),
             struct_descriptors,
-            has_standard_lib,
+            using_std,
         })
     }
 }
@@ -792,7 +792,7 @@ impl Assembler {
 impl Display for AsmProgram {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "section .config")?;
-        writeln!(f, "\tUSE_STANDARD_LIB: {}", self.has_standard_lib)?;
+        writeln!(f, "\tUSE_STANDARD_LIB: {}", self.using_std)?;
 
         writeln!(f, "\nsection .data")?;
         for (i, constant) in self.constant_pool.iter().enumerate() {
