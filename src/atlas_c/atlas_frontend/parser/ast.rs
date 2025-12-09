@@ -84,7 +84,6 @@ pub struct AstStruct<'ast> {
     /// Will be ignored until we add support for traits
     pub operators: &'ast [&'ast AstOperatorOverload<'ast>],
     pub constants: &'ast [&'ast AstConst<'ast>],
-    //todo: Add support for methods (AstFunction -> AstMethod)
     pub methods: &'ast [&'ast AstMethod<'ast>],
 }
 
@@ -128,6 +127,7 @@ pub struct AstMethod<'ast> {
     pub vis: AstVisibility,
     pub span: Span,
     pub name: &'ast AstIdentifier<'ast>,
+    pub generics: Option<&'ast [&'ast AstGeneric<'ast>]>,
     pub args: &'ast [&'ast AstObjField<'ast>],
     pub ret: &'ast AstType<'ast>,
     pub body: &'ast AstBlock<'ast>,
@@ -137,6 +137,7 @@ pub struct AstMethod<'ast> {
 pub struct AstFunction<'ast> {
     pub span: Span,
     pub name: &'ast AstIdentifier<'ast>,
+    pub generics: Option<&'ast [&'ast AstGeneric<'ast>]>,
     pub args: &'ast [&'ast AstObjField<'ast>],
     pub ret: &'ast AstType<'ast>,
     pub body: &'ast AstBlock<'ast>,

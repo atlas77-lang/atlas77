@@ -12,21 +12,28 @@ public extern default<T>() -> T;
 //std/option
 public struct Option<T> {
 private:
-  /// 0 = None, 1 = Some
-  tag: int64;
-  data: T;
+  	/// 0 = None, 1 = Some
+  	tag: int64;
+  	data: T;
 public:
-  Option(data: T, tag: int64) {
-    this.tag = tag;
-    this.data = data;
-  }
+  	Option(data: T, tag: int64) {
+		this.tag = tag;
+		this.data = data;
+	}
 public:
-  fun some(data: T) -> Option<T> {
-    return new Option<T>(data, 1);
-  }
-  fun none() -> Option<T> {
-    return new Option<T>(default(), 0);
-  }
+	fun some(data: T) -> Option<T> {
+		return new Option<T>(data, 1);
+	}
+	fun none() -> Option<T> {
+		return new Option<T>(default(), 0);
+	}
+	fun map<U>(this, f: (T) -> U) -> Option<U> {
+		if this.tag == 1 {
+			return Option::some(f(this.data));
+		} else {
+			return Option::none();
+		}
+	}
 }
 
 fun main() {

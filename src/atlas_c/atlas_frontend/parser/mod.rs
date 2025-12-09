@@ -130,12 +130,10 @@ impl<'ast> Parser<'ast> {
 
     fn parse_item(&mut self) -> ParseResult<AstItem<'ast>> {
         match self.current().kind() {
-            //TokenKind::KwStruct => Ok(AstItem::Struct(self.parse_struct()?)),
             TokenKind::KwImport => Ok(AstItem::Import(self.parse_import()?)),
             TokenKind::KwExtern => Ok(AstItem::ExternFunction(self.parse_extern_function()?)),
             TokenKind::KwFunc => Ok(AstItem::Function(self.parse_func()?)),
             TokenKind::KwStruct => Ok(AstItem::Struct(self.parse_struct()?)),
-            //This does allow for "private public private func foo() {}" which is bad... but it's a start!
             TokenKind::KwPublic => {
                 let _ = self.advance();
                 let mut item = self.parse_item()?;
@@ -330,6 +328,18 @@ impl<'ast> Parser<'ast> {
     fn parse_method(&mut self) -> ParseResult<AstMethod<'ast>> {
         let _ = self.advance();
         let name = self.parse_identifier()?;
+        let generics = self.eat_if(
+            TokenKind::LAngle,
+            |p| {
+                let value = p.eat_until(TokenKind::RAngle, |parser| {
+                    parser.eat_if(TokenKind::Comma, |_| Ok(()), ())?;
+                    parser.parse_generic()
+                });
+                p.expect(TokenKind::RAngle)?;
+                value
+            },
+            vec![],
+        )?;
         self.expect(TokenKind::LParen)?;
         let mut params = vec![];
 
@@ -373,6 +383,11 @@ impl<'ast> Parser<'ast> {
             modifier,
             span: Span::union_span(&name.span, &body.span),
             name: self.arena.alloc(name),
+            generics: if generics.is_empty() {
+                None
+            } else {
+                Some(self.arena.alloc_vec(generics))
+            },
             args: self.arena.alloc_vec(params),
             ret: self.arena.alloc(ret_ty),
             body: self.arena.alloc(body),
@@ -496,6 +511,18 @@ impl<'ast> Parser<'ast> {
     fn parse_func(&mut self) -> ParseResult<AstFunction<'ast>> {
         let _ = self.advance();
         let name = self.parse_identifier()?;
+        let generics = self.eat_if(
+            TokenKind::LAngle,
+            |p| {
+                let value = p.eat_until(TokenKind::RAngle, |parser| {
+                    parser.eat_if(TokenKind::Comma, |_| Ok(()), ())?;
+                    parser.parse_generic()
+                });
+                p.expect(TokenKind::RAngle)?;
+                value
+            },
+            vec![],
+        )?;
         self.expect(TokenKind::LParen)?;
         let mut params = vec![];
 
@@ -518,6 +545,11 @@ impl<'ast> Parser<'ast> {
         let node = AstFunction {
             span: Span::union_span(&name.span, &body.span),
             name: self.arena.alloc(name),
+            generics: if generics.is_empty() {
+                None
+            } else {
+                Some(self.arena.alloc_vec(generics))
+            },
             args: self.arena.alloc_vec(params),
             ret: self.arena.alloc(ret_ty),
             body: self.arena.alloc(body),

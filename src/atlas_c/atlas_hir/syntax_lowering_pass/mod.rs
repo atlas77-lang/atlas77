@@ -1128,18 +1128,21 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         expected_name: &str,
     ) {
         let path = span.path;
-        let src = crate::atlas_c::utils::get_file_content(path).unwrap();
-        let report: ErrReport =
-            HirWarning::NameShouldBeInDifferentCase(NameShouldBeInDifferentCaseWarning {
-                src: NamedSource::new(path, src),
-                span: *span,
-                case_kind: case_kind.to_string(),
-                item_kind: item_kind.to_string(),
-                name: name.to_string(),
-                expected_name: expected_name.to_string(),
-            })
-            .into();
-        eprintln!("{:?}", report);
+        //The standard library can do whatever it wants
+        if !path.starts_with("std") {
+            let src = crate::atlas_c::utils::get_file_content(path).unwrap();
+            let report: ErrReport =
+                HirWarning::NameShouldBeInDifferentCase(NameShouldBeInDifferentCaseWarning {
+                    src: NamedSource::new(path, src),
+                    span: *span,
+                    case_kind: case_kind.to_string(),
+                    item_kind: item_kind.to_string(),
+                    name: name.to_string(),
+                    expected_name: expected_name.to_string(),
+                })
+                .into();
+            eprintln!("{:?}", report);
+        }
     }
 
     fn name_single_character_error(span: &Span) -> HirError {

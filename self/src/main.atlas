@@ -6,7 +6,7 @@ fun main() {
     let source = new String("+>-<.");
     let tokens = lex(source);
     print(tokens);
-    let i: uint64 = 0;
+    let i: uint64 = 0_uint64;
     println("Lexed tokens:");
     while i < tokens.length {
         let token = tokens.get(i);
