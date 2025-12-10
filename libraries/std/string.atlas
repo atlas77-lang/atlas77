@@ -3,6 +3,7 @@
 /// Provides a String struct with various string manipulation functions.
 
 import "std/vector";
+import "std/iter";
 
 // Miscellaneous functions for raw strings
 public extern str_len(s: string) -> uint64;
@@ -154,5 +155,11 @@ public:
             i = i + 1_uint64;
         }
         return res;
+    }
+
+    fun into_iter(this) -> Iter<char> {
+        let chars = to_chars(this.s);
+        let vec = new Vector<char>(chars);
+        return vec.into_iter();
     }
 }
