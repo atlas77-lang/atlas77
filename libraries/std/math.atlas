@@ -1,5 +1,7 @@
 public extern round(x: float64) -> int64;
 public extern random(min: int64, max: int64) -> int64;
+public extern sin_f(x: float64) -> float64;
+public extern cos_f(x: float64) -> float64;
 
 public fun abs(x: int64) -> int64 {
     if x < 0 {

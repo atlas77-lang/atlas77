@@ -1187,6 +1187,16 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
             //The "this" ty is replaced during the type checking phase
             AstType::ThisTy(_) => self.arena.types().get_uninitialized_ty(),
+            AstType::ExternTy(extern_ty) => {
+                let type_hint = if let Some(hint) = extern_ty.type_hint {
+                    Some(self.visit_ty(hint)?)
+                } else {
+                    None
+                };
+                self.arena.types().get_extern_ty(
+                    type_hint,
+                )
+            }
             _ => {
                 let path = node.span().path;
                 let src = crate::atlas_c::utils::get_file_content(path).unwrap();

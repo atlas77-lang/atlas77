@@ -757,6 +757,19 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             HirExpr::StringLiteral(s) => bytecode.push(Instruction::LoadConst(
                 ConstantValue::String(s.value.to_string()),
             )),
+            HirExpr::ListLiteral(list) => {
+                bytecode.push(Instruction::LoadConst(ConstantValue::UInt(
+                    list.items.len() as u64,
+                )));
+                bytecode.push(Instruction::NewArray);
+                for (i, item) in list.items.iter().enumerate() {
+                    bytecode.push(Instruction::Dup);
+                    bytecode.push(Instruction::LoadConst(ConstantValue::UInt(i as u64)));
+                    bytecode.push(Instruction::Swap);
+                    self.generate_bytecode_expr(item, bytecode)?;
+                    bytecode.push(Instruction::IndexStore);
+                }
+            }
             HirExpr::Ident(i) => {
                 let var_index = match self.local_variables.get_index(i.name) {
                     Some(idx) => idx,
@@ -993,12 +1006,6 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 });
                 //Free the object memory
                 bytecode.push(Instruction::DeleteObj);
-            }
-            _ => {
-                return Err(Self::unsupported_expr_err(
-                    expr,
-                    format!("Unsupported expression: {}", expr.ty()),
-                ));
             }
         }
         Ok(())

@@ -10,7 +10,7 @@ use super::ty::{
     HirMutableReferenceTy, HirNamedTy, HirNullableTy, HirStringTy, HirTy, HirTyId,
     HirUninitializedTy, HirUnitTy, HirUnsignedIntTy,
 };
-use crate::atlas_c::{atlas_hir::ty::HirReadOnlyReferenceTy, utils::Span};
+use crate::atlas_c::{atlas_hir::ty::{HirExternTy, HirReadOnlyReferenceTy}, utils::Span};
 use bumpalo::Bump;
 
 pub struct HirArena<'arena> {
@@ -218,6 +218,19 @@ impl<'arena> TypeArena<'arena> {
         self.intern.borrow_mut().entry(id).or_insert_with(|| {
             self.allocator
                 .alloc(HirTy::ReadOnlyReference(HirReadOnlyReferenceTy { inner }))
+        })
+    }
+
+    pub fn get_extern_ty(
+        &'arena self,
+        type_hint: Option<&'arena HirTy<'arena>>,
+    ) -> &'arena HirTy<'arena> {
+        let type_hint_id = type_hint.map(|ty| HirTyId::from(ty));
+        let id = HirTyId::compute_extern_ty_id(type_hint_id.as_ref());
+        self.intern.borrow_mut().entry(id).or_insert_with(|| {
+            self.allocator.alloc(HirTy::ExternTy(HirExternTy {
+                type_hint,
+            }))
         })
     }
 }

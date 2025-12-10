@@ -1,6 +1,6 @@
-package blue_engine::error;
+//package blue_engine::error;
 
-import std::io;
+import "std/io";
 
 public enum BlueEngineErrorCode {
     UpdateLoopError;
@@ -13,31 +13,36 @@ public enum BlueEngineErrorCode {
 public struct BlueEngineError {
     public:
         code: BlueEngineErrorCode;
-        message: &const string;
-        BlueEngineError(code: BlueEngineErrorCode, message: &const string) {
+        message: string;
+        BlueEngineError(code: BlueEngineErrorCode, message: string) {
             this.code = code;
             this.message = message;
         }
         ~BlueEngineError() {
-            delete this.message;
+            //delete this.message;
         }
         fun code(this) -> BlueEngineErrorCode {
             return this.code;
         }
-        fun message(this) -> &const string {
+        fun message(this) -> string {
             return this.message;
         }
-        fun display() {
+        fun display(this) {
             if this.code == BlueEngineErrorCode::Custom {
-                println("BlueEngineError: " + this.message);
-            } if else this.code == BlueEngineErrorCode::UpdateLoopError {
-                println("BlueEngineError: Update loop error occurred. " + this.message);
-            } if else this.code == BlueEngineErrorCode::AdapterNotFound {
-                println("BlueEngineError: No suitable adapter found. " + this.message);
-            } if else this.code == BlueEngineErrorCode::DeviceNotFound {
-                println("BlueEngineError: No suitable device found. " + this.message);
-            } if else this.code == BlueEngineErrorCode::LoadingTextureError {
-                println("BlueEngineError: Error while loading texture. " + this.message);
+                print("BlueEngineError: ");
+                println(this.message);
+            } else if this.code == BlueEngineErrorCode::UpdateLoopError {
+                print("BlueEngineError: Update loop error occurred. ");
+                println(this.message);
+            } else if this.code == BlueEngineErrorCode::AdapterNotFound {
+                print("BlueEngineError: No suitable adapter found. ");
+                println(this.message);
+            } else if this.code == BlueEngineErrorCode::DeviceNotFound {
+                print("BlueEngineError: No suitable device found. ");
+                println(this.message);
+            } else if this.code == BlueEngineErrorCode::LoadingTextureError {
+                print("BlueEngineError: Error while loading texture. ");
+                println(this.message);
             }
         }
 }

@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use miette::NamedSource;
 
 use crate::atlas_c::atlas_frontend::parser::{
-    ast::{AstEnum, AstEnumVariant, AstReadOnlyRefType},
+    ast::{AstEnum, AstEnumVariant, AstExternType, AstReadOnlyRefType},
     error::{
         NoFieldInStructError, OnlyOneConstructorAllowedError, ParseResult, SyntaxError,
         UnexpectedTokenError,
@@ -1574,6 +1574,13 @@ impl<'ast> Parser<'ast> {
                     span: Span::union_span(&start, &self.current().span()),
                     args: self.arena.alloc_vec(types),
                     ret: self.arena.alloc(ret),
+                })
+            }
+            TokenKind::ExternPtr => {
+                let _ = self.advance();
+                AstType::ExternTy(AstExternType {
+                    type_hint: None,
+                    span: Span::union_span(&start, &self.current().span()),
                 })
             }
             _ => {

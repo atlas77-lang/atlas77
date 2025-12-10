@@ -575,6 +575,7 @@ pub enum AstType<'ast> {
     Nullable(AstNullableType<'ast>),
     List(AstListType<'ast>),
     Generic(AstGenericType<'ast>),
+    ExternTy(AstExternType<'ast>),
 }
 
 impl AstType<'_> {
@@ -595,6 +596,7 @@ impl AstType<'_> {
             AstType::ReadOnlyRef(t) => t.span,
             AstType::List(t) => t.span,
             AstType::Generic(t) => t.span,
+            AstType::ExternTy(t) => t.span,
         }
     }
 }
@@ -628,11 +630,23 @@ impl<'ast> AstType<'ast> {
                     format!("{}<{}>", t.name.name, params)
                 }
             }
+            //AstType::Function(_) => "fn".to_owned(),
+            AstType::ExternTy(t) => match t.type_hint {
+                Some(ty) => format!("extern_ptr<{}>", ty.name()),
+                None => "extern_ptr".to_owned(),
+            },
             _ => {
                 panic!("Type does not have a name yet")
             }
         }
     }
+}
+
+#[derive(Debug, Clone)]
+
+pub struct AstExternType<'ast> {
+    pub span: Span,
+    pub type_hint: Option<&'ast AstType<'ast>>,
 }
 
 #[derive(Debug, Clone)]

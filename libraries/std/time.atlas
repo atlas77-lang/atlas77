@@ -16,23 +16,28 @@ public:
         this.nsec = nsec;
     }
     ~Time() {}
+
     fun to_iso_string(this) -> string {
         return format_time(this, "%Y-%m-%dT%H:%M:%S");
     }
-    fun format(this, fmt: const string) -> string {
+
+    fun format(this, fmt: string) -> string {
         return format_time(this, fmt);
     }
+
     fun now() -> Time {
         return now();
     }
+
     fun elapsed(this, since: Time) -> Time {
         let sec_diff = this.sec - since.sec;
         let nsec_diff = this.nsec - since.nsec;
         if nsec_diff < 0 {
-            return Time(sec_diff - 1, nsec_diff + 1_000_000_000);
+            return new Time(sec_diff - 1, nsec_diff + 1000000000);
         }
-        return Time(sec_diff, nsec_diff);
+        return new Time(sec_diff, nsec_diff);
     }
+
     fun sleep(this) {
         sleep(this);
     }
