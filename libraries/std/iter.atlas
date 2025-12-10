@@ -1,5 +1,6 @@
 import "std/vector";
 import "std/option";
+import "std/string";
 
 public struct Iter<T> {
 private:
@@ -11,6 +12,7 @@ public:
         this.index = 0_uint64;
     }
     ~Iter() {}
+    /// Returns the next item in the iterator, or None if the end is reached
     fun next(this) -> Option<T> {
         if this.index >= this.data.length {
             return Option::<T>::none();
@@ -19,8 +21,8 @@ public:
         this.index = this.index + 1_uint64;
         return Option::<T>::some(item);
     }
-
-    fun peek(this) -> Option<T> {
+    /// Peeks at the next item without advancing the iterator
+    fun peek(this) -> Option<&const T> {
         if this.index >= this.data.length {
             return Option::<T>::none();
         }
@@ -31,5 +33,11 @@ public:
     fun from_array(data: [T]) -> Iter<T> {
         let vector = new Vector<T>(data);
         return new Iter<T>(vector);
+    }
+    
+    fun from_string(data: string) -> Iter<char> {
+        let chars: [char] = to_chars(data);
+        let vector = new Vector<char>(chars);
+        return new Iter<char>(vector);
     }
 }
