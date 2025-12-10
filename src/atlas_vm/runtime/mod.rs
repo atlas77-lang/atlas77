@@ -51,7 +51,7 @@ impl<'run> AtlasRuntime<'run> {
                 extern_fn.insert(name, *func as CallBack);
             }
             //std/list
-            for (name, func) in atlas_vm::libraries::list::LIST_FUNCTIONS.iter() {
+            for (name, func) in atlas_vm::libraries::vector::VECTOR_FUNCTIONS.iter() {
                 extern_fn.insert(name, *func as CallBack);
             }
             //std/option
