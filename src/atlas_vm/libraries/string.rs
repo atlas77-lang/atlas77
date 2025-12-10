@@ -4,7 +4,7 @@ use crate::atlas_vm::runtime::CallBack;
 use crate::atlas_vm::runtime::vm_state::VMState;
 use crate::atlas_vm::vm_data::VMData;
 
-pub const STRING_FUNCTIONS: [(&str, CallBack); 7] = [
+pub const STRING_FUNCTIONS: [(&str, CallBack); 8] = [
     ("str_len", str_len),
     ("trim", trim),
     ("to_upper", to_upper),
@@ -12,6 +12,7 @@ pub const STRING_FUNCTIONS: [(&str, CallBack); 7] = [
     ("split", split),
     ("str_cmp", str_cmp),
     ("from_chars", from_chars),
+    ("to_chars", to_chars),
 ];
 
 pub fn str_len(state: VMState) -> RuntimeResult<VMData> {
@@ -114,6 +115,24 @@ pub fn from_chars(state: VMState) -> RuntimeResult<VMData> {
     let obj_idx = state.object_map.put(ObjectKind::String(string));
     match obj_idx {
         Ok(index) => Ok(VMData::new_string(index)),
+        Err(_) => Err(RuntimeError::OutOfMemory),
+    }
+}
+
+/// Converts a string into a list of characters.
+pub fn to_chars(state: VMState) -> RuntimeResult<VMData> {
+    let string_ptr = state.stack.pop()?.as_object();
+    let raw_string = state.object_map.get(string_ptr)?;
+    let string = raw_string.string();
+
+    let char_list: Vec<VMData> = string
+        .chars()
+        .map(|c| VMData::new_char(c))
+        .collect();
+
+    let list_idx = state.object_map.put(ObjectKind::List(char_list));
+    match list_idx {
+        Ok(index) => Ok(VMData::new_list(index)),
         Err(_) => Err(RuntimeError::OutOfMemory),
     }
 }
