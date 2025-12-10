@@ -983,10 +983,8 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         return Ok(());
                     }
                     _ => {
-                        return Err(Self::unsupported_expr_err(
-                            expr,
-                            format!("Unsupported expression: {}", expr.ty()),
-                        ));
+                        //Just ignore delete for primitive types
+                        return Ok(())
                     }
                 };
 

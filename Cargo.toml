@@ -8,7 +8,7 @@ license = "MIT"
 repository = "https://github.com/atlas77-lang/Atlas77"
 keywords = ["programming", "language", "compiler", "atlas77"]
 categories = ["compilers"]
-homepage = "https://atlas77-lang.github.io/Atlas77/docs/latest/index.html"
+homepage = "https://atlas77-lang.github.io/atlas77-docs/"
 readme = "README.md"
 
 

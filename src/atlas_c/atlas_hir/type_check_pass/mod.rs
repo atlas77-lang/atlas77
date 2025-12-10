@@ -35,7 +35,7 @@ use crate::atlas_c::{
         AccessingClassFieldOutsideClassError, AccessingPrivateConstructorError,
         AccessingPrivateFieldError, AccessingPrivateFunctionError, AccessingPrivateFunctionOrigin,
         AccessingPrivateStructError, AccessingPrivateStructOrigin, CanOnlyConstructStructsError,
-        CannotDeletePrimitiveTypeError, EmptyListLiteralError, FieldKind, IllegalOperationError,
+        EmptyListLiteralError, FieldKind, IllegalOperationError,
         TryingToIndexNonIndexableTypeError, TypeMismatchActual, UnsupportedExpr,
     },
     utils,
@@ -396,42 +396,33 @@ impl<'hir> TypeChecker<'hir> {
             HirExpr::StringLiteral(_) => Ok(self.arena.types().get_str_ty()),
             HirExpr::Delete(del_expr) => {
                 let ty = self.check_expr(&mut del_expr.expr)?;
-                if Self::is_primitive_type(ty) {
-                    let path = del_expr.span.path;
-                    let src = utils::get_file_content(path).unwrap();
-                    Err(HirError::CannotDeletePrimitiveType(
-                        CannotDeletePrimitiveTypeError {
-                            span: del_expr.span,
-                            ty: format!("{}", ty),
-                            src: NamedSource::new(path, src),
-                        },
-                    ))
-                } else {
-                    let mut name = "";
-                    if let HirTy::Named(n) = ty {
-                        name = n.name;
-                    } else if let HirTy::Generic(g) = ty {
-                        name = MonomorphizationPass::mangle_generic_struct_name(self.arena, g);
-                    } else if let HirTy::MutableReference(_) = ty {
-                        Self::deleting_ref_is_not_safe_warning(&del_expr.span);
-                    } else {
+                let name = match self.get_class_name_of_type(ty) {
+                    Some(n) => n,
+                    None => {
                         return Ok(self.arena.types().get_unit_ty());
                     }
-                    let class = match self.signature.structs.get(name) {
-                        Some(c) => *c,
-                        None => {
-                            return Ok(self.arena.types().get_unit_ty());
-                        }
-                    };
-                    if class.destructor.vis != HirVisibility::Public {
-                        Err(Self::accessing_private_constructor_err(
-                            &del_expr.span,
-                            "destructor",
-                        ))
-                    } else {
-                        Ok(self.arena.types().get_unit_ty())
+                };
+                match ty {
+                    HirTy::MutableReference(_) | HirTy::ReadOnlyReference(_) => {
+                        Self::deleting_ref_is_not_safe_warning(&del_expr.span);
                     }
+                    _ => {}
                 }
+                let class = match self.signature.structs.get(name) {
+                    Some(c) => *c,
+                    None => {
+                        return Ok(self.arena.types().get_unit_ty());
+                    }
+                };
+                if class.destructor.vis != HirVisibility::Public {
+                    Err(Self::accessing_private_constructor_err(
+                        &del_expr.span,
+                        "destructor",
+                    ))
+                } else {
+                    Ok(self.arena.types().get_unit_ty())
+                }
+                
             }
             HirExpr::ThisLiteral(s) => {
                 let class_name = match self.current_class_name {
@@ -1350,22 +1341,6 @@ impl<'hir> TypeChecker<'hir> {
                 }
             }
         }
-    }
-
-    // I don't know if I'll keep `string` as a primitive type in the future.
-    // Maybe it will become something like `str` like in Rust,
-    // so I can have a `std::string` package without conflicts.
-    fn is_primitive_type(ty: &HirTy) -> bool {
-        matches!(
-            ty,
-            HirTy::Int64(_)
-                | HirTy::UInt64(_)
-                | HirTy::Float64(_)
-                | HirTy::Char(_)
-                | HirTy::Boolean(_)
-                | HirTy::String(_)
-                | HirTy::Unit(_)
-        )
     }
 
     fn get_class_name_of_type(&self, ty: &HirTy<'hir>) -> Option<&'hir str> {
