@@ -21,6 +21,7 @@ const NAMED_TY_ID: u8 = 0x60;
 const GENERIC_TY_ID: u8 = 0x70;
 const MUT_REFERENCE_TY_ID: u8 = 0x80;
 const CONST_REFERENCE_TY_ID: u8 = 0x81;
+const EXTERN_TY_ID: u8 = 0x90;
 
 impl HirTyId {
     pub fn compute_integer64_ty_id() -> Self {
@@ -113,6 +114,12 @@ impl HirTyId {
         (CONST_REFERENCE_TY_ID, inner).hash(&mut hasher);
         Self(hasher.finish())
     }
+
+    pub fn compute_extern_ty_id(type_hint: Option<&HirTyId>) -> Self {
+        let mut hasher = DefaultHasher::new();
+        (EXTERN_TY_ID, type_hint).hash(&mut hasher);
+        Self(hasher.finish())
+    }
 }
 
 impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
@@ -135,6 +142,10 @@ impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
             }
             HirTy::MutableReference(ty) => HirTyId::from(ty.inner),
             HirTy::ReadOnlyReference(ty) => HirTyId::from(ty.inner),
+            HirTy::ExternTy(extern_ty) => match &extern_ty.type_hint {
+                Some(ty) => HirTyId::from(*ty),
+                None => HirTyId::compute_extern_ty_id(None),
+            },
             HirTy::_Function(f) => {
                 let parameters = f.params.iter().map(HirTyId::from).collect::<Vec<_>>();
                 let ret_ty = HirTyId::from(f.ret_ty);
@@ -160,6 +171,7 @@ pub enum HirTy<'hir> {
     Generic(HirGenericTy<'hir>),
     MutableReference(HirMutableReferenceTy<'hir>),
     ReadOnlyReference(HirReadOnlyReferenceTy<'hir>),
+    ExternTy(HirExternTy<'hir>),
     _Function(HirFunctionTy<'hir>),
 }
 
@@ -198,6 +210,10 @@ impl fmt::Display for HirTy<'_> {
             }
             HirTy::MutableReference(ty) => write!(f, "&{}", ty.inner),
             HirTy::ReadOnlyReference(ty) => write!(f, "&const {}", ty.inner),
+            HirTy::ExternTy(extern_ptr) => match &extern_ptr.type_hint {
+                Some(ty) => write!(f, "extern_ptr<{}>", ty),
+                None => write!(f, "extern_ptr"),
+            },
             HirTy::_Function(func) => {
                 let params = func
                     .params
@@ -209,6 +225,11 @@ impl fmt::Display for HirTy<'_> {
             }
         }
     }
+}
+
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
+pub struct HirExternTy<'hir> {
+    pub type_hint: Option<&'hir HirTy<'hir>>,
 }
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]

@@ -5,8 +5,8 @@ use crate::atlas_vm::vm_data::VMData;
 use rand::{Rng, rng};
 
 pub const MATH_FUNCTIONS: [(&str, CallBack); 7] = [
-    ("abs", abs),
-    ("pow", pow),
+    ("sin_f", sin_f),
+    ("cos_f", cos_f),
     ("sqrt", sqrt),
     ("min", min),
     ("max", max),
@@ -14,15 +14,14 @@ pub const MATH_FUNCTIONS: [(&str, CallBack); 7] = [
     ("random", random),
 ];
 
-pub fn abs(state: VMState) -> Result<VMData, RuntimeError> {
-    let val = state.stack.pop()?.as_i64();
-    Ok(VMData::new_i64(val.abs()))
+pub fn sin_f(state: VMState) -> Result<VMData, RuntimeError> {
+    let val = state.stack.pop()?.as_f64();
+    Ok(VMData::new_f64(val.sin()))
 }
 
-pub fn pow(state: VMState) -> Result<VMData, RuntimeError> {
-    let exponent = state.stack.pop()?.as_i64();
-    let base = state.stack.pop()?.as_i64();
-    Ok(VMData::new_i64(base.pow(exponent as u32)))
+pub fn cos_f(state: VMState) -> Result<VMData, RuntimeError> {
+    let val = state.stack.pop()?.as_f64();
+    Ok(VMData::new_f64(val.cos()))
 }
 
 pub fn sqrt(state: VMState) -> Result<VMData, RuntimeError> {

@@ -1,4 +1,5 @@
 import "std/io";
+import "std/iter";
 
 public extern len<T>(data: [T]) -> uint64;
 
@@ -66,5 +67,9 @@ public:
         }
         this.length = this.length - 1_uint64;
         return this.data[this.length];
+    }
+
+    fun into_iter(this) -> Iter<T> {
+        return new Iter<T>(this);
     }
 }

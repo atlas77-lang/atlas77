@@ -1,15 +1,15 @@
 // For now this will just serve as the base for the "cube" example in BlueEngine/examples/shapes/cube.rs
 // Later on, this will become the BlueEngine library
 // NB: uint32/float32/int32 are not supported in atlas77 yet.
-package blue_engine;
+//package blue_engine;
 
-import std::result;
-import std::option;
-import std::io;
-import std::time;
-import std::math;
+import "std/result";
+import "std/option";
+import "std/io";
+import "std/time";
+import "std/math";
 
-import blue_engine::error;
+import "libraries/blue_engine/error";
 
 private extern new_engine() -> Engine;
 private extern get_renderer_from_engine(engine: &Engine) -> &Renderer;
@@ -61,7 +61,7 @@ private extern object_storage_insert(
     obj: Object
 ) -> Result<unit, BlueEngineError>;
 private extern get_mut_object_from_storage(storage: extern_ptr, name: string) -> Option<&Object>;
-private extern get_object_from_storage(storage: extern_ptr, name: string) -> Option<const &Object>;
+private extern get_object_from_storage(storage: extern_ptr, name: string) -> Option<&const Object>;
 public struct ObjectStorage {
     private:
         object_storage_data: extern_ptr;
@@ -75,7 +75,7 @@ public struct ObjectStorage {
         fun insert(this, name: string, obj: Object) -> Result<unit, BlueEngineError> {
             return object_storage_insert(this.object_storage_data, name, obj);
         }
-        fun get(this, name: string) -> Option<const &Object> {
+        fun get(this, name: string) -> Option<&const Object> {
             return get_object_from_storage(this.object_storage_data, name);
         }
         fun get_mut(this, name: string) -> Option<&Object> {
@@ -96,17 +96,15 @@ public struct ObjectSettings {
         }
 }
 
-private extern new_vertex(position: [float64], uv: [float64], normal: [float64]) -> Vertex;
+private extern new_vertex(position: [float64], uv: [float64], normal: [float64]) -> extern_ptr;
 public struct Vertex {
     private:
         vertex_data: extern_ptr;
-        Vertex() {}
-        ~Vertex() {}
     public:
-        fun init(position: [float64], uv: [float64], normal: [float64]) -> Vertex {
-            let vertex = new_vertex(position, uv, normal);
-            return vertex;
+        Vertex(position: [float64], uv: [float64], normal: [float64]) {
+            this.vertex_data = new_vertex(position, uv, normal);
         }
+        ~Vertex() {}
 }
 
 private extern new_object(
@@ -162,68 +160,70 @@ public struct Camera {
 }
 
 
-public fun cube(name: string, settings: ObjectSettings, renderer: &Renderer, objects: &ObjectStorage) -> Result<unit, BlueEngineError> {
+public fun cube(name: string, settings: ObjectSettings, renderer: &Renderer, objects: &ObjectStorage) -> Result<string, BlueEngineError> {
     objects.insert(
         name,
         Object::init(
             name,
-            new [
-                // Front Face
-                Vertex::init([-1.0, -1.0, 1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
-                Vertex::init([1.0, -1.0, 1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
-                Vertex::init([1.0, 1.0, 1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
-                Vertex::init([-1.0, 1.0, 1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
+            [
+                new Vertex([-1.0, -1.0, 1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
+                new Vertex([1.0, -1.0, 1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
+                new Vertex([1.0, 1.0, 1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
+                new Vertex([-1.0, 1.0, 1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
                 // Back Face
-                Vertex::init([-1.0, 1.0, -1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
-                Vertex::init([1.0, 1.0, -1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
-                Vertex::init([1.0, -1.0, -1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
-                Vertex::init([-1.0, -1.0, -1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
+                new Vertex([-1.0, 1.0, -1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
+                new Vertex([1.0, 1.0, -1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
+                new Vertex([1.0, -1.0, -1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
+                new Vertex([-1.0, -1.0, -1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
                 // Right face
-                Vertex::init([1.0, -1.0, -1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
-                Vertex::init([1.0, 1.0, -1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
-                Vertex::init([1.0, 1.0, 1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
-                Vertex::init([1.0, -1.0, 1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
+                new Vertex([1.0, -1.0, -1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
+                new Vertex([1.0, 1.0, -1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
+                new Vertex([1.0, 1.0, 1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
+                new Vertex([1.0, -1.0, 1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
                 // Left face
-                Vertex::init([-1.0, -1.0, 1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
-                Vertex::init([-1.0, 1.0, 1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
-                Vertex::init([-1.0, 1.0, -1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
-                Vertex::init([-1.0, -1.0, -1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
+                new Vertex([-1.0, -1.0, 1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
+                new Vertex([-1.0, 1.0, 1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
+                new Vertex([-1.0, 1.0, -1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
+                new Vertex([-1.0, -1.0, -1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
                 // Top face
-                Vertex::init([1.0, 1.0, -1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
-                Vertex::init([-1.0, 1.0, -1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
-                Vertex::init([-1.0, 1.0, 1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
-                Vertex::init([1.0, 1.0, 1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
+                new Vertex([1.0, 1.0, -1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
+                new Vertex([-1.0, 1.0, -1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
+                new Vertex([-1.0, 1.0, 1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
+                new Vertex([1.0, 1.0, 1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
                 // Bottom face
-                Vertex::init([1.0, -1.0, 1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
-                Vertex::init([-1.0, -1.0, 1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
-                Vertex::init([-1.0, -1.0, -1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
-                Vertex::init([1.0, -1.0, -1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
+                new Vertex([1.0, -1.0, 1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
+                new Vertex([-1.0, -1.0, 1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
+                new Vertex([-1.0, -1.0, -1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
+                new Vertex([1.0, -1.0, -1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
             ],
-            new [
-                0, 1, 2, 2, 3, 0, // top
-                4, 5, 6, 6, 7, 4, // bottom
-                8, 9, 10, 10, 11, 8, // right
-                12, 13, 14, 14, 15, 12, // left
-                16, 17, 18, 18, 19, 16, // front
-                20, 21, 22, 22, 23, 20, // back
+            [
+                0_uint64, 1_uint64, 2_uint64, 2_uint64, 3_uint64, 0_uint64, // top
+                4_uint64, 5_uint64, 6_uint64, 6_uint64, 7_uint64, 4_uint64, // bottom
+                8_uint64, 9_uint64, 10_uint64, 10_uint64, 11_uint64, 8_uint64, // right
+                12_uint64, 13_uint64, 14_uint64, 14_uint64, 15_uint64, 12_uint64, // left
+                16_uint64, 17_uint64, 18_uint64, 18_uint64, 19_uint64, 16_uint64, // front
+                20_uint64, 21_uint64, 22_uint64, 22_uint64, 23_uint64, 20_uint64, // back
             ],
             settings,
             renderer
         )
     ).unwrap();
+    return Result::<string, BlueEngineError>::ok("Cube created successfully");
 }
+
 /// Calls the specified update function every frame.
 public extern call_update_function(engine: &Engine, update_function_name: string, start: Time);
-fun my_update(delta: Time, engine: &Engine) {
+fun my_update(delta: Time, engine: &Engine, start_time: Time) {
     const radius: float64 = 5.0;
-    let camx = sin(delta.elapsed(start_time).sec as float64 * 0.5) * radius;
-    let camy = sin(delta.elapsed(start_time).sec as float64 * 0.5) * radius;
-    let camz = cos(delta.elapsed(start_time).sec as float64 * 0.5) * radius;
+    let camx = sin_f(delta.elapsed(start_time).sec as float64 * 0.5) * radius;
+    let camy = sin_f(delta.elapsed(start_time).sec as float64 * 0.5) * radius;
+    let camz = cos_f(delta.elapsed(start_time).sec as float64 * 0.5) * radius;
     engine.camera().set_camera_position(camx, camy, camz);
     return;
 }
 
 fun main() {
+    println("Starting BlueEngine...");
     let engine = Engine::init();
     if cube(
         "cube1", 
@@ -237,7 +237,7 @@ fun main() {
     engine
         .objects()
         .get_mut("cube1")
-        .unap()
+        .unwrap()
         .set_color(0.0, 0.0, 1.0, 1.0);
     
     let start_time = Time::now();

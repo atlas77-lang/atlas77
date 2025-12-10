@@ -630,17 +630,10 @@ impl<'hir> TypeChecker<'hir> {
                 let ty = self.check_expr(&mut l.items[0])?;
                 for e in &mut l.items {
                     let e_ty = self.check_expr(e)?;
-                    if HirTyId::from(e_ty) != HirTyId::from(ty) {
-                        return Err(Self::type_mismatch_err(
-                            &format!("{}", e_ty),
-                            &e.span(),
-                            &format!("{}", ty),
-                            &l.span,
-                        ));
-                    }
+                    self.is_equivalent_ty(e_ty, e.span(), ty, l.span)?;
                 }
                 l.ty = self.arena.types().get_list_ty(ty);
-                Ok(self.arena.types().get_list_ty(ty))
+                Ok(l.ty)
             }
             HirExpr::NewArray(a) => {
                 let size_ty = self.check_expr(a.size.as_mut())?;
@@ -727,9 +720,9 @@ impl<'hir> TypeChecker<'hir> {
                 }
                 if struct_signature.constructor.params.len() != obj.args.len() {
                     return Err(Self::type_mismatch_err(
-                        &format!("{} parameter(s)", struct_signature.constructor.params.len()),
+                        &format!("{} parameter(s)", obj.args.len()),
                         &obj.span,
-                        &format!("{} argument(s)", obj.args.len()),
+                        &format!("{} argument(s)", struct_signature.constructor.params.len()),
                         &struct_signature.constructor.span,
                     ));
                 }
@@ -808,27 +801,26 @@ impl<'hir> TypeChecker<'hir> {
                             let arg_ty = self.check_expr(arg)?;
                             self.is_equivalent_ty(arg_ty, arg.span(), param.ty, param.span)?;
                         }
-
+                        func_expr.ty = self.arena.intern(func.return_ty.clone());
                         Ok(self.arena.intern(func.return_ty.clone()))
                     }
                     //todo: Check if the field access try to access public/private functions
                     HirExpr::FieldAccess(field_access) => {
                         let target_ty = self.check_expr(&mut field_access.target)?;
-                        let name;
-                        if let HirTy::Named(n) = target_ty {
-                            name = n.name;
-                        } else if let HirTy::Generic(g) = target_ty {
-                            name = MonomorphizationPass::mangle_generic_struct_name(self.arena, g);
-                        } else {
-                            let path = field_access.span.path;
-                            let src = utils::get_file_content(path).unwrap();
-                            return Err(HirError::CanOnlyConstructStructs(
-                                CanOnlyConstructStructsError {
-                                    span: field_access.span,
-                                    src: NamedSource::new(path, src),
-                                },
-                            ));
-                        }
+                        let name = match self.get_class_name_of_type(target_ty) {
+                            Some(n) => n,
+                            None => {
+                                let path = field_access.span.path;
+                                let src = utils::get_file_content(path).unwrap();
+                                return Err(HirError::TryingToAccessFieldOnNonObjectType(
+                                    TryingToAccessFieldOnNonObjectTypeError {
+                                        span: field_access.span,
+                                        src: NamedSource::new(path, src),
+                                        ty: format!("{}", target_ty),
+                                    },
+                                ));
+                            }
+                        };
                         let class = match self.signature.structs.get(name) {
                             Some(c) => *c,
                             None => {
@@ -1038,10 +1030,6 @@ impl<'hir> TypeChecker<'hir> {
                     if self.current_class_name != Some(name)
                         && field_signature.vis != HirVisibility::Public
                     {
-                        eprintln!(
-                            "Accessing private field: {} of {}",
-                            field_signature.vis as u8, name
-                        );
                         let path = field_access.span.path;
                         let src = utils::get_file_content(path).unwrap();
                         return Err(HirError::AccessingPrivateField(
@@ -1117,7 +1105,6 @@ impl<'hir> TypeChecker<'hir> {
                                 }
                             }
                         }
-                        eprintln!("Unknown type accessed in static access: {}", name);
                         return Err(Self::unknown_type_err(name, &static_access.span));
                     }
                 };

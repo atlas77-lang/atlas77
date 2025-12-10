@@ -25,25 +25,25 @@ public:
         this.release();
     }
     fun new_rc_ptr(val: T) -> rc_ptr<T> {
-        let block = new RcBlock<T>(1, val);
+        let block = new RcBlock<T>(1_uint64, val);
         return new rc_ptr<T>(&block); //it should be return rc_ptr::<T>( &block );
     }
 
     fun clone(this) -> rc_ptr<T> {
         let strong = this.block.strong;
-        this.block.strong = strong + 1 as uint64;
+        this.block.strong = strong + 1_uint64;
         return new rc_ptr<T>(this.block);
     }
 
     fun release(this) {
         let old = this.block.strong;
-        if old == 0 {
+        if old == 0_uint64 {
             panic("double release");
         }
-        let new_counter = old - 1 as uint64;
+        let new_counter = old - 1_uint64;
         this.block.strong = new_counter;
 
-        if new_counter == 0 {
+        if new_counter == 0_uint64 {
             delete this.block; //Shouldn't we also free the ``rc_ptr`` itself?
         }
     }

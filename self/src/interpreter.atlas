@@ -2,6 +2,7 @@ import "std/io";
 import "std/vector";
 import "src/lexer";
 import "std/string";
+import "std/iter";
 
 public struct BrainFuckInterpreter {
 public:
@@ -19,9 +20,10 @@ public:
     }
     fun run(this, tokens: Vector<Token>) {
         println("Running BrainFuck Interpreter...");
-        let i: uint64 = 0_uint64;
-        while i < tokens.length {
-            let token = tokens.get(i);
+        let iterator = tokens.into_iter();
+        let maybe_token = iterator.next();
+        while maybe_token.is_some() {
+            let token = maybe_token.unwrap();
             if token.kind == TokenKind::SHIFT_RIGHT {
                 this.pointer = this.pointer + 1_uint64;
             } else if token.kind == TokenKind::SHIFT_LEFT {
@@ -41,7 +43,7 @@ public:
             } else if token.kind == TokenKind::LOOP_END {
                 // Loop handling not implemented yet
             }
-            i = i + 1_uint64;
+            maybe_token = iterator.next();
         }
     }
 
