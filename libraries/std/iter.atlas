@@ -1,0 +1,35 @@
+import "std/vector";
+import "std/option";
+
+public struct Iter<T> {
+private:
+    data: Vector<T>;
+    index: uint64;
+public:
+    Iter(data: Vector<T>) {
+        this.data = data;
+        this.index = 0_uint64;
+    }
+    ~Iter() {}
+    fun next(this) -> Option<T> {
+        if this.index >= this.data.length {
+            return Option::<T>::none();
+        }
+        let item = this.data.get(this.index);
+        this.index = this.index + 1_uint64;
+        return Option::<T>::some(item);
+    }
+
+    fun peek(this) -> Option<T> {
+        if this.index >= this.data.length {
+            return Option::<T>::none();
+        }
+        let item = this.data.get(this.index);
+        return Option::<T>::some(item);
+    }
+
+    fun from_array(data: [T]) -> Iter<T> {
+        let vector = new Vector<T>(data);
+        return new Iter<T>(vector);
+    }
+}
