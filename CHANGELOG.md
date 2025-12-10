@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [0.6.0] - 2025-12-10
 
+### Bug Fixes
+
+- Std/string didn't have to_chars in the runtime ([00eb8e9](https://github.com/atlas77-lang/Atlas77/commit/00eb8e9fc597bb7b524abe34e32fcbc9cc7b05da))
+
+### Features
+
+- Map<K, V> got promoted to stable. ([850db14](https://github.com/atlas77-lang/Atlas77/commit/850db1455c6cd1bbe56ab7fddd10cc0492692707))
+- Added `std/iter` ([34c89df](https://github.com/atlas77-lang/Atlas77/commit/34c89df324d543ddc59b00d174aa92c6509c1363))
+- Fixed the atlas code and added/fixed all the features the engine will need ([8aa0f8c](https://github.com/atlas77-lang/Atlas77/commit/8aa0f8c2d30ea4ed785d4c9ae3ecf88be67367fb))
+
+## [0.6.0] - 2025-12-10
+
 ### Features
 
 - Map<K, V> got promoted to stable. ([850db14](https://github.com/atlas77-lang/Atlas77/commit/850db1455c6cd1bbe56ab7fddd10cc0492692707))
