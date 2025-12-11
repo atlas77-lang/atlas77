@@ -984,7 +984,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     }
                     _ => {
                         //Just ignore delete for primitive types
-                        return Ok(())
+                        return Ok(());
                     }
                 };
 

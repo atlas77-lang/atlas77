@@ -422,7 +422,6 @@ impl<'hir> TypeChecker<'hir> {
                 } else {
                     Ok(self.arena.types().get_unit_ty())
                 }
-                
             }
             HirExpr::ThisLiteral(s) => {
                 let class_name = match self.current_class_name {

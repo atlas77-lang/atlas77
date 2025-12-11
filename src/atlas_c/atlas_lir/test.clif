@@ -1,0 +1,28 @@
+function %fib(i64) -> i64 {
+block1(v0: i64):
+    ; Check if n <= 1
+    v1 = icmp sle v0, 1
+    brif v1, block2, block3
+block2:
+    ; Base case: return n
+    return v0
+block3:
+    ; Recursive case: fib(n-1) + fib(n-2)
+    v2 = isub i64 v0, 1
+    v3 = call %fib(v2)
+    v4 = isub i64 v0, 2
+    v5 = call %fib(v4)
+    v6 = iadd i64 v3, v5
+    return v6
+}
+
+function %main() -> i64 {
+block1():
+    ; Call fib(10)
+    v0 = i64const 10
+    v1 = call %fib(v0)
+    ; Print the result
+    ; call printf(v1)
+    ; For now we will ignore the printing part
+    return v1
+}

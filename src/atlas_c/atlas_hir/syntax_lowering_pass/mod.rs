@@ -1193,9 +1193,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 } else {
                     None
                 };
-                self.arena.types().get_extern_ty(
-                    type_hint,
-                )
+                self.arena.types().get_extern_ty(type_hint)
             }
             _ => {
                 let path = node.span().path;

@@ -53,7 +53,7 @@ impl Display for ObjectKind {
                     write!(f, "{}, ", element)?;
                 }
                 write!(f, "]")
-            },
+            }
             ObjectKind::Free { next } => write!(f, "Free: next -> {}", next),
         }
     }
