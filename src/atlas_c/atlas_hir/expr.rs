@@ -251,6 +251,7 @@ pub enum HirUnaryOp {
     Not,
     AsMutableRef,
     AsReadOnlyRef,
+    Deref,
 }
 
 #[derive(Debug, Clone)]

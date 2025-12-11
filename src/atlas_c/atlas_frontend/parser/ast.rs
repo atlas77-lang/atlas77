@@ -390,7 +390,7 @@ pub struct AstUnaryOpExpr<'ast> {
 pub enum AstUnaryOp {
     Neg,
     Not,
-    _Deref,
+    Deref,
     AsMutableRef,
     AsReadOnlyRef,
 }

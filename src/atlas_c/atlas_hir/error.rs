@@ -36,6 +36,7 @@ declare_error_type! {
         NoReturnInFunction(NoReturnInFunctionError),
         AccessingPrivateStruct(AccessingPrivateStructError),
         IllegalOperation(IllegalOperationError),
+        IllegalUnaryOperation(IllegalUnaryOperationError),
         AccessingPrivateFunction(AccessingPrivateFunctionError),
         UnsupportedItem(UnsupportedItemError),
         TryingToAccessFieldOnNonObjectType(TryingToAccessFieldOnNonObjectTypeError),
@@ -128,6 +129,21 @@ pub struct AccessingPrivateFunctionError {
 pub struct AccessingPrivateFunctionOrigin {
     #[label = "You marked it as private"]
     pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::illegal_operation),
+    help("ensure that the operation is valid for the given type")
+)]
+#[error("Incompatible {operation} on {ty}")]
+pub struct IllegalUnaryOperationError {
+    pub operation: String,
+    pub ty: String,
+    #[label("Incompatible {operation} on {ty}")]
+    pub expr_span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }

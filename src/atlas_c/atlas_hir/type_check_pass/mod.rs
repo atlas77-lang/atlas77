@@ -9,9 +9,9 @@ use super::{
     stmt::HirStatement,
     ty::{HirTy, HirTyId},
 };
-use crate::atlas_c::atlas_hir::signature::{
+use crate::atlas_c::atlas_hir::{error::IllegalUnaryOperationError, signature::{
     HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier, HirVisibility,
-};
+}};
 use crate::atlas_c::atlas_hir::ty::HirNamedTy;
 use crate::atlas_c::atlas_hir::type_check_pass::context::{ContextFunction, ContextVariable};
 use crate::atlas_c::atlas_hir::warning::{DeletingReferenceMightLeadToUB, HirWarning};
@@ -450,8 +450,7 @@ impl<'hir> TypeChecker<'hir> {
                 match u.op {
                     Some(expr::HirUnaryOp::Neg) => {
                         if !TypeChecker::is_arithmetic_type(ty) {
-                            return Err(Self::illegal_operation_err(
-                                ty,
+                            return Err(Self::illegal_unary_operation_err(
                                 ty,
                                 u.expr.span(),
                                 "negation operation",
@@ -469,6 +468,24 @@ impl<'hir> TypeChecker<'hir> {
                         let ref_ty = self.arena.types().get_readonly_reference_ty(ty);
                         u.ty = ref_ty;
                         Ok(ref_ty)
+                    }
+                    Some(HirUnaryOp::Deref) => {
+                        match ty {
+                            HirTy::MutableReference(r) => {
+                                u.ty = r.inner;
+                                Ok(r.inner)
+                            } HirTy::ReadOnlyReference(r) => {
+                                u.ty = r.inner;
+                                Ok(r.inner)
+                            }
+                            _ => {
+                                return Err(Self::illegal_unary_operation_err(
+                                    ty,
+                                    u.expr.span(),
+                                    "dereference operation",
+                                ));
+                            }
+                        }
                     }
                     _ => {
                         u.ty = ty;
@@ -1119,17 +1136,17 @@ impl<'hir> TypeChecker<'hir> {
     fn check_extern_fn(
         &mut self,
         name: &'hir str,
-        expr: &mut HirFunctionCallExpr<'hir>,
+        call_expr: &mut HirFunctionCallExpr<'hir>,
         signature: &'hir HirFunctionSignature<'hir>,
     ) -> HirResult<&'hir HirTy<'hir>> {
-        let args_ty = expr
+        let args_ty = call_expr
             .args
             .iter_mut()
             .map(|a| self.check_expr(a))
             .collect::<HirResult<Vec<_>>>()?;
 
         // Create cache key including explicit generics to distinguish calls like default::<int64>() from default::<string>()
-        let explicit_generics = expr.generics.clone();
+        let explicit_generics = call_expr.generics.clone();
         let monomorphized =
             self.extern_monomorphized
                 .get(&(name, args_ty.clone(), explicit_generics.clone()));
@@ -1141,10 +1158,10 @@ impl<'hir> TypeChecker<'hir> {
         let mut params = vec![];
 
         // Check if explicit generic type arguments are provided (e.g., `default::<Int64>()`)
-        if !expr.generics.is_empty() {
+        if !call_expr.generics.is_empty() {
             // Use explicit type arguments from the function call
             if let Some(generic_params) = &signature.generics {
-                for (generic_param, concrete_ty) in generic_params.iter().zip(expr.generics.iter())
+                for (generic_param, concrete_ty) in generic_params.iter().zip(call_expr.generics.iter())
                 {
                     generics.push((generic_param.name, concrete_ty));
                 }
@@ -1172,7 +1189,7 @@ impl<'hir> TypeChecker<'hir> {
                     } else {
                         return Err(Self::type_mismatch_err(
                             &format!("{}", arg),
-                            &expr.args[i].span(),
+                            &call_expr.args[i].span(),
                             &format!("{}", param.ty),
                             &param.span,
                         ));
@@ -1188,12 +1205,12 @@ impl<'hir> TypeChecker<'hir> {
                 };
                 params.push(param_sign);
             }
-        } else if expr.generics.is_empty() {
+        } else if call_expr.generics.is_empty() {
             // Parameterless function with no explicit type arguments - error
             if signature.generics.is_some() {
                 return Err(Self::type_mismatch_err(
                     "parameterless generic function",
-                    &expr.span,
+                    &call_expr.span,
                     "explicit type arguments (e.g., `function::<Int64>()`)",
                     &signature.span,
                 ));
@@ -1210,7 +1227,7 @@ impl<'hir> TypeChecker<'hir> {
                 None => {
                     return Err(Self::type_mismatch_err(
                         &format!("{}", monomorphized.return_ty),
-                        &expr.span,
+                        &monomorphized.return_ty_span.unwrap_or_else(|| monomorphized.span),
                         "concrete type (check explicit type arguments match generic parameters)",
                         &signature.span,
                     ));
@@ -1234,6 +1251,8 @@ impl<'hir> TypeChecker<'hir> {
     fn get_generic_name(ty: &'hir HirTy<'hir>) -> Option<&'hir str> {
         match ty {
             HirTy::List(l) => Self::get_generic_name(l.inner),
+            HirTy::ReadOnlyReference(r) => Self::get_generic_name(r.inner),
+            HirTy::MutableReference(m) => Self::get_generic_name(m.inner),
             HirTy::Named(n) => Some(n.name),
             _ => None,
         }
@@ -1250,6 +1269,13 @@ impl<'hir> TypeChecker<'hir> {
                 .types()
                 .get_list_ty(self.get_generic_ret_ty(l.inner, actual_generic_ty)),
             HirTy::Named(_) => actual_generic_ty,
+            HirTy::ReadOnlyReference(r) => self.arena.types().get_readonly_reference_ty(
+                self.get_generic_ret_ty(r.inner, actual_generic_ty),
+            ),
+            HirTy::MutableReference(r) => {
+                self.arena.types().get_mutable_reference_ty(
+                self.get_generic_ret_ty(r.inner, actual_generic_ty),
+            )},
             _ => actual_generic_ty,
         }
     }
@@ -1262,7 +1288,17 @@ impl<'hir> TypeChecker<'hir> {
     ) -> Option<&'hir HirTy<'hir>> {
         match (ty, given_ty) {
             (HirTy::List(l1), HirTy::List(l2)) => Self::get_generic_ty(l1.inner, l2.inner),
+            (HirTy::ReadOnlyReference(r1), HirTy::ReadOnlyReference(r2)) => {
+                Self::get_generic_ty(r1.inner, r2.inner)
+            }
+            (HirTy::MutableReference(m1), HirTy::MutableReference(m2)) => {
+                Self::get_generic_ty(m1.inner, m2.inner)
+            }
             (HirTy::Named(_), _) => Some(given_ty),
+            (HirTy::ReadOnlyReference(r1), _) => Self::get_generic_ty(r1.inner, given_ty),
+            (HirTy::MutableReference(m1), _) => Self::get_generic_ty(m1.inner, given_ty),
+            (_, HirTy::ReadOnlyReference(r2)) => Self::get_generic_ty(ty, r2.inner),
+            (_, HirTy::MutableReference(m2)) => Self::get_generic_ty(ty, m2.inner),
             _ => None,
         }
     }
@@ -1437,6 +1473,21 @@ impl<'hir> TypeChecker<'hir> {
             span: *found_span,
             src: NamedSource::new(found_path, found_src),
             origin,
+        })
+    }
+
+    fn illegal_unary_operation_err(
+        ty: &HirTy,
+        expr_span: Span,
+        operation: &str,
+    ) -> HirError {
+        let path = expr_span.path;
+        let src = utils::get_file_content(path).unwrap();
+        HirError::IllegalUnaryOperation(IllegalUnaryOperationError {
+            operation: operation.to_string(),
+            expr_span,
+            src: NamedSource::new(path, src),
+            ty: ty.to_string(),
         })
     }
 

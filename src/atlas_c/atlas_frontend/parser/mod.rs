@@ -910,6 +910,10 @@ impl<'ast> Parser<'ast> {
                     Some(AstUnaryOp::AsMutableRef)
                 }
             }
+            TokenKind::Star => {
+                let _ = self.advance();
+                Some(AstUnaryOp::Deref)
+            }
             _ => None,
         };
 

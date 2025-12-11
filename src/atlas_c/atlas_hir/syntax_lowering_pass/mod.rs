@@ -839,6 +839,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         Some(AstUnaryOp::Not) => Some(HirUnaryOp::Not),
                         Some(AstUnaryOp::AsReadOnlyRef) => Some(HirUnaryOp::AsReadOnlyRef),
                         Some(AstUnaryOp::AsMutableRef) => Some(HirUnaryOp::AsMutableRef),
+                        Some(AstUnaryOp::Deref) => Some(HirUnaryOp::Deref),
                         _ => None,
                     },
                     expr: Box::new(expr.clone()),

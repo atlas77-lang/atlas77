@@ -607,7 +607,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                 ));
                             }
                         }
-                        HirUnaryOp::AsReadOnlyRef | HirUnaryOp::AsMutableRef => {
+                        HirUnaryOp::AsReadOnlyRef | HirUnaryOp::AsMutableRef | HirUnaryOp::Deref=> {
                             //No instruction needed, just a type change &const T and T are represented the same in memory
                             //It's the type system that prevents misuse
                         }
