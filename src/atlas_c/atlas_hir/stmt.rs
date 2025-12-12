@@ -9,9 +9,9 @@ pub enum HirStatement<'hir> {
     _Block(HirBlock<'hir>),
     Return(HirReturn<'hir>),
     Expr(HirExprStmt<'hir>),
-    Let(HirLetStmt<'hir>),
+    Let(HirVariableStmt<'hir>),
     //tbf, no need to use anything else than a LetStmt for the const
-    Const(HirLetStmt<'hir>),
+    Const(HirVariableStmt<'hir>),
     IfElse(HirIfElseStmt<'hir>),
     While(HirWhileStmt<'hir>),
     Break(Span),
@@ -47,7 +47,7 @@ pub struct HirWhileStmt<'hir> {
 }
 
 #[derive(Debug, Clone)]
-pub struct HirLetStmt<'hir> {
+pub struct HirVariableStmt<'hir> {
     pub span: Span,
     pub name: &'hir str,
     pub name_span: Span,

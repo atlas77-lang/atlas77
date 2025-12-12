@@ -390,7 +390,14 @@ impl<'hir> TypeChecker<'hir> {
                 )
             }
             _ => {
-                todo!("TypeChecker::check_stmt: {:?}", stmt)
+                Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                    span: stmt.span(),
+                    expr: format!("{:?}", stmt),
+                    src: NamedSource::new(
+                        stmt.span().path,
+                        utils::get_file_content(stmt.span().path).unwrap(),
+                    ),
+                }))
             }
         }
     }
@@ -1033,7 +1040,11 @@ impl<'hir> TypeChecker<'hir> {
                         }
                     }
                     _ => {
-                        todo!()
+                        Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                            span: func_expr.span,
+                            expr: "Function call on non-identifier expression".to_string(),
+                            src: NamedSource::new(path, utils::get_file_content(path).unwrap()),
+                        }))
                     }
                 }
             }
