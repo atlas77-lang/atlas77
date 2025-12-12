@@ -125,10 +125,7 @@ pub fn to_chars(state: VMState) -> RuntimeResult<VMData> {
     let raw_string = state.object_map.get(string_ptr)?;
     let string = raw_string.string();
 
-    let char_list: Vec<VMData> = string
-        .chars()
-        .map(|c| VMData::new_char(c))
-        .collect();
+    let char_list: Vec<VMData> = string.chars().map(VMData::new_char).collect();
 
     let list_idx = state.object_map.put(ObjectKind::List(char_list));
     match list_idx {

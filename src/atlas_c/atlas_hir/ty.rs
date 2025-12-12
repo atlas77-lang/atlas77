@@ -103,7 +103,7 @@ impl HirTyId {
         Self(hasher.finish())
     }
 
-    pub fn compute_mutable_ref_ty_id(inner: &HirTyId) -> Self {
+    pub fn compute_ref_ty_id(inner: &HirTyId) -> Self {
         let mut hasher = DefaultHasher::new();
         (MUT_REFERENCE_TY_ID, inner).hash(&mut hasher);
         Self(hasher.finish())
@@ -140,8 +140,8 @@ impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
                 let params = g.inner.iter().map(HirTyId::from).collect::<Vec<_>>();
                 HirTyId::compute_generic_ty_id(g.name, &params)
             }
-            HirTy::MutableReference(ty) => HirTyId::from(ty.inner),
-            HirTy::ReadOnlyReference(ty) => HirTyId::from(ty.inner),
+            HirTy::MutableReference(ty) => Self::compute_ref_ty_id(&HirTyId::from(ty.inner)),
+            HirTy::ReadOnlyReference(ty) => Self::compute_readonly_ref_ty_id(&HirTyId::from(ty.inner)),
             HirTy::ExternTy(extern_ty) => match &extern_ty.type_hint {
                 Some(ty) => HirTyId::from(*ty),
                 None => HirTyId::compute_extern_ty_id(None),

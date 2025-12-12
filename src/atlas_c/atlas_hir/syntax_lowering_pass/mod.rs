@@ -837,8 +837,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     op: match u.op {
                         Some(AstUnaryOp::Neg) => Some(HirUnaryOp::Neg),
                         Some(AstUnaryOp::Not) => Some(HirUnaryOp::Not),
-                        Some(AstUnaryOp::AsReadOnlyRef) => Some(HirUnaryOp::AsReadOnlyRef),
-                        Some(AstUnaryOp::AsMutableRef) => Some(HirUnaryOp::AsMutableRef),
+                        Some(AstUnaryOp::AsRef) => Some(HirUnaryOp::AsRef),
+                        Some(AstUnaryOp::Deref) => Some(HirUnaryOp::Deref),
                         _ => None,
                     },
                     expr: Box::new(expr.clone()),
@@ -1183,7 +1183,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
             AstType::MutableRef(ptr) => {
                 let inner_ty = self.visit_ty(ptr.inner)?;
-                self.arena.types().get_mutable_reference_ty(inner_ty)
+                self.arena.types().get_ref_ty(inner_ty)
             }
             //The "this" ty is replaced during the type checking phase
             AstType::ThisTy(_) => self.arena.types().get_uninitialized_ty(),
@@ -1193,9 +1193,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 } else {
                     None
                 };
-                self.arena.types().get_extern_ty(
-                    type_hint,
-                )
+                self.arena.types().get_extern_ty(type_hint)
             }
             _ => {
                 let path = node.span().path;

@@ -1,8 +1,7 @@
 import "std/io";
 
 fun main() {
-    println(fib_wrapper(5));
-    println(iterative_fib(5));
+    println(fib(5));
 }
 
 fun fib(n: int64) -> int64 {
@@ -11,24 +10,4 @@ fun fib(n: int64) -> int64 {
     } else {
         return fib(n - 1) + fib(n - 2);
     }
-}
-
-fun fib_wrapper(n: int64) -> int64 {
-    return fib(n);
-}
-
-fun iterative_fib(n: int64) -> int64 {
-    if n <= 1 {
-        return n;
-    }
-    let a: int64 = 0;
-    let b: int64 = 1;
-    let i: int64 = 2;
-    while i <= n {
-        const temp: int64 = a + b;
-        a = b;
-        b = temp;
-        i = i + 1;
-    }
-    return b;
 }

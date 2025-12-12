@@ -1,5 +1,5 @@
-import "std/io"
-import "std/list"
+import "std/io";
+import "std/list";
 
 extern str_cmp(a: string, b: string) -> int64;
 

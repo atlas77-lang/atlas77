@@ -607,7 +607,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                 ));
                             }
                         }
-                        HirUnaryOp::AsReadOnlyRef | HirUnaryOp::AsMutableRef => {
+                        HirUnaryOp::AsRef | HirUnaryOp::Deref => {
                             //No instruction needed, just a type change &const T and T are represented the same in memory
                             //It's the type system that prevents misuse
                         }
@@ -983,10 +983,8 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         return Ok(());
                     }
                     _ => {
-                        return Err(Self::unsupported_expr_err(
-                            expr,
-                            format!("Unsupported expression: {}", expr.ty()),
-                        ));
+                        //Just ignore delete for primitive types
+                        return Ok(());
                     }
                 };
 

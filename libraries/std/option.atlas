@@ -18,7 +18,7 @@ private enum OptionTag {
 
 //std/option
 public struct Option<T> {
-public:
+private:
   	/// 0 = None, 1 = Some
   	tag: OptionTag;
   	data: T;

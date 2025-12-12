@@ -4,7 +4,7 @@ use crate::atlas_vm::runtime::CallBack;
 use crate::atlas_vm::runtime::vm_state::VMState;
 use crate::atlas_vm::vm_data::VMData;
 
-pub const LIST_FUNCTIONS: [(&str, CallBack); 2] = [("len", len), ("slice", slice)];
+pub const VECTOR_FUNCTIONS: [(&str, CallBack); 2] = [("len", len), ("slice", slice)];
 
 pub fn len(state: VMState) -> Result<VMData, RuntimeError> {
     let val = state.stack.pop()?;

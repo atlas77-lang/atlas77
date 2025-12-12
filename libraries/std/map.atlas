@@ -14,6 +14,8 @@ public:
         this.values = new Vector<V>(new [V; 0]);
     }
     ~Map() {}
+    /// Retrieves the value associated with the given key.
+    /// Returns None if the key does not exist.
     fun get(this, key: K) -> Option<V> {
         let i: uint64 = 0_uint64;
         while i < this.keys.length {
@@ -24,7 +26,6 @@ public:
         }
         return Option::<V>::none();
     }
-
     /// Inserts a key-value pair into the map.
     /// If the key already exists, updates its value.
     fun insert(this, key: K, value: V) {
@@ -41,27 +42,30 @@ public:
         this.keys.push(key);
         this.values.push(value);
     }
-}
-import "std/io";
-
-fun main() {
-    let map = new Map<int64, string>();
-    map.insert(1, "one");
-    map.insert(2, "two");
-
-    let value = map.get(1);
-    if value.is_some() {
-        print("Key 'one' found with value: ");
-        println(value.data);
-    } else {
-        println("Key 'one' not found");
+    /// Removes a key-value pair from the map by key.
+    /// If the key does not exist, does nothing.
+    fun remove(this, key: K) {
+        let i: uint64 = 0_uint64;
+        while i < this.keys.length {
+            if this.keys.get(i) == key {
+                // Key found, remove key and value by shifting elements
+                let j: uint64 = i;
+                while j + 1_uint64 < this.keys.length {
+                    this.keys.set(j, this.keys.get(j + 1_uint64));
+                    this.values.set(j, this.values.get(j + 1_uint64));
+                    j = j + 1_uint64;
+                }
+                // Decrease lengths
+                this.keys.length = this.keys.length - 1_uint64;
+                this.values.length = this.values.length - 1_uint64;
+                return;
+            }
+            i = i + 1_uint64;
+        }
+        return;
     }
-
-    let missing_value = map.get(3);
-    if missing_value.is_some() {
-        print("Key 'three' found with value: ");
-        println(missing_value.data);
-    } else {
-        println("Key 'three' not found");
+    /// Returns the number of key-value pairs in the map.
+    fun size(this) -> uint64 {
+        return this.keys.length;
     }
 }

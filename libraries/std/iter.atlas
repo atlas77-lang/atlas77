@@ -24,10 +24,10 @@ public:
     /// Peeks at the next item without advancing the iterator
     fun peek(this) -> Option<&const T> {
         if this.index >= this.data.length {
-            return Option::<T>::none();
+            return Option::<&const T>::none();
         }
         let item = this.data.get(this.index);
-        return Option::<T>::some(item);
+        return Option::<&const T>::some(&item);
     }
 
     fun from_array(data: [T]) -> Iter<T> {

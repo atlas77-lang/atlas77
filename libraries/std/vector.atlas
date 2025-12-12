@@ -2,6 +2,7 @@ import "std/io";
 import "std/iter";
 
 public extern len<T>(data: [T]) -> uint64;
+public extern slice<T>(data: [T], start: uint64, end: uint64) -> [T];
 
 public struct Vector<T> {
 private:
@@ -19,9 +20,11 @@ public:
 
     /// A function that doesn't have a "self" parameter is a static function
     /// static functions are called like this: "Vector::<T>::function_name()"
-//    fun with_capacity(capacity: uint64) -> Vector<T> { //Still unstable feature
-//        return new Vector<T>(new [T; capacity]);
-//    }
+    fun with_capacity(capacity: uint64) -> Vector<T> { //Still unstable feature
+        let vec = new Vector<T>(new [T; capacity]);
+        vec.length = 0_uint64;
+        return vec;
+    }
 
     fun get(this, index: uint64) -> T {
         if index >= this.length {

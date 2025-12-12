@@ -108,6 +108,9 @@ pub struct AstStruct<'ast> {
 #[derive(Debug, Clone, Default, Copy)]
 pub enum AstMethodModifier {
     Static,
+    /// Method that can be called on a constant reference to the object
+    ///
+    /// e.g.: `fun print(&const this) { ... }`
     Const,
     #[default]
     None,
@@ -390,9 +393,8 @@ pub struct AstUnaryOpExpr<'ast> {
 pub enum AstUnaryOp {
     Neg,
     Not,
-    _Deref,
-    AsMutableRef,
-    AsReadOnlyRef,
+    Deref,
+    AsRef,
 }
 
 #[derive(Debug, Clone)]

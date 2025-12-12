@@ -1,6 +1,6 @@
 [package]
 name = "atlas_77"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2024"
 description = "Programming language with strong interoperability with Rust (WIP)"
 authors = ["Gipson62", "ElhamAryanpur"]
@@ -8,7 +8,7 @@ license = "MIT"
 repository = "https://github.com/atlas77-lang/Atlas77"
 keywords = ["programming", "language", "compiler", "atlas77"]
 categories = ["compilers"]
-homepage = "https://atlas77-lang.github.io/Atlas77/docs/latest/index.html"
+homepage = "https://atlas77-lang.github.io/atlas77-docs/"
 readme = "README.md"
 
 
@@ -44,3 +44,4 @@ heck = "0.5.0"
 include_dir = "0.7.4"
 rand = "0.10.0-rc.5"
 time = { version = "0.3.44", features = ["formatting"] }
+cranelift = "0.126.1"

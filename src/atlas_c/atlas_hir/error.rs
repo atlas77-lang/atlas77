@@ -1,9 +1,13 @@
 use crate::atlas_c::utils::Span;
 use crate::declare_error_type;
+use logos::source;
 use miette::{Diagnostic, NamedSource};
 use std::fmt;
 use std::fmt::Formatter;
 use thiserror::Error;
+
+/// Handy type alias for all HIR-related errors.
+pub type HirResult<T> = Result<T, HirError>;
 
 //todo: Implement my own error type, because miette doesn't let me return just warnings
 declare_error_type! {
@@ -36,15 +40,87 @@ declare_error_type! {
         NoReturnInFunction(NoReturnInFunctionError),
         AccessingPrivateStruct(AccessingPrivateStructError),
         IllegalOperation(IllegalOperationError),
+        IllegalUnaryOperation(IllegalUnaryOperationError),
         AccessingPrivateFunction(AccessingPrivateFunctionError),
         UnsupportedItem(UnsupportedItemError),
         TryingToAccessFieldOnNonObjectType(TryingToAccessFieldOnNonObjectTypeError),
         NullableTypeRequiresStdLibrary(NullableTypeRequiresStdLibraryError),
+        TryingToAccessAMovedValue(TryingToAccessAMovedValueError),
+        TryingToAccessADeletedValue(TryingToAccessADeletedValueError),
+        CallingNonConstMethodOnConstReference(CallingNonConstMethodOnConstReferenceError),
+        TryingToMutateConstReference(TryingToMutateConstReferenceError),
     }
 }
 
-/// Handy type alias for all HIR-related errors.
-pub type HirResult<T> = Result<T, HirError>;
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::trying_to_mutate_const_reference),
+    help("consider using a mutable reference instead")
+)]
+#[error("trying to mutate a const reference")]
+pub struct TryingToMutateConstReferenceError {
+    #[label = "cannot mutate `{ty}` as it is a const reference"]
+    pub span: Span,
+    pub ty: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::calling_non_const_method_on_const_reference),
+    help("consider making the method const, or using a mutable reference")
+)]
+#[error("calling a non-const method on a const reference")]
+pub struct CallingNonConstMethodOnConstReferenceError {
+    #[label = "method called on const reference here"]
+    pub call_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[source]
+    #[diagnostic_source]
+    pub origin: CallingNonConstMethodOnConstReferenceOrigin,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic()]
+#[error("")]
+pub struct CallingNonConstMethodOnConstReferenceOrigin {
+    #[label = "method is not marked as const here"]
+    pub method_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::trying_to_access_a_moved_value),
+    help("consider cloning the value before moving it, or using a reference")
+)]
+#[error("trying to access a moved value")]
+pub struct TryingToAccessADeletedValueError {
+    #[label = "value was deleted here"]
+    pub delete_span: Span,
+    #[label = "trying to access deleted value here"]
+    pub access_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::trying_to_access_a_moved_value),
+    help("consider cloning the value before moving it, or using a reference")
+)]
+#[error("trying to access a moved value")]
+pub struct TryingToAccessAMovedValueError {
+    #[label = "value was moved here"]
+    pub move_span: Span,
+    #[label = "trying to access moved value here"]
+    pub access_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::nullable_type_requires_std_library))]
@@ -128,6 +204,21 @@ pub struct AccessingPrivateFunctionError {
 pub struct AccessingPrivateFunctionOrigin {
     #[label = "You marked it as private"]
     pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::illegal_operation),
+    help("ensure that the operation is valid for the given type")
+)]
+#[error("Incompatible {operation} on {ty}")]
+pub struct IllegalUnaryOperationError {
+    pub operation: String,
+    pub ty: String,
+    #[label("Incompatible {operation} on {ty}")]
+    pub expr_span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }

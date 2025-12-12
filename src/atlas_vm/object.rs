@@ -47,7 +47,13 @@ impl Display for ObjectKind {
         match self {
             ObjectKind::String(s) => write!(f, "`String`: \"{}\"", s),
             ObjectKind::Structure(s) => write!(f, "{:?}", s),
-            ObjectKind::List(l) => write!(f, "{:?}", l),
+            ObjectKind::List(l) => {
+                write!(f, "[")?;
+                for element in l.iter() {
+                    write!(f, "{}, ", element)?;
+                }
+                write!(f, "]")
+            }
             ObjectKind::Free { next } => write!(f, "Free: next -> {}", next),
         }
     }
