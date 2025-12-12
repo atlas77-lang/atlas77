@@ -980,6 +980,12 @@ impl<'ast> Parser<'ast> {
             }
             TokenKind::KwNew => self.parse_new_obj()?,
             TokenKind::KwDelete => self.parse_delete_obj()?,
+            TokenKind::LParen => {
+                let _ = self.advance();
+                let expr = self.parse_expr()?;
+                self.expect(TokenKind::RParen)?;
+                expr
+            }
             TokenKind::LBracket => {
                 let start = self.advance();
                 let mut elements = vec![];
