@@ -1,17 +1,5 @@
 import "std/io";
 
-/// Type safe malloc:
-/// Allocate memory for T and return a mutable reference to it
-extern malloc(size: int64) -> T;
-extern free<T>(ptr: &T);
-extern sizeof<T>() -> int64;
-
-struct Point {
-public:
-    x: int64;
-    y: int64;
-}
-
 fun main() {
-    let a: T = malloc(sizeof::<Point>());
+    println("Hello, Atlas!");
 }

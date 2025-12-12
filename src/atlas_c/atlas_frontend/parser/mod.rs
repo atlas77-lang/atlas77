@@ -1006,12 +1006,11 @@ impl<'ast> Parser<'ast> {
                 let node =
                     AstExpr::Literal(AstLiteral::ThisLiteral(AstThisLiteral { span: tok.span() }));
                 let _ = self.expect(TokenKind::KwThis)?;
-                self.parse_ident_access(node)?
+                node
             }
             TokenKind::Identifier(_) => {
                 let node = AstExpr::Identifier(self.parse_identifier()?);
-
-                self.parse_ident_access(node)?
+                node
             }
             TokenKind::KwIf => AstExpr::IfElse(self.parse_if_expr()?),
             _ => {
@@ -1023,7 +1022,8 @@ impl<'ast> Parser<'ast> {
                 ));
             }
         };
-        Ok(node)
+        // Parse postfix operations (method calls, field access, indexing) on all primary expressions
+        self.parse_ident_access(node)
     }
 
     fn parse_delete_obj(&mut self) -> ParseResult<AstExpr<'ast>> {
@@ -1036,6 +1036,7 @@ impl<'ast> Parser<'ast> {
         Ok(node)
     }
 
+    /// TODO: We should be able to write `new Foo().bar()` but currently we can't
     fn parse_ident_access(&mut self, origin: AstExpr<'ast>) -> ParseResult<AstExpr<'ast>> {
         let mut node = origin;
         while self.peek().is_some() {
