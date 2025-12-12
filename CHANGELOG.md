@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.1] - 2025-12-12
+
+### Bug Fixes
+
+- Issue when having generic references in extern function ([5a08ed6](https://github.com/atlas77-lang/Atlas77/commit/5a08ed66502be8ee9a667cd2780d03ec43cb40e7))
+- You can now delete primitive types but it will do nothing ([cf8151a](https://github.com/atlas77-lang/Atlas77/commit/cf8151af34857518e1f9b41e3b3ddc4ba6fd6a76))
+
+### Documentation
+
+- Updated the README.md ([57330c2](https://github.com/atlas77-lang/Atlas77/commit/57330c24dccbb70313f72bdda9b0e9a071358d9e))
+
+### Features
+
+- Finally was able to get &T and &const T to work correctly. ([8218010](https://github.com/atlas77-lang/Atlas77/commit/8218010fbef21a1d3a7cd9bc8971b8d4074aeb72))
+- Start of the work on the Low Level IR ([9404cab](https://github.com/atlas77-lang/Atlas77/commit/9404cab5e41e21e78fdd896bc68270b2968c0690))
+- Added `Map::<K, V>.size()` method ([edd0238](https://github.com/atlas77-lang/Atlas77/commit/edd0238480f0cd23d7a6ab901c5d8303250075c4))
+- Added pretty print for arrays ([0e4ac34](https://github.com/atlas77-lang/Atlas77/commit/0e4ac34e73f40db1531c2b3c05f75800f317e188))
+- Fixed some issues in the std ([bf01ef1](https://github.com/atlas77-lang/Atlas77/commit/bf01ef1c041ce1d682ecc3723e76309e8de2a406))
+
 ## [0.6.0] - 2025-12-10
 
 ### Bug Fixes
