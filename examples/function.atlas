@@ -1,4 +1,4 @@
-import "std/io"
+import "std/io";
 
 fun curry_add(a: int64) -> (int64) -> int64 {
     let add = (b: int64) -> int64 {

@@ -202,11 +202,8 @@ impl<'arena> TypeArena<'arena> {
         })
     }
 
-    pub fn get_mutable_reference_ty(
-        &'arena self,
-        inner: &'arena HirTy<'arena>,
-    ) -> &'arena HirTy<'arena> {
-        let id = HirTyId::compute_mutable_ref_ty_id(&HirTyId::from(inner));
+    pub fn get_ref_ty(&'arena self, inner: &'arena HirTy<'arena>) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_ref_ty_id(&HirTyId::from(inner));
         self.intern.borrow_mut().entry(id).or_insert_with(|| {
             self.allocator
                 .alloc(HirTy::MutableReference(HirMutableReferenceTy { inner }))
@@ -228,7 +225,7 @@ impl<'arena> TypeArena<'arena> {
         &'arena self,
         type_hint: Option<&'arena HirTy<'arena>>,
     ) -> &'arena HirTy<'arena> {
-        let type_hint_id = type_hint.map(|ty| HirTyId::from(ty));
+        let type_hint_id = type_hint.map(HirTyId::from);
         let id = HirTyId::compute_extern_ty_id(type_hint_id.as_ref());
         self.intern.borrow_mut().entry(id).or_insert_with(|| {
             self.allocator

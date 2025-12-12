@@ -2,7 +2,7 @@ import "std/io";
 
 /// Type safe malloc:
 /// Allocate memory for T and return a mutable reference to it
-extern malloc<T>(size: int64) -> &T;
+extern malloc(size: int64) -> T;
 extern free<T>(ptr: &T);
 extern sizeof<T>() -> int64;
 
@@ -13,7 +13,5 @@ public:
 }
 
 fun main() {
-    let a: &Point = malloc::<Point>(sizeof::<Point>());
-    a.x = 10;
-    a.y = 20;
+    let a: T = malloc(sizeof::<Point>());
 }

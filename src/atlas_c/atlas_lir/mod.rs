@@ -28,17 +28,15 @@ impl<'hir> HIRLoweringPass<'hir> {
     }
     pub fn lower(&mut self) -> LIRResult<LIRProgram> {
         let mut functions = Vec::new();
-        for (_, func) in &self.hir_module.body.functions {
+        for func in self.hir_module.body.functions.values() {
             // Initialize current function
             let current_function = LIRFunction {
                 name: func.name.to_string(),
                 //Default first block
-                blocks: vec![
-                    LIRBlock {
-                        label: "entry".to_string(),
-                        instructions: Vec::new(),
-                    }
-                ],
+                blocks: vec![LIRBlock {
+                    label: "entry".to_string(),
+                    instructions: Vec::new(),
+                }],
             };
             // Set current function
             self.current_function = Some(current_function);
@@ -110,9 +108,7 @@ impl<'hir> HIRLoweringPass<'hir> {
 
     pub fn lower_stmt(&mut self, stmt: &'hir HirStatement<'hir>) -> LIRResult<()> {
         match stmt {
-            HirStatement::IfElse(if_else) => {
-
-            }
+            HirStatement::IfElse(if_else) => {}
             _ => unimplemented!("Only expression statements are supported for lowering to LIR"),
         }
         Ok(())
@@ -120,7 +116,6 @@ impl<'hir> HIRLoweringPass<'hir> {
 
     pub fn lower_expr(&mut self, expr: &'hir HirExpr<'hir>) -> LIRResult<()> {
         match expr {
-            
             _ => unimplemented!("Only basic expressions are supported for lowering to LIR"),
         }
     }

@@ -88,11 +88,12 @@ impl<'ast> Parser<'ast> {
     }
 
     fn expect(&mut self, kind: TokenKind) -> ParseResult<Token> {
+        let current_span = self.current().span.clone();
         let tok = self.advance();
         if tok.kind() == kind {
             Ok(tok)
         } else {
-            Err(self.unexpected_token_error(TokenVec(vec![kind]), &tok.span))
+            Err(self.unexpected_token_error(TokenVec(vec![kind]), &current_span))
         }
     }
 
@@ -404,7 +405,10 @@ impl<'ast> Parser<'ast> {
             let obj_field = self.parse_obj_field()?;
             if let AstType::ThisTy(_) = obj_field.ty {
                 modifier = AstMethodModifier::None;
-            } else {
+            } else if let AstType::ReadOnlyRef(AstReadOnlyRefType { inner: AstType::ThisTy(_), .. }) = obj_field.ty {
+                modifier = AstMethodModifier::Const;
+            }
+            else {
                 params.push(obj_field);
             }
             if self.current().kind() == TokenKind::Comma {
@@ -903,12 +907,7 @@ impl<'ast> Parser<'ast> {
             }
             TokenKind::Ampersand => {
                 let _ = self.advance();
-                if self.current().kind() == TokenKind::KwConst {
-                    let _ = self.advance();
-                    Some(AstUnaryOp::AsReadOnlyRef)
-                } else {
-                    Some(AstUnaryOp::AsMutableRef)
-                }
+                Some(AstUnaryOp::AsRef)
             }
             TokenKind::Star => {
                 let _ = self.advance();
@@ -1331,6 +1330,28 @@ impl<'ast> Parser<'ast> {
                 ty: self
                     .arena
                     .alloc(AstType::ThisTy(AstThisType { span: name.span })),
+            };
+            return Ok(node);
+        } else if self.current().kind == TokenKind::Ampersand {
+            //parse `&const this`
+            let start_span = self.current().span();
+            self.expect(TokenKind::Ampersand)?;
+            self.expect(TokenKind::KwConst)?;
+            let end_span = self.expect(TokenKind::KwThis)?.span;
+            let name = AstIdentifier {
+                span: Span::union_span(&start_span, &end_span),
+                name: self.arena.alloc("this"),
+            };
+            let node = AstObjField {
+                vis: AstVisibility::Public,
+                span: Span::union_span(&start_span, &end_span),
+                name: self.arena.alloc(name.clone()),
+                ty: self.arena.alloc(AstType::ReadOnlyRef(AstReadOnlyRefType {
+                    span: Span::union_span(&start_span, &end_span),
+                    inner: self
+                        .arena
+                        .alloc(AstType::ThisTy(AstThisType { span: name.span })),
+                })),
             };
             return Ok(node);
         }

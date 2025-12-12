@@ -1,0 +1,32 @@
+import "std/io";
+
+struct Weapon {
+    ammunition: uint64;
+    fun _copy(this, copied_from: &const Weapon) {
+        this.ammunition = ammunition;
+    }
+}
+
+struct Person { //size_of<Person>() == 256bit
+    weapon: Weapon;
+    age: uint64;
+    size: uint64;
+    hehe: uint64;
+    fun _copy(this, copied_from: &const Person) {
+        println("Je viens de copier l'arme: " + copied_from.weapon);
+        this.weapon = (new Weapon())._copy(&const this.weapon);
+    }
+}
+
+fun main() {
+    let list_person: [Person] = new [Person; 100];
+    let i = 0;
+    while i < len(list_person) {
+        deplacer_person((new Person())._copy(list_person[i]));
+        i = i + 1;
+    }
+}
+
+fun deplacer_person(person: Person) {
+    // code
+}

@@ -249,8 +249,7 @@ pub struct UnaryOpExpr<'hir> {
 pub enum HirUnaryOp {
     Neg,
     Not,
-    AsMutableRef,
-    AsReadOnlyRef,
+    AsRef,
     Deref,
 }
 

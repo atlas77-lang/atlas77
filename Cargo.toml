@@ -1,6 +1,6 @@
 [package]
 name = "atlas_77"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2024"
 description = "Programming language with strong interoperability with Rust (WIP)"
 authors = ["Gipson62", "ElhamAryanpur"]

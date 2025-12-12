@@ -1,0 +1,23 @@
+import "std/string";
+import "std/io";
+
+struct Test {
+    stuff: String;
+    hehe: &const char;
+public:
+    Test(stuff: String, hehe: &char) {
+        this.stuff = stuff;
+        this.hehe = hehe;
+    }
+    fun test(&const this) -> &const String {
+        return this.stuff;
+    }
+}
+
+
+fun main() {
+    let str = new String("Hello, Atlas!");
+    let test = new Test(str, &'5');
+    let nb = test.test();
+    println(str.s);
+}

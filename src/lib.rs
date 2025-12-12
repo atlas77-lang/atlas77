@@ -6,7 +6,10 @@ pub mod atlas_vm;
 
 use crate::{
     atlas_c::{
-        atlas_asm::AsmProgram, atlas_hir::dead_code_elimination_pass::DeadCodeEliminationPass,
+        atlas_asm::AsmProgram,
+        atlas_hir::{
+            dead_code_elimination_pass::DeadCodeEliminationPass, lifetime_pass::LifeTimePass,
+        },
     },
     atlas_vm::runtime::AtlasRuntime,
 };
@@ -69,16 +72,19 @@ pub fn build(path: String, flag: CompilationFlag, using_std: bool) -> miette::Re
     //monomorphize
     let mut monomorphizer = MonomorphizationPass::new(&hir_arena, lower.generic_pool);
     let mut hir = monomorphizer.monomorphize(hir)?;
+    //type-check
+    let mut type_checker = TypeChecker::new(&hir_arena);
+    hir = type_checker.check(hir)?;
 
+    //Lifetime analysis pass
+    let mut lifetime = LifeTimePass::new();
+    //hir = lifetime.run(hir)?;
+
+    //Dead code elimination (only in release mode)
     if flag == CompilationFlag::Release {
         let mut dce_pass = DeadCodeEliminationPass::new(&hir_arena);
         hir = dce_pass.eliminate_dead_code(hir)?;
     }
-    //type-check
-    let mut type_checker = TypeChecker::new(&hir_arena);
-    let hir = type_checker.check(hir)?;
-
-    //Todo: Lifetime analysis pass
 
     //codegen
     let bump = Bump::new();
