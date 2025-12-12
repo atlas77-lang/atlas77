@@ -24,7 +24,7 @@
     <a href="https://atlas77-lang.github.io/atlas77-docs/docs/latest/index.html"><strong>Explore the docs »</strong></a>
     <br />
     <br />
-    <a href="https://github.com/atlas77-lang/Atlas77">Playground (inexistant)</a>
+    <a href="https://atlas77-lang.github.io/atlas77-docs/playground.html">Playground</a>
     ·
     <a href="https://github.com/atlas77-lang/Atlas77/issues/new?labels=bug&template=bug-report---.md">Report Bug</a>
     ·
@@ -36,14 +36,19 @@
 
 ## About The Project
 
-Atlas77 is an experimental **statically typed systems language** designed around a **small core** and **strong interop
-with Rust**.  
+Atlas77 is an experimental **statically typed systems language** designed around a **small core** and **strong interop with Rust**.
+> Might have to remove the **strong interop with Rust** part as I am ditching the VM.
 It runs on a **custom VM** and aims to provide a clear, minimal foundation for building higher-level abstractions in
 libraries rather than in the compiler itself.
+> [!Note]
+> The language is currently running on a bytecode VM, but I am working on an ahead-of-time compiler using Cranelift.
 
-The philosophy is simple: **keep the core language tiny, make everything else userland.**
+The 2 core philosophies are simple:
+- **Keep the core language tiny, make everything else userland.**
+- **Safety opt-in: you pay for what you use.**
 
-> [!Note] If you find the code to be messy, it's because it kinda is. I am sort of "speedrunning" the bootstrapping of the language, so the Rust implementation is not really the main focus right now.
+> [!Note] 
+> If you find the code to be messy, it's because it kinda is. I am sort of "speedrunning" the bootstrapping of the language, so the Rust implementation is not really the main focus right now.
 
 <!-- GETTING STARTED -->
 
@@ -66,8 +71,8 @@ Or directly from their website: [Rust](https://www.rust-lang.org/tools/install)
     ```
 
 > [!Note]
-> I recommend you to build it yourself, as the version on Cargo is not always up to date.
-> There are also some bugs in the current version on Cargo.
+> I recommend you to build it yourself, as the version on Cargo is not up to date at all.
+> The cargo version is lacking behind regarding bug fixes.
 
 2. Use it as a CLI
     ```sh
@@ -163,7 +168,7 @@ The runtime focuses on a simple GC (refcount + cycle breaking) and Rust-backed i
 | Algebraic Data Types |   ❌    | Sum types with pattern matching                       |
 | Generics             |   ✅    | Type parameters for reusable code                     |
 | GC                   |   🔧    | Reference counting + cycle detection                  |
-| Type System          |   🔧    | Static, strong, inferred                              |
+| Type System          |   🔧    | Static, strong                                        |
 | Rust FFI             |   🔧    | Core of the "everything else in libraries" philosophy |
 
 > NB: This is not really up to date as the rewrite is still taking place
@@ -171,6 +176,7 @@ The runtime focuses on a simple GC (refcount + cycle breaking) and Rust-backed i
 ### Later (post v0.6 release)
 
 - Making a Brainfuck interpreter in Atlas77
+> Currently in the works. Go check the `self/src/` folder.
 - Bootstrapping the compiler in Atlas77 itself
 
 #### Stability and Refinement
