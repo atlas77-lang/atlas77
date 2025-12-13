@@ -26,7 +26,7 @@ pub union RawVMData {
     as_fn_ptr: usize,
     _as_extern_ptr: *mut c_void,
     /// Pointer to an object in the object map
-    as_object: ObjectIndex,
+    pub(crate) as_object: ObjectIndex,
 }
 
 #[derive(Copy, Clone)]

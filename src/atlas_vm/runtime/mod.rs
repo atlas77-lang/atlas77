@@ -570,7 +570,14 @@ impl<'run> AtlasRuntime<'run> {
                 Ok(())
             }
             OpCode::DELETE_OBJ => {
-                let obj_ptr = self.stack.pop()?.as_object();
+                let obj_ptr = match self.stack.pop()? {
+                    VMData { tag: VMTag::Object, data } => unsafe {
+                        data.as_object
+                    },
+                    _ => {
+                        return Ok(());
+                    }
+                };
                 self.heap.free(obj_ptr)
             }
             //CAST_TO should really be reworked, it's shitty right now
