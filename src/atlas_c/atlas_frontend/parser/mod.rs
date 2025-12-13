@@ -76,6 +76,48 @@ impl<'ast> Parser<'ast> {
         self.tokens.get(self.pos + 1).map(|t| t.kind())
     }
 
+    fn peek_at(&self, offset: usize) -> Option<TokenKind> {
+        self.tokens.get(self.pos + offset).map(|t| t.kind())
+    }
+
+    /// Check if the current `<` token looks like the start of a generic function call
+    /// by doing a simple lookahead to see if it's followed by type-like tokens and `>`
+    fn looks_like_generic_call(&self) -> bool {
+        if self.current().kind() != TokenKind::LAngle {
+            return false;
+        }
+        
+        // Scan ahead to find matching `>` and check if `(` follows
+        // This handles nested generics like `Box<Result<Vector<i64>, Error>>`
+        let mut depth = 0;
+        let mut offset = 1;
+        
+        // Scan ahead to find the matching `>`
+        while let Some(kind) = self.peek_at(offset) {
+            match kind {
+                TokenKind::LAngle => depth += 1,
+                TokenKind::RAngle => {
+                    if depth == 0 {
+                        // Found matching `>`, check if `(` follows
+                        return matches!(self.peek_at(offset + 1), Some(TokenKind::LParen));
+                    }
+                    depth -= 1;
+                }
+                // If we hit tokens that definitely indicate this is not a generic type, bail out
+                TokenKind::Semicolon | TokenKind::RBrace | TokenKind::LBrace => return false,
+                // Comparison operators are unlikely in generic type parameters
+                TokenKind::OpGreaterThanEq | TokenKind::LFatArrow | TokenKind::EqEq | TokenKind::NEq => return false,
+                _ => {}
+            }
+            offset += 1;
+            // Increase limit to handle deeply nested generics like Box<Result<Vector<Box<i64>>, Error>>
+            if offset > 100 {
+                return false;
+            }
+        }
+        false
+    }
+
     /// This should maybe return a ParseResult::UnexpectedEndOfFileError
     fn advance(&mut self) -> Token {
         let tok = self.tokens.get(self.pos).cloned();
@@ -1054,6 +1096,24 @@ impl<'ast> Parser<'ast> {
                 TokenKind::OpAssign => {
                     node = AstExpr::Assign(self.parse_assign(node)?);
                     return Ok(node);
+                }
+                TokenKind::LAngle => {
+                    //Generic function call like `map<U>()` - but only if it looks like generics
+                    //We need to distinguish from less-than comparison `x < 5`
+                    if self.looks_like_generic_call() {
+                        let generics = self.parse_instantiated_generics()?;
+                        if self.current().kind() == TokenKind::LParen {
+                            node = AstExpr::Call(self.parse_fn_call(node, generics)?);
+                        } else {
+                            return Err(self.unexpected_token_error(
+                                TokenVec(vec![TokenKind::LParen]),
+                                &self.current().span,
+                            ));
+                        }
+                    } else {
+                        //Not a generic call, let the binary operator parser handle it
+                        break;
+                    }
                 }
                 TokenKind::DoubleColon => {
                     //In case of generics like `Foo::<Bar>::baz()`

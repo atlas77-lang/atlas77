@@ -5,12 +5,16 @@
 
 import "std/io";
 
-private union storage<T> {
+// We need a way to enforce T to be copyable later on
+// But it shouldn't be a trait/interface because copyability is not a behavior
+// It's a property of the type itself
+// Could there be a way to express this in the type system?
+private union storage<T: std::copyable> { 
     value: T;
     empty: unit;
 }
 
-public struct optional<T> {
+public struct optional<T: std::copyable> {
 private:
     data: storage<T>;
     is_some: bool;
@@ -29,10 +33,7 @@ public:
     // First draft of a copy constructor
     fun _copy(&const this) -> optional<T> {
         if (this.is_some) {
-            // Assuming T has a _copy method
-            // Later on, there will be a trait system to enforce this
-            // I will add the `_copy()` method to all primitive types by default
-            return optional::<T>::some(this.data.value._copy());
+            return optional::<T>::some(this.data.value);
         } else {
             return optional::<T>::none();
         }
