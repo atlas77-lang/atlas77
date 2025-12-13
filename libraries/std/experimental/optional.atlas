@@ -1,0 +1,59 @@
+// An experimental implementation of an optional type in Atlas
+// As of the v0.6.x series, it doesn't work and is only for demonstration purposes.
+// The union type isn't supported properly yet.
+// I am still gathering my thoughts on the design both in syntax and semantics about unions.
+
+import "std/io";
+
+private union storage<T> {
+    value: T;
+    empty: unit;
+}
+
+public struct optional<T> {
+private:
+    data: storage<T>;
+    is_some: bool;
+    // Private constructor
+    optional(data: storage<T>, is_some: bool) {
+        this.data = data;
+        this.is_some = is_some;
+    }
+public:
+    // Destructor to clean up the stored value if it exists
+    ~optional() {
+        if (this.is_some) {
+            delete this.data.value;
+        }
+    }
+    // First draft of a copy constructor
+    fun _copy(&const this) -> optional<T> {
+        if (this.is_some) {
+            // Assuming T has a _copy method
+            // Later on, there will be a trait system to enforce this
+            // I will add the `_copy()` method to all primitive types by default
+            return optional::<T>::some(this.data.value._copy());
+        } else {
+            return optional::<T>::none();
+        }
+    }
+    fun some(data: T) -> optional<T> {
+        return optional<T>(storage::<T>(value: data), true);
+    }
+    fun none() -> optional<T> {
+        return optional<T>(storage::<T>(empty: unit), false);
+    }
+    fun is_some() -> bool {
+        return this.is_some;
+    }
+    fun is_none() -> bool {
+        return !this.is_some;
+    }
+    fun unwrap() -> T {
+        if (!this.is_some) {
+            panic("Called unwrap on a none value");
+        } else {
+            return this.data.value;
+        }
+    }
+}

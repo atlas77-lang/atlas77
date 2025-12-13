@@ -37,7 +37,7 @@ pub fn get_file_content(path: &str) -> Result<String, std::io::Error> {
         format!("{}.atlas", path)
     };
     if path.starts_with("std/") {
-        let file_name = path.split("/").last().unwrap();
+        let file_name = path.trim_start_matches("std/");
         match STD_LIB_DIR.get_file(file_name) {
             Some(file) => {
                 match file.contents_utf8() {
