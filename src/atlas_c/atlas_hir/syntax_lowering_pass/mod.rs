@@ -44,7 +44,7 @@ use crate::atlas_c::{
             HirTypeParameterItemSignature, HirVisibility,
         },
         stmt::{
-            HirBlock, HirExprStmt, HirIfElseStmt, HirLetStmt, HirReturn, HirStatement, HirWhileStmt,
+            HirBlock, HirExprStmt, HirIfElseStmt, HirVariableStmt, HirReturn, HirStatement, HirWhileStmt,
         },
         syntax_lowering_pass::case::Case,
         ty::{HirGenericTy, HirTy},
@@ -696,7 +696,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 let ty = self.visit_ty(ast_const.ty)?;
 
                 let value = self.visit_expr(ast_const.value)?;
-                let hir = HirStatement::Const(HirLetStmt {
+                let hir = HirStatement::Const(HirVariableStmt {
                     span: node.span(),
                     name,
                     name_span: ast_const.name.span,
@@ -720,7 +720,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 let ty = ast_let.ty.map(|ty| self.visit_ty(ty)).transpose()?;
 
                 let value = self.visit_expr(ast_let.value)?;
-                let hir = HirStatement::Let(HirLetStmt {
+                let hir = HirStatement::Let(HirVariableStmt {
                     span: node.span(),
                     name,
                     name_span: ast_let.name.span,

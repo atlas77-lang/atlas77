@@ -37,24 +37,24 @@ pub fn get_file_content(path: &str) -> Result<String, std::io::Error> {
         format!("{}.atlas", path)
     };
     if path.starts_with("std/") {
-        let file_name = path.split("/").last().unwrap();
-        match STD_LIB_DIR.get_file(file_name) {
+        let file_name = path.trim_start_matches("std/");
+        return match STD_LIB_DIR.get_file(file_name) {
             Some(file) => {
                 match file.contents_utf8() {
-                    Some(content) => return Ok(content.to_string()),
+                    Some(content) => Ok(content.to_string()),
                     None => {
-                        return Err(std::io::Error::new(
+                        Err(std::io::Error::new(
                             std::io::ErrorKind::InvalidData,
                             format!("Standard library file '{}' is not valid UTF-8", file_name),
-                        ));
+                        ))
                     }
-                };
+                }
             }
             None => {
-                return Err(std::io::Error::new(
+                Err(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
                     format!("Standard library file '{}' not found", file_name),
-                ));
+                ))
             }
         }
     }

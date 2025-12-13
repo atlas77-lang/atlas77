@@ -1,6 +1,6 @@
 [package]
 name = "atlas_77"
-version = "0.6.1"
+version = "0.6.2"
 edition = "2024"
 description = "Programming language with strong interoperability with Rust (WIP)"
 authors = ["Gipson62", "ElhamAryanpur"]
@@ -44,4 +44,4 @@ heck = "0.5.0"
 include_dir = "0.7.4"
 rand = "0.10.0-rc.5"
 time = { version = "0.3.44", features = ["formatting"] }
-cranelift = "0.126.1"
+# cranelift = "0.126.1"

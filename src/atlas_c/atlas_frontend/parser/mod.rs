@@ -76,6 +76,48 @@ impl<'ast> Parser<'ast> {
         self.tokens.get(self.pos + 1).map(|t| t.kind())
     }
 
+    fn peek_at(&self, offset: usize) -> Option<TokenKind> {
+        self.tokens.get(self.pos + offset).map(|t| t.kind())
+    }
+
+    /// Check if the current `<` token looks like the start of a generic function call
+    /// by doing a simple lookahead to see if it's followed by type-like tokens and `>`
+    fn looks_like_generic_call(&self) -> bool {
+        if self.current().kind() != TokenKind::LAngle {
+            return false;
+        }
+        
+        // Scan ahead to find matching `>` and check if `(` follows
+        // This handles nested generics like `Box<Result<Vector<i64>, Error>>`
+        let mut depth = 0;
+        let mut offset = 1;
+        
+        // Scan ahead to find the matching `>`
+        while let Some(kind) = self.peek_at(offset) {
+            match kind {
+                TokenKind::LAngle => depth += 1,
+                TokenKind::RAngle => {
+                    if depth == 0 {
+                        // Found matching `>`, check if `(` or `::` follows
+                        return matches!(self.peek_at(offset + 1), Some(TokenKind::LParen) | Some(TokenKind::DoubleColon));
+                    }
+                    depth -= 1;
+                }
+                // If we hit tokens that definitely indicate this is not a generic type, bail out
+                TokenKind::Semicolon | TokenKind::RBrace | TokenKind::LBrace => return false,
+                // Comparison operators are unlikely in generic type parameters
+                TokenKind::OpGreaterThanEq | TokenKind::LFatArrow | TokenKind::EqEq | TokenKind::NEq => return false,
+                _ => {}
+            }
+            offset += 1;
+            // Increase limit to handle deeply nested generics like Box<Result<Vector<Box<i64>>, Error>>
+            if offset > 100 {
+                return false;
+            }
+        }
+        false
+    }
+
     /// This should maybe return a ParseResult::UnexpectedEndOfFileError
     fn advance(&mut self) -> Token {
         let tok = self.tokens.get(self.pos).cloned();
@@ -980,6 +1022,12 @@ impl<'ast> Parser<'ast> {
             }
             TokenKind::KwNew => self.parse_new_obj()?,
             TokenKind::KwDelete => self.parse_delete_obj()?,
+            TokenKind::LParen => {
+                let _ = self.advance();
+                let expr = self.parse_expr()?;
+                self.expect(TokenKind::RParen)?;
+                expr
+            }
             TokenKind::LBracket => {
                 let start = self.advance();
                 let mut elements = vec![];
@@ -1000,12 +1048,11 @@ impl<'ast> Parser<'ast> {
                 let node =
                     AstExpr::Literal(AstLiteral::ThisLiteral(AstThisLiteral { span: tok.span() }));
                 let _ = self.expect(TokenKind::KwThis)?;
-                self.parse_ident_access(node)?
+                node
             }
             TokenKind::Identifier(_) => {
                 let node = AstExpr::Identifier(self.parse_identifier()?);
-
-                self.parse_ident_access(node)?
+                node
             }
             TokenKind::KwIf => AstExpr::IfElse(self.parse_if_expr()?),
             _ => {
@@ -1017,7 +1064,8 @@ impl<'ast> Parser<'ast> {
                 ));
             }
         };
-        Ok(node)
+        // Parse postfix operations (method calls, field access, indexing) on all primary expressions
+        self.parse_ident_access(node)
     }
 
     fn parse_delete_obj(&mut self) -> ParseResult<AstExpr<'ast>> {
@@ -1030,6 +1078,7 @@ impl<'ast> Parser<'ast> {
         Ok(node)
     }
 
+    /// TODO: We should be able to write `new Foo().bar()` but currently we can't
     fn parse_ident_access(&mut self, origin: AstExpr<'ast>) -> ParseResult<AstExpr<'ast>> {
         let mut node = origin;
         while self.peek().is_some() {
@@ -1047,6 +1096,30 @@ impl<'ast> Parser<'ast> {
                 TokenKind::OpAssign => {
                     node = AstExpr::Assign(self.parse_assign(node)?);
                     return Ok(node);
+                }
+                TokenKind::LAngle => {
+                    //Generic function call like `map<U>()` - but only if it looks like generics
+                    //We need to distinguish from less-than comparison `x < 5`
+                    if self.looks_like_generic_call() {
+                        let generics = self.parse_instantiated_generics()?;
+                        if self.current().kind() == TokenKind::LParen {
+                            node = AstExpr::Call(self.parse_fn_call(node, generics)?);
+                        } else if self.current().kind() == TokenKind::DoubleColon {
+                            //self.expect(TokenKind::DoubleColon)?;
+                            node = AstExpr::StaticAccess(
+                                self.parse_static_access(node, generics)?,
+                            );
+                        }
+                        else {
+                            return Err(self.unexpected_token_error(
+                                TokenVec(vec![TokenKind::LParen, TokenKind::DoubleColon]),
+                                &self.current().span,
+                            ));
+                        }
+                    } else {
+                        //Not a generic call, let the binary operator parser handle it
+                        break;
+                    }
                 }
                 TokenKind::DoubleColon => {
                     //In case of generics like `Foo::<Bar>::baz()`

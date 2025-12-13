@@ -570,7 +570,13 @@ impl<'run> AtlasRuntime<'run> {
                 Ok(())
             }
             OpCode::DELETE_OBJ => {
-                let obj_ptr = self.stack.pop()?.as_object();
+                let stack_data = self.stack.pop()?;
+                let obj_ptr;
+                if stack_data.is_object() {
+                    obj_ptr = stack_data.as_object();
+                } else {
+                    return Ok(());
+                }
                 self.heap.free(obj_ptr)
             }
             //CAST_TO should really be reworked, it's shitty right now

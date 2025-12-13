@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.2] - 2025-12-13
+
+### Bug Fixes
+
+- Fixed issue for static access to generic type. e.g.: `Vector<T>::with_cap()` ([cb627a2](https://github.com/atlas77-lang/Atlas77/commit/cb627a2c494e88d0c65669ae4a5aabce95c474e4))
+- Cleaner way of handling delete reference to primitive ([a5d1fc2](https://github.com/atlas77-lang/Atlas77/commit/a5d1fc28c642832e2848c1919f14413d3357ffd7))
+- Added a check for the `DELETE_OBJ` instruction to avoid crashing when deleting reference to primitive ([5dfb8aa](https://github.com/atlas77-lang/Atlas77/commit/5dfb8aa766f0a2fc9c60df5fdc2396c7afcb877d))
+- Added error reporting for illegal function call. ([1621d06](https://github.com/atlas77-lang/Atlas77/commit/1621d0623f46a36e772462531bb35b0ed9d9af2f))
+
+### Features
+
+- Experimental addition of `map<U>()` syntax ([57ffd1d](https://github.com/atlas77-lang/Atlas77/commit/57ffd1da78a6ee2bac446b7ac522f7310c9dc2f5))
+- Added `std/experimental/` library ([9eb5657](https://github.com/atlas77-lang/Atlas77/commit/9eb565792314d7aaa515412f620aed7fcf0a2715))
+- Added a way to chain field access (e.g.: `new Point(5, 5).x`) ([b97391a](https://github.com/atlas77-lang/Atlas77/commit/b97391a8e20d8e189c07de2b7607655bd8b703d3))
+- Added grouping with `(expr)` syntax ([e8dfa5f](https://github.com/atlas77-lang/Atlas77/commit/e8dfa5f36640c95c5210333dd30036174131c8a2))
+
+### Vector<T>
+
+- :with_capacity(1) still doesn't work sadly, I'll try to fix asap ([472c630](https://github.com/atlas77-lang/Atlas77/commit/472c630de7f4663538f1c67e8a27ee8a57f5ae64))
+
+### Misc
+
+- Removed all the unnecessary examples ([c427152](https://github.com/atlas77-lang/Atlas77/commit/c4271526d9696d3c893c5957c0079fec71a83cbb))
+- Removed the `libraries/unstable_std` and moved everything in the `std/experimental` ([1202982](https://github.com/atlas77-lang/Atlas77/commit/120298294df552f4969911a5ca22e1ace0b4fa85))
+- Move std/cast from std to unstable_std ([433937d](https://github.com/atlas77-lang/Atlas77/commit/433937d02e882d656a5aa8dea8e7e7278761b397))
+
 ## [0.6.1] - 2025-12-12
 
 ### Bug Fixes

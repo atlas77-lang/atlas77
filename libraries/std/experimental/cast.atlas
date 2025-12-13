@@ -1,0 +1,4 @@
+/// This entire module is only experimental. I want to gather my thoughts
+/// on how to implement all the various cast operations.
+public extern static_cast<T>(value: U) -> T;
+public extern const_cast<T>(value: &const T) -> &T;

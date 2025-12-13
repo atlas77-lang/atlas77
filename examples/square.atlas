@@ -1,9 +1,0 @@
-import "std/io";
-
-fun main() -> int64 {
-    println(square(5) as string);
-}
-
-fun square(x: int64) -> int64 {
-    return x * x;
-}
