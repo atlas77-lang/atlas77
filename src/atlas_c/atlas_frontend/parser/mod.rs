@@ -1105,14 +1105,14 @@ impl<'ast> Parser<'ast> {
                         if self.current().kind() == TokenKind::LParen {
                             node = AstExpr::Call(self.parse_fn_call(node, generics)?);
                         } else if self.current().kind() == TokenKind::DoubleColon {
-                            self.expect(TokenKind::DoubleColon)?;
+                            //self.expect(TokenKind::DoubleColon)?;
                             node = AstExpr::StaticAccess(
                                 self.parse_static_access(node, generics)?,
                             );
                         }
                         else {
                             return Err(self.unexpected_token_error(
-                                TokenVec(vec![TokenKind::LParen]),
+                                TokenVec(vec![TokenKind::LParen, TokenKind::DoubleColon]),
                                 &self.current().span,
                             ));
                         }
