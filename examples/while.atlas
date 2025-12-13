@@ -1,8 +1,0 @@
-import "std/io";
-import "std/string";
-
-//Same program as in perfect_number.atlas but using while loops instead of recursion
-fun main() {
-    let i: uint64 = "0" as uint64;
-    let limit: uint64 = "100" as uint64;
-}

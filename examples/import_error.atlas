@@ -1,5 +1,0 @@
-import "std/list";
-
-fun main() {
-  let my_vec = new Vector<int64>([0, 1, 2, 3, 4]);
-}
