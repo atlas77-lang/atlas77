@@ -35,6 +35,7 @@ impl<'hir> DeadCodeEliminationPass<'hir> {
         //1. Build the call graph
         //2. Mark all reachable functions and structs starting from the entry points (e.g., main function)
         //3. Remove unmarked functions and structs from the HIR module
+        //4. Return to point 1 until no more functions or structs can be removed
 
         //Note: Implementation of these steps is pending
         Ok(hir_module)

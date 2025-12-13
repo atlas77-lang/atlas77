@@ -1,6 +1,5 @@
 use crate::atlas_c::utils::Span;
 use crate::declare_error_type;
-use logos::source;
 use miette::{Diagnostic, NamedSource};
 use std::fmt;
 use std::fmt::Formatter;

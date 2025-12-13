@@ -6,6 +6,10 @@ use crate::atlas_c::{
     },
 };
 
+// The LIR really needs more work... 
+// I am not sure how to correctly represent everything.
+// I would guess a simple SSA form would be best for now.
+
 pub mod error;
 pub(crate) mod program;
 pub struct HIRLoweringPass<'hir> {
