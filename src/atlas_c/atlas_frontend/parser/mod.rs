@@ -98,8 +98,8 @@ impl<'ast> Parser<'ast> {
                 TokenKind::LAngle => depth += 1,
                 TokenKind::RAngle => {
                     if depth == 0 {
-                        // Found matching `>`, check if `(` follows
-                        return matches!(self.peek_at(offset + 1), Some(TokenKind::LParen));
+                        // Found matching `>`, check if `(` or `::` follows
+                        return matches!(self.peek_at(offset + 1), Some(TokenKind::LParen) | Some(TokenKind::DoubleColon));
                     }
                     depth -= 1;
                 }
@@ -1104,7 +1104,13 @@ impl<'ast> Parser<'ast> {
                         let generics = self.parse_instantiated_generics()?;
                         if self.current().kind() == TokenKind::LParen {
                             node = AstExpr::Call(self.parse_fn_call(node, generics)?);
-                        } else {
+                        } else if self.current().kind() == TokenKind::DoubleColon {
+                            self.expect(TokenKind::DoubleColon)?;
+                            node = AstExpr::StaticAccess(
+                                self.parse_static_access(node, generics)?,
+                            );
+                        }
+                        else {
                             return Err(self.unexpected_token_error(
                                 TokenVec(vec![TokenKind::LParen]),
                                 &self.current().span,
