@@ -2,6 +2,7 @@ import "std/vector";
 import "std/option";
 import "std/string";
 
+//TODO: Add Iter<T>::from_map(Map<K, V>)
 public struct Iter<T> {
 private:
     data: Vector<T>;
@@ -33,6 +34,10 @@ public:
     fun from_array(data: [T]) -> Iter<T> {
         let vector = new Vector<T>(data);
         return new Iter<T>(vector);
+    }
+
+    fun has_next(this) -> bool {
+        return this.index < this.data.length;
     }
     
     fun from_string(data: string) -> Iter<char> {

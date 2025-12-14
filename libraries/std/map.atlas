@@ -1,9 +1,32 @@
 import "std/vector";
 import "std/option";
+import "std/iter";
 
 /// A simple map implementation using two parallel arrays.
 /// This will not make into production stdlib, I just wanted to see what could
 /// be done with the current language features.
+
+public struct Pair<K, V> {
+public:
+    key: K;
+    value: V;
+    Pair(key: K, value: V) {
+        this.key = key;
+        this.value = value;
+    }
+    fun get_first(this) -> K {
+        return this.key;
+    }
+    fun get_second(this) -> V {
+        return this.value;
+    }
+    fun swap(this) -> Pair<V, K> {
+        return new Pair<V, K>(this.value, this.key);
+    }
+}
+
+//TODO: Add into_iter()
+//NB: Doesn't work yet if K is not primitive type because of equality check
 public struct Map<K, V> {
 private:
     keys: Vector<K>;
@@ -67,5 +90,16 @@ public:
     /// Returns the number of key-value pairs in the map.
     fun size(this) -> uint64 {
         return this.keys.length;
+    }
+
+    fun into_iter(this) -> Iter<Pair<K, V>> {
+        let pairs = Vector<Pair<K, V>>::with_capacity(this.keys.length);
+        let i: uint64 = 0_uint64;
+        while i < this.keys.length {
+            let pair = new Pair<K, V>(this.keys.get(i), this.values.get(i));
+            pairs.push(pair);
+            i = i + 1_uint64;
+        }
+        return new Iter<Pair<K, V>>(pairs);
     }
 }

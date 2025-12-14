@@ -77,8 +77,8 @@ pub fn build(path: String, flag: CompilationFlag, using_std: bool) -> miette::Re
     hir = type_checker.check(hir)?;
 
     //Lifetime analysis pass
-    let mut lifetime = LifeTimePass::new(hir.signature.clone(), &hir_arena);
-    hir = lifetime.run(hir)?;
+    //let mut lifetime = LifeTimePass::new(hir.signature.clone(), &hir_arena);
+    //hir = lifetime.run(hir)?;
 
     //Dead code elimination (only in release mode)
     if flag == CompilationFlag::Release {

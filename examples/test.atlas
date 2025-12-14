@@ -1,0 +1,71 @@
+// Used internally by the compiler to test every features
+// It doesn't have any specific meaning
+
+import "std/box";
+import "std/fs";
+import "std/io";
+import "std/iter";
+import "std/map";
+import "std/math";
+import "std/option";
+import "std/result";
+import "std/string";
+import "std/time";
+import "std/vector";
+
+fun main() {
+    // Testing generics
+    let p = new Pair<int64, String>(42, new String("The answer"));
+    println(p.get_first());
+    println(p.get_second().s);
+    let swapped = p.swap();
+    println(swapped.get_first().s);
+    println(swapped.get_second());
+    
+    // Testing vectors
+    let vec = Vector<int64>::with_capacity(10_uint64);
+    let i = 0;
+    while i < 10 {
+        vec.push(i);
+        i = i + 1;
+    }
+    let iter = vec.into_iter();
+    while iter.has_next() {
+        let val = iter.next();
+        print("Value: ");
+        println(val);
+    }
+    println("");
+
+    // Testing maps
+    let map = new Map<int64, string>();
+    map.insert(1, "one");
+    map.insert(2, "two");
+    map.insert(3, "three");
+
+    let map_iter = map.into_iter();
+    while map_iter.has_next() {
+        let pair_opt = map_iter.next();
+        if pair_opt.is_some() {
+            let pair = pair_opt.unwrap();
+            print("Key: ");
+            print(pair.getFirst());
+            print(", Value: ");
+            println(pair.getSecond());
+        }        
+    }
+
+    // Testing file system
+    let path = "test_file.txt";
+    let file = new File(path);
+    file.write("Hello, Atlas!\n");
+    //Call the destructor to close the file
+    delete file;
+    let file2 = new File(path);
+    let content = file2.read();
+    print("File content: ");
+    println(content);
+    // Clean up
+    file2.remove();
+    delete file2;
+}
