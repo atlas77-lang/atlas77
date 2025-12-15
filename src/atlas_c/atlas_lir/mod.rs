@@ -6,7 +6,7 @@ use crate::atlas_c::{
     },
 };
 
-// The LIR really needs more work... 
+// The LIR really needs more work...
 // I am not sure how to correctly represent everything.
 // I would guess a simple SSA form would be best for now.
 

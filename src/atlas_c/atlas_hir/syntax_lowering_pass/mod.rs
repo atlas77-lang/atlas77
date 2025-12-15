@@ -44,7 +44,8 @@ use crate::atlas_c::{
             HirTypeParameterItemSignature, HirVisibility,
         },
         stmt::{
-            HirBlock, HirExprStmt, HirIfElseStmt, HirVariableStmt, HirReturn, HirStatement, HirWhileStmt,
+            HirBlock, HirExprStmt, HirIfElseStmt, HirReturn, HirStatement, HirVariableStmt,
+            HirWhileStmt,
         },
         syntax_lowering_pass::case::Case,
         ty::{HirGenericTy, HirTy},
@@ -171,6 +172,9 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     self.arena.names().get(e.name.name),
                     self.arena.intern(hir_enum),
                 );
+            }
+            _ => {
+                //Let's just silently ignore unsupported items for now
             }
         }
         Ok(())

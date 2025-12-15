@@ -19,6 +19,7 @@ pub enum AstItem<'ast> {
     ExternFunction(AstExternFunction<'ast>),
     Function(AstFunction<'ast>),
     Enum(AstEnum<'ast>),
+    Union(AstUnion<'ast>),
 }
 
 impl AstItem<'_> {
@@ -29,6 +30,7 @@ impl AstItem<'_> {
             AstItem::ExternFunction(v) => v.vis = vis,
             AstItem::Function(v) => v.vis = vis,
             AstItem::Enum(v) => v.vis = vis,
+            AstItem::Union(v) => v.vis = vis,
         }
     }
     pub fn span(&self) -> Span {
@@ -38,8 +40,19 @@ impl AstItem<'_> {
             AstItem::ExternFunction(v) => v.span,
             AstItem::Function(v) => v.span,
             AstItem::Enum(v) => v.span,
+            AstItem::Union(v) => v.span,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct AstUnion<'ast> {
+    pub span: Span,
+    pub generics: &'ast [&'ast AstGeneric<'ast>],
+    pub name: &'ast AstIdentifier<'ast>,
+    pub name_span: Span,
+    pub vis: AstVisibility,
+    pub variants: &'ast [&'ast AstObjField<'ast>],
 }
 
 #[derive(Debug, Clone)]
@@ -81,6 +94,14 @@ pub struct AstGeneric<'ast> {
 pub enum AstGenericConstraint<'ast> {
     NamedType(AstNamedType<'ast>),
     Operator(AstBinaryOp),
+    Std(AstStdGenericConstraint<'ast>),
+}
+
+#[derive(Debug, Clone)]
+pub struct AstStdGenericConstraint<'ast> {
+    pub span: Span,
+    /// Name of the standard generic constraint (e.g., "std::copyable", it's the only one for now)
+    pub name: &'ast str,
 }
 
 #[derive(Debug, Clone, Default, Copy, PartialEq, Eq)]
@@ -281,6 +302,7 @@ pub enum AstExpr<'ast> {
     FieldAccess(AstFieldAccessExpr<'ast>),
     StaticAccess(AstStaticAccessExpr<'ast>),
     NewObj(AstNewObjExpr<'ast>),
+    ObjLiteral(AstObjLiteralExpr<'ast>),
     Delete(AstDeleteObjExpr<'ast>),
     NewArray(AstNewArrayExpr<'ast>),
     _Block(AstBlock<'ast>),
@@ -300,10 +322,10 @@ impl AstExpr<'_> {
             AstExpr::Literal(e) => e.span(),
             AstExpr::Identifier(e) => e.span,
             AstExpr::Indexing(e) => e.span,
-
             AstExpr::FieldAccess(e) => e.span,
             AstExpr::StaticAccess(e) => e.span,
             AstExpr::NewObj(e) => e.span,
+            AstExpr::ObjLiteral(e) => e.span,
             AstExpr::Delete(e) => e.span,
             AstExpr::NewArray(e) => e.span,
             AstExpr::_Block(e) => e.span,
@@ -311,6 +333,20 @@ impl AstExpr<'_> {
             AstExpr::Casting(e) => e.span,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct AstObjLiteralExpr<'ast> {
+    pub span: Span,
+    pub target: &'ast AstExpr<'ast>,
+    pub fields: &'ast [&'ast AstObjLiteralField<'ast>],
+}
+
+#[derive(Debug, Clone)]
+pub struct AstObjLiteralField<'ast> {
+    pub span: Span,
+    pub name: &'ast AstIdentifier<'ast>,
+    pub value: &'ast AstExpr<'ast>,
 }
 
 #[derive(Debug, Clone)]

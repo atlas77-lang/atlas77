@@ -141,7 +141,9 @@ impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
                 HirTyId::compute_generic_ty_id(g.name, &params)
             }
             HirTy::MutableReference(ty) => Self::compute_ref_ty_id(&HirTyId::from(ty.inner)),
-            HirTy::ReadOnlyReference(ty) => Self::compute_readonly_ref_ty_id(&HirTyId::from(ty.inner)),
+            HirTy::ReadOnlyReference(ty) => {
+                Self::compute_readonly_ref_ty_id(&HirTyId::from(ty.inner))
+            }
             HirTy::ExternTy(extern_ty) => match &extern_ty.type_hint {
                 Some(ty) => HirTyId::from(*ty),
                 None => HirTyId::compute_extern_ty_id(None),

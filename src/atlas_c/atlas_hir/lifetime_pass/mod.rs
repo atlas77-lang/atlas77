@@ -3,7 +3,16 @@ pub use context::{ScopeMap, VarData, VarMap, VarStatus};
 
 use crate::atlas_c::{
     atlas_hir::{
-        HirModule, arena::HirArena, error::{HirError, HirResult}, expr::{HirDeleteExpr, HirExpr, HirIdentExpr}, item::HirFunction, lifetime_pass::context::VarKind, monomorphization_pass::MonomorphizationPass, signature::HirModuleSignature, stmt::{HirExprStmt, HirStatement}, ty::{HirTy, HirUnitTy}
+        HirModule,
+        arena::HirArena,
+        error::{HirError, HirResult},
+        expr::{HirDeleteExpr, HirExpr, HirIdentExpr},
+        item::HirFunction,
+        lifetime_pass::context::VarKind,
+        monomorphization_pass::MonomorphizationPass,
+        signature::HirModuleSignature,
+        stmt::{HirExprStmt, HirStatement},
+        ty::{HirTy, HirUnitTy},
     },
     utils::Span,
 };

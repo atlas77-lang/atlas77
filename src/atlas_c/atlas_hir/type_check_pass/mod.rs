@@ -389,16 +389,14 @@ impl<'hir> TypeChecker<'hir> {
                     l.ty_span.unwrap_or(l.name_span),
                 )
             }
-            _ => {
-                Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                    span: stmt.span(),
-                    expr: format!("{:?}", stmt),
-                    src: NamedSource::new(
-                        stmt.span().path,
-                        utils::get_file_content(stmt.span().path).unwrap(),
-                    ),
-                }))
-            }
+            _ => Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                span: stmt.span(),
+                expr: format!("{:?}", stmt),
+                src: NamedSource::new(
+                    stmt.span().path,
+                    utils::get_file_content(stmt.span().path).unwrap(),
+                ),
+            })),
         }
     }
     pub fn check_expr(&mut self, expr: &mut HirExpr<'hir>) -> HirResult<&'hir HirTy<'hir>> {
@@ -479,7 +477,8 @@ impl<'hir> TypeChecker<'hir> {
                 let method = class.methods.get(function_name).unwrap();
                 match method.modifier {
                     HirStructMethodModifier::Const => {
-                        let readonly_self_ty = self.arena.types().get_readonly_reference_ty(self_ty);
+                        let readonly_self_ty =
+                            self.arena.types().get_readonly_reference_ty(self_ty);
                         s.ty = readonly_self_ty;
                         Ok(readonly_self_ty)
                     }
@@ -1039,23 +1038,23 @@ impl<'hir> TypeChecker<'hir> {
                             ))
                         }
                     }
-                    _ => {
-                        Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                            span: func_expr.span,
-                            expr: "Function call on non-identifier expression".to_string(),
-                            src: NamedSource::new(path, utils::get_file_content(path).unwrap()),
-                        }))
-                    }
+                    _ => Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                        span: func_expr.span,
+                        expr: "Function call on non-identifier expression".to_string(),
+                        src: NamedSource::new(path, utils::get_file_content(path).unwrap()),
+                    })),
                 }
             }
             HirExpr::Assign(a) => {
                 let rhs = self.check_expr(&mut a.rhs)?;
                 let lhs = self.check_expr(&mut a.lhs)?;
                 //Todo needs a special rule for `self.field = value`, because you can assign once to a const field
-                
+
                 if lhs.is_const() {
                     //TODO: Add assignement in copy constructor
-                    if self.current_func_name == Some("constructor") && self.current_class_name.is_some() {
+                    if self.current_func_name == Some("constructor")
+                        && self.current_class_name.is_some()
+                    {
                         self.is_equivalent_ty(lhs, a.lhs.span(), rhs, a.rhs.span())?;
                         return Ok(lhs);
                     } else {
@@ -1399,7 +1398,7 @@ impl<'hir> TypeChecker<'hir> {
     }
 
     /// Check if two types are equivalent, considering generics and references
-    /// 
+    ///
     /// - ty1 is the expected type
     /// - ty2 is the actual type
     fn is_equivalent_ty(
