@@ -9,17 +9,17 @@ import "std/io";
 // But it shouldn't be a trait/interface because copyability is not a behavior
 // It's a property of the type itself
 // Could there be a way to express this in the type system?
-private union storage<T: std::copyable> { 
+private union optional_storage<T: std::copyable> { 
     value: T;
     empty: unit;
 }
 
 public struct optional<T: std::copyable> {
 private:
-    data: storage<T>;
+    data: optional_storage<T>;
     is_some: bool;
     // Private constructor
-    optional(data: storage<T>, is_some: bool) {
+    optional(data: optional_storage<T>, is_some: bool) {
         this.data = data;
         this.is_some = is_some;
     }
@@ -39,22 +39,46 @@ public:
         }
     }
     fun some(data: T) -> optional<T> {
-        return optional<T>(storage::<T>(value: data), true);
+        return new optional<T>(
+            optional_storage<T> { 
+                .value = data 
+            }, 
+            true
+        );
     }
     fun none() -> optional<T> {
-        return optional<T>(storage::<T>(empty: unit), false);
+        return new optional<T>(
+            optional_storage<T> { 
+                .empty = unit 
+            }, 
+            false
+        );
     }
-    fun is_some() -> bool {
+    fun is_some(this) -> bool {
         return this.is_some;
     }
-    fun is_none() -> bool {
+    fun is_none(this) -> bool {
         return !this.is_some;
     }
-    fun unwrap() -> T {
+    fun unwrap(this) -> T {
         if (!this.is_some) {
             panic("Called unwrap on a none value");
         } else {
             return this.data.value;
+        }
+    }
+    fun unwrap_or(this, default: T) -> T {
+        if (this.is_some) {
+            return this.data.value;
+        } else {
+            return default;
+        }
+    }
+    fun map<U>(this, f: (T) -> U) -> optional<U> {
+        if (this.is_some) {
+            return optional<U>::some(f(this.data.value));
+        } else {
+            return optional<U>::none();
         }
     }
 }
