@@ -54,7 +54,8 @@ public:
     }
 }
 
-fun main() {
+// Example usage will be removed once this API is stable
+fun test() {
     let result: expected<int64, string> = expected<int64, string>::ok(42);
     if (result.is_ok()) {
         let value = result.ok_value();

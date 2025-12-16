@@ -7,8 +7,6 @@ import "std/io";
 
 // We need a way to enforce T to be copyable later on
 // But it shouldn't be a trait/interface because copyability is not a behavior
-// It's a property of the type itself
-// Could there be a way to express this in the type system?
 private union optional_storage<T: std::copyable> { 
     value: T;
     empty: unit;
@@ -33,13 +31,12 @@ public:
     // First draft of a copy constructor
     fun _copy(&const this) -> optional<T> {
         if (this.has_value) {
-            return optional::<T>::some(this.data.value);
+            return optional<T>::some(this.data.value);
         } else {
-            return optional::<T>::none();
+            return optional<T>::empty();
         }
     }
-    // Needs a better name than `some` and `none`
-    // It needs to be closer to C++ nomenclature
+    // Needs a better name than `some`
     fun some(data: T) -> optional<T> {
         return new optional<T>(
             optional_storage<T> { 
@@ -48,7 +45,7 @@ public:
             true
         );
     }
-    fun none() -> optional<T> {
+    fun empty() -> optional<T> {
         return new optional<T>(
             optional_storage<T> { 
                 .empty = () 
@@ -59,11 +56,11 @@ public:
     fun has_value(this) -> bool {
         return this.has_value;
     }
-    // Unwrap the value, panicking if it's none
-    // `T!` indicates that this function may not return normally (i.e., it may panic)
-    fun value(this) -> T! {
+    // Unwrap the value, panicking if it's empty
+    // TODO: Add T! to indicate possible panic
+    fun value(this) -> T {
         if (!this.has_value) {
-            panic("Called value on a none optional");
+            panic("Called value on a empty optional");
         } else {
             return this.data.value;
         }
@@ -75,11 +72,27 @@ public:
             return default;
         }
     }
+    // Function pointers are not supported yet, so this is just a placeholder
     fun map<U>(this, f: (T) -> U) -> optional<U> {
         if (this.has_value) {
             return optional<U>::some(f(this.data.value));
         } else {
-            return optional<U>::none();
+            return optional<U>::empty();
         }
     }
+}
+
+// Example usage will be removed once this API is stable
+fun test() {
+    let opt1: optional<int64> = optional<int64>::some(10);
+    if (opt1.has_value()) {
+        let value = opt1.value();
+        println("Got value: {}", value);
+    } else {
+        println("No value present.");
+    }
+
+    let opt2: optional<string> = optional<string>::empty();
+    let value_or_default = opt2.value_or(("default"));
+    println("Value or default: {}", value_or_default);
 }
