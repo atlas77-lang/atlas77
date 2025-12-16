@@ -18,12 +18,14 @@ public:
         }
         this.pointer = 0_uint64;
     }
+    ~BrainFuckInterpreter() {
+        delete this.cells;
+    }
     fun run(this, tokens: Vector<Token>) {
         println("Running BrainFuck Interpreter...");
-        let iterator = tokens.into_iter();
-        let maybe_token = iterator.next();
-        while maybe_token.is_some() {
-            let token = maybe_token.unwrap();
+        let iterator: Iter<Token> = tokens.into_iter();
+        while iterator.has_next() {
+            let token = iterator.next().unwrap();
             if token.kind == TokenKind::SHIFT_RIGHT {
                 this.pointer = this.pointer + 1_uint64;
             } else if token.kind == TokenKind::SHIFT_LEFT {
@@ -43,8 +45,8 @@ public:
             } else if token.kind == TokenKind::LOOP_END {
                 // Loop handling not implemented yet
             }
-            maybe_token = iterator.next();
         }
+        println("    <= Output complete.");
     }
 
 }

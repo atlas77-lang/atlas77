@@ -8,7 +8,8 @@ fun main() {
     let source = new String(
         "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++.+++++++++++++++++++++++++++++.+++++++..+++.",
     );
-    let tokens = lex(source);
+    let lexer = new Lexer(source);
+    let tokens = lexer.tokenize();
     let i: uint64 = 0_uint64;
     println("Lexed tokens:");
     println("Starting interpreter...");

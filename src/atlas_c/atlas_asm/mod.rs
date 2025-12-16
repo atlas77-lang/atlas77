@@ -428,10 +428,16 @@ impl Assembler {
                                 },
                             ));
                         }
-                        //Integer and Char use the same equality instruction
-                        Type::Integer | Type::Char => {
+                        Type::Integer => {
                             let instr = Instr {
                                 opcode: OpCode::INT_EQUAL,
+                                arg: Arg::default(),
+                            };
+                            bytecode.push(instr);
+                        }
+                        Type::Char => {
+                            let instr = Instr {
+                                opcode: OpCode::CHAR_EQUAL,
                                 arg: Arg::default(),
                             };
                             bytecode.push(instr);
@@ -471,10 +477,16 @@ impl Assembler {
                                 },
                             ));
                         }
-                        //Integer and Char use the same inequality instruction
-                        Type::Integer | Type::Char => {
+                        Type::Integer => {
                             let instr = Instr {
                                 opcode: OpCode::INT_NOT_EQUAL,
+                                arg: Arg::default(),
+                            };
+                            bytecode.push(instr);
+                        }
+                        Type::Char => {
+                            let instr = Instr {
+                                opcode: OpCode::CHAR_NOT_EQUAL,
                                 arg: Arg::default(),
                             };
                             bytecode.push(instr);
@@ -863,11 +875,13 @@ impl Display for AsmProgram {
                 OpCode::UINT_EQUAL => "UINT_EQUAL".to_string(),
                 OpCode::FLOAT_EQUAL => "FLOAT_EQUAL".to_string(),
                 OpCode::BOOL_EQUAL => "BOOL_EQUAL".to_string(),
+                OpCode::CHAR_EQUAL => "CHAR_EQUAL".to_string(),
 
                 OpCode::INT_NOT_EQUAL => "INT_NOT_EQUAL".to_string(),
                 OpCode::UINT_NOT_EQUAL => "UINT_NOT_EQUAL".to_string(),
                 OpCode::FLOAT_NOT_EQUAL => "FLOAT_NOT_EQUAL".to_string(),
                 OpCode::BOOL_NOT_EQUAL => "BOOL_NOT_EQUAL".to_string(),
+                OpCode::CHAR_NOT_EQUAL => "CHAR_NOT_EQUAL".to_string(),
 
                 OpCode::INT_GREATER_THAN => "INT_GREATER_THAN".to_string(),
                 OpCode::UINT_GREATER_THAN => "UINT_GREATER_THAN".to_string(),

@@ -338,6 +338,12 @@ impl<'run> AtlasRuntime<'run> {
                 let res = VMData::new_boolean(a.as_boolean() == b.as_boolean());
                 self.stack.push(res)
             }
+            OpCode::CHAR_EQUAL => {
+                let b = self.stack.pop()?;
+                let a = self.stack.pop()?;
+                let res = VMData::new_boolean(a.as_char() == b.as_char());
+                self.stack.push(res)
+            }
             OpCode::INT_NOT_EQUAL => {
                 let b = self.stack.pop()?;
                 let a = self.stack.pop()?;
@@ -360,6 +366,12 @@ impl<'run> AtlasRuntime<'run> {
                 let b = self.stack.pop()?;
                 let a = self.stack.pop()?;
                 let res = VMData::new_boolean(a.as_boolean() != b.as_boolean());
+                self.stack.push(res)
+            }
+            OpCode::CHAR_NOT_EQUAL => {
+                let b = self.stack.pop()?;
+                let a = self.stack.pop()?;
+                let res = VMData::new_boolean(a.as_char() != b.as_char());
                 self.stack.push(res)
             }
             OpCode::INT_GREATER_THAN => {
