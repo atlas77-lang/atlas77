@@ -333,6 +333,28 @@ impl AstExpr<'_> {
             AstExpr::Casting(e) => e.span,
         }
     }
+    pub(crate) fn kind(&self) -> &'static str {
+        match self {
+            AstExpr::Lambda(_) => "Lambda",
+            AstExpr::ConstExpr(_) => "ConstExpr",
+            AstExpr::IfElse(_) => "IfElse",
+            AstExpr::BinaryOp(_) => "BinaryOp",
+            AstExpr::UnaryOp(_) => "UnaryOp",
+            AstExpr::Call(_) => "Call",
+            AstExpr::Literal(_) => "Literal",
+            AstExpr::Identifier(_) => "Identifier",
+            AstExpr::Indexing(_) => "Indexing",
+            AstExpr::FieldAccess(_) => "FieldAccess",
+            AstExpr::StaticAccess(_) => "StaticAccess",
+            AstExpr::NewObj(_) => "NewObj",
+            AstExpr::ObjLiteral(_) => "ObjLiteral",
+            AstExpr::Delete(_) => "Delete",
+            AstExpr::NewArray(_) => "NewArray",
+            AstExpr::_Block(_) => "Block",
+            AstExpr::Assign(_) => "Assign",
+            AstExpr::Casting(_) => "Casting",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

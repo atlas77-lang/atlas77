@@ -152,7 +152,7 @@ impl<'ast> Parser<'ast> {
     }
 
     fn expect(&mut self, kind: TokenKind) -> ParseResult<Token> {
-        let current_span = self.current().span.clone();
+        let current_span = self.current().span;
         let tok = self.advance();
         if tok.kind() == kind {
             Ok(tok)
@@ -1161,10 +1161,7 @@ impl<'ast> Parser<'ast> {
                 let _ = self.expect(TokenKind::KwThis)?;
                 node
             }
-            TokenKind::Identifier(_) => {
-                let node = AstExpr::Identifier(self.parse_identifier()?);
-                node
-            }
+            TokenKind::Identifier(_) => AstExpr::Identifier(self.parse_identifier()?),
             TokenKind::KwIf => AstExpr::IfElse(self.parse_if_expr()?),
             _ => {
                 return Err(self.unexpected_token_error(

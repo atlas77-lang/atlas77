@@ -78,8 +78,8 @@ pub enum TokenKind {
     // Let's add it with trailing as in 123f
     #[regex("[0-9]+\\.[0-9]+|[0-9]+f", |lex| {
         let slice = lex.slice();
-        if slice.ends_with('f') {
-            slice[..slice.len() - 1].parse()
+        if let Some(stripped) = slice.strip_suffix('f') {
+            stripped.parse()
         } else {
             slice.parse()
         }

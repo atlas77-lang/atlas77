@@ -991,7 +991,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         let src = crate::atlas_c::utils::get_file_content(path).unwrap();
                         return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                             span: node.span(),
-                            expr: format!("{:?}", node),
+                            expr: node.kind().to_string(),
                             src: NamedSource::new(path, src),
                         }));
                     }
@@ -1015,7 +1015,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                                 let src = crate::atlas_c::utils::get_file_content(path).unwrap();
                                 return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                     span: node.span(),
-                                    expr: format!("{:?}", node),
+                                    expr: format!("{}", node.kind()),
                                     src: NamedSource::new(path, src),
                                 }));
                             }
@@ -1160,7 +1160,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 let src = crate::atlas_c::utils::get_file_content(path).unwrap();
                 Err(HirError::UnsupportedExpr(UnsupportedExpr {
                     span: node.span(),
-                    expr: format!("{:?}", node),
+                    expr: format!("{}", node.kind()),
                     src: NamedSource::new(path, src),
                 }))
             }

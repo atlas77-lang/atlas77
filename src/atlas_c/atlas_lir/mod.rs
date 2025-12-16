@@ -2,7 +2,7 @@ use crate::atlas_c::{
     atlas_hir::{HirModule, expr::HirExpr, item::HirFunction, stmt::HirStatement},
     atlas_lir::{
         error::{CurrentFunctionDoesntExistError, LIRLoweringError, LIRResult},
-        program::{LIRBlock, LIRFunction, LIRInstr, LIROperand, LIRProgram},
+        program::{LIRBlock, LIRFunction, LIRInstr, LIRProgram},
     },
 };
 

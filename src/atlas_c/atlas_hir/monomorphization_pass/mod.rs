@@ -94,10 +94,9 @@ impl<'hir> MonomorphizationPass<'hir> {
     ) -> HirResult<&'hir HirTy<'hir>> {
         let mangled_name =
             MonomorphizationPass::mangle_generic_object_name(self.arena, actual_type);
-        if module.body.structs.contains_key(&mangled_name) {
-            //Already monomorphized
-            return Ok(self.arena.types().get_named_ty(mangled_name, span));
-        } else if module.body.unions.contains_key(mangled_name) {
+        if module.body.structs.contains_key(&mangled_name)
+            || module.body.unions.contains_key(mangled_name)
+        {
             //Already monomorphized
             return Ok(self.arena.types().get_named_ty(mangled_name, span));
         }
@@ -106,37 +105,28 @@ impl<'hir> MonomorphizationPass<'hir> {
         match module.body.structs.get(base_name) {
             Some(template) => {
                 let template_clone = template.clone();
-                return self.monomorphize_struct(
-                    module,
-                    template_clone,
-                    actual_type,
-                    mangled_name,
-                    span,
-                );
+                self.monomorphize_struct(module, template_clone, actual_type, mangled_name, span)
             }
             None => {
-                match module.body.unions.get(base_name) {
-                    Some(template) => {
-                        let template_clone = template.clone();
-                        return self.monomorphize_union(
-                            module,
-                            template_clone,
-                            actual_type,
-                            mangled_name,
-                            span,
-                        );
-                    }
-                    None => {}
+                if let Some(template) = module.body.unions.get(base_name) {
+                    let template_clone = template.clone();
+                    return self.monomorphize_union(
+                        module,
+                        template_clone,
+                        actual_type,
+                        mangled_name,
+                        span,
+                    );
                 }
                 let path = span.path;
                 let src = crate::atlas_c::utils::get_file_content(path).unwrap();
-                return Err(UnknownType(UnknownTypeError {
+                Err(UnknownType(UnknownTypeError {
                     name: base_name.to_string(),
                     span,
                     src: NamedSource::new(path, src),
-                }));
+                }))
             }
-        };
+        }
     }
 
     fn monomorphize_union(

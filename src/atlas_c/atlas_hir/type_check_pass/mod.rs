@@ -1003,7 +1003,7 @@ impl<'hir> TypeChecker<'hir> {
                                 let src = utils::get_file_content(path).unwrap();
                                 return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                     span: field_access.span,
-                                    expr: "Static method call".to_string(),
+                                    expr: "Static method call on instance".to_string(),
                                     src: NamedSource::new(path, src),
                                 }));
                             }
@@ -1018,15 +1018,13 @@ impl<'hir> TypeChecker<'hir> {
                                 ));
                             }
 
-                            if self.is_const_ty(target_ty) {
-                                if method_signature.modifier != HirStructMethodModifier::Const {
-                                    return Err(
-                                        Self::calling_non_const_method_on_const_reference_err(
-                                            &method_signature.span,
-                                            &field_access.span,
-                                        ),
-                                    );
-                                }
+                            if self.is_const_ty(target_ty)
+                                && method_signature.modifier != HirStructMethodModifier::Const
+                            {
+                                return Err(Self::calling_non_const_method_on_const_reference_err(
+                                    &method_signature.span,
+                                    &field_access.span,
+                                ));
                             }
 
                             for (param, arg) in method_signature
@@ -1140,7 +1138,7 @@ impl<'hir> TypeChecker<'hir> {
                         self.is_equivalent_ty(lhs, a.lhs.span(), rhs, a.rhs.span())?;
                         return Ok(lhs);
                     } else {
-                        return Err(Self::trying_to_mutate_const_reference(&a.lhs.span(), &lhs));
+                        return Err(Self::trying_to_mutate_const_reference(&a.lhs.span(), lhs));
                     }
                 }
                 self.is_equivalent_ty(lhs, a.lhs.span(), rhs, a.rhs.span())?;
@@ -1303,16 +1301,6 @@ impl<'hir> TypeChecker<'hir> {
                         &static_access.span,
                     ))
                 }
-            }
-            _ => {
-                eprintln!("Unsupported expression in type checker: {:?}", expr);
-                let path = expr.span().path;
-                let src = utils::get_file_content(path).unwrap();
-                Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                    span: expr.span(),
-                    expr: format!("expression {}", expr.kind()),
-                    src: NamedSource::new(path, src),
-                }))
             }
         }
     }
