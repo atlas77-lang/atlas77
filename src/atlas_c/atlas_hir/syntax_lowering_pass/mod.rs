@@ -175,9 +175,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     self.arena.intern(hir_union),
                 );
             }
-            _ => {
-                //Let's just silently ignore unsupported items for now
-            }
         }
         Ok(())
     }

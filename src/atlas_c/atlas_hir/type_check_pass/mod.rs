@@ -400,7 +400,7 @@ impl<'hir> TypeChecker<'hir> {
         }
     }
     pub fn check_expr(&mut self, expr: &mut HirExpr<'hir>) -> HirResult<&'hir HirTy<'hir>> {
-        eprintln!("Type checking expression: {}", expr.kind());
+        //eprintln!("Type checking expression: {}", expr.kind());
         match expr {
             HirExpr::IntegerLiteral(_) => Ok(self.arena.types().get_integer64_ty()),
             HirExpr::FloatLiteral(_) => Ok(self.arena.types().get_float64_ty()),
@@ -1088,6 +1088,26 @@ impl<'hir> TypeChecker<'hir> {
                 let class = match self.signature.structs.get(name) {
                     Some(c) => *c,
                     None => {
+                        // We might be trying to access an union variant
+                        if let Some(union_signature) = self.signature.unions.get(name) {
+                            let variant = union_signature
+                                .variants
+                                .iter()
+                                .find(|v| v.name == field_access.field.name);
+                            match variant {
+                                Some(var) => {
+                                    field_access.ty = var.ty;
+                                    field_access.field.ty = var.ty;
+                                    return Ok(var.ty);
+                                }
+                                None => {
+                                    return Err(Self::unknown_type_err(
+                                        &format!("{}::{}", name, field_access.field.name),
+                                        &field_access.span,
+                                    ));
+                                }
+                            }
+                        }
                         return Err(Self::unknown_type_err(name, &field_access.span));
                     }
                 };
