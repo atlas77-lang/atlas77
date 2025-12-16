@@ -713,7 +713,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         let name = match static_access.target {
                             HirTy::Named(n) => n.name,
                             HirTy::Generic(g) => {
-                                MonomorphizationPass::mangle_generic_struct_name(self.hir_arena, g)
+                                MonomorphizationPass::mangle_generic_object_name(self.hir_arena, g)
                             }
                             _ => {
                                 return Err(Self::unsupported_expr_err(
@@ -825,7 +825,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 let struct_name = match static_access.target {
                     HirTy::Named(n) => n.name,
                     HirTy::Generic(g) => {
-                        MonomorphizationPass::mangle_generic_struct_name(self.hir_arena, g)
+                        MonomorphizationPass::mangle_generic_object_name(self.hir_arena, g)
                     }
                     _ => {
                         return Err(Self::unsupported_expr_err(
@@ -943,7 +943,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 let name = match &new_obj.ty {
                     HirTy::Named(n) => n.name,
                     HirTy::Generic(g) => {
-                        MonomorphizationPass::mangle_generic_struct_name(self.hir_arena, g)
+                        MonomorphizationPass::mangle_generic_object_name(self.hir_arena, g)
                     }
                     _ => {
                         return Err(Self::unsupported_expr_err(
@@ -1032,7 +1032,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
     fn get_class_name_of_type(&self, ty: &HirTy<'hir>) -> Option<&'hir str> {
         match ty {
             HirTy::Named(n) => Some(n.name),
-            HirTy::Generic(g) => Some(MonomorphizationPass::mangle_generic_struct_name(
+            HirTy::Generic(g) => Some(MonomorphizationPass::mangle_generic_object_name(
                 self.hir_arena,
                 g,
             )),

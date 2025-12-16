@@ -22,8 +22,7 @@ use crate::atlas_c::{
         arena::HirArena,
         error::{
             HirError, HirResult, NonConstantValueError, NullableTypeRequiresStdLibraryError,
-            StructNameCannotBeOneLetterError, UnsupportedExpr, UnsupportedStatement,
-            UnsupportedTypeError, UselessError,
+            StructNameCannotBeOneLetterError, UnsupportedExpr, UnsupportedStatement, UselessError,
         },
         expr::{
             HirAssignExpr, HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr,
@@ -42,14 +41,14 @@ use crate::atlas_c::{
             ConstantValue, HirFunctionParameterSignature, HirFunctionSignature, HirModuleSignature,
             HirStructConstantSignature, HirStructConstructorSignature, HirStructFieldSignature,
             HirStructMethodModifier, HirStructMethodSignature, HirStructSignature,
-            HirTypeParameterItemSignature, HirVisibility,
+            HirTypeParameterItemSignature, HirUnionSignature, HirVisibility,
         },
         stmt::{
             HirBlock, HirExprStmt, HirIfElseStmt, HirReturn, HirStatement, HirVariableStmt,
             HirWhileStmt,
         },
         syntax_lowering_pass::case::Case,
-        ty::{HirFunctionTy, HirGenericTy, HirTy},
+        ty::{HirGenericTy, HirNamedTy, HirTy},
         warning::{HirWarning, NameShouldBeInDifferentCaseWarning, ThisTypeIsStillUnstableWarning},
     },
     utils::{self, Span},
@@ -182,7 +181,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 );
                 self.module_signature.unions.insert(
                     self.arena.names().get(ast_union.name.name),
-                    self.arena.intern(hir_union),
+                    self.arena.intern(hir_union.signature.clone()),
                 );
             }
         }
@@ -215,12 +214,33 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 ty_span: v.ty.span(),
             });
         }
+        let mut generics: Vec<&'hir str> = Vec::new();
+        if !ast_union.generics.is_empty() {
+            for generic in ast_union.generics.iter() {
+                generics.push(self.arena.intern(generic.name.name.to_owned()));
+            }
+        }
+        let signature = HirUnionSignature {
+            declaration_span: ast_union.span,
+            name_span: ast_union.name.span,
+            vis: ast_union.vis.into(),
+            generics,
+            name,
+            variants: {
+                let mut map = BTreeMap::new();
+                for variant in variants.iter() {
+                    map.insert(variant.name, variant.clone());
+                }
+                map
+            },
+        };
         let hir = HirUnion {
             span: ast_union.span,
             name,
             name_span: ast_union.name.span,
             vis: ast_union.vis.into(),
             variants,
+            signature,
         };
         Ok(hir)
     }
@@ -362,6 +382,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         let mut generics: Vec<&'hir str> = Vec::new();
         if !node.generics.is_empty() {
             for generic in node.generics.iter() {
+                //TODO: Handle generic constraints
                 generics.push(self.arena.intern(generic.name.name.to_owned()));
             }
         }
@@ -957,8 +978,52 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 Ok(hir)
             }
             AstExpr::ObjLiteral(obj) => {
-                // At this point, we still don't know the type of the object literal
-                let ty = self.arena.types().get_uninitialized_ty();
+                // Let's get the actual type now:
+                let mut ty = match obj.target {
+                    AstExpr::Identifier(i) => {
+                        let name = self.arena.names().get(i.name);
+                        self.arena
+                            .intern(HirTy::Named(HirNamedTy { span: i.span, name }))
+                    }
+                    AstExpr::StaticAccess(s) => self.visit_ty(s.target)?,
+                    _ => {
+                        let path = node.span().path;
+                        let src = crate::atlas_c::utils::get_file_content(path).unwrap();
+                        return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                            span: node.span(),
+                            expr: format!("{:?}", node),
+                            src: NamedSource::new(path, src),
+                        }));
+                    }
+                };
+                if !obj.generics.is_empty() {
+                    let mut generic_types = vec![];
+                    for generic in obj.generics.iter() {
+                        let generic_ty = match self.visit_ty(generic)? {
+                            HirTy::Generic(ty) => self.register_generic_type(ty),
+                            other => other,
+                        };
+                        generic_types.push(generic_ty.clone());
+                    }
+                    ty = self.register_generic_type(self.arena.intern(HirGenericTy {
+                        span: node.span(),
+                        inner: generic_types,
+                        name: match &ty {
+                            HirTy::Named(n) => n.name,
+                            _ => {
+                                let path = node.span().path;
+                                let src = crate::atlas_c::utils::get_file_content(path).unwrap();
+                                return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                                    span: node.span(),
+                                    expr: format!("{:?}", node),
+                                    src: NamedSource::new(path, src),
+                                }));
+                            }
+                        },
+                    }));
+                }
+                eprintln!("Obj literal type: {:?}", ty);
+                //let ty = self.arena.types().get_uninitialized_ty();
                 let hir = HirExpr::ObjLiteral(HirObjLiteralExpr {
                     span: node.span(),
                     ty,

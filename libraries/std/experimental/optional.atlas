@@ -87,12 +87,14 @@ fun test() {
     let opt1: optional<int64> = optional<int64>::some(10);
     if (opt1.has_value()) {
         let value = opt1.value();
-        println("Got value: {}", value);
+        print("Got value: ");
+        println(value);
     } else {
         println("No value present.");
     }
 
     let opt2: optional<string> = optional<string>::empty();
-    let value_or_default = opt2.value_or(("default"));
-    println("Value or default: {}", value_or_default);
+    let value_or_default = opt2.value_or("default");
+    print("Value or default: ");
+    print(value_or_default);
 }

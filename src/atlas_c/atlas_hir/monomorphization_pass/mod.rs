@@ -8,7 +8,7 @@ use crate::atlas_c::{
         },
         expr::HirExpr,
         generic_pool::HirGenericPool,
-        item::{HirStruct, HirStructConstructor},
+        item::{HirStruct, HirStructConstructor, HirUnion},
         signature::HirFunctionParameterSignature,
         stmt::HirStatement,
         ty::{
@@ -76,7 +76,7 @@ impl<'hir> MonomorphizationPass<'hir> {
                     inner: instance.args.clone(),
                     span: instance.span,
                 });
-                self.monomorphize_struct(module, generic_ty, instance.span)?;
+                self.monomorphize_object(module, generic_ty, instance.span)?;
                 instance.is_done = true;
                 is_done = false;
             }
@@ -86,23 +86,48 @@ impl<'hir> MonomorphizationPass<'hir> {
     }
 
     //TODO: Add support for unions
-    pub fn monomorphize_struct(
+    pub fn monomorphize_object(
         &mut self,
         module: &mut HirModule<'hir>,
         actual_type: &'hir HirGenericTy<'hir>,
         span: Span,
     ) -> HirResult<&'hir HirTy<'hir>> {
         let mangled_name =
-            MonomorphizationPass::mangle_generic_struct_name(self.arena, actual_type);
+            MonomorphizationPass::mangle_generic_object_name(self.arena, actual_type);
         if module.body.structs.contains_key(&mangled_name) {
+            //Already monomorphized
+            return Ok(self.arena.types().get_named_ty(mangled_name, span));
+        } else if module.body.unions.contains_key(mangled_name) {
             //Already monomorphized
             return Ok(self.arena.types().get_named_ty(mangled_name, span));
         }
 
         let base_name = actual_type.name;
-        let template = match module.body.structs.get(base_name) {
-            Some(s) => s,
+        match module.body.structs.get(base_name) {
+            Some(template) => {
+                let template_clone = template.clone();
+                return self.monomorphize_struct(
+                    module,
+                    template_clone,
+                    actual_type,
+                    mangled_name,
+                    span,
+                );
+            }
             None => {
+                match module.body.unions.get(base_name) {
+                    Some(template) => {
+                        let template_clone = template.clone();
+                        return self.monomorphize_union(
+                            module,
+                            template_clone,
+                            actual_type,
+                            mangled_name,
+                            span,
+                        );
+                    }
+                    None => {}
+                }
                 let path = span.path;
                 let src = crate::atlas_c::utils::get_file_content(path).unwrap();
                 return Err(UnknownType(UnknownTypeError {
@@ -112,7 +137,60 @@ impl<'hir> MonomorphizationPass<'hir> {
                 }));
             }
         };
+    }
 
+    fn monomorphize_union(
+        &mut self,
+        module: &mut HirModule<'hir>,
+        template: HirUnion<'hir>,
+        actual_type: &'hir HirGenericTy<'hir>,
+        mangled_name: &'hir str,
+        span: Span,
+    ) -> HirResult<&'hir HirTy<'hir>> {
+        let base_name = actual_type.name;
+        let mut new_union = template.clone();
+        //Collect generic names
+        let generic_names = template.signature.generics.clone();
+        if generic_names.len() != actual_type.inner.len() {
+            let declaration_span = template.name_span;
+            return Err(Self::not_enough_generics_err(
+                base_name,
+                actual_type.inner.len(),
+                span,
+                generic_names.len(),
+                declaration_span,
+            ));
+        }
+
+        for (_, variant_signature) in new_union.signature.variants.iter_mut() {
+            for (i, generic_name) in generic_names.iter().enumerate() {
+                variant_signature.ty = self.change_inner_type(
+                    variant_signature.ty,
+                    generic_name,
+                    actual_type.inner[i].clone(),
+                );
+            }
+        }
+        new_union.signature.generics = vec![];
+        new_union.name = mangled_name;
+        new_union.signature.name = mangled_name;
+        module
+            .signature
+            .unions
+            .insert(mangled_name, self.arena.intern(new_union.signature.clone()));
+        module.body.unions.insert(mangled_name, new_union);
+        Ok(self.arena.types().get_named_ty(mangled_name, span))
+    }
+
+    fn monomorphize_struct(
+        &mut self,
+        module: &mut HirModule<'hir>,
+        template: HirStruct<'hir>,
+        actual_type: &'hir HirGenericTy<'hir>,
+        mangled_name: &'hir str,
+        span: Span,
+    ) -> HirResult<&'hir HirTy<'hir>> {
+        let base_name = actual_type.name;
         let mut new_struct = template.clone();
         //Collect generic names
         let generic_names = template.signature.generics.clone();
@@ -156,7 +234,7 @@ impl<'hir> MonomorphizationPass<'hir> {
                     self.change_inner_type(arg.ty, generic_name, actual_type.inner[j].clone());
                 let new_ty = if let HirTy::Generic(g) = new_ty {
                     self.arena.intern(HirTy::Named(HirNamedTy {
-                        name: MonomorphizationPass::mangle_generic_struct_name(
+                        name: MonomorphizationPass::mangle_generic_object_name(
                             self.arena,
                             self.arena.intern(g),
                         ),
@@ -200,7 +278,7 @@ impl<'hir> MonomorphizationPass<'hir> {
                         .clone();
                     let new_ty = if let HirTy::Generic(g) = new_ty {
                         HirTy::Named(HirNamedTy {
-                            name: MonomorphizationPass::mangle_generic_struct_name(
+                            name: MonomorphizationPass::mangle_generic_object_name(
                                 self.arena,
                                 self.arena.intern(g),
                             ),
@@ -355,6 +433,18 @@ impl<'hir> MonomorphizationPass<'hir> {
                     self.monomorphize_expression(arg, types_to_change.clone())?;
                 }
             }
+            HirExpr::ObjLiteral(obj_lit_expr) => {
+                if let HirTy::Generic(g) = obj_lit_expr.ty {
+                    self.generic_pool.register_struct_instance(g.clone());
+                    let monomorphized_ty =
+                        self.swap_generic_types_in_ty(obj_lit_expr.ty, types_to_change.clone());
+
+                    obj_lit_expr.ty = monomorphized_ty;
+                }
+                for field_init in obj_lit_expr.fields.iter_mut() {
+                    self.monomorphize_expression(&mut field_init.value, types_to_change.clone())?;
+                }
+            }
             HirExpr::Indexing(idx_expr) => {
                 self.monomorphize_expression(&mut idx_expr.target, types_to_change.clone())?;
                 self.monomorphize_expression(&mut idx_expr.index, types_to_change)?;
@@ -502,7 +592,7 @@ impl<'hir> MonomorphizationPass<'hir> {
     /// Produce a stable mangled name for a generic instantiation.
     ///
     /// Format: __atlas77__<base_name>__<type1>_<type2>_..._<typeN>
-    pub fn mangle_generic_struct_name(
+    pub fn mangle_generic_object_name(
         arena: &'hir HirArena<'hir>,
         generic: &HirGenericTy<'_>,
     ) -> &'hir str {
@@ -511,7 +601,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             .iter()
             .map(|t| match t {
                 HirTy::Generic(g) => {
-                    MonomorphizationPass::mangle_generic_struct_name(arena, g).to_string()
+                    MonomorphizationPass::mangle_generic_object_name(arena, g).to_string()
                 }
                 _ => format!("{}", t),
             })

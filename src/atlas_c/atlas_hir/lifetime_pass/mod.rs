@@ -172,7 +172,7 @@ impl<'hir> LifeTimePass<'hir> {
                 None => false,
             },
             HirTy::Generic(g) => {
-                let name = MonomorphizationPass::mangle_generic_struct_name(self.hir_arena, g);
+                let name = MonomorphizationPass::mangle_generic_object_name(self.hir_arena, g);
                 match self.hir_signature.structs.get(name) {
                     Some(struct_sig) => struct_sig.methods.contains_key("_copy"),
                     None => false,

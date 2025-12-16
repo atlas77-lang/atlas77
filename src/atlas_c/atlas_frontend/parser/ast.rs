@@ -340,6 +340,7 @@ pub struct AstObjLiteralExpr<'ast> {
     pub span: Span,
     pub target: &'ast AstExpr<'ast>,
     pub fields: &'ast [&'ast AstObjLiteralField<'ast>],
+    pub generics: &'ast [&'ast AstType<'ast>],
 }
 
 #[derive(Debug, Clone)]

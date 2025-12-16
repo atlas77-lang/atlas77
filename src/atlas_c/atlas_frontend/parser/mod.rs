@@ -1211,7 +1211,7 @@ impl<'ast> Parser<'ast> {
                 TokenKind::LBrace => {
                     if self.looks_like_obj_literal() {
                         //Object literal like `Point { x: 10, y: 20 }`
-                        node = AstExpr::ObjLiteral(self.parse_obj_literal(node)?);
+                        node = AstExpr::ObjLiteral(self.parse_obj_literal(node, vec![])?);
                         return Ok(node);
                     } else {
                         break;
@@ -1227,7 +1227,7 @@ impl<'ast> Parser<'ast> {
                         } else if self.current().kind() == TokenKind::LBrace {
                             // Object literal with generic type: `MyObj<T> {...}`
                             // The node (identifier) needs to be converted to a type expression first
-                            node = AstExpr::ObjLiteral(self.parse_obj_literal(node)?);
+                            node = AstExpr::ObjLiteral(self.parse_obj_literal(node, generics)?);
                             return Ok(node);
                         } else {
                             return Err(self.unexpected_token_error(
@@ -1262,7 +1262,7 @@ impl<'ast> Parser<'ast> {
                             }
                             TokenKind::LBrace => {
                                 // Object literal with generic type: `MyObj::<T> {...}`
-                                node = AstExpr::ObjLiteral(self.parse_obj_literal(node)?);
+                                node = AstExpr::ObjLiteral(self.parse_obj_literal(node, generics)?);
                                 return Ok(node);
                             }
                             _ => {
@@ -1286,7 +1286,11 @@ impl<'ast> Parser<'ast> {
         Ok(node)
     }
 
-    fn parse_obj_literal(&mut self, node: AstExpr<'ast>) -> ParseResult<AstObjLiteralExpr<'ast>> {
+    fn parse_obj_literal(
+        &mut self,
+        node: AstExpr<'ast>,
+        generics: Vec<AstType<'ast>>,
+    ) -> ParseResult<AstObjLiteralExpr<'ast>> {
         let start = self.expect(TokenKind::LBrace)?.span;
         let mut fields = vec![];
         while self.current().kind() != TokenKind::RBrace {
@@ -1313,6 +1317,7 @@ impl<'ast> Parser<'ast> {
             span,
             target: self.arena.alloc(node),
             fields: self.arena.alloc_vec(fields),
+            generics: self.arena.alloc_vec(generics),
         };
         Ok(node)
     }
