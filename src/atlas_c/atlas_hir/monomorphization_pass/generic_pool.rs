@@ -171,7 +171,7 @@ impl<'hir> HirGenericPool<'hir> {
                             let err_path = instantiated_generic.span.path;
                             let err_src = utils::get_file_content(err_path).unwrap();
                             let err = TypeDoesNotImplementRequiredConstraintError {
-                                ty: format!("{}", HirTy::Generic(instantiated_generic.clone())),
+                                ty: format!("{}", instantiated_ty),
                                 span: instantiated_generic.span,
                                 constraint: format!("{}", kind),
                                 src: NamedSource::new(err_path.to_string(), err_src),
