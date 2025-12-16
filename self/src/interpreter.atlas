@@ -11,12 +11,12 @@ public:
 
     BrainFuckInterpreter() {
         this.cells = new [uint64; 50];
-        let i: uint64 = 0_uint64;
-        while i < 50_uint64 {
-            this.cells[i] = 0_uint64;
-            i = i + 1_uint64;
+        let i: uint64 = 0u;
+        while i < 50u {
+            this.cells[i] = 0u;
+            i = i + 1u;
         }
-        this.pointer = 0_uint64;
+        this.pointer = 0u;
     }
     ~BrainFuckInterpreter() {
         delete this.cells;
@@ -27,13 +27,13 @@ public:
         while iterator.has_next() {
             let token = iterator.next().unwrap();
             if token.kind == TokenKind::SHIFT_RIGHT {
-                this.pointer = this.pointer + 1_uint64;
+                this.pointer = this.pointer + 1u;
             } else if token.kind == TokenKind::SHIFT_LEFT {
-                this.pointer = this.pointer - 1_uint64;
+                this.pointer = this.pointer - 1u;
             } else if token.kind == TokenKind::INCREMENT {
-                this.cells[this.pointer] = this.cells[this.pointer] + 1_uint64;
+                this.cells[this.pointer] = this.cells[this.pointer] + 1u;
             } else if token.kind == TokenKind::DECREMENT {
-                this.cells[this.pointer] = this.cells[this.pointer] - 1_uint64;
+                this.cells[this.pointer] = this.cells[this.pointer] - 1u;
             } else if token.kind == TokenKind::OUTPUT {
                 let char_value = this.cells[this.pointer] as char;
                 print(char_value);

@@ -40,26 +40,26 @@ public:
     /// Retrieves the value associated with the given key.
     /// Returns None if the key does not exist.
     fun get(this, key: K) -> Option<V> {
-        let i: uint64 = 0_uint64;
+        let i: uint64 = 0u;
         while i < this.keys.length {
             if this.keys.get(i) == key {
-                return Option::<V>::some(this.values.get(i));
+                return Option<V>::some(this.values.get(i));
             }
-            i = i + 1_uint64;
+            i = i + 1u;
         }
-        return Option::<V>::none();
+        return Option<V>::none();
     }
     /// Inserts a key-value pair into the map.
     /// If the key already exists, updates its value.
     fun insert(this, key: K, value: V) {
-        let i: uint64 = 0_uint64;
+        let i: uint64 = 0u;
         while i < this.keys.length {
             if this.keys.get(i) == key {
                 // Key exists, update value
                 this.values.set(i, value);
                 return;
             }
-            i = i + 1_uint64;
+            i = i + 1u;
         }
         // Key does not exist, add new key-value pair
         this.keys.push(key);
@@ -68,22 +68,22 @@ public:
     /// Removes a key-value pair from the map by key.
     /// If the key does not exist, does nothing.
     fun remove(this, key: K) {
-        let i: uint64 = 0_uint64;
+        let i: uint64 = 0u;
         while i < this.keys.length {
             if this.keys.get(i) == key {
                 // Key found, remove key and value by shifting elements
                 let j: uint64 = i;
-                while j + 1_uint64 < this.keys.length {
-                    this.keys.set(j, this.keys.get(j + 1_uint64));
-                    this.values.set(j, this.values.get(j + 1_uint64));
-                    j = j + 1_uint64;
+                while j + 1u < this.keys.length {
+                    this.keys.set(j, this.keys.get(j + 1u));
+                    this.values.set(j, this.values.get(j + 1u));
+                    j = j + 1u;
                 }
                 // Decrease lengths
-                this.keys.length = this.keys.length - 1_uint64;
-                this.values.length = this.values.length - 1_uint64;
+                this.keys.length = this.keys.length - 1u;
+                this.values.length = this.values.length - 1u;
                 return;
             }
-            i = i + 1_uint64;
+            i = i + 1u;
         }
         return;
     }
@@ -94,11 +94,11 @@ public:
 
     fun into_iter(this) -> Iter<Pair<K, V>> {
         let pairs = Vector<Pair<K, V>>::with_capacity(this.keys.length);
-        let i: uint64 = 0_uint64;
+        let i: uint64 = 0u;
         while i < this.keys.length {
             let pair = new Pair<K, V>(this.keys.get(i), this.values.get(i));
             pairs.push(pair);
-            i = i + 1_uint64;
+            i = i + 1u;
         }
         return new Iter<Pair<K, V>>(pairs);
     }

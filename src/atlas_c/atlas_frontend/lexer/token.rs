@@ -75,11 +75,19 @@ pub enum TokenKind {
     Identifier(String),
     #[regex("[0-9]+", |lex| lex.slice().parse())]
     Integer(i64),
-    #[regex("[0-9]+\\.[0-9]+", |lex| lex.slice().parse())]
+    // Let's add it with trailing as in 123f
+    #[regex("[0-9]+\\.[0-9]+|[0-9]+f", |lex| {
+        let slice = lex.slice();
+        if slice.ends_with('f') {
+            slice[..slice.len() - 1].parse()
+        } else {
+            slice.parse()
+        }
+    })]
     Float(f64),
-    /// Let's add it with trailing as in 123_uint64
-    #[regex("[0-9]+_uint64", |lex| {
-        let slice = &lex.slice()[..lex.slice().len() - 7];
+    /// Let's add it with trailing as in 123u
+    #[regex("[0-9]+u", |lex| {
+        let slice = &lex.slice()[..lex.slice().len() - 1]; // Remove the trailing 'u'
         slice.parse()
     })]
     UnsignedInteger(u64),

@@ -42,7 +42,7 @@ public:
     }
 
     fun is_empty(this) -> bool {
-        return this.len == 0 as uint64;
+        return this.len == 0u;
     }
     //todo: implement as_bytes
     //fun as_bytes(this) -> [uint8] {}
@@ -51,10 +51,10 @@ public:
         let self_chars = to_chars(this.s);
         let other_chars = to_chars(other.s);
         let res = new [char; len(self_chars) + len(other_chars)];
-        let i = 0_uint64;
+        let i = 0u;
         while i < len(self_chars) {
             res[i] = self_chars[i];
-            i = i + 1_uint64;
+            i = i + 1u;
         }
         return new String(from_chars(res));
     }
@@ -62,11 +62,11 @@ public:
     fun push(this, c: char) -> unit {
         //Same... I should implement the <- operator
         let self_chars = to_chars(this.s);
-        let res = new [char; len(self_chars) + 1_uint64];
-        let i = 0_uint64;
+        let res = new [char; len(self_chars) + 1u];
+        let i = 0u;
         while i < len(self_chars) {
             res[i] = self_chars[i];
-            i = i + 1_uint64;
+            i = i + 1u;
         }
         res[i] = c;
         this.s = from_chars(res);
@@ -78,16 +78,16 @@ public:
         let self_chars = to_chars(this.s);
         let s_chars = to_chars(s.s);
         let res = new [char; len(self_chars) + len(s_chars)];
-        let i = 0_uint64;
+        let i = 0u;
         while i < len(self_chars) {
             res[i] = self_chars[i];
-            i = i + 1_uint64;
+            i = i + 1u;
         }
-        let j = 0_uint64;
+        let j = 0u;
         while j < len(s_chars) {
             res[i] = s_chars[j];
-            i = i + 1_uint64;
-            j = j + 1_uint64;
+            i = i + 1u;
+            j = j + 1u;
         }
         this.s = from_chars(res);
         this.len = str_len(this.s);
@@ -96,8 +96,8 @@ public:
 
     fun find(this, sub_string: String) -> int64 {
         let res = -1;
-        let i = 0_uint64;
-        let j = 0_uint64;
+        let i = 0u;
+        let j = 0u;
         let self_chars = to_chars(this.s);
         let sub_chars = to_chars(sub_string.s);
         while i < len(self_chars) {
@@ -108,11 +108,11 @@ public:
                     //break is not implemented yet...
                     //break;
                 }
-                j = j + 1_uint64;
+                j = j + 1u;
             } else {
-                j = 0_uint64;
+                j = 0u;
             }
-            i = i + 1_uint64;
+            i = i + 1u;
         }
         return res;
     }
@@ -148,11 +148,11 @@ public:
 
     fun split(this, sep: string) -> [String] {
         let s: [string] = split(this.s, sep);
-        let i = 0_uint64;
+        let i = 0u;
         let res = new [String; len(s)];
         while i < len(s) {
             res[i] = new String(s[i]);
-            i = i + 1_uint64;
+            i = i + 1u;
         }
         return res;
     }
