@@ -48,7 +48,7 @@ impl<'hir> HirGenericPool<'hir> {
         if !self.is_generic_instantiated(&generic) {
             return;
         }
-        let name = self.mangle_generic_struct_name(generic.clone());
+        let name = self.mangle_generic_struct_name(generic.clone(), "struct");
         self.structs.entry(name).or_insert(HirGenericInstance {
             name: generic.name,
             args: generic.inner,
@@ -94,16 +94,16 @@ impl<'hir> HirGenericPool<'hir> {
         is_instantiated
     }
 
-    fn mangle_generic_struct_name(&self, generic: HirGenericTy<'hir>) -> &'hir str {
+    fn mangle_generic_struct_name(&self, generic: HirGenericTy<'hir>, kind: &str) -> &'hir str {
         let parts: Vec<String> = generic
             .inner
             .iter()
             .map(|t| match t {
-                HirTy::Generic(g) => self.mangle_generic_struct_name(g.clone()).to_string(),
+                HirTy::Generic(g) => self.mangle_generic_struct_name(g.clone(), kind).to_string(),
                 _ => format!("{}", t),
             })
             .collect();
-        let name = format!("__atlas77__struct__{}__{}", generic.name, parts.join("_"));
+        let name = format!("__atlas77__{}__{}__{}", kind, generic.name, parts.join("_"));
         self.arena.intern(name)
     }
 }

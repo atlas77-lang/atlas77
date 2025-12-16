@@ -9,7 +9,6 @@ use super::{
     stmt::HirStatement,
     ty::{HirTy, HirTyId},
 };
-use crate::atlas_c::atlas_hir::type_check_pass::context::{ContextFunction, ContextVariable};
 use crate::atlas_c::atlas_hir::warning::{DeletingReferenceMightLeadToUB, HirWarning};
 use crate::atlas_c::atlas_hir::{
     error::IllegalUnaryOperationError,
@@ -33,6 +32,13 @@ use crate::atlas_c::atlas_hir::{
 use crate::atlas_c::atlas_hir::{
     error::{NotEnoughArgumentsError, NotEnoughArgumentsOrigin},
     item::{HirStruct, HirStructMethod},
+};
+use crate::atlas_c::atlas_hir::{
+    error::{
+        TryingToCreateAnUnionWithMoreThanOneActiveFieldError,
+        TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin,
+    },
+    type_check_pass::context::{ContextFunction, ContextVariable},
 };
 use crate::atlas_c::atlas_hir::{
     expr::{HirFunctionCallExpr, HirIdentExpr},
@@ -389,19 +395,18 @@ impl<'hir> TypeChecker<'hir> {
                     l.ty_span.unwrap_or(l.name_span),
                 )
             }
-            _ => {
-                Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                    span: stmt.span(),
-                    expr: format!("{:?}", stmt),
-                    src: NamedSource::new(
-                        stmt.span().path,
-                        utils::get_file_content(stmt.span().path).unwrap(),
-                    ),
-                }))
-            }
+            _ => Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                span: stmt.span(),
+                expr: format!("{:?}", stmt),
+                src: NamedSource::new(
+                    stmt.span().path,
+                    utils::get_file_content(stmt.span().path).unwrap(),
+                ),
+            })),
         }
     }
     pub fn check_expr(&mut self, expr: &mut HirExpr<'hir>) -> HirResult<&'hir HirTy<'hir>> {
+        //eprintln!("Type checking expression: {}", expr.kind());
         match expr {
             HirExpr::IntegerLiteral(_) => Ok(self.arena.types().get_integer64_ty()),
             HirExpr::FloatLiteral(_) => Ok(self.arena.types().get_float64_ty()),
@@ -479,7 +484,8 @@ impl<'hir> TypeChecker<'hir> {
                 let method = class.methods.get(function_name).unwrap();
                 match method.modifier {
                     HirStructMethodModifier::Const => {
-                        let readonly_self_ty = self.arena.types().get_readonly_reference_ty(self_ty);
+                        let readonly_self_ty =
+                            self.arena.types().get_readonly_reference_ty(self_ty);
                         s.ty = readonly_self_ty;
                         Ok(readonly_self_ty)
                     }
@@ -707,6 +713,107 @@ impl<'hir> TypeChecker<'hir> {
                 }
                 Ok(a.ty)
             }
+            HirExpr::ObjLiteral(obj_lit) => {
+                // Only support union literals for now & there is no constructor for unions
+                // It's just `name { .field = value, ... }`
+                let union_ty;
+                let union_signature = if let HirTy::Named(n) = obj_lit.ty {
+                    union_ty = n;
+                    let tmp = match self.signature.unions.get(n.name) {
+                        Some(c) => c,
+                        None => {
+                            return Err(Self::unknown_type_err(n.name, &obj_lit.span));
+                        }
+                    };
+                    *tmp
+                } else if let HirTy::Generic(g) = obj_lit.ty {
+                    let name = MonomorphizationPass::mangle_generic_object_name(self.arena, g);
+                    union_ty = self.arena.intern(HirNamedTy { name, span: g.span })
+                        as &'hir HirNamedTy<'hir>;
+                    let tmp = match self.signature.unions.get(name) {
+                        Some(c) => c,
+                        None => {
+                            return Err(Self::unknown_type_err(name, &obj_lit.span));
+                        }
+                    };
+                    *tmp
+                } else {
+                    let path = obj_lit.span.path;
+                    let src = utils::get_file_content(path).unwrap();
+                    return Err(HirError::CanOnlyConstructStructs(
+                        CanOnlyConstructStructsError {
+                            span: obj_lit.span,
+                            src: NamedSource::new(path, src),
+                        },
+                    ));
+                };
+
+                if union_signature.name_span.path != obj_lit.span.path
+                    && union_signature.vis != HirVisibility::Public
+                {
+                    let origin_path = union_signature.name_span.path;
+                    let origin_src = utils::get_file_content(origin_path).unwrap();
+                    let obj_path = obj_lit.span.path;
+                    let obj_src = utils::get_file_content(obj_path).unwrap();
+                    return Err(HirError::AccessingPrivateStruct(
+                        AccessingPrivateStructError {
+                            name: union_ty.name.to_owned(),
+                            span: obj_lit.span,
+                            src: NamedSource::new(obj_path, obj_src),
+                            origin: AccessingPrivateStructOrigin {
+                                span: union_signature.name_span,
+                                src: NamedSource::new(origin_path, origin_src),
+                            },
+                        },
+                    ));
+                }
+
+                if obj_lit.fields.len() > 1 {
+                    let origin = TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin {
+                        span: obj_lit.span,
+                        src: NamedSource::new(
+                            union_signature.name_span.path,
+                            utils::get_file_content(union_signature.name_span.path).unwrap(),
+                        ),
+                    };
+                    return Err(HirError::TryingToCreateAnUnionWithMoreThanOneActiveField(
+                        TryingToCreateAnUnionWithMoreThanOneActiveFieldError {
+                            span: obj_lit.span,
+                            src: NamedSource::new(
+                                obj_lit.span.path,
+                                utils::get_file_content(obj_lit.span.path).unwrap(),
+                            ),
+                            origin,
+                        },
+                    ));
+                }
+
+                for field in &mut obj_lit.fields {
+                    let field_signature = match union_signature.variants.get(field.name) {
+                        Some(f) => f,
+                        None => {
+                            return Err(Self::unknown_type_err(field.name, &field.span));
+                        }
+                    };
+                    let field_ty = self.check_expr(&mut field.value)?;
+                    let is_equivalent = self.is_equivalent_ty(
+                        field_ty,
+                        field.value.span(),
+                        field_signature.ty,
+                        field_signature.span,
+                    );
+                    if is_equivalent.is_err() {
+                        return Err(Self::type_mismatch_err(
+                            &format!("{}", field_ty),
+                            &field.value.span(),
+                            &format!("{}", field_signature.ty),
+                            &field_signature.span,
+                        ));
+                    }
+                }
+
+                Ok(obj_lit.ty)
+            }
             HirExpr::NewObj(obj) => {
                 let struct_ty;
                 let struct_signature = if let HirTy::Named(n) = obj.ty {
@@ -719,7 +826,7 @@ impl<'hir> TypeChecker<'hir> {
                     };
                     *tmp
                 } else if let HirTy::Generic(g) = obj.ty {
-                    let name = MonomorphizationPass::mangle_generic_struct_name(self.arena, g);
+                    let name = MonomorphizationPass::mangle_generic_object_name(self.arena, g);
                     struct_ty = self.arena.intern(HirNamedTy { name, span: g.span })
                         as &'hir HirNamedTy<'hir>;
                     let tmp = match self.signature.structs.get(name) {
@@ -922,7 +1029,7 @@ impl<'hir> TypeChecker<'hir> {
                                 let src = utils::get_file_content(path).unwrap();
                                 return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                     span: field_access.span,
-                                    expr: "Static method call".to_string(),
+                                    expr: "Static method call on instance".to_string(),
                                     src: NamedSource::new(path, src),
                                 }));
                             }
@@ -937,15 +1044,13 @@ impl<'hir> TypeChecker<'hir> {
                                 ));
                             }
 
-                            if self.is_const_ty(target_ty) {
-                                if method_signature.modifier != HirStructMethodModifier::Const {
-                                    return Err(
-                                        Self::calling_non_const_method_on_const_reference_err(
-                                            &method_signature.span,
-                                            &field_access.span,
-                                        ),
-                                    );
-                                }
+                            if self.is_const_ty(target_ty)
+                                && method_signature.modifier != HirStructMethodModifier::Const
+                            {
+                                return Err(Self::calling_non_const_method_on_const_reference_err(
+                                    &method_signature.span,
+                                    &field_access.span,
+                                ));
                             }
 
                             for (param, arg) in method_signature
@@ -973,7 +1078,7 @@ impl<'hir> TypeChecker<'hir> {
                         let name = match static_access.target {
                             HirTy::Named(n) => n.name,
                             HirTy::Generic(g) => {
-                                MonomorphizationPass::mangle_generic_struct_name(self.arena, g)
+                                MonomorphizationPass::mangle_generic_object_name(self.arena, g)
                             }
                             _ => {
                                 let path = static_access.span.path;
@@ -1039,27 +1144,27 @@ impl<'hir> TypeChecker<'hir> {
                             ))
                         }
                     }
-                    _ => {
-                        Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                            span: func_expr.span,
-                            expr: "Function call on non-identifier expression".to_string(),
-                            src: NamedSource::new(path, utils::get_file_content(path).unwrap()),
-                        }))
-                    }
+                    _ => Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                        span: func_expr.span,
+                        expr: "Function call on non-identifier expression".to_string(),
+                        src: NamedSource::new(path, utils::get_file_content(path).unwrap()),
+                    })),
                 }
             }
             HirExpr::Assign(a) => {
                 let rhs = self.check_expr(&mut a.rhs)?;
                 let lhs = self.check_expr(&mut a.lhs)?;
                 //Todo needs a special rule for `self.field = value`, because you can assign once to a const field
-                
+
                 if lhs.is_const() {
                     //TODO: Add assignement in copy constructor
-                    if self.current_func_name == Some("constructor") && self.current_class_name.is_some() {
+                    if self.current_func_name == Some("constructor")
+                        && self.current_class_name.is_some()
+                    {
                         self.is_equivalent_ty(lhs, a.lhs.span(), rhs, a.rhs.span())?;
                         return Ok(lhs);
                     } else {
-                        return Err(Self::trying_to_mutate_const_reference(&a.lhs.span(), &lhs));
+                        return Err(Self::trying_to_mutate_const_reference(&a.lhs.span(), lhs));
                     }
                 }
                 self.is_equivalent_ty(lhs, a.lhs.span(), rhs, a.rhs.span())?;
@@ -1088,6 +1193,26 @@ impl<'hir> TypeChecker<'hir> {
                 let class = match self.signature.structs.get(name) {
                     Some(c) => *c,
                     None => {
+                        // We might be trying to access an union variant
+                        if let Some(union_signature) = self.signature.unions.get(name) {
+                            let variant = union_signature
+                                .variants
+                                .iter()
+                                .find(|v| *v.0 == field_access.field.name);
+                            match variant {
+                                Some((_, var)) => {
+                                    field_access.ty = var.ty;
+                                    field_access.field.ty = var.ty;
+                                    return Ok(var.ty);
+                                }
+                                None => {
+                                    return Err(Self::unknown_type_err(
+                                        &format!("{}::{}", name, field_access.field.name),
+                                        &field_access.span,
+                                    ));
+                                }
+                            }
+                        }
                         return Err(Self::unknown_type_err(name, &field_access.span));
                     }
                 };
@@ -1399,9 +1524,11 @@ impl<'hir> TypeChecker<'hir> {
     }
 
     /// Check if two types are equivalent, considering generics and references
-    /// 
+    ///
     /// - ty1 is the expected type
     /// - ty2 is the actual type
+    ///
+    /// We need a way to handle &primitive and &const primitive being equivalent to primitive
     fn is_equivalent_ty(
         &self,
         ty1: &HirTy<'_>,
@@ -1410,9 +1537,11 @@ impl<'hir> TypeChecker<'hir> {
         ty2_span: Span,
     ) -> HirResult<()> {
         match (ty1, ty2) {
+            // Let's handle ref to primitive types
+
             //(HirTy::Int64(_), HirTy::UInt64(_)) | (HirTy::UInt64(_), HirTy::Int64(_)) => Ok(()),
             (HirTy::Generic(g), HirTy::Named(n)) | (HirTy::Named(n), HirTy::Generic(g)) => {
-                if MonomorphizationPass::mangle_generic_struct_name(self.arena, g) == n.name {
+                if MonomorphizationPass::mangle_generic_object_name(self.arena, g) == n.name {
                     Ok(())
                 } else {
                     Err(Self::type_mismatch_err(
@@ -1446,6 +1575,12 @@ impl<'hir> TypeChecker<'hir> {
             (HirTy::MutableReference(mutable1), HirTy::MutableReference(mutable2)) => {
                 self.is_equivalent_ty(mutable1.inner, ty1_span, mutable2.inner, ty2_span)
             }
+            (HirTy::ReadOnlyReference(read_only), _) => {
+                self.is_equivalent_ty(read_only.inner, ty1_span, ty2, ty2_span)
+            }
+            (HirTy::MutableReference(mutable), _) => {
+                self.is_equivalent_ty(mutable.inner, ty1_span, ty2, ty2_span)
+            }
             _ => {
                 if HirTyId::from(ty1) == HirTyId::from(ty2) {
                     Ok(())
@@ -1464,7 +1599,7 @@ impl<'hir> TypeChecker<'hir> {
     fn get_class_name_of_type(&self, ty: &HirTy<'hir>) -> Option<&'hir str> {
         match ty {
             HirTy::Named(n) => Some(n.name),
-            HirTy::Generic(g) => Some(MonomorphizationPass::mangle_generic_struct_name(
+            HirTy::Generic(g) => Some(MonomorphizationPass::mangle_generic_object_name(
                 self.arena, g,
             )),
             HirTy::ReadOnlyReference(read_only) => self.get_class_name_of_type(read_only.inner),

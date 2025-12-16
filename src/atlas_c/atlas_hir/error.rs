@@ -1,6 +1,5 @@
 use crate::atlas_c::utils::Span;
 use crate::declare_error_type;
-use logos::source;
 use miette::{Diagnostic, NamedSource};
 use std::fmt;
 use std::fmt::Formatter;
@@ -49,7 +48,31 @@ declare_error_type! {
         TryingToAccessADeletedValue(TryingToAccessADeletedValueError),
         CallingNonConstMethodOnConstReference(CallingNonConstMethodOnConstReferenceError),
         TryingToMutateConstReference(TryingToMutateConstReferenceError),
+        TryingToCreateAnUnionWithMoreThanOneActiveField(TryingToCreateAnUnionWithMoreThanOneActiveFieldError),
     }
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::trying_to_create_an_union_with_more_than_one_active_field))]
+#[error("trying to create an union with more than one active field")]
+pub struct TryingToCreateAnUnionWithMoreThanOneActiveFieldError {
+    #[label = "multiple active fields were provided here"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[source]
+    #[diagnostic_source]
+    pub origin: TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic()]
+#[error("")]
+pub struct TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin {
+    #[label = "unions can only have one active field at a time"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]

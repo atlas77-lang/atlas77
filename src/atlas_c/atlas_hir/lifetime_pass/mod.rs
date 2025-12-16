@@ -4,10 +4,13 @@ pub use context::{ScopeMap, VarData, VarMap, VarStatus};
 use crate::atlas_c::{
     atlas_hir::{
         HirModule,
+        arena::HirArena,
         error::{HirError, HirResult},
         expr::{HirDeleteExpr, HirExpr, HirIdentExpr},
         item::HirFunction,
         lifetime_pass::context::VarKind,
+        monomorphization_pass::MonomorphizationPass,
+        signature::HirModuleSignature,
         stmt::{HirExprStmt, HirStatement},
         ty::{HirTy, HirUnitTy},
     },
@@ -19,24 +22,21 @@ use crate::atlas_c::{
 /// Check moves and copies to ensure lifetimes are respected
 /// Will be renamed later.
 /// Also add a `delete my_var;` statement at the end of each scope to explicitly delete variables.
-#[derive(Debug)]
 pub struct LifeTimePass<'hir> {
     pub scope_map: ScopeMap<'hir>,
     // Collect errors during the pass
     pub errors: Vec<HirError>,
-}
-
-impl Default for LifeTimePass<'_> {
-    fn default() -> Self {
-        Self::new()
-    }
+    pub hir_signature: HirModuleSignature<'hir>,
+    hir_arena: &'hir HirArena<'hir>,
 }
 
 impl<'hir> LifeTimePass<'hir> {
-    pub fn new() -> Self {
+    pub fn new(hir_signature: HirModuleSignature<'hir>, hir_arena: &'hir HirArena<'hir>) -> Self {
         Self {
             scope_map: ScopeMap::new(),
             errors: Vec::new(),
+            hir_signature,
+            hir_arena,
         }
     }
     //TODO: Add a way to know if an error is fatal or not
@@ -161,15 +161,24 @@ impl<'hir> LifeTimePass<'hir> {
     }
 
     fn is_copyable(&self, ty: &HirTy<'hir>) -> bool {
-        matches!(
-            ty,
+        match ty {
             HirTy::Boolean(_)
-                | HirTy::Int64(_)
-                | HirTy::Float64(_)
-                | HirTy::Char(_)
-                | HirTy::UInt64(_)
-                | HirTy::ReadOnlyReference(_)
-                | HirTy::MutableReference(_)
-        )
+            | HirTy::Int64(_)
+            | HirTy::Float64(_)
+            | HirTy::Char(_)
+            | HirTy::UInt64(_) => true,
+            HirTy::Named(n) => match self.hir_signature.structs.get(n.name) {
+                Some(struct_sig) => struct_sig.methods.contains_key("_copy"),
+                None => false,
+            },
+            HirTy::Generic(g) => {
+                let name = MonomorphizationPass::mangle_generic_object_name(self.hir_arena, g);
+                match self.hir_signature.structs.get(name) {
+                    Some(struct_sig) => struct_sig.methods.contains_key("_copy"),
+                    None => false,
+                }
+            }
+            _ => false,
+        }
     }
 }

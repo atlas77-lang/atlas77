@@ -1,0 +1,67 @@
+private union expected_storage<T: std::copyable, E: std::copyable> { 
+    ok_value: T;
+    err_value: E;
+}
+
+public struct expected<T: std::copyable, E: std::copyable> {
+private:
+    data: expected_storage<T, E>;
+    is_ok: bool;
+    // Private constructor
+    expected(data: expected_storage<T, E>, is_ok: bool) {
+        this.data = data;
+        this.is_ok = is_ok;
+    }
+public:
+    fun ok(data: T) -> expected<T, E> {
+        return new expected<T, E>(
+            expected_storage<T, E> { 
+                .ok_value = data 
+            }, 
+            true
+        );
+    }
+    fun err(error: E) -> expected<T, E> {
+        return new expected<T, E>(
+            expected_storage<T, E> { 
+                .err_value = error 
+            }, 
+            false
+        );
+    }
+    fun is_ok(this) -> bool {
+        return this.is_ok;
+    }
+    fun is_err(this) -> bool {
+        return !this.is_ok;
+    }
+    // TODO: Add T! to indicate possible panic
+    fun ok_value(this) -> T {
+        //For now we return last because `panic()` doesn't have a `!` return type to signify it never returns
+        if (!this.is_ok) {
+            panic("Called unwrap on an err value");
+        } else {
+            return this.data.ok_value;
+        }
+    }
+    // TODO: Add E! to indicate possible panic
+    fun err_value(this) -> E {
+        if (this.is_ok) {
+            panic("Called unwrap_err on an ok value");
+        } else {
+            return this.data.err_value;
+        }
+    }
+}
+
+// Example usage will be removed once this API is stable
+fun test() {
+    let result: expected<int64, string> = expected<int64, string>::ok(42);
+    if (result.is_ok()) {
+        let value = result.ok_value();
+        println("Got ok value: {}", value);
+    } else {
+        let error = result.err_value();
+        println("Got err value: {}", error);
+    }
+}

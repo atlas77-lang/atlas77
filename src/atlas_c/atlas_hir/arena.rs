@@ -11,7 +11,7 @@ use super::ty::{
     HirUninitializedTy, HirUnitTy, HirUnsignedIntTy,
 };
 use crate::atlas_c::{
-    atlas_hir::ty::{HirExternTy, HirReadOnlyReferenceTy},
+    atlas_hir::ty::{HirExternTy, HirFunctionTy, HirReadOnlyReferenceTy},
     utils::Span,
 };
 use bumpalo::Bump;
@@ -230,6 +230,25 @@ impl<'arena> TypeArena<'arena> {
         self.intern.borrow_mut().entry(id).or_insert_with(|| {
             self.allocator
                 .alloc(HirTy::ExternTy(HirExternTy { type_hint }))
+        })
+    }
+
+    pub fn get_function_ty(
+        &'arena self,
+        params: Vec<&'arena HirTy<'arena>>,
+        ret_ty: &'arena HirTy<'arena>,
+        span: Span,
+    ) -> &'arena HirTy<'arena> {
+        let param_ids = params.iter().map(|t| HirTyId::from(*t)).collect::<Vec<_>>();
+        let id = HirTyId::compute_function_ty_id(&HirTyId::from(ret_ty), &param_ids);
+        self.intern.borrow_mut().entry(id).or_insert_with(|| {
+            // clone params hir types to store inside the owned Vec
+            let params_owned = params.iter().map(|t| (*t).clone()).collect::<Vec<_>>();
+            self.allocator.alloc(HirTy::Function(HirFunctionTy {
+                ret_ty,
+                params: params_owned,
+                span,
+            }))
         })
     }
 }

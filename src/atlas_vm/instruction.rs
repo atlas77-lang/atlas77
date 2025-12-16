@@ -63,11 +63,13 @@ pub enum OpCode {
     UINT_EQUAL,
     FLOAT_EQUAL,
     BOOL_EQUAL,
+    CHAR_EQUAL,
     /// Args: [type: 24bits]
     INT_NOT_EQUAL,
     UINT_NOT_EQUAL,
     FLOAT_NOT_EQUAL,
     BOOL_NOT_EQUAL,
+    CHAR_NOT_EQUAL,
     /// Args: [type: 24bits]
     INT_GREATER_THAN,
     UINT_GREATER_THAN,

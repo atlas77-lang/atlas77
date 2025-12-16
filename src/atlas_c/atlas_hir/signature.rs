@@ -16,6 +16,7 @@ pub struct HirModuleSignature<'hir> {
     pub structs: BTreeMap<&'hir str, &'hir HirStructSignature<'hir>>,
     //No need for enum signatures for now
     pub enums: BTreeMap<&'hir str, &'hir HirEnum<'hir>>,
+    pub unions: BTreeMap<&'hir str, &'hir HirUnionSignature<'hir>>,
 }
 
 #[derive(Debug, Clone)]
@@ -34,6 +35,17 @@ pub struct HirStructSignature<'hir> {
     pub constants: BTreeMap<&'hir str, &'hir HirStructConstantSignature<'hir>>,
     pub constructor: HirStructConstructorSignature<'hir>,
     pub destructor: HirStructConstructorSignature<'hir>,
+}
+
+#[derive(Debug, Clone)]
+pub struct HirUnionSignature<'hir> {
+    pub declaration_span: Span,
+    pub vis: HirVisibility,
+    pub name: &'hir str,
+    pub name_span: Span,
+    pub variants: BTreeMap<&'hir str, HirStructFieldSignature<'hir>>,
+    /// Generic type parameter names
+    pub generics: Vec<&'hir str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy, Default)]
