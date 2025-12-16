@@ -400,6 +400,7 @@ impl<'hir> TypeChecker<'hir> {
         }
     }
     pub fn check_expr(&mut self, expr: &mut HirExpr<'hir>) -> HirResult<&'hir HirTy<'hir>> {
+        eprintln!("Type checking expression: {}", expr.kind());
         match expr {
             HirExpr::IntegerLiteral(_) => Ok(self.arena.types().get_integer64_ty()),
             HirExpr::FloatLiteral(_) => Ok(self.arena.types().get_float64_ty()),
@@ -1201,6 +1202,15 @@ impl<'hir> TypeChecker<'hir> {
                         &static_access.span,
                     ))
                 }
+            }
+            _ => {
+                let path = expr.span().path;
+                let src = utils::get_file_content(path).unwrap();
+                Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                    span: expr.span(),
+                    expr: format!("expression {}", expr.kind()),
+                    src: NamedSource::new(path, src),
+                }))
             }
         }
     }

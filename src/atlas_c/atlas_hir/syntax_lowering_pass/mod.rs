@@ -10,10 +10,7 @@ use crate::atlas_c::{
         parser::{
             arena::AstArena,
             ast::{
-                AstBinaryOp, AstBlock, AstConstructor, AstDestructor, AstEnum, AstExpr,
-                AstExternFunction, AstFunction, AstIdentifier, AstImport, AstItem, AstLiteral,
-                AstMethod, AstMethodModifier, AstNamedType, AstObjField, AstProgram, AstStatement,
-                AstStruct, AstType, AstUnaryOp,
+                self, AstBinaryOp, AstBlock, AstConstructor, AstDestructor, AstEnum, AstExpr, AstExternFunction, AstFunction, AstIdentifier, AstImport, AstItem, AstLiteral, AstMethod, AstMethodModifier, AstNamedType, AstObjField, AstProgram, AstStatement, AstStruct, AstType, AstUnaryOp, AstUnion
             },
         },
     },
@@ -26,16 +23,11 @@ use crate::atlas_c::{
             UnsupportedTypeError, UselessError,
         },
         expr::{
-            HirAssignExpr, HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr,
-            HirCharLiteralExpr, HirDeleteExpr, HirExpr, HirFieldAccessExpr, HirFloatLiteralExpr,
-            HirFunctionCallExpr, HirIdentExpr, HirIndexingExpr, HirIntegerLiteralExpr,
-            HirListLiteralExpr, HirNewArrayExpr, HirNewObjExpr, HirStaticAccessExpr,
-            HirStringLiteralExpr, HirThisLiteral, HirUnaryOp, HirUnitLiteralExpr,
-            HirUnsignedIntegerLiteralExpr, UnaryOpExpr,
+            HirAssignExpr, HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr, HirCharLiteralExpr, HirDeleteExpr, HirExpr, HirFieldAccessExpr, HirFieldInit, HirFloatLiteralExpr, HirFunctionCallExpr, HirIdentExpr, HirIndexingExpr, HirIntegerLiteralExpr, HirListLiteralExpr, HirNewArrayExpr, HirNewObjExpr, HirObjLiteralExpr, HirStaticAccessExpr, HirStringLiteralExpr, HirThisLiteral, HirUnaryOp, HirUnitLiteralExpr, HirUnsignedIntegerLiteralExpr, UnaryOpExpr
         },
         generic_pool::HirGenericPool,
         item::{
-            HirEnum, HirEnumVariant, HirFunction, HirStruct, HirStructConstructor, HirStructMethod,
+            HirEnum, HirEnumVariant, HirFunction, HirStruct, HirStructConstructor, HirStructMethod, HirUnion,
         },
         signature::{
             ConstantValue, HirFunctionParameterSignature, HirFunctionSignature, HirModuleSignature,
@@ -173,11 +165,57 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     self.arena.intern(hir_enum),
                 );
             }
+            AstItem::Union(ast_union) => {
+                let hir_union = self.visit_union(ast_union)?;
+                self.module_body
+                    .unions
+                    .insert(self.arena.names().get(ast_union.name.name), hir_union.clone());
+                self.module_signature.unions.insert(
+                    self.arena.names().get(ast_union.name.name),
+                    self.arena.intern(hir_union),
+                );
+            }
             _ => {
                 //Let's just silently ignore unsupported items for now
             }
         }
         Ok(())
+    }
+
+    fn visit_union(&mut self, ast_union: &'ast AstUnion<'ast>) -> HirResult<HirUnion<'hir>> {
+        let name = self.arena.names().get(ast_union.name.name);
+        if !name.is_pascal_case() {
+            Self::name_should_be_in_different_case_warning(
+                &ast_union.name.span,
+                "PascalCase",
+                "union",
+                name,
+                &name.to_pascal_case(),
+            );
+        }
+        if name.len() == 1 {
+            return Err(Self::name_single_character_error(&ast_union.name.span));
+        }
+        let mut variants = vec![];
+        for v in ast_union.variants.iter() {
+            //Currently only supporting discriminant values for unions
+            variants.push(HirStructFieldSignature {
+                span: v.span,
+                vis: HirVisibility::from(v.vis),
+                name: self.arena.names().get(v.name.name),
+                name_span: v.name.span,
+                ty: self.visit_ty(v.ty)?,
+                ty_span: v.ty.span(),
+            });
+        }
+        let hir = HirUnion {
+            span: ast_union.span,
+            name,
+            name_span: ast_union.name.span,
+            vis: ast_union.vis.into(),
+            variants
+        };
+        Ok(hir)
     }
 
     fn visit_enum(&mut self, ast_enum: &'ast AstEnum<'ast>) -> HirResult<HirEnum<'hir>> {
@@ -908,6 +946,27 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         .map(|arg| self.visit_expr(arg))
                         .collect::<HirResult<Vec<_>>>()?,
                     args_ty: Vec::new(),
+                });
+                Ok(hir)
+            }
+            AstExpr::ObjLiteral(obj) => {
+                // At this point, we still don't know the type of the object literal
+                let ty = self.arena.types().get_uninitialized_ty();
+                let hir = HirExpr::ObjLiteral(HirObjLiteralExpr {
+                    span: node.span(),
+                    ty,
+                    fields: obj
+                        .fields
+                        .iter()
+                        .map(|field| {
+                            Ok(HirFieldInit {
+                                span: field.span,
+                                name: self.arena.names().get(field.name.name),
+                                name_span: field.name.span,
+                                ty: self.arena.types().get_uninitialized_ty(),
+                                value: Box::new(self.visit_expr(field.value)?),
+                            })
+                        }).collect::<HirResult<Vec<_>>>()?,
                 });
                 Ok(hir)
             }

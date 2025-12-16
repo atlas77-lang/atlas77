@@ -25,6 +25,16 @@ pub struct HirImport<'hir> {
     pub alias: Option<&'hir str>,
     pub alias_span: Option<Span>,
 }
+
+#[derive(Debug, Clone)]
+pub struct HirUnion<'hir> {
+    pub span: Span,
+    pub name: &'hir str,
+    pub name_span: Span,
+    pub variants: Vec<HirStructFieldSignature<'hir>>,
+    pub vis: HirVisibility,
+}
+
 #[derive(Debug, Clone)]
 pub struct HirStruct<'hir> {
     pub span: Span,

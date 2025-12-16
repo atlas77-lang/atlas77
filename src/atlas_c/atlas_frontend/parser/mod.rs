@@ -85,16 +85,12 @@ impl<'ast> Parser<'ast> {
 
     /// Check if the current `{` token is directly followed by field assignments like `.field = value`
     fn looks_like_obj_literal(&self) -> bool {
-        eprintln!("Checking if looks like object literal...");
         if self.current().kind() != TokenKind::LBrace {
             return false;
         }
-        eprintln!("Current token is LBrace");
         if let Some(next_kind) = self.peek() {
-            eprintln!("Next token kind: {:?}", next_kind);
             return matches!(next_kind, TokenKind::Dot);
         }
-        eprintln!("Next token is not Dot");
         false
     }
 
@@ -1195,7 +1191,6 @@ impl<'ast> Parser<'ast> {
 
     /// TODO: We should be able to write `new Foo().bar()` but currently we can't
     fn parse_ident_access(&mut self, origin: AstExpr<'ast>) -> ParseResult<AstExpr<'ast>> {
-        eprintln!("Parsing identifier access... {:?}", origin);
         let mut node = origin;
         while self.peek().is_some() {
             match self.current().kind() {
@@ -1215,7 +1210,6 @@ impl<'ast> Parser<'ast> {
                 }
                 TokenKind::LBrace => {
                     if self.looks_like_obj_literal() {
-                        eprintln!("Looks like an object literal...");
                         //Object literal like `Point { x: 10, y: 20 }`
                         node = AstExpr::ObjLiteral(self.parse_obj_literal(node)?);
                         return Ok(node);
@@ -1225,9 +1219,7 @@ impl<'ast> Parser<'ast> {
                 }
                 TokenKind::LAngle => {
                     if self.looks_like_generic_call() {
-                        eprintln!("It looks like a generic call!");
                         let generics = self.parse_instantiated_generics()?;
-                        eprintln!("Parsed generics: {:?}", generics);
                         if self.current().kind() == TokenKind::LParen {
                             node = AstExpr::Call(self.parse_fn_call(node, generics)?);
                         } else if self.current().kind() == TokenKind::DoubleColon {
@@ -1295,7 +1287,6 @@ impl<'ast> Parser<'ast> {
     }
 
     fn parse_obj_literal(&mut self, node: AstExpr<'ast>) -> ParseResult<AstObjLiteralExpr<'ast>> {
-        eprintln!("Parsing object literal...");
         let start = self.expect(TokenKind::LBrace)?.span;
         let mut fields = vec![];
         while self.current().kind() != TokenKind::RBrace {
