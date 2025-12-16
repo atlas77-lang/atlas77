@@ -2,6 +2,47 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.3] - 2025-12-16
+
+### Bug Fixes
+
+- A bit more fixes on the experimental std ([d4a0374](https://github.com/atlas77-lang/Atlas77/commit/d4a037421d15d8275f389c498c7a7e2ce92c9f0c))
+- Fixed issue with char comparison ([55999ad](https://github.com/atlas77-lang/Atlas77/commit/55999ad9482ee7665ee6ac2b74d1d3c481452b42))
+- Fixed missing std features & the test.atlas file itself ([a2b0b1b](https://github.com/atlas77-lang/Atlas77/commit/a2b0b1b1a20fdfa81ba04fa1cfbb3160c65ad9ab))
+- Worked a bit more on the `optional<T>` syntax ([f8cadda](https://github.com/atlas77-lang/Atlas77/commit/f8caddad024fb7f985066f733b05b56cc5c1a2c9))
+- Fix the `examples/README.md` file ([636c9f2](https://github.com/atlas77-lang/Atlas77/commit/636c9f24937591a9dfd978ba3febe523456be166))
+
+### Features
+
+- Unions finally work from end to end ([0aa1e91](https://github.com/atlas77-lang/Atlas77/commit/0aa1e914ca4447a442aa6a12109b9973d57acb66))
+- Added unions up to the typechecker & monomorphization ([bbe58e5](https://github.com/atlas77-lang/Atlas77/commit/bbe58e56baec641618026444d6c45a5bc190ed3b))
+- Added support for function type `(args_ty, ...) -> ret_ty` ([49b280e](https://github.com/atlas77-lang/Atlas77/commit/49b280e4552af5a38ca0545566610a643c0cec78))
+- Added simple typechecking for union variants access ([0a927ce](https://github.com/atlas77-lang/Atlas77/commit/0a927cebb72ea866ef84db06c8fb5c0dcae35d11))
+- Added union up until lowering in the sema ([f8ad4ba](https://github.com/atlas77-lang/Atlas77/commit/f8ad4ba481fc87770541beb5deaa3c0fd055ad28))
+- Added `expected<T, E>` in the std/experimental ([56cecd0](https://github.com/atlas77-lang/Atlas77/commit/56cecd0982a11cb5fe5ba67e56764a17eeb8c1ac))
+- Added syntax support for unions. ([ac467e7](https://github.com/atlas77-lang/Atlas77/commit/ac467e7f5acd026ba4b8701eeda3813bd1d982bf))
+- Added `Map<K, V>.into_iter() -> Iter<Pair<K, V>>` ([f7bca2f](https://github.com/atlas77-lang/Atlas77/commit/f7bca2fd3f96c065eb29459f43c8e36a427995bc))
+
+### Miscellaneous Tasks
+
+- Bumped version from 0.6.2 to 0.6.3 ([6b09279](https://github.com/atlas77-lang/Atlas77/commit/6b09279642feadad4d81c86d06f130d61c5fd704))
+
+### Refactor
+
+- Reworked how to have uint64 literals (from `1_uint64` to `1u`) ([b4c67e6](https://github.com/atlas77-lang/Atlas77/commit/b4c67e626e069fc1c57de3b38f271d15a2a1da2e))
+
+### Misc
+
+- Applied Clippy changes ([1a4a545](https://github.com/atlas77-lang/Atlas77/commit/1a4a5453046d69879edcacc959e5dda8246e19b6))
+- Added some more necessary structs to the upcoming dead code elimination ([e875ade](https://github.com/atlas77-lang/Atlas77/commit/e875ade6bbb78dd08bde0f8104a0c4f8b8e8d26c))
+- Added v0.6.x & dev branch to PR checks ([768973b](https://github.com/atlas77-lang/Atlas77/commit/768973b6be7ab374a0775830f4bc8852f9c1917d))
+- Removed `if_else` example ([df0999d](https://github.com/atlas77-lang/Atlas77/commit/df0999db04d41e769de1474bcac8aaf767b85cb2))
+- A bit more work on the LIR. ([b6c69b9](https://github.com/atlas77-lang/Atlas77/commit/b6c69b91a93b4e3e7d3469d4597596bf049bf6c4))
+
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
 ## [0.6.2] - 2025-12-13
 
 ### Bug Fixes
