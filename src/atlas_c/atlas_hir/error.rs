@@ -50,7 +50,24 @@ declare_error_type! {
         TryingToMutateConstReference(TryingToMutateConstReferenceError),
         TryingToCreateAnUnionWithMoreThanOneActiveField(TryingToCreateAnUnionWithMoreThanOneActiveFieldError),
         TypeDoesNotImplementRequiredConstraint(TypeDoesNotImplementRequiredConstraintError),
+        InvalidSpecialMethodSignature(InvalidSpecialMethodSignatureError),
     }
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::invalid_special_method_signature),
+    help("Ensure special methods have the correct signature, try {expected}")
+)]
+#[error("Invalid special method signature for method '{method_name}': expected {expected}")]
+pub struct InvalidSpecialMethodSignatureError {
+    #[label = "invalid special method signature"]
+    pub span: Span,
+    pub expected: String,
+    pub actual: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+    pub method_name: String,
 }
 
 #[derive(Error, Diagnostic, Debug)]

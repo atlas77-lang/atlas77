@@ -975,9 +975,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 let mut generics = vec![];
                 for generic in c.generics.iter() {
                     let generic_ty = match self.visit_ty(generic)? {
-                        HirTy::Generic(ty) => {
-                            self.register_generic_type(ty)
-                        },
+                        HirTy::Generic(ty) => self.register_generic_type(ty),
                         other => other,
                     };
                     generics.push(generic_ty);

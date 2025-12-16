@@ -9,12 +9,15 @@ use super::{
     stmt::HirStatement,
     ty::{HirTy, HirTyId},
 };
-use crate::atlas_c::atlas_hir::warning::{DeletingReferenceMightLeadToUB, HirWarning};
 use crate::atlas_c::atlas_hir::{
     error::IllegalUnaryOperationError,
     signature::{
         HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier, HirVisibility,
     },
+};
+use crate::atlas_c::atlas_hir::{
+    error::InvalidSpecialMethodSignatureError,
+    warning::{DeletingReferenceMightLeadToUB, HirWarning},
 };
 use crate::atlas_c::atlas_hir::{
     error::TryingToAccessFieldOnNonObjectTypeError,
@@ -179,7 +182,8 @@ impl<'hir> TypeChecker<'hir> {
         Ok(())
     }
 
-    pub fn check_method(&mut self, method: &mut HirStructMethod<'hir>) -> HirResult<()> {
+    fn check_method(&mut self, method: &mut HirStructMethod<'hir>) -> HirResult<()> {
+        self.check_special_method_signature(method.name, method)?;
         self.context_functions.push(HashMap::new());
         self.context_functions.last_mut().unwrap().insert(
             self.current_func_name.unwrap().to_string(),
@@ -207,6 +211,80 @@ impl<'hir> TypeChecker<'hir> {
         }
         //Because it is a method we don't keep it in the `context_functions`
         self.context_functions.pop();
+        Ok(())
+    }
+
+    fn check_special_method_signature(
+        &mut self,
+        name: &str,
+        method: &HirStructMethod<'hir>,
+    ) -> HirResult<()> {
+        match name {
+            // fun _copy(&const this) -> CurrentClass
+            "_copy" => {
+                if method.signature.modifier != HirStructMethodModifier::Const {
+                    return Err(HirError::InvalidSpecialMethodSignature(
+                        InvalidSpecialMethodSignatureError {
+                            span: method.signature.span,
+                            method_name: name.to_string(),
+                            expected: "a const modifier".to_string(),
+                            actual: format!("{:?}", method.signature.modifier),
+                            src: NamedSource::new(
+                                method.signature.span.path,
+                                utils::get_file_content(method.signature.span.path).unwrap(),
+                            ),
+                        },
+                    ));
+                }
+                // Methods don't inherently have a parameter for `this`, it is implicit
+                // The fist parameter is determined by the modifier (in this case const)
+                if method.signature.params.len() != 0 {
+                    return Err(HirError::InvalidSpecialMethodSignature(
+                        InvalidSpecialMethodSignatureError {
+                            span: method.signature.span,
+                            method_name: name.to_string(),
+                            expected: "1 parameter (&const this)".to_string(),
+                            actual: format!("{} parameters", method.signature.params.len()),
+                            src: NamedSource::new(
+                                method.signature.span.path,
+                                utils::get_file_content(method.signature.span.path).unwrap(),
+                            ),
+                        },
+                    ));
+                }
+                match self.is_equivalent_ty(
+                    &method.signature.return_ty,
+                    method.signature.span,
+                    self.arena
+                        .types()
+                        .get_named_ty(self.current_class_name.unwrap(), method.signature.span),
+                    method.signature.return_ty_span.unwrap(),
+                ) {
+                    Ok(_) => {}
+                    Err(_) => {
+                        return Err(HirError::InvalidSpecialMethodSignature(
+                            InvalidSpecialMethodSignatureError {
+                                span: method
+                                    .signature
+                                    .return_ty_span
+                                    .unwrap_or(method.signature.span),
+                                method_name: name.to_string(),
+                                expected: format!(
+                                    "return type to be {}",
+                                    self.current_class_name.unwrap()
+                                ),
+                                actual: format!("{}", method.signature.return_ty),
+                                src: NamedSource::new(
+                                    method.signature.span.path,
+                                    utils::get_file_content(method.signature.span.path).unwrap(),
+                                ),
+                            },
+                        ));
+                    }
+                }
+            }
+            _ => {}
+        }
         Ok(())
     }
 

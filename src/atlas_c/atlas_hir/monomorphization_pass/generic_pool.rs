@@ -65,13 +65,15 @@ impl<'hir> HirGenericPool<'hir> {
         if let Some(struct_sig) = module.structs.get(generic.name) {
             declaration_span = struct_sig.name_span;
             constraints = struct_sig.generics.clone();
-            if !self.check_constraint_satisfaction(module, &generic, constraints, declaration_span) {
+            if !self.check_constraint_satisfaction(module, &generic, constraints, declaration_span)
+            {
                 std::process::exit(1);
             }
         } else if let Some(union_sig) = module.unions.get(generic.name) {
             declaration_span = union_sig.name_span;
             constraints = union_sig.generics.clone();
-            if !self.check_constraint_satisfaction(module, &generic, constraints, declaration_span) {
+            if !self.check_constraint_satisfaction(module, &generic, constraints, declaration_span)
+            {
                 std::process::exit(1);
             }
         }
@@ -80,7 +82,7 @@ impl<'hir> HirGenericPool<'hir> {
         if !self.is_generic_instantiated(&generic, module) {
             return;
         }
-        
+
         let name = self.mangle_generic_object_name(generic.clone(), "struct");
         self.structs.entry(name).or_insert(HirGenericInstance {
             name: generic.name,
@@ -151,10 +153,6 @@ impl<'hir> HirGenericPool<'hir> {
         constraints: Vec<&HirGenericConstraint<'hir>>,
         declaration_span: Span,
     ) -> bool {
-        eprintln!(
-            "Checking constraints for instantiated generic: {:?} with args: {:?}",
-            instantiated_generic.name, instantiated_generic.inner
-        );
         for (instantiated_ty, constraint) in
             instantiated_generic.inner.iter().zip(constraints.iter())
         {
@@ -196,7 +194,6 @@ impl<'hir> HirGenericPool<'hir> {
     /// This is currently the only generic constraint supported.
     /// Checks if a type implements `std::copyable` e.g. If it's a primitive type or a struct that has the `_copy` method.
     fn implements_std_copyable(&self, module: &HirModuleSignature<'hir>, ty: &HirTy<'hir>) -> bool {
-        eprintln!("Checking std::copyable for type: {:?}", ty);
         match ty {
             HirTy::Boolean(_)
             | HirTy::Int64(_)

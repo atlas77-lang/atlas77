@@ -10,6 +10,10 @@ struct Pair<T, U> {
         this.second = second;
     }
 
+    fun _copy(&const this) -> Pair<T, U> {
+        return new Pair<T, U>(this.first, this.second);
+    }
+
     fun swap(this) -> Pair<U, T> {
         return new Pair<U, T>(this.second, this.first);
     }
@@ -29,10 +33,6 @@ struct Pair<T, U> {
     fun test(this) -> Pair<T, Box<float64>> {
         let boxed_value: Box<float64> = new Box<float64>(3.14);
         return new Pair<T, Box<float64>>(this.first, boxed_value);
-    }
-
-    fun add(this) -> T {
-        return this.first + this.second;
     }
 }
 
