@@ -85,6 +85,7 @@ impl<'hir> MonomorphizationPass<'hir> {
         Ok(is_done)
     }
 
+    //TODO: Add support for unions
     pub fn monomorphize_struct(
         &mut self,
         module: &mut HirModule<'hir>,
@@ -177,7 +178,15 @@ impl<'hir> MonomorphizationPass<'hir> {
             }
         }
 
-        for (_, func) in new_struct.signature.methods.iter_mut() {
+        for (name, func) in new_struct.signature.methods.iter_mut() {
+            if func.generics.is_some() {
+                // We just ignore methods with their own generics for now
+                eprintln!(
+                    "Warning: Skipping monomorphization of method {} because it has its own generics",
+                    name
+                );
+                continue;
+            }
             //args:
             for param in func.params.iter_mut() {
                 for (i, generic_name) in generic_names.iter().enumerate() {

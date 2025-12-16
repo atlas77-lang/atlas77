@@ -49,7 +49,7 @@ use crate::atlas_c::{
             HirWhileStmt,
         },
         syntax_lowering_pass::case::Case,
-        ty::{HirGenericTy, HirTy},
+        ty::{HirFunctionTy, HirGenericTy, HirTy},
         warning::{HirWarning, NameShouldBeInDifferentCaseWarning, ThisTypeIsStillUnstableWarning},
     },
     utils::{self, Span},
@@ -1266,14 +1266,17 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 };
                 self.arena.types().get_extern_ty(type_hint)
             }
-            _ => {
-                let path = node.span().path;
-                let src = crate::atlas_c::utils::get_file_content(path).unwrap();
-                return Err(HirError::UnsupportedType(UnsupportedTypeError {
-                    span: node.span(),
-                    ty: format!("{:?}", node),
-                    src: NamedSource::new(path, src),
-                }));
+            AstType::Function(func_ty) => {
+                let span = func_ty.span;
+                let parameters = func_ty
+                    .args
+                    .iter()
+                    .map(|arg| self.visit_ty(arg))
+                    .collect::<HirResult<Vec<_>>>()?;
+                let return_ty = self.visit_ty(func_ty.ret)?;
+                self.arena
+                    .types()
+                    .get_function_ty(parameters, return_ty, span)
             }
         };
         Ok(ty)

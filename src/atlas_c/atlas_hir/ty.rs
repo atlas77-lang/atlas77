@@ -148,7 +148,7 @@ impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
                 Some(ty) => HirTyId::from(*ty),
                 None => HirTyId::compute_extern_ty_id(None),
             },
-            HirTy::_Function(f) => {
+            HirTy::Function(f) => {
                 let parameters = f.params.iter().map(HirTyId::from).collect::<Vec<_>>();
                 let ret_ty = HirTyId::from(f.ret_ty);
                 HirTyId::compute_function_ty_id(&ret_ty, &parameters)
@@ -174,7 +174,7 @@ pub enum HirTy<'hir> {
     MutableReference(HirMutableReferenceTy<'hir>),
     ReadOnlyReference(HirReadOnlyReferenceTy<'hir>),
     ExternTy(HirExternTy<'hir>),
-    _Function(HirFunctionTy<'hir>),
+    Function(HirFunctionTy<'hir>),
 }
 
 impl HirTy<'_> {
@@ -216,7 +216,7 @@ impl fmt::Display for HirTy<'_> {
                 Some(ty) => write!(f, "extern_ptr<{}>", ty),
                 None => write!(f, "extern_ptr"),
             },
-            HirTy::_Function(func) => {
+            HirTy::Function(func) => {
                 let params = func
                     .params
                     .iter()
@@ -293,6 +293,7 @@ pub struct HirStringTy {}
 pub struct HirFunctionTy<'hir> {
     pub ret_ty: &'hir HirTy<'hir>,
     pub params: Vec<HirTy<'hir>>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
