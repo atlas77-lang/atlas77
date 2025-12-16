@@ -59,10 +59,6 @@ impl<'hir> HirGenericPool<'hir> {
         generic: HirGenericTy<'hir>,
         module: &HirModuleSignature<'hir>,
     ) {
-        //First we need to check if it's an instantiated generics or a generic definition e.g.: Vector<T> or Vector<uint64>
-        if !self.is_generic_instantiated(&generic, module) {
-            return;
-        }
         //Let's now check for constraints:
         let declaration_span;
         let constraints: Vec<&HirGenericConstraint<'_>>;
@@ -78,6 +74,11 @@ impl<'hir> HirGenericPool<'hir> {
             if !self.check_constraint_satisfaction(module, &generic, constraints, declaration_span) {
                 std::process::exit(1);
             }
+        }
+        //We need to check if it's an instantiated generics or a generic definition e.g.: Vector<T> or Vector<uint64>
+        //We check only after checking constraints so if a type is registered during syntax lowering we still check constraints afterwards
+        if !self.is_generic_instantiated(&generic, module) {
+            return;
         }
         
         let name = self.mangle_generic_object_name(generic.clone(), "struct");
