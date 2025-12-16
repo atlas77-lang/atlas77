@@ -49,7 +49,36 @@ declare_error_type! {
         CallingNonConstMethodOnConstReference(CallingNonConstMethodOnConstReferenceError),
         TryingToMutateConstReference(TryingToMutateConstReferenceError),
         TryingToCreateAnUnionWithMoreThanOneActiveField(TryingToCreateAnUnionWithMoreThanOneActiveFieldError),
+        TypeDoesNotImplementRequiredConstraint(TypeDoesNotImplementRequiredConstraintError),
     }
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::type_does_not_implement_required_constraint),
+    help("implement the required constraint for this type")
+)]
+#[error("type `{ty}` does not implement required constraint `{constraint}`")]
+pub struct TypeDoesNotImplementRequiredConstraintError {
+    #[label = "type `{ty}` does not implement required constraint `{constraint}`"]
+    pub span: Span,
+    pub ty: String,
+    pub constraint: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[source]
+    #[diagnostic_source]
+    pub origin: TypeDoesNotImplementRequiredConstraintOrigin,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic()]
+#[error("")]
+pub struct TypeDoesNotImplementRequiredConstraintOrigin {
+    #[label = "the constraint is required here"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]

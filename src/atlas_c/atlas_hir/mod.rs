@@ -18,7 +18,6 @@ pub mod syntax_lowering_pass;
 pub mod type_check_pass;
 //todo: The Hir needs a little rework to correctly define what is an item, a statement, an expression, a type, etc.
 pub mod expr;
-mod generic_pool;
 pub mod item;
 mod scope;
 pub mod signature;

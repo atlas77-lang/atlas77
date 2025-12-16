@@ -29,12 +29,42 @@ pub struct HirStructSignature<'hir> {
     pub methods: BTreeMap<&'hir str, HirStructMethodSignature<'hir>>,
     pub fields: BTreeMap<&'hir str, HirStructFieldSignature<'hir>>,
     /// Generic type parameter names
-    pub generics: Vec<&'hir str>,
+    pub generics: Vec<&'hir HirGenericConstraint<'hir>>,
     /// This is enough to know if the class implement them or not
     pub operators: Vec<HirBinaryOperator>,
     pub constants: BTreeMap<&'hir str, &'hir HirStructConstantSignature<'hir>>,
     pub constructor: HirStructConstructorSignature<'hir>,
     pub destructor: HirStructConstructorSignature<'hir>,
+}
+
+#[derive(Debug, Clone)]
+pub struct HirGenericConstraint<'hir> {
+    pub span: Span,
+    pub generic_name: &'hir str,
+    // For now only `std::copyable`
+    pub kind: Vec<&'hir HirGenericConstraintKind<'hir>>,
+}
+
+#[derive(Debug, Clone)]
+pub enum HirGenericConstraintKind<'hir> {
+    // e.g. std::copyable
+    Std(&'hir str),
+    // e.g. operator overloading
+    Operator(HirBinaryOperator),
+    // e.g. user-defined concepts
+    Concept(&'hir str),
+}
+
+impl Display for HirGenericConstraintKind<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HirGenericConstraintKind::Std(name) => write!(f, "std::{}", name),
+            HirGenericConstraintKind::Operator(op) => write!(f, "operator {:?}", op),
+            HirGenericConstraintKind::Concept(name) => {
+                write!(f, "{}", name)
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -45,7 +75,7 @@ pub struct HirUnionSignature<'hir> {
     pub name_span: Span,
     pub variants: BTreeMap<&'hir str, HirStructFieldSignature<'hir>>,
     /// Generic type parameter names
-    pub generics: Vec<&'hir str>,
+    pub generics: Vec<&'hir HirGenericConstraint<'hir>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy, Default)]

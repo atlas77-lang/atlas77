@@ -60,7 +60,7 @@ impl<'hir> HirExpr<'hir> {
         }
     }
 
-    pub(crate) fn kind(&self) -> &'static str {
+    pub fn kind(&self) -> &'static str {
         match self {
             HirExpr::Ident(_) => "Identifier",
             HirExpr::IntegerLiteral(_) => "Integer Literal",
