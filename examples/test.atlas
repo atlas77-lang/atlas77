@@ -49,9 +49,9 @@ fun main() {
         if pair_opt.is_some() {
             let pair = pair_opt.unwrap();
             print("Key: ");
-            print(pair.getFirst());
+            print(pair.get_first());
             print(", Value: ");
-            println(pair.getSecond());
+            println(pair.get_second());
         }        
     }
 
