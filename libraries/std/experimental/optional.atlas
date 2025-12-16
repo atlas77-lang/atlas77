@@ -17,27 +17,29 @@ private union optional_storage<T: std::copyable> {
 public struct optional<T: std::copyable> {
 private:
     data: optional_storage<T>;
-    is_some: bool;
+    has_value: bool;
     // Private constructor
-    optional(data: optional_storage<T>, is_some: bool) {
+    optional(data: optional_storage<T>, has_value: bool) {
         this.data = data;
-        this.is_some = is_some;
+        this.has_value = has_value;
     }
 public:
     // Destructor to clean up the stored value if it exists
     ~optional() {
-        if (this.is_some) {
+        if (this.has_value) {
             delete this.data.value;
         }
     }
     // First draft of a copy constructor
     fun _copy(&const this) -> optional<T> {
-        if (this.is_some) {
+        if (this.has_value) {
             return optional::<T>::some(this.data.value);
         } else {
             return optional::<T>::none();
         }
     }
+    // Needs a better name than `some` and `none`
+    // It needs to be closer to C++ nomenclature
     fun some(data: T) -> optional<T> {
         return new optional<T>(
             optional_storage<T> { 
@@ -54,28 +56,27 @@ public:
             false
         );
     }
-    fun is_some(this) -> bool {
-        return this.is_some;
+    fun has_value(this) -> bool {
+        return this.has_value;
     }
-    fun is_none(this) -> bool {
-        return !this.is_some;
-    }
-    fun unwrap(this) -> T {
-        if (!this.is_some) {
-            panic("Called unwrap on a none value");
+    // Unwrap the value, panicking if it's none
+    // `T!` indicates that this function may not return normally (i.e., it may panic)
+    fun value(this) -> T! {
+        if (!this.has_value) {
+            panic("Called value on a none optional");
         } else {
             return this.data.value;
         }
     }
-    fun unwrap_or(this, default: T) -> T {
-        if (this.is_some) {
+    fun value_or(this, default: T) -> T {
+        if (this.has_value) {
             return this.data.value;
         } else {
             return default;
         }
     }
     fun map<U>(this, f: (T) -> U) -> optional<U> {
-        if (this.is_some) {
+        if (this.has_value) {
             return optional<U>::some(f(this.data.value));
         } else {
             return optional<U>::none();
