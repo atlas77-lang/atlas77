@@ -796,7 +796,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
             HirExpr::FieldAccess(field_access) => {
                 self.generate_bytecode_expr(field_access.target.as_ref(), bytecode)?;
-                let struct_name = match self.get_class_name_of_type(field_access.target.ty()) {
+                let obj_name = match self.get_class_name_of_type(field_access.target.ty()) {
                     Some(n) => n,
                     None => {
                         return Err(Self::unsupported_expr_err(
@@ -805,21 +805,21 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         ));
                     }
                 };
-                let struct_descriptor = self
-                    .struct_pool
-                    .iter()
-                    .find(|c| c.name == struct_name)
-                    .unwrap_or_else(|| {
-                        //should never happen
-                        panic!("Struct {} not found", struct_name)
-                    });
-                //get the position of the field
-                let field = struct_descriptor
-                    .fields
-                    .iter()
-                    .position(|f| *f == field_access.field.name)
-                    .unwrap();
-                bytecode.push(Instruction::GetField { field })
+                if let Some(struct_descriptor) =
+                    self.struct_pool.iter().find(|s| s.name == obj_name)
+                {
+                    // Get the position of the field
+                    let field = struct_descriptor
+                        .fields
+                        .iter()
+                        .position(|f| *f == field_access.field.name)
+                        .unwrap();
+                    bytecode.push(Instruction::GetField { field })
+                } else {
+                    // This might be access an union field
+                    // I don't even think we need to add special instruction for that
+                    // since the field will be at the same position as in a struct
+                }
             }
             HirExpr::StaticAccess(static_access) => {
                 let struct_name = match static_access.target {
@@ -938,6 +938,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         ));
                     }
                 }
+            }
+            // Only used for union literals for now.
+            HirExpr::ObjLiteral(obj_lit) => {
+                self.generate_bytecode_expr(&obj_lit.fields[0].value, bytecode)?;
             }
             HirExpr::NewObj(new_obj) => {
                 let name = match &new_obj.ty {

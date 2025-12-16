@@ -9,7 +9,6 @@ use super::{
     stmt::HirStatement,
     ty::{HirTy, HirTyId},
 };
-use crate::atlas_c::atlas_hir::type_check_pass::context::{ContextFunction, ContextVariable};
 use crate::atlas_c::atlas_hir::warning::{DeletingReferenceMightLeadToUB, HirWarning};
 use crate::atlas_c::atlas_hir::{
     error::IllegalUnaryOperationError,
@@ -33,6 +32,13 @@ use crate::atlas_c::atlas_hir::{
 use crate::atlas_c::atlas_hir::{
     error::{NotEnoughArgumentsError, NotEnoughArgumentsOrigin},
     item::{HirStruct, HirStructMethod},
+};
+use crate::atlas_c::atlas_hir::{
+    error::{
+        TryingToCreateAnUnionWithMoreThanOneActiveFieldError,
+        TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin,
+    },
+    type_check_pass::context::{ContextFunction, ContextVariable},
 };
 use crate::atlas_c::atlas_hir::{
     expr::{HirFunctionCallExpr, HirIdentExpr},
@@ -758,6 +764,26 @@ impl<'hir> TypeChecker<'hir> {
                                 span: union_signature.name_span,
                                 src: NamedSource::new(origin_path, origin_src),
                             },
+                        },
+                    ));
+                }
+
+                if obj_lit.fields.len() > 1 {
+                    let origin = TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin {
+                        span: obj_lit.span,
+                        src: NamedSource::new(
+                            union_signature.name_span.path,
+                            utils::get_file_content(union_signature.name_span.path).unwrap(),
+                        ),
+                    };
+                    return Err(HirError::TryingToCreateAnUnionWithMoreThanOneActiveField(
+                        TryingToCreateAnUnionWithMoreThanOneActiveFieldError {
+                            span: obj_lit.span,
+                            src: NamedSource::new(
+                                obj_lit.span.path,
+                                utils::get_file_content(obj_lit.span.path).unwrap(),
+                            ),
+                            origin,
                         },
                     ));
                 }

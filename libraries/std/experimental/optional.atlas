@@ -48,7 +48,7 @@ public:
     fun empty() -> optional<T> {
         return new optional<T>(
             optional_storage<T> { 
-                .empty = () 
+                .empty = ()
             }, 
             false
         );
@@ -73,17 +73,17 @@ public:
         }
     }
     // Function pointers are not supported yet, so this is just a placeholder
-    fun map<U>(this, f: (T) -> U) -> optional<U> {
-        if (this.has_value) {
-            return optional<U>::some(f(this.data.value));
-        } else {
-            return optional<U>::empty();
-        }
-    }
+    //fun map<U>(this, f: (T) -> U) -> optional<U> {
+    //    if (this.has_value) {
+    //        return optional<U>::some(f(this.data.value));
+    //    } else {
+    //        return optional<U>::empty();
+    //    }
+    //}
 }
 
 // Example usage will be removed once this API is stable
-fun test() {
+fun main() {
     let opt1: optional<int64> = optional<int64>::some(10);
     if (opt1.has_value()) {
         let value = opt1.value();
@@ -96,5 +96,5 @@ fun test() {
     let opt2: optional<string> = optional<string>::empty();
     let value_or_default = opt2.value_or("default");
     print("Value or default: ");
-    print(value_or_default);
+    println(value_or_default);
 }
