@@ -13,7 +13,6 @@ pub const FILE_FUNCTIONS: [(&str, CallBack); 6] = [
     ("close_file", close_file),
 ];
 
-
 // We need to manually close files to ensure data integrity
 pub fn close_file(_state: VMState) -> Result<VMData, RuntimeError> {
     // In Rust, files are automatically closed when they go out of scope.

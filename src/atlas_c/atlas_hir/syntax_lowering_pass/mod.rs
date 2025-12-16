@@ -10,7 +10,10 @@ use crate::atlas_c::{
         parser::{
             arena::AstArena,
             ast::{
-                self, AstBinaryOp, AstBlock, AstConstructor, AstDestructor, AstEnum, AstExpr, AstExternFunction, AstFunction, AstIdentifier, AstImport, AstItem, AstLiteral, AstMethod, AstMethodModifier, AstNamedType, AstObjField, AstProgram, AstStatement, AstStruct, AstType, AstUnaryOp, AstUnion
+                AstBinaryOp, AstBlock, AstConstructor, AstDestructor, AstEnum, AstExpr,
+                AstExternFunction, AstFunction, AstIdentifier, AstImport, AstItem, AstLiteral,
+                AstMethod, AstMethodModifier, AstNamedType, AstObjField, AstProgram, AstStatement,
+                AstStruct, AstType, AstUnaryOp, AstUnion,
             },
         },
     },
@@ -23,11 +26,17 @@ use crate::atlas_c::{
             UnsupportedTypeError, UselessError,
         },
         expr::{
-            HirAssignExpr, HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr, HirCharLiteralExpr, HirDeleteExpr, HirExpr, HirFieldAccessExpr, HirFieldInit, HirFloatLiteralExpr, HirFunctionCallExpr, HirIdentExpr, HirIndexingExpr, HirIntegerLiteralExpr, HirListLiteralExpr, HirNewArrayExpr, HirNewObjExpr, HirObjLiteralExpr, HirStaticAccessExpr, HirStringLiteralExpr, HirThisLiteral, HirUnaryOp, HirUnitLiteralExpr, HirUnsignedIntegerLiteralExpr, UnaryOpExpr
+            HirAssignExpr, HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr,
+            HirCharLiteralExpr, HirDeleteExpr, HirExpr, HirFieldAccessExpr, HirFieldInit,
+            HirFloatLiteralExpr, HirFunctionCallExpr, HirIdentExpr, HirIndexingExpr,
+            HirIntegerLiteralExpr, HirListLiteralExpr, HirNewArrayExpr, HirNewObjExpr,
+            HirObjLiteralExpr, HirStaticAccessExpr, HirStringLiteralExpr, HirThisLiteral,
+            HirUnaryOp, HirUnitLiteralExpr, HirUnsignedIntegerLiteralExpr, UnaryOpExpr,
         },
         generic_pool::HirGenericPool,
         item::{
-            HirEnum, HirEnumVariant, HirFunction, HirStruct, HirStructConstructor, HirStructMethod, HirUnion,
+            HirEnum, HirEnumVariant, HirFunction, HirStruct, HirStructConstructor, HirStructMethod,
+            HirUnion,
         },
         signature::{
             ConstantValue, HirFunctionParameterSignature, HirFunctionSignature, HirModuleSignature,
@@ -167,9 +176,10 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
             AstItem::Union(ast_union) => {
                 let hir_union = self.visit_union(ast_union)?;
-                self.module_body
-                    .unions
-                    .insert(self.arena.names().get(ast_union.name.name), hir_union.clone());
+                self.module_body.unions.insert(
+                    self.arena.names().get(ast_union.name.name),
+                    hir_union.clone(),
+                );
                 self.module_signature.unions.insert(
                     self.arena.names().get(ast_union.name.name),
                     self.arena.intern(hir_union),
@@ -210,7 +220,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             name,
             name_span: ast_union.name.span,
             vis: ast_union.vis.into(),
-            variants
+            variants,
         };
         Ok(hir)
     }
@@ -963,7 +973,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                                 ty: self.arena.types().get_uninitialized_ty(),
                                 value: Box::new(self.visit_expr(field.value)?),
                             })
-                        }).collect::<HirResult<Vec<_>>>()?,
+                        })
+                        .collect::<HirResult<Vec<_>>>()?,
                 });
                 Ok(hir)
             }

@@ -1,15 +1,33 @@
 use std::collections::HashMap;
 
-use crate::atlas_c::atlas_hir::{HirModule, arena::HirArena, error::HirResult};
+use crate::atlas_c::{
+    atlas_hir::{HirModule, arena::HirArena, error::HirResult},
+    utils::Span,
+};
 
 pub struct DeadCodeStruct {
     pub name: String,
     pub is_used: bool,
+    pub span: Span,
     pub methods: HashMap<String, DeadCodeFunction>,
+    pub fields: HashMap<String, bool>,
+}
+
+pub struct DeadCodeField {
+    pub name: String,
+    pub span: Span,
+    pub is_used: bool,
+}
+
+pub struct DeadCodeEnum {
+    pub name: String,
+    pub is_used: bool,
+    pub variants: HashMap<String, bool>,
 }
 
 pub struct DeadCodeFunction {
     pub name: String,
+    pub span: Span,
     pub is_used: bool,
 }
 

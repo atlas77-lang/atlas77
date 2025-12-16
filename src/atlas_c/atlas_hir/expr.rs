@@ -122,7 +122,6 @@ pub struct HirObjLiteralExpr<'hir> {
     pub fields: Vec<HirFieldInit<'hir>>,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct HirFieldInit<'hir> {
     pub span: Span,
