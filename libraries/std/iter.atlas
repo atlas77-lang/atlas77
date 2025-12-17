@@ -1,5 +1,5 @@
 import "std/vector";
-import "std/option";
+import "std/experimental/optional";
 import "std/string";
 
 //TODO: Add Iter<T>::from_map(Map<K, V>)
@@ -14,21 +14,21 @@ public:
     }
     ~Iter() {}
     /// Returns the next item in the iterator, or None if the end is reached
-    fun next(this) -> Option<T> {
+    fun next(this) -> optional<T> {
         if this.index >= this.data.length {
-            return Option<T>::none();
+            return optional<T>::empty();
         }
         let item = this.data.get(this.index);
         this.index = this.index + 1u;
-        return Option<T>::some(item);
+        return optional<T>::of(item);
     }
     /// Peeks at the next item without advancing the iterator
-    fun peek(this) -> Option<&const T> {
+    fun peek(this) -> optional<&const T> {
         if this.index >= this.data.length {
-            return Option<&const T>::none();
+            return optional<&const T>::empty();
         }
         let item = this.data.get(this.index);
-        return Option<&const T>::some(&item);
+        return optional<&const T>::of(&item);
     }
 
     fun from_array(data: [T]) -> Iter<T> {

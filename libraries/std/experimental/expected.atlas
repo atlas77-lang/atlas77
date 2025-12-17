@@ -1,67 +1,98 @@
-private union expected_storage<T: std::copyable, E: std::copyable> { 
-    ok_value: T;
-    err_value: E;
+/// Storage for `expected<T, E>`.
+///
+/// Holds either an `expected_value: T` when the computation succeeded,
+/// or an `unexpected_value: E` when it failed. Presence is tracked by
+/// `expected<T, E>::has_expected_value`.
+private union expected_storage<T, E> { 
+    expected_value: T;
+    unexpected_value: E;
 }
 
-public struct expected<T: std::copyable, E: std::copyable> {
+/// A result-like type representing either a value `T` or an error `E`.
+///
+/// Follows a C++ `std::expected`-style API:
+/// - Construct with `expected::expect(value)` for success or `expected::unexpected(error)` for failure.
+/// - Query with `is_expected()` / `is_unexpected()`.
+/// - Access with `expected_value()` / `unexpected_value()` or use
+///   `expected_value_or(default)`.
+public struct expected<T, E> {
 private:
     data: expected_storage<T, E>;
-    is_ok: bool;
-    // Private constructor
-    expected(data: expected_storage<T, E>, is_ok: bool) {
+    has_expected_value: bool;
+    /// Private constructor used by `expect` and `unexpected`.
+    expected(data: expected_storage<T, E>, has_expected_value: bool) {
         this.data = data;
-        this.is_ok = is_ok;
+        this.has_expected_value = has_expected_value;
     }
 public:
-    fun ok(data: T) -> expected<T, E> {
+    /// Construct a successful `expected` containing `data`.
+    ///
+    /// Example:
+    ///     let e = expected<int64, string>::expect(42);
+    fun expect(data: T) -> expected<T, E> {
         return new expected<T, E>(
             expected_storage<T, E> { 
-                .ok_value = data 
+                .expected_value = data 
             }, 
             true
         );
     }
-    fun err(error: E) -> expected<T, E> {
+    /// Construct a failing `expected` containing `error`.
+    ///
+    /// Example:
+    ///     let e = expected<int64, string>::unexpected("oops");
+    fun unexpected(error: E) -> expected<T, E> {
         return new expected<T, E>(
             expected_storage<T, E> { 
-                .err_value = error 
+                .unexpected_value = error 
             }, 
             false
         );
     }
-    fun is_ok(this) -> bool {
-        return this.is_ok;
+    /// Returns true if this holds an expected value.
+    fun is_expected(this) -> bool {
+        return this.has_expected_value;
     }
-    fun is_err(this) -> bool {
-        return !this.is_ok;
+    /// Returns true if this holds an unexpected error.
+    fun is_unexpected(this) -> bool {
+        return !this.has_expected_value;
     }
-    // TODO: Add T! to indicate possible panic
-    fun ok_value(this) -> T {
-        //For now we return last because `panic()` doesn't have a `!` return type to signify it never returns
-        if (!this.is_ok) {
-            panic("Called unwrap on an err value");
+    /// Get the contained value, panicking if this is an unexpected error.
+    ///
+    /// Consider using `expected_value_or(default)` to avoid panics.
+    fun expected_value(this) -> T {
+        if (!this.has_expected_value) {
+            panic("called expected_value() on an unexpected error");
         } else {
-            return this.data.ok_value;
+            return this.data.expected_value;
         }
     }
-    // TODO: Add E! to indicate possible panic
-    fun err_value(this) -> E {
-        if (this.is_ok) {
-            panic("Called unwrap_err on an ok value");
+    /// Get the contained error, panicking if this holds an expected value.
+    fun unexpected_value(this) -> E {
+        if (this.has_expected_value) {
+            panic("called unexpected_value() on an expected value");
         } else {
-            return this.data.err_value;
+            return this.data.unexpected_value;
+        }
+    }
+    /// Get the value if present, otherwise return `default`.
+    fun expected_value_or(this, default: T) -> T {
+        if (this.has_expected_value) {
+            return this.data.expected_value;
+        } else {
+            return default;
         }
     }
 }
 
 // Example usage will be removed once this API is stable
 fun test() {
-    let result: expected<int64, string> = expected<int64, string>::ok(42);
-    if (result.is_ok()) {
-        let value = result.ok_value();
-        println("Got ok value: {}", value);
+    let result: expected<int64, string> = expected<int64, string>::expect(42);
+    if (result.is_expected()) {
+        let value = result.expected_value();
+        println("Got value: {}", value);
     } else {
-        let error = result.err_value();
-        println("Got err value: {}", error);
+        let error = result.unexpected_value();
+        println("Got error: {}", error);
     }
 }

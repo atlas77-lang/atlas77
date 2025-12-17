@@ -54,6 +54,38 @@ declare_error_type! {
     }
 }
 
+//We need an enum that tells the compiler up to where it could go based on the error gravity
+pub enum HirPass {
+    SyntaxLowering = 0,
+    Monomorphization = 1,
+    TypeCheck = 2,
+    LifetimeAnalysis = 3,
+    ConstantFolding = 4,
+    DeadCodeElimination = 5,
+}
+
+pub enum HirErrorGravity {
+    //The error is not critical, the compiler can go up to a certain pass
+    CanGoUpTo(HirPass),
+    //The error is not critical, the compiler can finish the current pass but not continue
+    CanFinishCurrentPassButNotContinue,
+    //The error is critical, the compiler should stop immediately
+    Critical,
+}
+
+impl HirError {
+    pub fn gravity(&self) -> HirErrorGravity {
+        match self {
+            HirError::UnsupportedExpr(_) => HirErrorGravity::CanFinishCurrentPassButNotContinue,
+            HirError::UnsupportedType(_) => HirErrorGravity::CanFinishCurrentPassButNotContinue,
+            HirError::UnsupportedStatement(_) => HirErrorGravity::CanFinishCurrentPassButNotContinue,
+            HirError::UnsupportedItem(_) => HirErrorGravity::CanFinishCurrentPassButNotContinue,
+            HirError::UnknownFileImport(_) => HirErrorGravity::CanGoUpTo(HirPass::SyntaxLowering),
+            _ => HirErrorGravity::Critical,
+        }
+    }
+}
+
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
     code(sema::invalid_special_method_signature),

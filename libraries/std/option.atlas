@@ -1,5 +1,6 @@
 //package std::option;
 
+//NB: Deprecated, use std/experimental/optional instead
 import "std/io";
  
 // This will be in its own file, some kind of std/hallucinate
