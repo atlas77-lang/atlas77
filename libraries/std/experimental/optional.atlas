@@ -14,18 +14,17 @@ import "std/io";
 /// This untagged union holds either a `value: T` when present or
 /// a zero-sized `empty: unit` sentinel when absent. Presence is
 /// tracked by `optional<T>::has_value`.
-private union optional_storage<T: std::copyable> { 
+private union optional_storage<T> { 
     value: T;
     empty: unit;
 }
 
 /// A lightweight container for an optional value of type `T`.
 ///
-/// - `T` must be `std::copyable`.
 /// - When `has_value` is true, `data.value` is valid and will be dropped
 ///   by the destructor.
 /// - Create instances via `optional::of(value)` or `optional::empty()`.
-public struct optional<T: std::copyable> {
+public struct optional<T> {
 private:
     data: optional_storage<T>;
     has_value: bool;
@@ -42,19 +41,6 @@ public:
     ~optional() {
         if (this.has_value) {
             delete this.data.value;
-        }
-    }
-    /// Copy this optional.
-    ///
-    /// - If present, returns a new `optional::of(value)`.
-    /// - If absent, returns `optional::empty()`.
-    ///
-    /// Note: requires `T: std::copyable`.
-    fun _copy(&const this) -> optional<T> {
-        if (this.has_value) {
-            return optional<T>::of(this.data.value);
-        } else {
-            return optional<T>::empty();
         }
     }
     /// Construct an `optional<T>` containing `data`.
@@ -84,7 +70,7 @@ public:
     /// Returns true if a value is present.
     ///
     /// Example:
-    ///     if (opt.has_value()) { io::println("has value"); }
+    ///     if (opt.has_value()) { println("has value"); }
     fun has_value(this) -> bool {
         return this.has_value;
     }
@@ -102,6 +88,7 @@ public:
     /// Get the contained value or return `default` when empty.
     ///
     /// Example:
+    ///     let opt = optional<int64>::empty();
     ///     let n = opt.value_or(0);
     fun value_or(this, default: T) -> T {
         if (this.has_value) {
