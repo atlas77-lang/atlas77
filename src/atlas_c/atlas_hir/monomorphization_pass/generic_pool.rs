@@ -158,12 +158,15 @@ impl<'hir> HirGenericPool<'hir> {
         {
             for kind in constraint.kind.iter() {
                 match kind {
-                    HirGenericConstraintKind::Std("copyable") => {
+                    HirGenericConstraintKind::Std {
+                        name: "copyable",
+                        span,
+                    } => {
                         if !self.implements_std_copyable(module, instantiated_ty) {
                             let origin_path = declaration_span.path;
                             let origin_src = utils::get_file_content(origin_path).unwrap();
                             let origin = TypeDoesNotImplementRequiredConstraintOrigin {
-                                span: declaration_span,
+                                span: *span,
                                 src: NamedSource::new(origin_path.to_string(), origin_src),
                             };
                             let err_path = instantiated_generic.span.path;

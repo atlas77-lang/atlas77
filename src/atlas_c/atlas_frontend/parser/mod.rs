@@ -601,11 +601,14 @@ impl<'ast> Parser<'ast> {
                         };
                         let _ = self.advance();
                         self.expect(TokenKind::RParen)?;
-                        AstGenericConstraint::Operator(op)
+                        AstGenericConstraint::Operator {
+                            op,
+                            span: Span::union_span(&start_span, &self.current().span),
+                        }
                     }
                     TokenKind::Identifier(n) => {
                         if n == "std" {
-                            let _ = self.advance();
+                            let start_span = self.advance().span;
                             self.expect(TokenKind::DoubleColon)?;
                             if let TokenKind::Identifier(std_name) = self.current().kind() {
                                 let std_constraint = AstStdGenericConstraint {
@@ -635,7 +638,7 @@ impl<'ast> Parser<'ast> {
                                 }
                             };
 
-                            AstGenericConstraint::NamedType(ast_ty)
+                            AstGenericConstraint::Concept(ast_ty)
                         }
                     }
                     _ => {

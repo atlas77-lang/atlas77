@@ -92,8 +92,8 @@ pub struct AstGeneric<'ast> {
 
 #[derive(Debug, Clone)]
 pub enum AstGenericConstraint<'ast> {
-    NamedType(AstNamedType<'ast>),
-    Operator(AstBinaryOp),
+    Concept(AstNamedType<'ast>),
+    Operator { op: AstBinaryOp, span: Span },
     Std(AstStdGenericConstraint<'ast>),
 }
 

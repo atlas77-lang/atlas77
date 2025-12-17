@@ -504,17 +504,24 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         constraint: &'ast AstGenericConstraint<'ast>,
     ) -> HirResult<HirGenericConstraintKind<'hir>> {
         match constraint {
-            AstGenericConstraint::NamedType(trait_bound) => {
-                let name = self.arena.names().get(trait_bound.name.name);
-                Ok(HirGenericConstraintKind::Concept(name))
+            AstGenericConstraint::Concept(concept_bound) => {
+                let name = self.arena.names().get(concept_bound.name.name);
+                Ok(HirGenericConstraintKind::Concept {
+                    name,
+                    span: concept_bound.span,
+                })
             }
-            AstGenericConstraint::Operator(op) => {
+            AstGenericConstraint::Operator { op, span } => {
                 let operator = self.visit_bin_op(&op)?;
-                Ok(HirGenericConstraintKind::Operator(operator))
+                Ok(HirGenericConstraintKind::Operator {
+                    op: operator,
+                    span: *span,
+                })
             }
-            AstGenericConstraint::Std(std) => Ok(HirGenericConstraintKind::Std(
-                self.arena.names().get(std.name),
-            )),
+            AstGenericConstraint::Std(std) => Ok(HirGenericConstraintKind::Std {
+                name: self.arena.names().get(std.name),
+                span: std.span,
+            }),
         }
     }
 

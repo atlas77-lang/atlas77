@@ -48,19 +48,19 @@ pub struct HirGenericConstraint<'hir> {
 #[derive(Debug, Clone)]
 pub enum HirGenericConstraintKind<'hir> {
     // e.g. std::copyable
-    Std(&'hir str),
+    Std { name: &'hir str, span: Span },
     // e.g. operator overloading
-    Operator(HirBinaryOperator),
+    Operator { op: HirBinaryOperator, span: Span },
     // e.g. user-defined concepts
-    Concept(&'hir str),
+    Concept { name: &'hir str, span: Span },
 }
 
 impl Display for HirGenericConstraintKind<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            HirGenericConstraintKind::Std(name) => write!(f, "std::{}", name),
-            HirGenericConstraintKind::Operator(op) => write!(f, "operator {:?}", op),
-            HirGenericConstraintKind::Concept(name) => {
+            HirGenericConstraintKind::Std { name, .. } => write!(f, "std::{}", name),
+            HirGenericConstraintKind::Operator { op, .. } => write!(f, "operator {:?}", op),
+            HirGenericConstraintKind::Concept { name, .. } => {
                 write!(f, "{}", name)
             }
         }
