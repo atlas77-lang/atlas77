@@ -84,15 +84,3 @@ public:
         }
     }
 }
-
-// Example usage will be removed once this API is stable
-fun test() {
-    let result: expected<int64, string> = expected<int64, string>::expect(42);
-    if (result.is_expected()) {
-        let value = result.expected_value();
-        println("Got value: {}", value);
-    } else {
-        let error = result.unexpected_value();
-        println("Got error: {}", error);
-    }
-}
