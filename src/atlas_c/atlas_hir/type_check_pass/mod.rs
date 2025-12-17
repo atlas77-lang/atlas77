@@ -238,7 +238,7 @@ impl<'hir> TypeChecker<'hir> {
                 }
                 // Methods don't inherently have a parameter for `this`, it is implicit
                 // The fist parameter is determined by the modifier (in this case const)
-                if method.signature.params.len() != 0 {
+                if !method.signature.params.is_empty() {
                     return Err(HirError::InvalidSpecialMethodSignature(
                         InvalidSpecialMethodSignatureError {
                             span: method.signature.span,

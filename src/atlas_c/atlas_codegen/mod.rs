@@ -1009,12 +1009,6 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 //Free the object memory
                 bytecode.push(Instruction::DeleteObj);
             }
-            _ => {
-                return Err(Self::unsupported_expr_err(
-                    expr,
-                    format!("expression {:?}", expr),
-                ));
-            }
         }
         Ok(())
     }

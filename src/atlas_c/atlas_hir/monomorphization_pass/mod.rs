@@ -357,7 +357,7 @@ impl<'hir> MonomorphizationPass<'hir> {
     ) -> HirResult<()> {
         //Monomorphize params
         for param in constructor.params.iter_mut() {
-            param.ty = self.swap_generic_types_in_ty(param.ty, types_to_change.clone(), module);
+            param.ty = self.swap_generic_types_in_ty(param.ty, types_to_change.clone());
         }
 
         //Monomorphize body
@@ -436,11 +436,8 @@ impl<'hir> MonomorphizationPass<'hir> {
                 if let HirTy::Generic(g) = new_obj_expr.ty {
                     self.generic_pool
                         .register_struct_instance(g.clone(), &module.signature);
-                    let monomorphized_ty = self.swap_generic_types_in_ty(
-                        new_obj_expr.ty,
-                        types_to_change.clone(),
-                        module,
-                    );
+                    let monomorphized_ty =
+                        self.swap_generic_types_in_ty(new_obj_expr.ty, types_to_change.clone());
 
                     new_obj_expr.ty = monomorphized_ty;
                 }
@@ -452,11 +449,8 @@ impl<'hir> MonomorphizationPass<'hir> {
                 if let HirTy::Generic(g) = obj_lit_expr.ty {
                     self.generic_pool
                         .register_struct_instance(g.clone(), &module.signature);
-                    let monomorphized_ty = self.swap_generic_types_in_ty(
-                        obj_lit_expr.ty,
-                        types_to_change.clone(),
-                        module,
-                    );
+                    let monomorphized_ty =
+                        self.swap_generic_types_in_ty(obj_lit_expr.ty, types_to_change.clone());
 
                     obj_lit_expr.ty = monomorphized_ty;
                 }
@@ -502,7 +496,7 @@ impl<'hir> MonomorphizationPass<'hir> {
 
                 for generic in call_expr.generics.iter_mut() {
                     let monomorphized_ty =
-                        self.swap_generic_types_in_ty(generic, types_to_change.clone(), module);
+                        self.swap_generic_types_in_ty(generic, types_to_change.clone());
                     *generic = monomorphized_ty;
                 }
 
@@ -527,22 +521,16 @@ impl<'hir> MonomorphizationPass<'hir> {
                     } else if let HirTy::Named(n) = l.inner
                         && n.name.len() == 1
                     {
-                        let ty = self.swap_generic_types_in_ty(
-                            new_array_expr.ty,
-                            types_to_change.clone(),
-                            module,
-                        );
+                        let ty = self
+                            .swap_generic_types_in_ty(new_array_expr.ty, types_to_change.clone());
                         new_array_expr.ty = ty;
                     }
                 }
                 self.monomorphize_expression(&mut new_array_expr.size, types_to_change, module)?;
             }
             HirExpr::StaticAccess(static_access) => {
-                let monomorphized_ty = self.swap_generic_types_in_ty(
-                    static_access.target,
-                    types_to_change.clone(),
-                    module,
-                );
+                let monomorphized_ty =
+                    self.swap_generic_types_in_ty(static_access.target, types_to_change.clone());
 
                 static_access.target = monomorphized_ty;
             }
@@ -583,7 +571,7 @@ impl<'hir> MonomorphizationPass<'hir> {
         &self,
         ty: &'hir HirTy<'hir>,
         types_to_change: Vec<(&'hir str, &'hir HirTy<'hir>)>,
-        module: &HirModule<'hir>,
+        //module: &HirModule<'hir>,
     ) -> &'hir HirTy<'hir> {
         match ty {
             HirTy::Named(n) => {
@@ -595,7 +583,7 @@ impl<'hir> MonomorphizationPass<'hir> {
                 ty
             }
             HirTy::List(l) => {
-                let new_inner = self.swap_generic_types_in_ty(l.inner, types_to_change, module);
+                let new_inner = self.swap_generic_types_in_ty(l.inner, types_to_change);
                 self.arena
                     .intern(HirTy::List(HirListTy { inner: new_inner }))
             }
@@ -604,7 +592,7 @@ impl<'hir> MonomorphizationPass<'hir> {
                     .inner
                     .iter()
                     .map(|inner_ty| {
-                        self.swap_generic_types_in_ty(inner_ty, types_to_change.clone(), module)
+                        self.swap_generic_types_in_ty(inner_ty, types_to_change.clone())
                             .clone()
                     })
                     .collect();
@@ -615,16 +603,14 @@ impl<'hir> MonomorphizationPass<'hir> {
                 }))
             }
             HirTy::MutableReference(m) => {
-                let new_inner =
-                    self.swap_generic_types_in_ty(m.inner, types_to_change.clone(), module);
+                let new_inner = self.swap_generic_types_in_ty(m.inner, types_to_change.clone());
                 self.arena
                     .intern(HirTy::MutableReference(HirMutableReferenceTy {
                         inner: new_inner,
                     }))
             }
             HirTy::ReadOnlyReference(r) => {
-                let new_inner =
-                    self.swap_generic_types_in_ty(r.inner, types_to_change.clone(), module);
+                let new_inner = self.swap_generic_types_in_ty(r.inner, types_to_change.clone());
                 self.arena
                     .intern(HirTy::ReadOnlyReference(HirReadOnlyReferenceTy {
                         inner: new_inner,

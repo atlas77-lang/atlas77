@@ -153,6 +153,7 @@ impl<'hir> HirGenericPool<'hir> {
         constraints: Vec<&HirGenericConstraint<'hir>>,
         declaration_span: Span,
     ) -> bool {
+        let mut are_constraints_satisfied = true;
         for (instantiated_ty, constraint) in
             instantiated_generic.inner.iter().zip(constraints.iter())
         {
@@ -167,7 +168,7 @@ impl<'hir> HirGenericPool<'hir> {
                             let origin_src = utils::get_file_content(origin_path).unwrap();
                             let origin = TypeDoesNotImplementRequiredConstraintOrigin {
                                 span: *span,
-                                src: NamedSource::new(origin_path.to_string(), origin_src),
+                                src: NamedSource::new(origin_path, origin_src),
                             };
                             let err_path = instantiated_generic.span.path;
                             let err_src = utils::get_file_content(err_path).unwrap();
@@ -175,23 +176,23 @@ impl<'hir> HirGenericPool<'hir> {
                                 ty: format!("{}", instantiated_ty),
                                 span: instantiated_generic.span,
                                 constraint: format!("{}", kind),
-                                src: NamedSource::new(err_path.to_string(), err_src),
+                                src: NamedSource::new(err_path, err_src),
                                 origin,
                             };
                             eprintln!("{:?}", Into::<miette::Report>::into(err));
-                            return false;
+                            are_constraints_satisfied = false;
                         } else {
-                            return true;
+                            continue;
                         }
                     }
                     _ => {
                         //Other constraints not implemented yet
-                        return true;
+                        continue;
                     }
                 }
             }
         }
-        return true;
+        are_constraints_satisfied
     }
 
     /// This is currently the only generic constraint supported.

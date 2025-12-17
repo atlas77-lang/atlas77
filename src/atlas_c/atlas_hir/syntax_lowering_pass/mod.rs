@@ -512,7 +512,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 })
             }
             AstGenericConstraint::Operator { op, span } => {
-                let operator = self.visit_bin_op(&op)?;
+                let operator = self.visit_bin_op(op)?;
                 Ok(HirGenericConstraintKind::Operator {
                     op: operator,
                     span: *span,
@@ -1061,7 +1061,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                                 let src = crate::atlas_c::utils::get_file_content(path).unwrap();
                                 return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                     span: node.span(),
-                                    expr: format!("{}", node.kind()),
+                                    expr: node.kind().to_string(),
                                     src: NamedSource::new(path, src),
                                 }));
                             }
@@ -1206,7 +1206,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 let src = crate::atlas_c::utils::get_file_content(path).unwrap();
                 Err(HirError::UnsupportedExpr(UnsupportedExpr {
                     span: node.span(),
-                    expr: format!("{}", node.kind()),
+                    expr: node.kind().to_string(),
                     src: NamedSource::new(path, src),
                 }))
             }
