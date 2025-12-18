@@ -9,12 +9,9 @@ use crate::atlas_c::{
         expr::HirExpr,
         item::{HirStruct, HirStructConstructor, HirUnion},
         monomorphization_pass::generic_pool::HirGenericPool,
-        signature::{HirFunctionParameterSignature, HirGenericConstraint},
+        signature::HirGenericConstraint,
         stmt::HirStatement,
-        ty::{
-            HirGenericTy, HirListTy, HirMutableReferenceTy, HirNamedTy, HirReadOnlyReferenceTy,
-            HirTy,
-        },
+        ty::{HirGenericTy, HirListTy, HirMutableReferenceTy, HirReadOnlyReferenceTy, HirTy},
     },
     utils::{self, Span},
 };
@@ -217,42 +214,14 @@ impl<'hir> MonomorphizationPass<'hir> {
         )?;
         self.monomorphize_constructor(&mut new_struct.destructor, types_to_change.clone(), module)?;
 
-        for (i, arg) in new_struct
-            .signature
-            .constructor
-            .params
-            .clone()
-            .iter()
-            .enumerate()
-        {
+        for arg in new_struct.signature.constructor.params.iter_mut() {
             for (j, generic) in generics.iter().enumerate() {
-                let new_ty = self.change_inner_type(
+                arg.ty = self.change_inner_type(
                     arg.ty,
                     generic.generic_name,
                     actual_type.inner[j].clone(),
                     module,
                 );
-                let new_ty = if let HirTy::Generic(g) = new_ty {
-                    self.arena.intern(HirTy::Named(HirNamedTy {
-                        name: MonomorphizationPass::mangle_generic_object_name(
-                            self.arena,
-                            self.arena.intern(g),
-                        ),
-                        span: arg.span,
-                    }))
-                } else {
-                    new_ty
-                };
-                //Update only if changed
-                if new_ty != arg.ty {
-                    new_struct.signature.constructor.params[i] = HirFunctionParameterSignature {
-                        name: arg.name,
-                        name_span: arg.name_span,
-                        span: arg.span,
-                        ty: new_ty,
-                        ty_span: arg.ty_span,
-                    };
-                }
             }
         }
 
@@ -268,27 +237,12 @@ impl<'hir> MonomorphizationPass<'hir> {
             //args:
             for param in func.params.iter_mut() {
                 for (i, generic_name) in generics.iter().enumerate() {
-                    let type_to_change = self.arena.intern(param.ty.clone());
-                    let new_ty = self
-                        .change_inner_type(
-                            type_to_change,
-                            generic_name.generic_name,
-                            actual_type.inner[i].clone(),
-                            module,
-                        )
-                        .clone();
-                    let new_ty = if let HirTy::Generic(g) = new_ty {
-                        HirTy::Named(HirNamedTy {
-                            name: MonomorphizationPass::mangle_generic_object_name(
-                                self.arena,
-                                self.arena.intern(g),
-                            ),
-                            span: param.span,
-                        })
-                    } else {
-                        new_ty
-                    };
-                    param.ty = self.arena.intern(new_ty);
+                    param.ty = self.change_inner_type(
+                        param.ty,
+                        generic_name.generic_name,
+                        actual_type.inner[i].clone(),
+                        module,
+                    );
                 }
             }
 

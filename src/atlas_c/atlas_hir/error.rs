@@ -78,7 +78,9 @@ impl HirError {
         match self {
             HirError::UnsupportedExpr(_) => HirErrorGravity::CanFinishCurrentPassButNotContinue,
             HirError::UnsupportedType(_) => HirErrorGravity::CanFinishCurrentPassButNotContinue,
-            HirError::UnsupportedStatement(_) => HirErrorGravity::CanFinishCurrentPassButNotContinue,
+            HirError::UnsupportedStatement(_) => {
+                HirErrorGravity::CanFinishCurrentPassButNotContinue
+            }
             HirError::UnsupportedItem(_) => HirErrorGravity::CanFinishCurrentPassButNotContinue,
             HirError::UnknownFileImport(_) => HirErrorGravity::CanGoUpTo(HirPass::SyntaxLowering),
             _ => HirErrorGravity::Critical,

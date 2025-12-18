@@ -1068,8 +1068,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         },
                     }));
                 }
-                eprintln!("Obj literal type: {:?}", ty);
-                //let ty = self.arena.types().get_uninitialized_ty();
                 let hir = HirExpr::ObjLiteral(HirObjLiteralExpr {
                     span: node.span(),
                     ty,
