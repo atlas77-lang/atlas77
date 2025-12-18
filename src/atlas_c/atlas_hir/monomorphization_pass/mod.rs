@@ -352,6 +352,7 @@ impl<'hir> MonomorphizationPass<'hir> {
                 self.monomorphize_expression(&mut expr_stmt.expr, types_to_change, module)?;
             }
             HirStatement::Let(let_stmt) => {
+                //TODO: Make LetStmt ty not optional then monomorphize it here
                 self.monomorphize_expression(&mut let_stmt.value, types_to_change, module)?;
             }
             HirStatement::While(while_stmt) => {
