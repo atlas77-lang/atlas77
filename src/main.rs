@@ -3,7 +3,7 @@
 #![deny(clippy::unwrap_used)]
 
 use atlas_77::{CompilationFlag, build, run};
-use clap::{Parser, command};
+use clap::Parser;
 
 #[derive(Parser)] // requires `derive` feature
 #[command(name = "Atlas77")]
