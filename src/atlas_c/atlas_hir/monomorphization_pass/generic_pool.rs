@@ -185,6 +185,26 @@ impl<'hir> HirGenericPool<'hir> {
                             continue;
                         }
                     }
+                    HirGenericConstraintKind::Std { name: _, span } => {
+                        //Other std constraints not implemented yet
+                        let origin_path = declaration_span.path;
+                        let origin_src = utils::get_file_content(origin_path).unwrap();
+                        let origin = TypeDoesNotImplementRequiredConstraintOrigin {
+                            span: *span,
+                            src: NamedSource::new(origin_path, origin_src),
+                        };
+                        let err_path = instantiated_generic.span.path;
+                        let err_src = utils::get_file_content(err_path).unwrap();
+                        let err = TypeDoesNotImplementRequiredConstraintError {
+                            ty: format!("{}", instantiated_ty),
+                            span: instantiated_generic.span,
+                            constraint: format!("{}", kind),
+                            src: NamedSource::new(err_path, err_src),
+                            origin,
+                        };
+                        eprintln!("{:?}", Into::<miette::Report>::into(err));
+                        are_constraints_satisfied = false;
+                    }
                     _ => {
                         //Other constraints not implemented yet
                         continue;
@@ -204,7 +224,13 @@ impl<'hir> HirGenericPool<'hir> {
             | HirTy::Float64(_)
             | HirTy::Char(_)
             | HirTy::String(_)
-            | HirTy::UInt64(_) => true,
+            | HirTy::UInt64(_)
+            // References are copyable as they are just pointers
+            | HirTy::ReadOnlyReference(_)
+            | HirTy::MutableReference(_)
+            // Function pointers are copyable, though I am still not sure if I want this behavior...
+            // Maybe closures that capture environment shouldn't be copyable?
+            | HirTy::Function(_) => true,
             HirTy::List(l) => self.implements_std_copyable(module, l.inner),
             HirTy::Named(n) => match module.structs.get(n.name) {
                 Some(struct_sig) => struct_sig.methods.contains_key("_copy"),
