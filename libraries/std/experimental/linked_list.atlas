@@ -1,0 +1,58 @@
+import "std/experimental/optional.atlas";
+import "std/vector.atlas";
+
+public struct LinkedListNode<T> {
+public:
+    value: T,
+    next: optional<&LinkedListNode<T>>,
+    LinkedListNode(value: T) {
+        this.value = value;
+        this.next = optional<&LinkedListNode<T>>::empty();
+    }
+    fun set_next(next_node: &LinkedListNode<T>) {
+        this.next = optional<&LinkedListNode<T>>::some(next_node);
+    }
+    fun get_next() -> optional<&LinkedListNode<T>> {
+        return this.next;
+    }
+}
+
+public struct LinkedList<T> {
+public:
+    head: optional<&LinkedListNode<T>>,
+    tail: optional<&LinkedListNode<T>>,
+    LinkedList() {
+        this.head = optional<&LinkedListNode<T>>::empty();
+        this.tail = optional<&LinkedListNode<T>>::empty();
+    }
+    fun append(value: T) {
+        let new_node = &LinkedListNode<T>(value);
+        if this.head.is_empty() {
+            this.head = optional<&LinkedListNode<T>>::some(new_node);
+            this.tail = optional<&LinkedListNode<T>>::some(new_node);
+        } else {
+            let tail_node = this.tail.get_value();
+            tail_node.set_next(new_node);
+            this.tail = optional<&LinkedListNode<T>>::some(new_node);
+        }
+    }
+    fun get_head() -> optional<&LinkedListNode<T>> {
+        return this.head;
+    }
+    fun is_empty() -> bool {
+        return this.head.is_empty();
+    }
+    fun clear() {
+        this.head = optional<&LinkedListNode<T>>::empty();
+        this.tail = optional<&LinkedListNode<T>>::empty();
+    }
+    fun to_array() -> Vector<T> {
+        let arr = Vector<T>();
+        var current_node_opt = this.head;
+        while current_node_opt.has_value() {
+            let current_node = current_node_opt.value();
+            arr.push(current_node.value);
+            current_node_opt = current_node.get_next();
+        }
+        return arr;
+    }
