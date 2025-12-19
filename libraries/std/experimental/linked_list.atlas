@@ -1,4 +1,4 @@
-import "std/experimental/optional.atlas";
+import "std/optional.atlas";
 import "std/vector.atlas";
 
 public struct LinkedListNode<T> {

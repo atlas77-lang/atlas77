@@ -10,7 +10,6 @@ private union expected_storage<T, E> {
 
 /// A result-like type representing either a value `T` or an error `E`.
 ///
-/// Follows a C++ `std::expected`-style API:
 /// - Construct with `expected::expect(value)` for success or `expected::unexpected(error)` for failure.
 /// - Query with `is_expected()` / `is_unexpected()`.
 /// - Access with `expected_value()` / `unexpected_value()` or use
