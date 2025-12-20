@@ -95,18 +95,40 @@ impl<'hir> HirGenericPool<'hir> {
 
     pub fn register_function_instance(
         &mut self,
-        generic_name: &'hir str,
-        instance: Vec<HirTy<'hir>>,
+        generic: HirGenericTy<'hir>,
+        module: &HirModuleSignature<'hir>,
     ) {
-        self.functions.insert(
-            generic_name,
-            HirGenericInstance {
-                name: generic_name,
-                args: instance,
-                is_done: false,
-                span: Span::default(),
-            },
-        );
+        eprintln!("DEBUG: register_function_instance called for {}", generic.name);
+        // Check for constraints if function has generics
+        if let Some(func_sig) = module.functions.get(generic.name) {
+            if let Some(generic_params) = &func_sig.generics {
+                if generic_params.len() == generic.inner.len() {
+                    // TODO: Validate that the concrete types satisfy the generic constraints
+                    // This stub implementation currently skips constraint checking
+                    for _param in generic_params.iter() {
+                        // TODO: Check if each concrete type in generic.inner[i] satisfies constraints for _param
+                    }
+                }
+            }
+        }
+
+        // Check if this is an instantiated generic or a generic definition
+        let is_instantiated = self.is_generic_instantiated(&generic, module);
+        eprintln!("DEBUG: {}<...> is_instantiated = {}", generic.name, is_instantiated);
+        if !is_instantiated {
+            return;
+        }
+
+        eprint!("{}  /  ", HirTy::Generic(generic.clone()));
+
+        let name = self.mangle_generic_object_name(generic.clone(), "function");
+        eprintln!("DEBUG: Registered function {} with mangled name {}", generic.name, name);
+        self.functions.entry(name).or_insert(HirGenericInstance {
+            name: generic.name,
+            args: generic.inner,
+            is_done: false,
+            span: generic.span,
+        });
     }
 
     fn is_generic_instantiated(

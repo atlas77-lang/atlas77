@@ -54,8 +54,12 @@ impl<'hir> MonomorphizationPass<'hir> {
         &mut self,
         module: &'hir mut HirModule<'hir>,
     ) -> HirResult<&'hir mut HirModule<'hir>> {
+        eprintln!("DEBUG: Starting monomorphization");
         //1. Generate only the signatures of the generic structs and functions
-        while !self.process_pending_generics(module)? {}
+        while !self.process_pending_generics(module)? {
+            eprintln!("DEBUG: Processing another round of generics");
+        }
+        eprintln!("DEBUG: Done processing generics");
         //2. If you encounter a generic struct or function instantiation (e.g. in the return type), register it to the pool
         //3. Generate the actual bodies of the structs & functions in the pool, if you encounter new instantiations while generating, register them too
         //4. Clear the generic structs & functions from the module body and signature
@@ -66,6 +70,58 @@ impl<'hir> MonomorphizationPass<'hir> {
 
     fn process_pending_generics(&mut self, module: &mut HirModule<'hir>) -> HirResult<bool> {
         let mut is_done = true;
+        
+        // First, monomorphize all non-generic function bodies to discover generic instantiations
+        // We need to be careful about borrowing - collect the function names first
+        let non_generic_functions: Vec<&'hir str> = module.body.functions
+            .iter()
+            .filter(|(_, func)| func.signature.generics.is_none())
+            .map(|(_, func)| func.name)
+            .collect();
+        
+        eprintln!("DEBUG: Processing {} non-generic functions for monomorphization", non_generic_functions.len());
+        
+        // Debug: Print all functions in module body and signature
+        eprintln!("DEBUG: Functions in module.body:");
+        for (name, func) in &module.body.functions {
+            eprintln!("  - {} signature.generics: {} signature.type_params: {}", name, func.signature.generics.is_some(), func.signature.type_params.len());
+        }
+        
+        eprintln!("DEBUG: Functions in module.signature:");
+        for (name, sig) in &module.signature.functions {
+            eprintln!("  - {} has generics: {} type_params: {}", name, sig.generics.is_some(), sig.type_params.len());
+            if let Some(gparams) = &sig.generics {
+                for gp in gparams {
+                    eprintln!("      generics - {}", gp.name);
+                }
+            }
+            for tp in &sig.type_params {
+                eprintln!("      type_params - {}", tp.name);
+            }
+        }
+        
+        // Monomorphize each function's body
+        for func_name in non_generic_functions {
+            eprintln!("DEBUG: Processing function {}", func_name);
+            // Extract and clone the statements so we can process them
+            let statements = if let Some(func) = module.body.functions.get(func_name) {
+                func.body.statements.clone()
+            } else {
+                continue;
+            };
+            
+            // Process the cloned statements and put them back
+            let mut processed_stmts = statements;
+            for statement in processed_stmts.iter_mut() {
+                self.monomorphize_statement(statement, vec![], module)?;
+            }
+            
+            // Update the function with the processed statements
+            if let Some(func) = module.body.functions.get_mut(func_name) {
+                func.body.statements = processed_stmts;
+            }
+        }
+        
         let mut generic_pool_clone = self.generic_pool.structs.clone();
         for (_, instance) in generic_pool_clone.iter_mut() {
             if !instance.is_done {
@@ -80,6 +136,23 @@ impl<'hir> MonomorphizationPass<'hir> {
             }
         }
         self.generic_pool.structs.append(&mut generic_pool_clone);
+
+        // Process pending generic functions
+        let mut function_pool_clone = self.generic_pool.functions.clone();
+        for (_, instance) in function_pool_clone.iter_mut() {
+            if !instance.is_done {
+                let generic_ty = self.arena.intern(HirGenericTy {
+                    name: instance.name,
+                    inner: instance.args.clone(),
+                    span: instance.span,
+                });
+                self.monomorphize_function(module, generic_ty, instance.span)?;
+                instance.is_done = true;
+                is_done = false;
+            }
+        }
+        self.generic_pool.functions.append(&mut function_pool_clone);
+        
         Ok(is_done)
     }
 
@@ -303,6 +376,107 @@ impl<'hir> MonomorphizationPass<'hir> {
         Ok(self.arena.types().get_named_ty(mangled_name, span))
     }
 
+    fn monomorphize_function(
+        &mut self,
+        module: &mut HirModule<'hir>,
+        actual_type: &'hir HirGenericTy<'hir>,
+        span: Span,
+    ) -> HirResult<()> {
+        let mangled_name =
+            MonomorphizationPass::mangle_generic_object_name(self.arena, actual_type);
+        if module.body.functions.contains_key(mangled_name)
+            || module.signature.functions.contains_key(mangled_name)
+        {
+            //Already monomorphized
+            return Ok(());
+        }
+
+        let base_name = actual_type.name;
+        let template = match module.body.functions.get(base_name) {
+            Some(func) => func.clone(),
+            None => {
+                let path = span.path;
+                let src = crate::atlas_c::utils::get_file_content(path).unwrap();
+                return Err(UnknownType(UnknownTypeError {
+                    name: base_name.to_string(),
+                    span,
+                    src: NamedSource::new(path, src),
+                }));
+            }
+        };
+
+        let mut new_function = template.clone();
+        let generics = new_function.signature.generics.clone();
+
+        if let Some(generic_params) = generics {
+            if generic_params.len() != actual_type.inner.len() {
+                let declaration_span = new_function.name_span;
+                return Err(Self::not_enough_generics_err(
+                    base_name,
+                    actual_type.inner.len(),
+                    span,
+                    generic_params.len(),
+                    declaration_span,
+                ));
+            }
+
+            let types_to_change: Vec<(&'hir str, &'hir HirTy<'hir>)> = generic_params
+                .iter()
+                .enumerate()
+                .map(|(i, generic_param)| {
+                    (
+                        generic_param.name,
+                        self.arena.intern(actual_type.inner[i].clone()) as &'hir HirTy<'hir>,
+                    )
+                })
+                .collect();
+
+            // Monomorphize parameter types by applying all type substitutions
+            let mut new_params = new_function.signature.params.clone();
+            for param in new_params.iter_mut() {
+                for (j, generic_param) in generic_params.iter().enumerate() {
+                    param.ty = self.change_inner_type(
+                        param.ty,
+                        generic_param.name,
+                        actual_type.inner[j].clone(),
+                        module,
+                    );
+                }
+            }
+
+            // Monomorphize return type - intern it first, then apply all substitutions in sequence
+            let mut new_return_ty: &'hir HirTy<'hir> = self.arena.intern(new_function.signature.return_ty.clone()) as &'hir HirTy<'hir>;
+            for (j, generic_param) in generic_params.iter().enumerate() {
+                new_return_ty = self.change_inner_type(
+                    new_return_ty,
+                    generic_param.name,
+                    actual_type.inner[j].clone(),
+                    module,
+                );
+            }
+
+            // Create new signature with monomorphized types and no generics
+            let mut new_sig = new_function.signature.clone();
+            new_sig.params = new_params;
+            new_sig.return_ty = new_return_ty.clone();
+            new_sig.generics = None;
+            new_function.signature = &*self.arena.intern(new_sig);
+
+            // Monomorphize function body
+            for statement in new_function.body.statements.iter_mut() {
+                self.monomorphize_statement(statement, types_to_change.clone(), module)?;
+            }
+        }
+
+        new_function.name = mangled_name;
+        
+        let new_sig = self.arena.intern(new_function.signature.clone());
+        module.signature.functions.insert(mangled_name, new_sig);
+        module.body.functions.insert(mangled_name, new_function);
+
+        Ok(())
+    }
+
     fn monomorphize_constructor(
         &mut self,
         constructor: &mut HirStructConstructor<'hir>,
@@ -445,6 +619,7 @@ impl<'hir> MonomorphizationPass<'hir> {
                 self.monomorphize_expression(&mut binary_expr.rhs, types_to_change, module)?;
             }
             HirExpr::Call(call_expr) => {
+                eprintln!("DEBUG: Processing Call expression");
                 for arg in call_expr.args.iter_mut() {
                     self.monomorphize_expression(arg, types_to_change.clone(), module)?;
                 }
@@ -453,6 +628,30 @@ impl<'hir> MonomorphizationPass<'hir> {
                     let monomorphized_ty =
                         self.swap_generic_types_in_ty(generic, types_to_change.clone());
                     *generic = monomorphized_ty;
+                }
+
+                eprintln!("DEBUG: Call has {} generic args", call_expr.generics.len());
+                // Register generic function instances if the callee is a generic function
+                if !call_expr.generics.is_empty() {
+                    if let HirExpr::Ident(ident_expr) = &*call_expr.callee {
+                        eprintln!("DEBUG: Call to function {}", ident_expr.name);
+                        if let Some(func_sig) = module.signature.functions.get(ident_expr.name) {
+                            eprintln!("DEBUG: Function {} found in signature, has generics: {}", ident_expr.name, func_sig.generics.is_some());
+                            if let Some(generics) = &func_sig.generics {
+                                eprintln!("DEBUG:   Generic params count: {}", generics.len());
+                            }
+                            if func_sig.generics.is_some() {
+                                let generic_ty = HirGenericTy {
+                                    name: ident_expr.name,
+                                    inner: call_expr.generics.iter().map(|t| (*t).clone()).collect(),
+                                    span: call_expr.span,
+                                };
+                                eprintln!("DEBUG: Registering generic function call: {}", ident_expr.name);
+                                self.generic_pool
+                                    .register_function_instance(generic_ty, &module.signature);
+                            }
+                        }
+                    }
                 }
 
                 self.monomorphize_expression(&mut call_expr.callee, types_to_change, module)?;

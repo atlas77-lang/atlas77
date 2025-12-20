@@ -13,7 +13,7 @@ use crate::atlas_c::atlas_hir::expr::{HirBinaryOperator, HirUnaryOp};
 use crate::atlas_c::atlas_hir::item::{HirStruct, HirStructConstructor};
 use crate::atlas_c::atlas_hir::monomorphization_pass::MonomorphizationPass;
 use crate::atlas_c::atlas_hir::signature::{ConstantValue, HirStructMethodModifier};
-use crate::atlas_c::atlas_hir::ty::{HirGenericTy, HirMutableReferenceTy, HirReadOnlyReferenceTy};
+use crate::atlas_c::atlas_hir::ty::{HirMutableReferenceTy, HirReadOnlyReferenceTy};
 use crate::atlas_c::atlas_hir::{
     HirModule,
     error::{HirResult, UnsupportedExpr, UnsupportedStatement},
@@ -23,7 +23,7 @@ use crate::atlas_c::atlas_hir::{
 };
 use crate::atlas_c::utils;
 use arena::CodeGenArena;
-use miette::{Error, NamedSource};
+use miette::NamedSource;
 use std::collections::{BTreeMap, HashMap};
 
 /// Result of codegen
