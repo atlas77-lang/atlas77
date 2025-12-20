@@ -83,6 +83,7 @@ impl<'hir> HirGenericPool<'hir> {
             return;
         }
 
+        //TODO: Differentiate between struct and union here
         let name = self.mangle_generic_object_name(generic.clone(), "struct");
         self.structs.entry(name).or_insert(HirGenericInstance {
             name: generic.name,
@@ -117,7 +118,9 @@ impl<'hir> HirGenericPool<'hir> {
         for ty in generic.inner.iter() {
             match ty {
                 HirTy::Named(n) => {
-                    if n.name.len() == 1 {
+                    // Check if this is actually a defined struct/union in the module
+                    // If it's only 1 letter AND not defined as a struct/union, it's a generic type parameter
+                    if n.name.len() == 1 && !module.structs.contains_key(n.name) && !module.unions.contains_key(n.name) {
                         is_instantiated = false;
                     }
                 }
@@ -125,8 +128,45 @@ impl<'hir> HirGenericPool<'hir> {
                     //We register nested generics as well (e.g. MyStruct<Vector<uint64>>)
                     //This ensures that they are also monomorphized if it's the only instance
                     //But because the check is called in register_struct_instance it won't register generic definitions
-                    self.register_struct_instance(g.clone(), module);
+                    //Check if the nested generic is itself instantiated
+                    if !self.is_generic_instantiated(g, module) {
+                        is_instantiated = false;
+                    } else {
+                        self.register_struct_instance(g.clone(), module);
+                    }
                 }
+                HirTy::ReadOnlyReference(r) => match r.inner {
+                    HirTy::Named(n) => {
+                        // Check if this is actually a defined struct/union in the module
+                        if n.name.len() == 1 && !module.structs.contains_key(n.name) && !module.unions.contains_key(n.name) {
+                            is_instantiated = false;
+                        }
+                    }
+                    HirTy::Generic(g) => {
+                        if !self.is_generic_instantiated(g, module) {
+                            is_instantiated = false;
+                        } else {
+                            self.register_struct_instance(g.clone(), module);
+                        }
+                    }
+                    _ => continue,
+                },
+                HirTy::MutableReference(r) => match r.inner {
+                    HirTy::Named(n) => {
+                        // Check if this is actually a defined struct/union in the module
+                        if n.name.len() == 1 && !module.structs.contains_key(n.name) && !module.unions.contains_key(n.name) {
+                            is_instantiated = false;
+                        }
+                    }
+                    HirTy::Generic(g) => {
+                        if !self.is_generic_instantiated(g, module) {
+                            is_instantiated = false;
+                        } else {
+                            self.register_struct_instance(g.clone(), module);
+                        }
+                    }
+                    _ => continue,
+                },
                 _ => continue,
             }
         }

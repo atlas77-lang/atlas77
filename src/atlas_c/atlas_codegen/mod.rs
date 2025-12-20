@@ -13,6 +13,7 @@ use crate::atlas_c::atlas_hir::expr::{HirBinaryOperator, HirUnaryOp};
 use crate::atlas_c::atlas_hir::item::{HirStruct, HirStructConstructor};
 use crate::atlas_c::atlas_hir::monomorphization_pass::MonomorphizationPass;
 use crate::atlas_c::atlas_hir::signature::{ConstantValue, HirStructMethodModifier};
+use crate::atlas_c::atlas_hir::ty::{HirGenericTy, HirMutableReferenceTy, HirReadOnlyReferenceTy};
 use crate::atlas_c::atlas_hir::{
     HirModule,
     error::{HirResult, UnsupportedExpr, UnsupportedStatement},
@@ -22,7 +23,7 @@ use crate::atlas_c::atlas_hir::{
 };
 use crate::atlas_c::utils;
 use arena::CodeGenArena;
-use miette::NamedSource;
+use miette::{Error, NamedSource};
 use std::collections::{BTreeMap, HashMap};
 
 /// Result of codegen
@@ -977,8 +978,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             HirExpr::Delete(delete) => {
                 let name = match &delete.expr.ty() {
                     HirTy::Named(_)
-                    | HirTy::ReadOnlyReference(_)
-                    | HirTy::MutableReference(_)
+                    | HirTy::ReadOnlyReference(HirReadOnlyReferenceTy { inner: HirTy::Generic(_) }) 
+                    | HirTy::ReadOnlyReference(HirReadOnlyReferenceTy { inner: HirTy::Named(_) })
+                    | HirTy::MutableReference(HirMutableReferenceTy { inner: HirTy::Generic(_) })
+                    | HirTy::MutableReference(HirMutableReferenceTy { inner: HirTy::Named(_) })
                     | HirTy::Generic(_) => self.get_class_name_of_type(delete.expr.ty()).unwrap(),
                     HirTy::String(_) | HirTy::List(_) => {
                         //Strings and Lists have their own delete instruction
@@ -998,7 +1001,12 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     .find(|c| c.name == name)
                     .unwrap_or_else(|| {
                         //should never happen
-                        panic!("Struct {} not found", name)
+                        let err = Self::unsupported_expr_err(
+                            expr,
+                            format!("Can't delete object of type: {}", delete.expr.ty()),
+                        );
+                        eprintln!("{:?}", Into::<miette::Report>::into(err));
+                        std::process::exit(1);
                     });
                 //Call the destructor
                 self.generate_bytecode_expr(&delete.expr, bytecode)?;
