@@ -154,6 +154,12 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     for (name, signature) in allocated_hir.signature.enums.iter() {
                         self.module_signature.enums.insert(name, signature);
                     }
+                    for (name, hir_union) in allocated_hir.body.unions.iter() {
+                        self.module_body.unions.insert(name, hir_union.clone());
+                    }
+                    for (name, signature) in allocated_hir.signature.unions.iter() {
+                        self.module_signature.unions.insert(name, signature);
+                    }
                     self.generic_pool.structs.append(&mut generic_pool.structs);
                 }
                 Err(e) => match e {

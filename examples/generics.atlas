@@ -1,21 +1,22 @@
 import "std/io";
+import "std/map";
 
-struct Pair<T, U> {
+struct Either<T, U> {
     public:
         first: T;
         second: U;
 
-    Pair(first: T, second: U) {
+    Either(first: T, second: U) {
         this.first = first;
         this.second = second;
     }
 
-    fun _copy(&const this) -> Pair<T, U> {
-        return new Pair<T, U>(this.first, this.second);
+    fun _copy(&const this) -> Either<T, U> {
+        return new Either<T, U>(this.first, this.second);
     }
 
-    fun swap(this) -> Pair<U, T> {
-        return new Pair<U, T>(this.second, this.first);
+    fun swap(this) -> Either<U, T> {
+        return new Either<U, T>(this.second, this.first);
     }
 
     fun fn_first(this) -> T {
@@ -26,13 +27,13 @@ struct Pair<T, U> {
         return this.second;
     }
 
-    fun get(this) -> Pair<T, U> {
+    fun get(this) -> Either<T, U> {
         return this;
     }
 
-    fun test(this) -> Pair<T, Box<float64>> {
+    fun test(this) -> Either<T, Box<float64>> {
         let boxed_value: Box<float64> = new Box<float64>(3.14);
-        return new Pair<T, Box<float64>>(this.first, boxed_value);
+        return new Either<T, Box<float64>>(this.first, boxed_value);
     }
 }
 
@@ -46,16 +47,16 @@ struct Box<T> {
 }
 
 fun main() {
-    let p: Pair<int64, string> = new Pair<int64, string>(42, "Hello");
-    let p_get: Pair<int64, string> = p.get();
+    let p: Either<int64, string> = new Either<int64, string>(42, "Hello");
+    let p_get: Either<int64, string> = p.get();
     let first: int64 = p.fn_first();
     let second: string = p.fn_second();
-    let swapped: Pair<string, int64> = p.swap();
-    let p_boxed: Pair<Box<int64>, Box<string>> = new Pair<Box<int64>, Box<string>>(new Box<int64>(p.first), new Box<string>(p.second));
-    print("Pair: (");
+    let swapped: Either<string, int64> = p.swap();
+    let p_boxed: Either<Box<int64>, Box<string>> = new Either<Box<int64>, Box<string>>(new Box<int64>(p.first), new Box<string>(p.second));
+    print("Either: (");
     print(p.first);
     print(", ");
     print(p.second);
     println(")");
-    let pair_of_pairs_of_boxes: Pair<Box<int64>, Pair<Box<string>, Box<float64>>> = new Pair<Box<int64>, Pair<Box<string>, Box<float64>>>(new Box<int64>(1), new Pair<Box<string>, Box<float64>>(new Box<string>("Nested"), new Box<float64>(2.718)));
+    let either_of_eithers_of_boxes: Either<Box<int64>, Either<Box<string>, Box<float64>>> = new Either<Box<int64>, Either<Box<string>, Box<float64>>>(new Box<int64>(1), new Either<Box<string>, Box<float64>>(new Box<string>("Nested"), new Box<float64>(2.718)));
 }
