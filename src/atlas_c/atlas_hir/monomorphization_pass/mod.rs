@@ -648,24 +648,18 @@ impl<'hir> MonomorphizationPass<'hir> {
                 }
 
                 // Register generic function instances if the callee is a generic function
-                if !call_expr.generics.is_empty() {
-                    if let HirExpr::Ident(ident_expr) = &*call_expr.callee {
-                        if let Some(func_sig) = module.signature.functions.get(ident_expr.name) {
-                            if !func_sig.generics.is_empty() {
-                                let generic_ty = HirGenericTy {
-                                    name: ident_expr.name,
-                                    inner: call_expr
-                                        .generics
-                                        .iter()
-                                        .map(|t| (*t).clone())
-                                        .collect(),
-                                    span: call_expr.span,
-                                };
-                                self.generic_pool
-                                    .register_function_instance(generic_ty, &module.signature);
-                            }
-                        }
-                    }
+                if !call_expr.generics.is_empty()
+                    && let HirExpr::Ident(ident_expr) = &*call_expr.callee
+                    && let Some(func_sig) = module.signature.functions.get(ident_expr.name)
+                    && !func_sig.generics.is_empty()
+                {
+                    let generic_ty = HirGenericTy {
+                        name: ident_expr.name,
+                        inner: call_expr.generics.iter().map(|t| (*t).clone()).collect(),
+                        span: call_expr.span,
+                    };
+                    self.generic_pool
+                        .register_function_instance(generic_ty, &module.signature);
                 }
 
                 self.monomorphize_expression(&mut call_expr.callee, types_to_change, module)?;
@@ -686,11 +680,11 @@ impl<'hir> MonomorphizationPass<'hir> {
                     let ty =
                         self.swap_generic_types_in_ty(new_array_expr.ty, types_to_change.clone());
 
-                    if let HirTy::List(l_mono) = ty {
-                        if let HirTy::Generic(g_mono) = l_mono.inner {
-                            self.generic_pool
-                                .register_struct_instance(g_mono.clone(), &module.signature);
-                        }
+                    if let HirTy::List(l_mono) = ty
+                        && let HirTy::Generic(g_mono) = l_mono.inner
+                    {
+                        self.generic_pool
+                            .register_struct_instance(g_mono.clone(), &module.signature);
                     }
                     new_array_expr.ty = ty;
                 }

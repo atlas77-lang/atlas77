@@ -96,18 +96,6 @@ impl<'hir> TypeChecker<'hir> {
         hir: &'hir mut HirModule<'hir>,
     ) -> HirResult<&'hir mut HirModule<'hir>> {
         self.signature = hir.signature.clone();
-        eprintln!(
-            "All fun signatures: {:?}",
-            self.signature.functions.keys().collect::<Vec<&&str>>()
-        );
-        eprintln!(
-            "All struct signatures: {:?}",
-            self.signature.structs.keys().collect::<Vec<&&str>>()
-        );
-        eprintln!(
-            "All union signatures: {:?}",
-            self.signature.unions.keys().collect::<Vec<&&str>>()
-        );
         for func in &mut hir.body.functions {
             self.current_func_name = Some(func.0);
             self.check_func(func.1)?;
@@ -1009,11 +997,10 @@ impl<'hir> TypeChecker<'hir> {
                 let callee = func_expr.callee.as_mut();
                 match callee {
                     HirExpr::Ident(i) => {
-                        let name;
-                        if func_expr.generics.is_empty() {
-                            name = i.name;
+                        let name = if func_expr.generics.is_empty() {
+                            i.name
                         } else {
-                            name = MonomorphizationPass::mangle_generic_object_name(
+                            MonomorphizationPass::mangle_generic_object_name(
                                 self.arena,
                                 &HirGenericTy {
                                     name: i.name,
@@ -1026,8 +1013,8 @@ impl<'hir> TypeChecker<'hir> {
                                     span: i.span,
                                 },
                                 "function",
-                            );
-                        }
+                            )
+                        };
                         let func = match self.signature.functions.get(name) {
                             Some(f) => *f,
                             None => {
@@ -1715,19 +1702,15 @@ impl<'hir> TypeChecker<'hir> {
             HirTy::Generic(g) => {
                 // Need to handle union and struct generics
                 let name;
-                if let Some(_) =
-                    self.signature
-                        .structs
-                        .get(MonomorphizationPass::mangle_generic_object_name(
-                            self.arena, g, "struct",
-                        ))
-                {
+                if self.signature.structs.contains_key(
+                    MonomorphizationPass::mangle_generic_object_name(self.arena, g, "struct"),
+                ) {
                     name =
                         MonomorphizationPass::mangle_generic_object_name(self.arena, g, "struct");
                     return Some(name);
                 } else {
                     name = MonomorphizationPass::mangle_generic_object_name(self.arena, g, "union");
-                    if let Some(_) = self.signature.unions.get(name) {
+                    if self.signature.unions.contains_key(name) {
                         return Some(name);
                     }
                 }

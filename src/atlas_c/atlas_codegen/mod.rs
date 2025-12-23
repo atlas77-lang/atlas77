@@ -677,11 +677,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         for arg in &func_expr.args {
                             self.generate_bytecode_expr(arg, bytecode)?;
                         }
-                        let name;
-                        if func_expr.generics.is_empty() {
-                            name = i.name;
+                        let name = if func_expr.generics.is_empty() {
+                            i.name
                         } else {
-                            name = MonomorphizationPass::mangle_generic_object_name(
+                            MonomorphizationPass::mangle_generic_object_name(
                                 self.hir_arena,
                                 &HirGenericTy {
                                     name: i.name,
@@ -694,8 +693,8 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                     span: i.span,
                                 },
                                 "function",
-                            );
-                        }
+                            )
+                        };
                         let func = self.hir.signature.functions.get(name).unwrap();
                         if func.is_external {
                             bytecode.push(Instruction::ExternCall {

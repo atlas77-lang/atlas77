@@ -96,8 +96,7 @@ impl<'hir> HirGenericPool<'hir> {
         if let Some(union_sig) = module.unions.get(generic.name) {
             declaration_span = union_sig.name_span;
             constraints = union_sig.generics.clone();
-            if !self.check_constraint_satisfaction(module, &generic, constraints, declaration_span)
-            {
+            if !self.check_constraint_satisfaction(module, generic, constraints, declaration_span) {
                 std::process::exit(1);
             }
         }
@@ -105,7 +104,7 @@ impl<'hir> HirGenericPool<'hir> {
         if !self.is_generic_instantiated(&generic, module) {
             return;
         }
-        let name = MonomorphizationPass::mangle_generic_object_name(self.arena, &generic, "union");
+        let name = MonomorphizationPass::mangle_generic_object_name(self.arena, generic, "union");
         eprintln!(
             "DEBUG: Registered union {} with mangled name {}",
             generic.name, name
