@@ -6,10 +6,7 @@ pub mod atlas_vm;
 
 use crate::{
     atlas_c::{
-        atlas_asm::AsmProgram,
-        atlas_hir::{
-            dead_code_elimination_pass::DeadCodeEliminationPass, lifetime_pass::LifeTimePass,
-        },
+        atlas_asm::AsmProgram, atlas_hir::dead_code_elimination_pass::DeadCodeEliminationPass,
     },
     atlas_vm::runtime::AtlasRuntime,
 };

@@ -7,14 +7,110 @@ import "std/io";
 import "std/iter";
 import "std/map";
 import "std/math";
-import "std/option";
-import "std/result";
+import "std/optional";
+import "std/expected";
 import "std/string";
 import "std/time";
 import "std/vector";
 
+// Generic identity function
+fun identity<T>(value: T) -> T {
+    return value;
+}
+
+// Generic swap function
+fun swap_values<X, Y>(a: X, b: Y) -> Pair<Y, X> {
+    return new Pair<Y, X>(b, a);
+}
+
+// Generic container type
+struct Container<T> {
+public:
+    value: T;
+
+    Container(val: T) {
+        this.value = val;
+    }
+
+    fun get(this) -> T {
+        return this.value;
+    }
+
+    fun set(this, new_val: T) {
+        this.value = new_val;
+    }
+
+    fun _copy(&const this) -> Container<T> {
+        return new Container<T>(this.value);
+    }
+}
+
+// Generic pair wrapper (different from std Map's Pair)
+struct GenericTuple<A, B> {
+public:
+    first: A;
+    second: B;
+
+    GenericTuple(a: A, b: B) {
+        this.first = a;
+        this.second = b;
+    }
+
+    fun first_value(this) -> A {
+        return this.first;
+    }
+
+    fun second_value(this) -> B {
+        return this.second;
+    }
+
+    fun swap_tuple(this) -> GenericTuple<B, A> {
+        return new GenericTuple<B, A>(this.second, this.first);
+    }
+}
+
 fun main() {
-    // Testing generics
+    // Testing generic identity function
+    print("Identity int64: ");
+    println(identity<int64>(42));
+    print("Identity string: ");
+    println(identity<string>("Hello Generics"));
+    
+    // Testing generic swap function
+    let swapped_pair = swap_values<int64, string>(100, "test");
+    print("Swapped first (string): ");
+    println(swapped_pair.get_first());
+    print("Swapped second (int64): ");
+    println(swapped_pair.get_second());
+    println("");
+
+    // Testing generic Container struct
+    let int_container = new Container<int64>(99);
+    print("Container value: ");
+    println(int_container.get());
+    int_container.set(88);
+    print("After set: ");
+    println(int_container.get());
+    
+    let string_container = new Container<string>("Generic Container");
+    print("String container: ");
+    println(string_container.get());
+    println("");
+
+    // Testing generic GenericTuple struct
+    let tuple = new GenericTuple<int64, string>(42, "answer");
+    print("Tuple first: ");
+    println(tuple.first_value());
+    print("Tuple second: ");
+    println(tuple.second_value());
+    let tuple_swapped = tuple.swap_tuple();
+    print("Swapped tuple first (string): ");
+    println(tuple_swapped.first_value());
+    print("Swapped tuple second (int64): ");
+    println(tuple_swapped.second_value());
+    println("");
+
+    // Testing generics with Pair from Map
     let p = new Pair<int64, String>(42, new String("The answer"));
     println(p.get_first());
     println(p.get_second().s);
@@ -23,7 +119,7 @@ fun main() {
     println(swapped.get_second());
     
     // Testing vectors
-    let vec = Vector<int64>::with_capacity(10_uint64);
+    let vec = Vector<int64>::with_capacity(10u);
     let i = 0;
     while i < 10 {
         vec.push(i);
@@ -46,8 +142,8 @@ fun main() {
     let map_iter = map.into_iter();
     while map_iter.has_next() {
         let pair_opt = map_iter.next();
-        if pair_opt.is_some() {
-            let pair = pair_opt.unwrap();
+        if pair_opt.has_value() {
+            let pair = pair_opt.value();
             print("Key: ");
             print(pair.get_first());
             print(", Value: ");

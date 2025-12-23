@@ -11,9 +11,9 @@ use crate::atlas_c::{
             arena::AstArena,
             ast::{
                 AstBinaryOp, AstBlock, AstConstructor, AstDestructor, AstEnum, AstExpr,
-                AstExternFunction, AstFunction, AstIdentifier, AstImport, AstItem, AstLiteral,
-                AstMethod, AstMethodModifier, AstNamedType, AstObjField, AstProgram, AstStatement,
-                AstStruct, AstType, AstUnaryOp, AstUnion,
+                AstExternFunction, AstFunction, AstGenericConstraint, AstIdentifier, AstImport,
+                AstItem, AstLiteral, AstMethod, AstMethodModifier, AstNamedType, AstObjField,
+                AstProgram, AstStatement, AstStruct, AstType, AstUnaryOp, AstUnion,
             },
         },
     },
@@ -32,13 +32,14 @@ use crate::atlas_c::{
             HirObjLiteralExpr, HirStaticAccessExpr, HirStringLiteralExpr, HirThisLiteral,
             HirUnaryOp, HirUnitLiteralExpr, HirUnsignedIntegerLiteralExpr, UnaryOpExpr,
         },
-        generic_pool::HirGenericPool,
         item::{
             HirEnum, HirEnumVariant, HirFunction, HirStruct, HirStructConstructor, HirStructMethod,
             HirUnion,
         },
+        monomorphization_pass::generic_pool::HirGenericPool,
         signature::{
-            ConstantValue, HirFunctionParameterSignature, HirFunctionSignature, HirModuleSignature,
+            ConstantValue, HirFunctionParameterSignature, HirFunctionSignature,
+            HirGenericConstraint, HirGenericConstraintKind, HirModuleSignature,
             HirStructConstantSignature, HirStructConstructorSignature, HirStructFieldSignature,
             HirStructMethodModifier, HirStructMethodSignature, HirStructSignature,
             HirTypeParameterItemSignature, HirUnionSignature, HirVisibility,
@@ -153,6 +154,12 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     for (name, signature) in allocated_hir.signature.enums.iter() {
                         self.module_signature.enums.insert(name, signature);
                     }
+                    for (name, hir_union) in allocated_hir.body.unions.iter() {
+                        self.module_body.unions.insert(name, hir_union.clone());
+                    }
+                    for (name, signature) in allocated_hir.signature.unions.iter() {
+                        self.module_signature.unions.insert(name, signature);
+                    }
                     self.generic_pool.structs.append(&mut generic_pool.structs);
                 }
                 Err(e) => match e {
@@ -214,10 +221,20 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 ty_span: v.ty.span(),
             });
         }
-        let mut generics: Vec<&'hir str> = Vec::new();
+        let mut generics: Vec<&HirGenericConstraint<'_>> = Vec::new();
         if !ast_union.generics.is_empty() {
             for generic in ast_union.generics.iter() {
-                generics.push(self.arena.intern(generic.name.name.to_owned()));
+                generics.push(self.arena.intern(HirGenericConstraint {
+                    span: generic.span,
+                    generic_name: self.arena.names().get(generic.name.name),
+                    kind: {
+                        let mut constraints: Vec<&HirGenericConstraintKind<'_>> = vec![];
+                        for constraint in generic.constraints.iter() {
+                            constraints.push(self.arena.intern(self.visit_constraint(constraint)?));
+                        }
+                        constraints
+                    },
+                }));
             }
         }
         let signature = HirUnionSignature {
@@ -295,18 +312,22 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         let mut params: Vec<HirFunctionParameterSignature<'hir>> = Vec::new();
         let mut type_params: Vec<&'hir HirTypeParameterItemSignature<'hir>> = Vec::new();
 
-        let generics = if ast_extern_func.generics.is_some() {
-            Some(
-                ast_extern_func
-                    .generics
-                    .unwrap()
-                    .iter()
-                    .map(|g| self.visit_generic(g))
-                    .collect::<HirResult<Vec<_>>>()?,
-            )
-        } else {
-            None
-        };
+        let mut generics: Vec<&HirGenericConstraint<'_>> = Vec::new();
+        if !ast_extern_func.generics.is_empty() {
+            for generic in ast_extern_func.generics.iter() {
+                generics.push(self.arena.intern(HirGenericConstraint {
+                    span: generic.span,
+                    generic_name: self.arena.names().get(generic.name.name),
+                    kind: {
+                        let mut constraints: Vec<&HirGenericConstraintKind<'_>> = vec![];
+                        for constraint in generic.constraints.iter() {
+                            constraints.push(self.arena.intern(self.visit_constraint(constraint)?));
+                        }
+                        constraints
+                    },
+                }));
+            }
+        }
 
         for (arg_name, arg_ty) in ast_extern_func
             .args_name
@@ -379,11 +400,20 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             methods.push(hir_method);
         }
 
-        let mut generics: Vec<&'hir str> = Vec::new();
+        let mut generics: Vec<&HirGenericConstraint<'_>> = Vec::new();
         if !node.generics.is_empty() {
             for generic in node.generics.iter() {
-                //TODO: Handle generic constraints
-                generics.push(self.arena.intern(generic.name.name.to_owned()));
+                generics.push(self.arena.intern(HirGenericConstraint {
+                    span: generic.span,
+                    generic_name: self.arena.names().get(generic.name.name),
+                    kind: {
+                        let mut constraints: Vec<&HirGenericConstraintKind<'_>> = vec![];
+                        for constraint in generic.constraints.iter() {
+                            constraints.push(self.arena.intern(self.visit_constraint(constraint)?));
+                        }
+                        constraints
+                    },
+                }));
             }
         }
 
@@ -477,6 +507,32 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             destructor,
             vis: node.vis.into(),
         })
+    }
+
+    fn visit_constraint(
+        &mut self,
+        constraint: &'ast AstGenericConstraint<'ast>,
+    ) -> HirResult<HirGenericConstraintKind<'hir>> {
+        match constraint {
+            AstGenericConstraint::Concept(concept_bound) => {
+                let name = self.arena.names().get(concept_bound.name.name);
+                Ok(HirGenericConstraintKind::Concept {
+                    name,
+                    span: concept_bound.span,
+                })
+            }
+            AstGenericConstraint::Operator { op, span } => {
+                let operator = self.visit_bin_op(op)?;
+                Ok(HirGenericConstraintKind::Operator {
+                    op: operator,
+                    span: *span,
+                })
+            }
+            AstGenericConstraint::Std(std) => Ok(HirGenericConstraintKind::Std {
+                name: self.arena.names().get(std.name),
+                span: std.span,
+            }),
+        }
     }
 
     fn visit_method(&mut self, node: &'ast AstMethod<'ast>) -> HirResult<HirStructMethod<'hir>> {
@@ -863,7 +919,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         }
         if !found_generic_paramater {
             self.generic_pool
-                .register_struct_instance(generic_type.clone());
+                .register_struct_instance(generic_type.clone(), &self.module_signature);
         }
 
         self.arena.intern(HirTy::Generic(generic_type.clone()))
@@ -1015,15 +1071,13 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                                 let src = crate::atlas_c::utils::get_file_content(path).unwrap();
                                 return Err(HirError::UnsupportedExpr(UnsupportedExpr {
                                     span: node.span(),
-                                    expr: format!("{}", node.kind()),
+                                    expr: node.kind().to_string(),
                                     src: NamedSource::new(path, src),
                                 }));
                             }
                         },
                     }));
                 }
-                eprintln!("Obj literal type: {:?}", ty);
-                //let ty = self.arena.types().get_uninitialized_ty();
                 let hir = HirExpr::ObjLiteral(HirObjLiteralExpr {
                     span: node.span(),
                     ty,
@@ -1160,7 +1214,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 let src = crate::atlas_c::utils::get_file_content(path).unwrap();
                 Err(HirError::UnsupportedExpr(UnsupportedExpr {
                     span: node.span(),
-                    expr: format!("{}", node.kind()),
+                    expr: node.kind().to_string(),
                     src: NamedSource::new(path, src),
                 }))
             }
@@ -1210,12 +1264,30 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             .collect::<HirResult<Vec<_>>>();
 
         let body = self.visit_block(node.body)?;
+
+        let mut generics: Vec<&HirGenericConstraint<'_>> = Vec::new();
+        if !node.generics.is_empty() {
+            for generic in node.generics.iter() {
+                generics.push(self.arena.intern(HirGenericConstraint {
+                    span: generic.span,
+                    generic_name: self.arena.names().get(generic.name.name),
+                    kind: {
+                        let mut constraints: Vec<&HirGenericConstraintKind<'_>> = vec![];
+                        for constraint in generic.constraints.iter() {
+                            constraints.push(self.arena.intern(self.visit_constraint(constraint)?));
+                        }
+                        constraints
+                    },
+                }));
+            }
+        }
+
         let signature = self.arena.intern(HirFunctionSignature {
             span: node.span,
             vis: node.vis.into(),
             params: parameters?,
             //Generics aren't supported yet for normal functions
-            generics: None,
+            generics,
             type_params: type_parameters?,
             return_ty: ret_type,
             return_ty_span: Some(ret_type_span),

@@ -54,14 +54,6 @@ impl<'run> AtlasRuntime<'run> {
             for (name, func) in atlas_vm::libraries::vector::VECTOR_FUNCTIONS.iter() {
                 extern_fn.insert(name, *func as CallBack);
             }
-            //std/option
-            for (name, func) in atlas_vm::libraries::option::OPTION_FUNCTIONS.iter() {
-                extern_fn.insert(name, *func as CallBack);
-            }
-            //std/result
-            for (name, func) in atlas_vm::libraries::result::RESULT_FUNCTIONS.iter() {
-                extern_fn.insert(name, *func as CallBack);
-            }
         }
         Self {
             stack: Stack::new(),

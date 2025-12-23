@@ -1,10 +1,6 @@
 import "std/vector";
-import "std/option";
+import "std/optional";
 import "std/iter";
-
-/// A simple map implementation using two parallel arrays.
-/// This will not make into production stdlib, I just wanted to see what could
-/// be done with the current language features.
 
 public struct Pair<K, V> {
 public:
@@ -24,9 +20,10 @@ public:
         return new Pair<V, K>(this.value, this.key);
     }
 }
-
-//TODO: Add into_iter()
-//NB: Doesn't work yet if K is not primitive type because of equality check
+/// A simple map implementation using two parallel arrays.
+/// This will not make into production stdlib, I just wanted to see what could
+/// be done with the current language features.
+//NB: Only works for primitive K types that support equality comparison
 public struct Map<K, V> {
 private:
     keys: Vector<K>;
@@ -39,15 +36,15 @@ public:
     ~Map() {}
     /// Retrieves the value associated with the given key.
     /// Returns None if the key does not exist.
-    fun get(this, key: K) -> Option<V> {
+    fun get(this, key: K) -> optional<V> {
         let i: uint64 = 0u;
         while i < this.keys.length {
             if this.keys.get(i) == key {
-                return Option<V>::some(this.values.get(i));
+                return optional<V>::of(this.values.get(i));
             }
             i = i + 1u;
         }
-        return Option<V>::none();
+        return optional<V>::empty();
     }
     /// Inserts a key-value pair into the map.
     /// If the key already exists, updates its value.

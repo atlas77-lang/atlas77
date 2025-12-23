@@ -1,5 +1,8 @@
 //package std;
 
+//NB: This is already deprecated, but we will keep it for a while
+//Until std/experimental/smart_ptr is ready
+
 /// A box is a container that holds a single value of a specific type.
 /// Useful for passing around values that need to be shared and mutated.
 public struct Box<T> {

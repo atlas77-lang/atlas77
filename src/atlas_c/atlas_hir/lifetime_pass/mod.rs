@@ -9,7 +9,6 @@ use crate::atlas_c::{
         expr::{HirDeleteExpr, HirExpr, HirIdentExpr},
         item::HirFunction,
         lifetime_pass::context::VarKind,
-        monomorphization_pass::MonomorphizationPass,
         signature::HirModuleSignature,
         stmt::{HirExprStmt, HirStatement},
         ty::{HirTy, HirUnitTy},
@@ -158,27 +157,5 @@ impl<'hir> LifeTimePass<'hir> {
                 })),
             }),
         })
-    }
-
-    fn is_copyable(&self, ty: &HirTy<'hir>) -> bool {
-        match ty {
-            HirTy::Boolean(_)
-            | HirTy::Int64(_)
-            | HirTy::Float64(_)
-            | HirTy::Char(_)
-            | HirTy::UInt64(_) => true,
-            HirTy::Named(n) => match self.hir_signature.structs.get(n.name) {
-                Some(struct_sig) => struct_sig.methods.contains_key("_copy"),
-                None => false,
-            },
-            HirTy::Generic(g) => {
-                let name = MonomorphizationPass::mangle_generic_object_name(self.hir_arena, g);
-                match self.hir_signature.structs.get(name) {
-                    Some(struct_sig) => struct_sig.methods.contains_key("_copy"),
-                    None => false,
-                }
-            }
-            _ => false,
-        }
     }
 }

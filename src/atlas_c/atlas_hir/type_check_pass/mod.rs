@@ -9,12 +9,16 @@ use super::{
     stmt::HirStatement,
     ty::{HirTy, HirTyId},
 };
-use crate::atlas_c::atlas_hir::warning::{DeletingReferenceMightLeadToUB, HirWarning};
 use crate::atlas_c::atlas_hir::{
     error::IllegalUnaryOperationError,
     signature::{
         HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier, HirVisibility,
     },
+    ty::HirGenericTy,
+};
+use crate::atlas_c::atlas_hir::{
+    error::InvalidSpecialMethodSignatureError,
+    warning::{DeletingReferenceMightLeadToUB, HirWarning},
 };
 use crate::atlas_c::atlas_hir::{
     error::TryingToAccessFieldOnNonObjectTypeError,
@@ -179,7 +183,8 @@ impl<'hir> TypeChecker<'hir> {
         Ok(())
     }
 
-    pub fn check_method(&mut self, method: &mut HirStructMethod<'hir>) -> HirResult<()> {
+    fn check_method(&mut self, method: &mut HirStructMethod<'hir>) -> HirResult<()> {
+        self.check_special_method_signature(method.name, method)?;
         self.context_functions.push(HashMap::new());
         self.context_functions.last_mut().unwrap().insert(
             self.current_func_name.unwrap().to_string(),
@@ -207,6 +212,80 @@ impl<'hir> TypeChecker<'hir> {
         }
         //Because it is a method we don't keep it in the `context_functions`
         self.context_functions.pop();
+        Ok(())
+    }
+
+    fn check_special_method_signature(
+        &mut self,
+        name: &str,
+        method: &HirStructMethod<'hir>,
+    ) -> HirResult<()> {
+        match name {
+            // fun _copy(&const this) -> CurrentClass
+            "_copy" => {
+                if method.signature.modifier != HirStructMethodModifier::Const {
+                    return Err(HirError::InvalidSpecialMethodSignature(
+                        InvalidSpecialMethodSignatureError {
+                            span: method.signature.span,
+                            method_name: name.to_string(),
+                            expected: "a const modifier".to_string(),
+                            actual: format!("{:?}", method.signature.modifier),
+                            src: NamedSource::new(
+                                method.signature.span.path,
+                                utils::get_file_content(method.signature.span.path).unwrap(),
+                            ),
+                        },
+                    ));
+                }
+                // Methods don't inherently have a parameter for `this`, it is implicit
+                // The fist parameter is determined by the modifier (in this case const)
+                if !method.signature.params.is_empty() {
+                    return Err(HirError::InvalidSpecialMethodSignature(
+                        InvalidSpecialMethodSignatureError {
+                            span: method.signature.span,
+                            method_name: name.to_string(),
+                            expected: "1 parameter (&const this)".to_string(),
+                            actual: format!("{} parameters", method.signature.params.len()),
+                            src: NamedSource::new(
+                                method.signature.span.path,
+                                utils::get_file_content(method.signature.span.path).unwrap(),
+                            ),
+                        },
+                    ));
+                }
+                match self.is_equivalent_ty(
+                    &method.signature.return_ty,
+                    method.signature.span,
+                    self.arena
+                        .types()
+                        .get_named_ty(self.current_class_name.unwrap(), method.signature.span),
+                    method.signature.return_ty_span.unwrap(),
+                ) {
+                    Ok(_) => {}
+                    Err(_) => {
+                        return Err(HirError::InvalidSpecialMethodSignature(
+                            InvalidSpecialMethodSignatureError {
+                                span: method
+                                    .signature
+                                    .return_ty_span
+                                    .unwrap_or(method.signature.span),
+                                method_name: name.to_string(),
+                                expected: format!(
+                                    "return type to be {}",
+                                    self.current_class_name.unwrap()
+                                ),
+                                actual: format!("{}", method.signature.return_ty),
+                                src: NamedSource::new(
+                                    method.signature.span.path,
+                                    utils::get_file_content(method.signature.span.path).unwrap(),
+                                ),
+                            },
+                        ));
+                    }
+                }
+            }
+            _ => {}
+        }
         Ok(())
     }
 
@@ -727,7 +806,8 @@ impl<'hir> TypeChecker<'hir> {
                     };
                     *tmp
                 } else if let HirTy::Generic(g) = obj_lit.ty {
-                    let name = MonomorphizationPass::mangle_generic_object_name(self.arena, g);
+                    let name =
+                        MonomorphizationPass::mangle_generic_object_name(self.arena, g, "union");
                     union_ty = self.arena.intern(HirNamedTy { name, span: g.span })
                         as &'hir HirNamedTy<'hir>;
                     let tmp = match self.signature.unions.get(name) {
@@ -826,7 +906,8 @@ impl<'hir> TypeChecker<'hir> {
                     };
                     *tmp
                 } else if let HirTy::Generic(g) = obj.ty {
-                    let name = MonomorphizationPass::mangle_generic_object_name(self.arena, g);
+                    let name =
+                        MonomorphizationPass::mangle_generic_object_name(self.arena, g, "struct");
                     struct_ty = self.arena.intern(HirNamedTy { name, span: g.span })
                         as &'hir HirNamedTy<'hir>;
                     let tmp = match self.signature.structs.get(name) {
@@ -916,7 +997,24 @@ impl<'hir> TypeChecker<'hir> {
                 let callee = func_expr.callee.as_mut();
                 match callee {
                     HirExpr::Ident(i) => {
-                        let name = i.name;
+                        let name = if func_expr.generics.is_empty() {
+                            i.name
+                        } else {
+                            MonomorphizationPass::mangle_generic_object_name(
+                                self.arena,
+                                &HirGenericTy {
+                                    name: i.name,
+                                    //Need to go from Vec<&T> to Vec<T>
+                                    inner: func_expr
+                                        .generics
+                                        .iter()
+                                        .map(|g| (*g).clone())
+                                        .collect(),
+                                    span: i.span,
+                                },
+                                "function",
+                            )
+                        };
                         let func = match self.signature.functions.get(name) {
                             Some(f) => *f,
                             None => {
@@ -953,7 +1051,7 @@ impl<'hir> TypeChecker<'hir> {
                         }
 
                         //Only check if it's an external function with generics (e.g. `extern foo<T>(a: T) -> T`)
-                        if func.is_external && func.generics.is_some() {
+                        if func.is_external && !func.generics.is_empty() {
                             return self.check_extern_fn(name, func_expr, func);
                         }
 
@@ -1077,9 +1175,9 @@ impl<'hir> TypeChecker<'hir> {
                     HirExpr::StaticAccess(static_access) => {
                         let name = match static_access.target {
                             HirTy::Named(n) => n.name,
-                            HirTy::Generic(g) => {
-                                MonomorphizationPass::mangle_generic_object_name(self.arena, g)
-                            }
+                            HirTy::Generic(g) => MonomorphizationPass::mangle_generic_object_name(
+                                self.arena, g, "struct",
+                            ),
                             _ => {
                                 let path = static_access.span.path;
                                 let src = utils::get_file_content(path).unwrap();
@@ -1358,11 +1456,11 @@ impl<'hir> TypeChecker<'hir> {
         // Check if explicit generic type arguments are provided (e.g., `default::<Int64>()`)
         if !call_expr.generics.is_empty() {
             // Use explicit type arguments from the function call
-            if let Some(generic_params) = &signature.generics {
+            if !signature.generics.is_empty() {
                 for (generic_param, concrete_ty) in
-                    generic_params.iter().zip(call_expr.generics.iter())
+                    signature.generics.iter().zip(call_expr.generics.iter())
                 {
-                    generics.push((generic_param.name, concrete_ty));
+                    generics.push((generic_param.generic_name, concrete_ty));
                 }
             }
             // Still need to create params even with explicit generics
@@ -1406,7 +1504,7 @@ impl<'hir> TypeChecker<'hir> {
             }
         } else if call_expr.generics.is_empty() {
             // Parameterless function with no explicit type arguments - error
-            if signature.generics.is_some() {
+            if !signature.generics.is_empty() {
                 return Err(Self::type_mismatch_err(
                     "parameterless generic function",
                     &call_expr.span,
@@ -1440,7 +1538,7 @@ impl<'hir> TypeChecker<'hir> {
             monomorphized.return_ty = return_ty.clone();
         };
 
-        monomorphized.generics = None;
+        monomorphized.generics = vec![];
         let signature = self.arena.intern(monomorphized);
         self.extern_monomorphized
             .insert((name, args_ty, explicit_generics), signature);
@@ -1541,7 +1639,9 @@ impl<'hir> TypeChecker<'hir> {
 
             //(HirTy::Int64(_), HirTy::UInt64(_)) | (HirTy::UInt64(_), HirTy::Int64(_)) => Ok(()),
             (HirTy::Generic(g), HirTy::Named(n)) | (HirTy::Named(n), HirTy::Generic(g)) => {
-                if MonomorphizationPass::mangle_generic_object_name(self.arena, g) == n.name {
+                if MonomorphizationPass::mangle_generic_object_name(self.arena, g, "struct")
+                    == n.name
+                {
                     Ok(())
                 } else {
                     Err(Self::type_mismatch_err(
@@ -1599,9 +1699,23 @@ impl<'hir> TypeChecker<'hir> {
     fn get_class_name_of_type(&self, ty: &HirTy<'hir>) -> Option<&'hir str> {
         match ty {
             HirTy::Named(n) => Some(n.name),
-            HirTy::Generic(g) => Some(MonomorphizationPass::mangle_generic_object_name(
-                self.arena, g,
-            )),
+            HirTy::Generic(g) => {
+                // Need to handle union and struct generics
+                let name;
+                if self.signature.structs.contains_key(
+                    MonomorphizationPass::mangle_generic_object_name(self.arena, g, "struct"),
+                ) {
+                    name =
+                        MonomorphizationPass::mangle_generic_object_name(self.arena, g, "struct");
+                    return Some(name);
+                } else {
+                    name = MonomorphizationPass::mangle_generic_object_name(self.arena, g, "union");
+                    if self.signature.unions.contains_key(name) {
+                        return Some(name);
+                    }
+                }
+                None
+            }
             HirTy::ReadOnlyReference(read_only) => self.get_class_name_of_type(read_only.inner),
             HirTy::MutableReference(mutable) => self.get_class_name_of_type(mutable.inner),
             _ => None,
