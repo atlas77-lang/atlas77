@@ -752,11 +752,7 @@ impl<'ast> Parser<'ast> {
         let node = AstFunction {
             span: Span::union_span(&name.span, &body.span),
             name: self.arena.alloc(name),
-            generics: if generics.is_empty() {
-                None
-            } else {
-                Some(self.arena.alloc_vec(generics))
-            },
+            generics: self.arena.alloc_vec(generics),
             args: self.arena.alloc_vec(params),
             ret: self.arena.alloc(ret_ty),
             body: self.arena.alloc(body),
@@ -1468,24 +1464,18 @@ impl<'ast> Parser<'ast> {
         let _ = self.advance();
         let name = self.parse_identifier()?;
 
-        let mut generics = None;
-        //Start of generic with `fn foo<T>() -> T`
-        if self.current().kind == TokenKind::LAngle {
-            self.expect(TokenKind::LAngle)?;
-            let mut generic_names = vec![];
-            while self.current().kind != TokenKind::RAngle {
-                let generic_name = self.parse_identifier()?;
-                generic_names.push(AstNamedType {
-                    span: self.current().span(),
-                    name: self.arena.alloc(generic_name),
+        let generics = self.eat_if(
+            TokenKind::LAngle,
+            |p| {
+                let value = p.eat_until(TokenKind::RAngle, |parser| {
+                    parser.eat_if(TokenKind::Comma, |_| Ok(()), ())?;
+                    parser.parse_generic()
                 });
-                if self.current().kind == TokenKind::Comma {
-                    let _ = self.advance();
-                }
-            }
-            self.expect(TokenKind::RAngle)?;
-            generics = Some(self.arena.alloc_vec(generic_names));
-        }
+                p.expect(TokenKind::RAngle)?;
+                value
+            },
+            vec![],
+        )?;
 
         self.expect(TokenKind::LParen)?;
         let mut args_name = vec![];
@@ -1511,7 +1501,7 @@ impl<'ast> Parser<'ast> {
         let node = AstExternFunction {
             span: Span::union_span(&name.span, &ret_ty.span()),
             name: self.arena.alloc(name),
-            generics,
+            generics: self.arena.alloc_vec(generics),
             args_name: self.arena.alloc_vec(args_name),
             args_ty: self.arena.alloc_vec(args_ty),
             ret_ty: self.arena.alloc(ret_ty),

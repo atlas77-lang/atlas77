@@ -1031,7 +1031,7 @@ impl<'hir> TypeChecker<'hir> {
                         }
 
                         //Only check if it's an external function with generics (e.g. `extern foo<T>(a: T) -> T`)
-                        if func.is_external && func.generics.is_some() {
+                        if func.is_external && !func.generics.is_empty() {
                             return self.check_extern_fn(name, func_expr, func);
                         }
 
@@ -1436,11 +1436,11 @@ impl<'hir> TypeChecker<'hir> {
         // Check if explicit generic type arguments are provided (e.g., `default::<Int64>()`)
         if !call_expr.generics.is_empty() {
             // Use explicit type arguments from the function call
-            if let Some(generic_params) = &signature.generics {
-                for (generic_param, concrete_ty) in
-                    generic_params.iter().zip(call_expr.generics.iter())
+            if !signature.generics.is_empty() {
+                for (generic_param, concrete_ty) in 
+                    signature.generics.iter().zip(call_expr.generics.iter()) 
                 {
-                    generics.push((generic_param.name, concrete_ty));
+                    generics.push((generic_param.generic_name, concrete_ty));
                 }
             }
             // Still need to create params even with explicit generics
@@ -1484,7 +1484,7 @@ impl<'hir> TypeChecker<'hir> {
             }
         } else if call_expr.generics.is_empty() {
             // Parameterless function with no explicit type arguments - error
-            if signature.generics.is_some() {
+            if !signature.generics.is_empty() {
                 return Err(Self::type_mismatch_err(
                     "parameterless generic function",
                     &call_expr.span,
@@ -1518,7 +1518,7 @@ impl<'hir> TypeChecker<'hir> {
             monomorphized.return_ty = return_ty.clone();
         };
 
-        monomorphized.generics = None;
+        monomorphized.generics = vec![];
         let signature = self.arena.intern(monomorphized);
         self.extern_monomorphized
             .insert((name, args_ty, explicit_generics), signature);

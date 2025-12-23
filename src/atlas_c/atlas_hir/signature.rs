@@ -210,7 +210,7 @@ pub struct HirFunctionSignature<'hir> {
     pub span: Span,
     pub vis: HirVisibility,
     pub params: Vec<HirFunctionParameterSignature<'hir>>,
-    pub generics: Option<Vec<&'hir HirTypeParameterItemSignature<'hir>>>,
+    pub generics: Vec<&'hir HirGenericConstraint<'hir>>,
     pub type_params: Vec<&'hir HirTypeParameterItemSignature<'hir>>,
     /// The user can declare a function without a return type, in which case the return type is `()`.
     pub return_ty: HirTy<'hir>,
@@ -225,7 +225,7 @@ impl Default for HirFunctionSignature<'_> {
             span: Span::default(),
             vis: HirVisibility::Public,
             params: Vec::new(),
-            generics: None,
+            generics: vec![],
             type_params: Vec::new(),
             return_ty: HirTy::Unit(HirUnitTy {}),
             return_ty_span: None,

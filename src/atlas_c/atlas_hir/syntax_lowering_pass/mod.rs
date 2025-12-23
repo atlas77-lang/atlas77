@@ -312,18 +312,22 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         let mut params: Vec<HirFunctionParameterSignature<'hir>> = Vec::new();
         let mut type_params: Vec<&'hir HirTypeParameterItemSignature<'hir>> = Vec::new();
 
-        let generics = if ast_extern_func.generics.is_some() {
-            Some(
-                ast_extern_func
-                    .generics
-                    .unwrap()
-                    .iter()
-                    .map(|g| self.visit_generic(g))
-                    .collect::<HirResult<Vec<_>>>()?,
-            )
-        } else {
-            None
-        };
+        let mut generics: Vec<&HirGenericConstraint<'_>> = Vec::new();
+        if !ast_extern_func.generics.is_empty() {
+            for generic in ast_extern_func.generics.iter() {
+                generics.push(self.arena.intern(HirGenericConstraint {
+                    span: generic.span,
+                    generic_name: self.arena.names().get(generic.name.name),
+                    kind: {
+                        let mut constraints: Vec<&HirGenericConstraintKind<'_>> = vec![];
+                        for constraint in generic.constraints.iter() {
+                            constraints.push(self.arena.intern(self.visit_constraint(constraint)?));
+                        }
+                        constraints
+                    },
+                }));
+            }
+        }
 
         for (arg_name, arg_ty) in ast_extern_func
             .args_name
@@ -1260,12 +1264,30 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             .collect::<HirResult<Vec<_>>>();
 
         let body = self.visit_block(node.body)?;
+
+        let mut generics: Vec<&HirGenericConstraint<'_>> = Vec::new();
+        if !node.generics.is_empty() {
+            for generic in node.generics.iter() {
+                generics.push(self.arena.intern(HirGenericConstraint {
+                    span: generic.span,
+                    generic_name: self.arena.names().get(generic.name.name),
+                    kind: {
+                        let mut constraints: Vec<&HirGenericConstraintKind<'_>> = vec![];
+                        for constraint in generic.constraints.iter() {
+                            constraints.push(self.arena.intern(self.visit_constraint(constraint)?));
+                        }
+                        constraints
+                    },
+                }));
+            }
+        }
+
         let signature = self.arena.intern(HirFunctionSignature {
             span: node.span,
             vis: node.vis.into(),
             params: parameters?,
             //Generics aren't supported yet for normal functions
-            generics: None,
+            generics,
             type_params: type_parameters?,
             return_ty: ret_type,
             return_ty_span: Some(ret_type_span),

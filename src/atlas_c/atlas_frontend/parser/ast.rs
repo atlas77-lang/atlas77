@@ -206,7 +206,7 @@ pub struct AstMethod<'ast> {
 pub struct AstFunction<'ast> {
     pub span: Span,
     pub name: &'ast AstIdentifier<'ast>,
-    pub generics: Option<&'ast [&'ast AstGeneric<'ast>]>,
+    pub generics: &'ast [&'ast AstGeneric<'ast>],
     pub args: &'ast [&'ast AstObjField<'ast>],
     pub ret: &'ast AstType<'ast>,
     pub body: &'ast AstBlock<'ast>,
@@ -227,7 +227,7 @@ pub struct AstObjField<'ast> {
 pub struct AstExternFunction<'ast> {
     pub span: Span,
     pub name: &'ast AstIdentifier<'ast>,
-    pub generics: Option<&'ast [&'ast AstNamedType<'ast>]>,
+    pub generics:&'ast [&'ast AstGeneric<'ast>],
     pub args_name: &'ast [&'ast AstIdentifier<'ast>],
     pub args_ty: &'ast [&'ast AstType<'ast>],
     pub ret_ty: &'ast AstType<'ast>,
