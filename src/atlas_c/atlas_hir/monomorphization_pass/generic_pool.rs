@@ -69,13 +69,6 @@ impl<'hir> HirGenericPool<'hir> {
             {
                 std::process::exit(1);
             }
-        } else if let Some(union_sig) = module.unions.get(generic.name) {
-            declaration_span = union_sig.name_span;
-            constraints = union_sig.generics.clone();
-            if !self.check_constraint_satisfaction(module, &generic, constraints, declaration_span)
-            {
-                std::process::exit(1);
-            }
         }
         //We need to check if it's an instantiated generics or a generic definition e.g.: Vector<T> or Vector<uint64>
         //We check only after checking constraints so if a type is registered during syntax lowering we still check constraints afterwards
@@ -84,10 +77,42 @@ impl<'hir> HirGenericPool<'hir> {
         }
 
         //TODO: Differentiate between struct and union here
-        let name = self.mangle_generic_object_name(generic.clone(), "struct");
+        let name = MonomorphizationPass::mangle_generic_object_name(self.arena, &generic, "struct");
         self.structs.entry(name).or_insert(HirGenericInstance {
             name: generic.name,
             args: generic.inner,
+            is_done: false,
+            span: generic.span,
+        });
+    }
+
+    pub fn register_union_instance(
+        &mut self,
+        generic: &HirGenericTy<'hir>,
+        module: &HirModuleSignature<'hir>,
+    ) {
+        let declaration_span;
+        let constraints: Vec<&HirGenericConstraint<'_>>;
+        if let Some(union_sig) = module.unions.get(generic.name) {
+            declaration_span = union_sig.name_span;
+            constraints = union_sig.generics.clone();
+            if !self.check_constraint_satisfaction(module, &generic, constraints, declaration_span)
+            {
+                std::process::exit(1);
+            }
+        }
+        //We need to check if it's an instantiated generics or a generic definition e.g.: Result<T> or Result<uint64>
+        if !self.is_generic_instantiated(&generic, module) {
+            return;
+        }
+        let name = MonomorphizationPass::mangle_generic_object_name(self.arena, &generic, "union");
+        eprintln!(
+            "DEBUG: Registered union {} with mangled name {}",
+            generic.name, name
+        );
+        self.unions.entry(name).or_insert(HirGenericInstance {
+            name: generic.name,
+            args: generic.inner.clone(),
             is_done: false,
             span: generic.span,
         });
@@ -98,14 +123,17 @@ impl<'hir> HirGenericPool<'hir> {
         generic: HirGenericTy<'hir>,
         module: &HirModuleSignature<'hir>,
     ) {
-        eprintln!("DEBUG: register_function_instance called for {}", generic.name);
+        eprintln!(
+            "DEBUG: register_function_instance called for {}",
+            HirTy::Generic(generic.clone())
+        );
         // Check for constraints if function has generics
         if let Some(func_sig) = module.functions.get(generic.name) {
-            if let Some(generic_params) = &func_sig.generics {
-                if generic_params.len() == generic.inner.len() {
+            if !func_sig.generics.is_empty() {
+                if func_sig.generics.len() == generic.inner.len() {
                     // TODO: Validate that the concrete types satisfy the generic constraints
                     // This stub implementation currently skips constraint checking
-                    for _param in generic_params.iter() {
+                    for _param in func_sig.generics.iter() {
                         // TODO: Check if each concrete type in generic.inner[i] satisfies constraints for _param
                     }
                 }
@@ -114,21 +142,28 @@ impl<'hir> HirGenericPool<'hir> {
 
         // Check if this is an instantiated generic or a generic definition
         let is_instantiated = self.is_generic_instantiated(&generic, module);
-        eprintln!("DEBUG: {}<...> is_instantiated = {}", generic.name, is_instantiated);
+        eprintln!(
+            "DEBUG: {}<...> is_instantiated = {}",
+            generic.name, is_instantiated
+        );
         if !is_instantiated {
             return;
         }
 
-        eprint!("{}  /  ", HirTy::Generic(generic.clone()));
-
-        let name = self.mangle_generic_object_name(generic.clone(), "function");
-        eprintln!("DEBUG: Registered function {} with mangled name {}", generic.name, name);
-        self.functions.entry(name).or_insert(HirGenericInstance {
-            name: generic.name,
-            args: generic.inner,
-            is_done: false,
-            span: generic.span,
-        });
+        let mangled_name =
+            MonomorphizationPass::mangle_generic_object_name(self.arena, &generic, "function");
+        eprintln!(
+            "DEBUG: Registered function {} with mangled name {}",
+            generic.name, mangled_name
+        );
+        self.functions
+            .entry(mangled_name)
+            .or_insert(HirGenericInstance {
+                name: generic.name,
+                args: generic.inner,
+                is_done: false,
+                span: generic.span,
+            });
     }
 
     fn is_generic_instantiated(
@@ -142,7 +177,10 @@ impl<'hir> HirGenericPool<'hir> {
                 HirTy::Named(n) => {
                     // Check if this is actually a defined struct/union in the module
                     // If it's only 1 letter AND not defined as a struct/union, it's a generic type parameter
-                    if n.name.len() == 1 && !module.structs.contains_key(n.name) && !module.unions.contains_key(n.name) {
+                    if n.name.len() == 1
+                        && !module.structs.contains_key(n.name)
+                        && !module.unions.contains_key(n.name)
+                    {
                         is_instantiated = false;
                     }
                 }
@@ -160,7 +198,10 @@ impl<'hir> HirGenericPool<'hir> {
                 HirTy::ReadOnlyReference(r) => match r.inner {
                     HirTy::Named(n) => {
                         // Check if this is actually a defined struct/union in the module
-                        if n.name.len() == 1 && !module.structs.contains_key(n.name) && !module.unions.contains_key(n.name) {
+                        if n.name.len() == 1
+                            && !module.structs.contains_key(n.name)
+                            && !module.unions.contains_key(n.name)
+                        {
                             is_instantiated = false;
                         }
                     }
@@ -176,7 +217,10 @@ impl<'hir> HirGenericPool<'hir> {
                 HirTy::MutableReference(r) => match r.inner {
                     HirTy::Named(n) => {
                         // Check if this is actually a defined struct/union in the module
-                        if n.name.len() == 1 && !module.structs.contains_key(n.name) && !module.unions.contains_key(n.name) {
+                        if n.name.len() == 1
+                            && !module.structs.contains_key(n.name)
+                            && !module.unions.contains_key(n.name)
+                        {
                             is_instantiated = false;
                         }
                     }
@@ -193,19 +237,6 @@ impl<'hir> HirGenericPool<'hir> {
             }
         }
         is_instantiated
-    }
-
-    fn mangle_generic_object_name(&self, generic: HirGenericTy<'hir>, kind: &str) -> &'hir str {
-        let parts: Vec<String> = generic
-            .inner
-            .iter()
-            .map(|t| match t {
-                HirTy::Generic(g) => self.mangle_generic_object_name(g.clone(), kind).to_string(),
-                _ => format!("{}", t),
-            })
-            .collect();
-        let name = format!("__atlas77__{}__{}__{}", kind, generic.name, parts.join("_"));
-        self.arena.intern(name)
     }
 
     fn check_constraint_satisfaction(
@@ -299,7 +330,7 @@ impl<'hir> HirGenericPool<'hir> {
                 None => false,
             },
             HirTy::Generic(g) => {
-                let name = MonomorphizationPass::mangle_generic_object_name(self.arena, g);
+                let name = MonomorphizationPass::mangle_generic_object_name(self.arena, g, "struct");
                 match module.structs.get(name) {
                     Some(struct_sig) => struct_sig.methods.contains_key("_copy"),
                     None => false,

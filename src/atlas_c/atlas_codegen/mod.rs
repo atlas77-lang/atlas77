@@ -13,7 +13,7 @@ use crate::atlas_c::atlas_hir::expr::{HirBinaryOperator, HirUnaryOp};
 use crate::atlas_c::atlas_hir::item::{HirStruct, HirStructConstructor};
 use crate::atlas_c::atlas_hir::monomorphization_pass::MonomorphizationPass;
 use crate::atlas_c::atlas_hir::signature::{ConstantValue, HirStructMethodModifier};
-use crate::atlas_c::atlas_hir::ty::{HirMutableReferenceTy, HirReadOnlyReferenceTy};
+use crate::atlas_c::atlas_hir::ty::{HirGenericTy, HirMutableReferenceTy, HirReadOnlyReferenceTy};
 use crate::atlas_c::atlas_hir::{
     HirModule,
     error::{HirResult, UnsupportedExpr, UnsupportedStatement},
@@ -670,29 +670,48 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     }
                 }
             }
-            HirExpr::Call(f) => {
-                let callee = f.callee.as_ref();
+            HirExpr::Call(func_expr) => {
+                let callee = func_expr.callee.as_ref();
                 match callee {
                     HirExpr::Ident(i) => {
-                        for arg in &f.args {
+                        for arg in &func_expr.args {
                             self.generate_bytecode_expr(arg, bytecode)?;
                         }
-                        let func = self.hir.signature.functions.get(i.name).unwrap();
+                        let name;
+                        if func_expr.generics.is_empty() {
+                            name = i.name;
+                        } else {
+                            name = MonomorphizationPass::mangle_generic_object_name(
+                                self.hir_arena,
+                                &HirGenericTy {
+                                    name: i.name,
+                                    //Need to go from Vec<&T> to Vec<T>
+                                    inner: func_expr
+                                        .generics
+                                        .iter()
+                                        .map(|g| (*g).clone())
+                                        .collect(),
+                                    span: i.span,
+                                },
+                                "function",
+                            );
+                        }
+                        let func = self.hir.signature.functions.get(name).unwrap();
                         if func.is_external {
                             bytecode.push(Instruction::ExternCall {
-                                func_name: i.name.to_string(),
+                                func_name: name.to_string(),
                             });
                         } else {
                             bytecode.push(Instruction::Call {
-                                func_name: i.name.to_string(),
-                                nb_args: f.args.len() as u8,
+                                func_name: name.to_string(),
+                                nb_args: func_expr.args.len() as u8,
                             });
                         }
                     }
                     HirExpr::FieldAccess(field_access) => {
                         //Get the Class pointer:
                         self.generate_bytecode_expr(&field_access.target, bytecode)?;
-                        for arg in &f.args {
+                        for arg in &func_expr.args {
                             self.generate_bytecode_expr(arg, bytecode)?;
                         }
                         let struct_name =
@@ -707,15 +726,17 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                             };
                         bytecode.push(Instruction::Call {
                             func_name: format!("{}.{}", struct_name, field_access.field.name),
-                            nb_args: f.args.len() as u8 + 1,
+                            nb_args: func_expr.args.len() as u8 + 1,
                         })
                     }
                     HirExpr::StaticAccess(static_access) => {
                         let name = match static_access.target {
                             HirTy::Named(n) => n.name,
-                            HirTy::Generic(g) => {
-                                MonomorphizationPass::mangle_generic_object_name(self.hir_arena, g)
-                            }
+                            HirTy::Generic(g) => MonomorphizationPass::mangle_generic_object_name(
+                                self.hir_arena,
+                                g,
+                                "struct",
+                            ),
                             _ => {
                                 return Err(Self::unsupported_expr_err(
                                     expr,
@@ -723,12 +744,12 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                 ));
                             }
                         };
-                        for arg in &f.args {
+                        for arg in &func_expr.args {
                             self.generate_bytecode_expr(arg, bytecode)?;
                         }
                         bytecode.push(Instruction::Call {
                             func_name: format!("{}::{}", name, static_access.field.name),
-                            nb_args: f.args.len() as u8,
+                            nb_args: func_expr.args.len() as u8,
                         })
                     }
                     _ => {
@@ -825,9 +846,11 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             HirExpr::StaticAccess(static_access) => {
                 let struct_name = match static_access.target {
                     HirTy::Named(n) => n.name,
-                    HirTy::Generic(g) => {
-                        MonomorphizationPass::mangle_generic_object_name(self.hir_arena, g)
-                    }
+                    HirTy::Generic(g) => MonomorphizationPass::mangle_generic_object_name(
+                        self.hir_arena,
+                        g,
+                        "struct",
+                    ),
                     _ => {
                         return Err(Self::unsupported_expr_err(
                             expr,
@@ -947,9 +970,11 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             HirExpr::NewObj(new_obj) => {
                 let name = match &new_obj.ty {
                     HirTy::Named(n) => n.name,
-                    HirTy::Generic(g) => {
-                        MonomorphizationPass::mangle_generic_object_name(self.hir_arena, g)
-                    }
+                    HirTy::Generic(g) => MonomorphizationPass::mangle_generic_object_name(
+                        self.hir_arena,
+                        g,
+                        "struct",
+                    ),
                     _ => {
                         return Err(Self::unsupported_expr_err(
                             expr,
@@ -978,10 +1003,18 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             HirExpr::Delete(delete) => {
                 let name = match &delete.expr.ty() {
                     HirTy::Named(_)
-                    | HirTy::ReadOnlyReference(HirReadOnlyReferenceTy { inner: HirTy::Generic(_) }) 
-                    | HirTy::ReadOnlyReference(HirReadOnlyReferenceTy { inner: HirTy::Named(_) })
-                    | HirTy::MutableReference(HirMutableReferenceTy { inner: HirTy::Generic(_) })
-                    | HirTy::MutableReference(HirMutableReferenceTy { inner: HirTy::Named(_) })
+                    | HirTy::ReadOnlyReference(HirReadOnlyReferenceTy {
+                        inner: HirTy::Generic(_),
+                    })
+                    | HirTy::ReadOnlyReference(HirReadOnlyReferenceTy {
+                        inner: HirTy::Named(_),
+                    })
+                    | HirTy::MutableReference(HirMutableReferenceTy {
+                        inner: HirTy::Generic(_),
+                    })
+                    | HirTy::MutableReference(HirMutableReferenceTy {
+                        inner: HirTy::Named(_),
+                    })
                     | HirTy::Generic(_) => self.get_class_name_of_type(delete.expr.ty()).unwrap(),
                     HirTy::String(_) | HirTy::List(_) => {
                         //Strings and Lists have their own delete instruction
@@ -1041,6 +1074,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             HirTy::Generic(g) => Some(MonomorphizationPass::mangle_generic_object_name(
                 self.hir_arena,
                 g,
+                "struct",
             )),
             HirTy::ReadOnlyReference(read_only) => self.get_class_name_of_type(read_only.inner),
             HirTy::MutableReference(mutable) => self.get_class_name_of_type(mutable.inner),

@@ -44,9 +44,16 @@ impl<'hir> MonomorphizationPass<'hir> {
             }
         }
 
-        for (function_name, _) in self.generic_pool.functions.iter() {
-            module.body.functions.remove(function_name);
-            module.signature.functions.remove(function_name);
+        for (_, instance) in self.generic_pool.functions.iter() {
+            // Remove the ORIGINAL generic function definition, not the monomorphized version
+            module.body.functions.remove(instance.name);
+            module.signature.functions.remove(instance.name);
+        }
+        for (name, signature) in module.signature.functions.clone().iter() {
+            if !signature.generics.is_empty() && !signature.is_external {
+                module.signature.functions.remove(name);
+                module.body.functions.remove(name);
+            }
         }
     }
 
@@ -54,12 +61,8 @@ impl<'hir> MonomorphizationPass<'hir> {
         &mut self,
         module: &'hir mut HirModule<'hir>,
     ) -> HirResult<&'hir mut HirModule<'hir>> {
-        eprintln!("DEBUG: Starting monomorphization");
         //1. Generate only the signatures of the generic structs and functions
-        while !self.process_pending_generics(module)? {
-            eprintln!("DEBUG: Processing another round of generics");
-        }
-        eprintln!("DEBUG: Done processing generics");
+        while !self.process_pending_generics(module)? {}
         //2. If you encounter a generic struct or function instantiation (e.g. in the return type), register it to the pool
         //3. Generate the actual bodies of the structs & functions in the pool, if you encounter new instantiations while generating, register them too
         //4. Clear the generic structs & functions from the module body and signature
@@ -70,58 +73,38 @@ impl<'hir> MonomorphizationPass<'hir> {
 
     fn process_pending_generics(&mut self, module: &mut HirModule<'hir>) -> HirResult<bool> {
         let mut is_done = true;
-        
+
         // First, monomorphize all non-generic function bodies to discover generic instantiations
         // We need to be careful about borrowing - collect the function names first
-        let non_generic_functions: Vec<&'hir str> = module.body.functions
+        let non_generic_functions: Vec<&'hir str> = module
+            .body
+            .functions
             .iter()
-            .filter(|(_, func)| func.signature.generics.is_none())
+            .filter(|(_, func)| func.signature.generics.is_empty())
             .map(|(_, func)| func.name)
             .collect();
-        
-        eprintln!("DEBUG: Processing {} non-generic functions for monomorphization", non_generic_functions.len());
-        
-        // Debug: Print all functions in module body and signature
-        eprintln!("DEBUG: Functions in module.body:");
-        for (name, func) in &module.body.functions {
-            eprintln!("  - {} signature.generics: {} signature.type_params: {}", name, func.signature.generics.is_some(), func.signature.type_params.len());
-        }
-        
-        eprintln!("DEBUG: Functions in module.signature:");
-        for (name, sig) in &module.signature.functions {
-            eprintln!("  - {} has generics: {} type_params: {}", name, sig.generics.is_some(), sig.type_params.len());
-            if let Some(gparams) = &sig.generics {
-                for gp in gparams {
-                    eprintln!("      generics - {}", gp.name);
-                }
-            }
-            for tp in &sig.type_params {
-                eprintln!("      type_params - {}", tp.name);
-            }
-        }
-        
+
         // Monomorphize each function's body
         for func_name in non_generic_functions {
-            eprintln!("DEBUG: Processing function {}", func_name);
             // Extract and clone the statements so we can process them
             let statements = if let Some(func) = module.body.functions.get(func_name) {
                 func.body.statements.clone()
             } else {
                 continue;
             };
-            
+
             // Process the cloned statements and put them back
             let mut processed_stmts = statements;
             for statement in processed_stmts.iter_mut() {
                 self.monomorphize_statement(statement, vec![], module)?;
             }
-            
+
             // Update the function with the processed statements
             if let Some(func) = module.body.functions.get_mut(func_name) {
                 func.body.statements = processed_stmts;
             }
         }
-        
+
         let mut generic_pool_clone = self.generic_pool.structs.clone();
         for (_, instance) in generic_pool_clone.iter_mut() {
             if !instance.is_done {
@@ -137,6 +120,21 @@ impl<'hir> MonomorphizationPass<'hir> {
         }
         self.generic_pool.structs.append(&mut generic_pool_clone);
 
+        let mut union_pool_clone = self.generic_pool.unions.clone();
+        for (_, instance) in union_pool_clone.iter_mut() {
+            if !instance.is_done {
+                let generic_ty = self.arena.intern(HirGenericTy {
+                    name: instance.name,
+                    inner: instance.args.clone(),
+                    span: instance.span,
+                });
+                self.monomorphize_object(module, generic_ty, instance.span)?;
+                instance.is_done = true;
+                is_done = false;
+            }
+        }
+        self.generic_pool.unions.append(&mut union_pool_clone);
+
         // Process pending generic functions
         let mut function_pool_clone = self.generic_pool.functions.clone();
         for (_, instance) in function_pool_clone.iter_mut() {
@@ -146,13 +144,14 @@ impl<'hir> MonomorphizationPass<'hir> {
                     inner: instance.args.clone(),
                     span: instance.span,
                 });
+                //eprintln!("Monomorphizing function instance: {}", HirTy::Generic(generic_ty.clone()));
                 self.monomorphize_function(module, generic_ty, instance.span)?;
                 instance.is_done = true;
                 is_done = false;
             }
         }
         self.generic_pool.functions.append(&mut function_pool_clone);
-        
+
         Ok(is_done)
     }
 
@@ -164,7 +163,7 @@ impl<'hir> MonomorphizationPass<'hir> {
         span: Span,
     ) -> HirResult<&'hir HirTy<'hir>> {
         let mangled_name =
-            MonomorphizationPass::mangle_generic_object_name(self.arena, actual_type);
+            MonomorphizationPass::mangle_generic_object_name(self.arena, actual_type, "struct");
         if module.body.structs.contains_key(&mangled_name)
             || module.body.unions.contains_key(mangled_name)
         {
@@ -181,11 +180,16 @@ impl<'hir> MonomorphizationPass<'hir> {
             None => {
                 if let Some(template) = module.body.unions.get(base_name) {
                     let template_clone = template.clone();
+                    let union_mangled_name = MonomorphizationPass::mangle_generic_object_name(
+                        self.arena,
+                        actual_type,
+                        "union",
+                    );
                     return self.monomorphize_union(
                         module,
                         template_clone,
                         actual_type,
-                        mangled_name,
+                        union_mangled_name,
                         span,
                     );
                 }
@@ -383,7 +387,7 @@ impl<'hir> MonomorphizationPass<'hir> {
         span: Span,
     ) -> HirResult<()> {
         let mangled_name =
-            MonomorphizationPass::mangle_generic_object_name(self.arena, actual_type);
+            MonomorphizationPass::mangle_generic_object_name(self.arena, actual_type, "function");
         if module.body.functions.contains_key(mangled_name)
             || module.signature.functions.contains_key(mangled_name)
         {
@@ -392,6 +396,10 @@ impl<'hir> MonomorphizationPass<'hir> {
         }
 
         let base_name = actual_type.name;
+        eprintln!(
+            "DEBUG: Monomorphizing function {} as {}",
+            base_name, mangled_name
+        );
         let template = match module.body.functions.get(base_name) {
             Some(func) => func.clone(),
             None => {
@@ -408,7 +416,8 @@ impl<'hir> MonomorphizationPass<'hir> {
         let mut new_function = template.clone();
         let generics = new_function.signature.generics.clone();
 
-        if let Some(generic_params) = generics {
+        if !generics.is_empty() {
+            let generic_params = &generics;
             if generic_params.len() != actual_type.inner.len() {
                 let declaration_span = new_function.name_span;
                 return Err(Self::not_enough_generics_err(
@@ -425,7 +434,7 @@ impl<'hir> MonomorphizationPass<'hir> {
                 .enumerate()
                 .map(|(i, generic_param)| {
                     (
-                        generic_param.name,
+                        generic_param.generic_name,
                         self.arena.intern(actual_type.inner[i].clone()) as &'hir HirTy<'hir>,
                     )
                 })
@@ -437,7 +446,7 @@ impl<'hir> MonomorphizationPass<'hir> {
                 for (j, generic_param) in generic_params.iter().enumerate() {
                     param.ty = self.change_inner_type(
                         param.ty,
-                        generic_param.name,
+                        generic_param.generic_name,
                         actual_type.inner[j].clone(),
                         module,
                     );
@@ -445,11 +454,12 @@ impl<'hir> MonomorphizationPass<'hir> {
             }
 
             // Monomorphize return type - intern it first, then apply all substitutions in sequence
-            let mut new_return_ty: &'hir HirTy<'hir> = self.arena.intern(new_function.signature.return_ty.clone()) as &'hir HirTy<'hir>;
+            let mut new_return_ty: &'hir HirTy<'hir> =
+                self.arena.intern(new_function.signature.return_ty.clone()) as &'hir HirTy<'hir>;
             for (j, generic_param) in generic_params.iter().enumerate() {
                 new_return_ty = self.change_inner_type(
                     new_return_ty,
-                    generic_param.name,
+                    generic_param.generic_name,
                     actual_type.inner[j].clone(),
                     module,
                 );
@@ -459,7 +469,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             let mut new_sig = new_function.signature.clone();
             new_sig.params = new_params;
             new_sig.return_ty = new_return_ty.clone();
-            new_sig.generics = None;
+            new_sig.generics = vec![];
             new_function.signature = &*self.arena.intern(new_sig);
 
             // Monomorphize function body
@@ -469,7 +479,7 @@ impl<'hir> MonomorphizationPass<'hir> {
         }
 
         new_function.name = mangled_name;
-        
+
         let new_sig = self.arena.intern(new_function.signature.clone());
         module.signature.functions.insert(mangled_name, new_sig);
         module.body.functions.insert(mangled_name, new_function);
@@ -563,10 +573,14 @@ impl<'hir> MonomorphizationPass<'hir> {
         match expr {
             HirExpr::NewObj(new_obj_expr) => {
                 if let HirTy::Generic(g) = new_obj_expr.ty {
-                    self.generic_pool
-                        .register_struct_instance(g.clone(), &module.signature);
                     let monomorphized_ty =
                         self.swap_generic_types_in_ty(new_obj_expr.ty, types_to_change.clone());
+
+                    // Register the monomorphized struct, not the generic one with unresolved parameters
+                    if let HirTy::Generic(g_mono) = monomorphized_ty {
+                        self.generic_pool
+                            .register_struct_instance(g_mono.clone(), &module.signature);
+                    }
 
                     new_obj_expr.ty = monomorphized_ty;
                 }
@@ -576,10 +590,14 @@ impl<'hir> MonomorphizationPass<'hir> {
             }
             HirExpr::ObjLiteral(obj_lit_expr) => {
                 if let HirTy::Generic(g) = obj_lit_expr.ty {
-                    self.generic_pool
-                        .register_struct_instance(g.clone(), &module.signature);
                     let monomorphized_ty =
                         self.swap_generic_types_in_ty(obj_lit_expr.ty, types_to_change.clone());
+
+                    // Register the monomorphized union, not the generic one with unresolved parameters
+                    if let HirTy::Generic(g_mono) = monomorphized_ty {
+                        self.generic_pool
+                            .register_union_instance(g_mono, &module.signature);
+                    }
 
                     obj_lit_expr.ty = monomorphized_ty;
                 }
@@ -619,7 +637,6 @@ impl<'hir> MonomorphizationPass<'hir> {
                 self.monomorphize_expression(&mut binary_expr.rhs, types_to_change, module)?;
             }
             HirExpr::Call(call_expr) => {
-                eprintln!("DEBUG: Processing Call expression");
                 for arg in call_expr.args.iter_mut() {
                     self.monomorphize_expression(arg, types_to_change.clone(), module)?;
                 }
@@ -630,23 +647,20 @@ impl<'hir> MonomorphizationPass<'hir> {
                     *generic = monomorphized_ty;
                 }
 
-                eprintln!("DEBUG: Call has {} generic args", call_expr.generics.len());
                 // Register generic function instances if the callee is a generic function
                 if !call_expr.generics.is_empty() {
                     if let HirExpr::Ident(ident_expr) = &*call_expr.callee {
-                        eprintln!("DEBUG: Call to function {}", ident_expr.name);
                         if let Some(func_sig) = module.signature.functions.get(ident_expr.name) {
-                            eprintln!("DEBUG: Function {} found in signature, has generics: {}", ident_expr.name, func_sig.generics.is_some());
-                            if let Some(generics) = &func_sig.generics {
-                                eprintln!("DEBUG:   Generic params count: {}", generics.len());
-                            }
-                            if func_sig.generics.is_some() {
+                            if !func_sig.generics.is_empty() {
                                 let generic_ty = HirGenericTy {
                                     name: ident_expr.name,
-                                    inner: call_expr.generics.iter().map(|t| (*t).clone()).collect(),
+                                    inner: call_expr
+                                        .generics
+                                        .iter()
+                                        .map(|t| (*t).clone())
+                                        .collect(),
                                     span: call_expr.span,
                                 };
-                                eprintln!("DEBUG: Registering generic function call: {}", ident_expr.name);
                                 self.generic_pool
                                     .register_function_instance(generic_ty, &module.signature);
                             }
@@ -669,16 +683,16 @@ impl<'hir> MonomorphizationPass<'hir> {
             }
             HirExpr::NewArray(new_array_expr) => {
                 if let HirTy::List(l) = new_array_expr.ty {
-                    if let HirTy::Generic(g) = l.inner {
-                        self.generic_pool
-                            .register_struct_instance(g.clone(), &module.signature);
-                    } else if let HirTy::Named(n) = l.inner
-                        && n.name.len() == 1
-                    {
-                        let ty = self
-                            .swap_generic_types_in_ty(new_array_expr.ty, types_to_change.clone());
-                        new_array_expr.ty = ty;
+                    let ty =
+                        self.swap_generic_types_in_ty(new_array_expr.ty, types_to_change.clone());
+
+                    if let HirTy::List(l_mono) = ty {
+                        if let HirTy::Generic(g_mono) = l_mono.inner {
+                            self.generic_pool
+                                .register_struct_instance(g_mono.clone(), &module.signature);
+                        }
                     }
+                    new_array_expr.ty = ty;
                 }
                 self.monomorphize_expression(&mut new_array_expr.size, types_to_change, module)?;
             }
@@ -777,21 +791,21 @@ impl<'hir> MonomorphizationPass<'hir> {
     /// Produce a stable mangled name for a generic instantiation.
     ///
     /// Format: __atlas77__<base_name>__<type1>_<type2>_..._<typeN>
+    // TODO: It should take an enum for the kind instead of a &str
     pub fn mangle_generic_object_name(
         arena: &'hir HirArena<'hir>,
         generic: &HirGenericTy<'_>,
+        kind: &str,
     ) -> &'hir str {
         let parts: Vec<String> = generic
             .inner
             .iter()
             .map(|t| match t {
-                HirTy::Generic(g) => {
-                    MonomorphizationPass::mangle_generic_object_name(arena, g).to_string()
-                }
+                HirTy::Generic(g) => Self::mangle_generic_object_name(arena, g, kind).to_string(),
                 _ => format!("{}", t),
             })
             .collect();
-        let name = format!("__atlas77__struct__{}__{}", generic.name, parts.join("_"));
+        let name = format!("__atlas77__{}__{}__{}", kind, generic.name, parts.join("_"));
         arena.intern(name)
     }
 
@@ -841,8 +855,16 @@ impl<'hir> MonomorphizationPass<'hir> {
                     span: g.span,
                 };
                 let res = self.arena.intern(HirTy::Generic(generic_ty.clone()));
-                self.generic_pool
-                    .register_struct_instance(generic_ty, &module.signature);
+                // An `something<T>` could be either an union or a struct, we need to check it here:
+                //eprintln!("DEBUG: Registering generic instance for {}", g.name);
+                if module.signature.structs.contains_key(g.name) {
+                    self.generic_pool
+                        .register_struct_instance(generic_ty, &module.signature);
+                } else if module.signature.unions.contains_key(g.name) {
+                    eprintln!("DEBUG: Registering union instance for {}", g.name);
+                    self.generic_pool
+                        .register_union_instance(&generic_ty, &module.signature);
+                }
                 res
             }
             HirTy::MutableReference(m) => {

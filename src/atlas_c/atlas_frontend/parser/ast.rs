@@ -227,7 +227,7 @@ pub struct AstObjField<'ast> {
 pub struct AstExternFunction<'ast> {
     pub span: Span,
     pub name: &'ast AstIdentifier<'ast>,
-    pub generics:&'ast [&'ast AstGeneric<'ast>],
+    pub generics: &'ast [&'ast AstGeneric<'ast>],
     pub args_name: &'ast [&'ast AstIdentifier<'ast>],
     pub args_ty: &'ast [&'ast AstType<'ast>],
     pub ret_ty: &'ast AstType<'ast>,
