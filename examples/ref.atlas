@@ -1,23 +1,66 @@
-import "std/string";
 import "std/io";
-
-struct Test {
-    stuff: String;
-    hehe: &const char;
+// A non-copyable resource (like a file handle or unique pointer)
+struct UniqueResource {
 public:
-    Test(stuff: String, hehe: &char) {
-        this.stuff = stuff;
-        this.hehe = hehe;
+    id: int64;
+    
+    UniqueResource(id: int64) {
+        println("Resource created");
+        this.id = id;
     }
-    fun test(&const this) -> &const String {
-        return this.stuff;
+    
+    ~UniqueResource() {
+        println("Resource destroyed");  // RAII cleanup!
     }
 }
 
+// A copyable type - just implement _copy()!
+struct Copyable {
+public:
+    value: int64;
+    
+    Copyable(value: int64) { this.value = value; }
+    
+    fun _copy(&const this) -> Copyable {
+        println("Copying...");
+        let val: int64 = *this.value;  // Dereference the const ref to get the value
+        return new Copyable(val);
+    }
+}
+
+fun mutate(ref: &int64) {
+    *ref = *ref * 2;  // Dereference and modify
+}
+
+fun read_only(ref: &const int64) {
+    println(*ref);
+    // *ref = 10;  // ❌ Compile error: can't mutate const ref
+}
+
+fun consume(resource: UniqueResource) {
+    println("Consuming resource");
+}  // resource destroyed here
 
 fun main() {
-    let str = new String("Hello, Atlas!");
-    let test = new Test(str, &'5');
-    let nb = test.test();
-    println(str.s);
+    // === Move semantics (no _copy = move-only) ===
+    let res = new UniqueResource(1);
+    consume(res);   // Ownership MOVED to function
+    // println(res.id);  // ❌ Compile error: use after move!
+
+    // === Copy semantics (has _copy = auto-copy) ===
+    let a = new Copyable(42);
+    let b = a;       // Copies! (not last use of 'a')
+    let c = a;       // Last use - could move or copy
+    println(b.value);  // 42
+    
+    // === Mutable references ===
+    let x = 10;
+    mutate(&x);      // Pass mutable reference
+    println(x);      // 20 - modified in place!
+    
+    // === Const references ===
+    let y = 100;
+    read_only(&y);   // Borrow without transferring ownership
+    read_only(&y);   // Can borrow multiple times
+    println(y);      // Still valid!
 }

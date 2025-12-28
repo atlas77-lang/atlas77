@@ -605,6 +605,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         }
                         HirExpr::FieldAccess(field_access) => {
                             self.generate_bytecode_expr(field_access.target.as_ref(), bytecode)?;
+                            // If target is a reference, dereference it first to get the object pointer
+                            if matches!(field_access.target.ty(), HirTy::MutableReference(_) | HirTy::ReadOnlyReference(_)) {
+                                bytecode.push(Instruction::LoadIndirect);
+                            }
                             let obj_name = match self.get_class_name_of_type(field_access.target.ty()) {
                                 Some(n) => n,
                                 None => {
@@ -889,6 +893,12 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
             HirExpr::FieldAccess(field_access) => {
                 self.generate_bytecode_expr(field_access.target.as_ref(), bytecode)?;
+                // Check if target is a reference type
+                let is_ref = matches!(field_access.target.ty(), HirTy::MutableReference(_) | HirTy::ReadOnlyReference(_));
+                // If target is a reference, dereference it first to get the object pointer
+                if is_ref {
+                    bytecode.push(Instruction::LoadIndirect);
+                }
                 let obj_name = match self.get_class_name_of_type(field_access.target.ty()) {
                     Some(n) => n,
                     None => {
@@ -907,7 +917,13 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         .iter()
                         .position(|f| *f == field_access.field.name)
                         .unwrap();
-                    bytecode.push(Instruction::GetField { field })
+                    // If accessing through a reference, return field address (reference to field)
+                    // Otherwise return field value
+                    if is_ref {
+                        bytecode.push(Instruction::GetFieldAddr { field });
+                    } else {
+                        bytecode.push(Instruction::GetField { field });
+                    }
                 } else {
                     // This might be access an union field
                     // I don't even think we need to add special instruction for that
@@ -1137,16 +1153,35 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 // Check if this is an object type that needs copy constructor call
                 match copy_expr.ty {
                     HirTy::Named(named) => {
-                        // Call the _copy method
-                        self.generate_bytecode_expr(&copy_expr.expr, bytecode)?;
+                        // _copy takes &const this, so we need to pass a reference to the object
+                        // The source expression should be an identifier
+                        match copy_expr.expr.as_ref() {
+                            HirExpr::Ident(ident) => {
+                                let var_index = self.local_variables.get_index(ident.name).unwrap();
+                                bytecode.push(Instruction::LoadVarAddr(var_index));
+                            }
+                            _ => {
+                                // For non-identifier expressions, we can't take a reference easily
+                                // Fall back to generating the expression (may not work for all cases)
+                                self.generate_bytecode_expr(&copy_expr.expr, bytecode)?;
+                            }
+                        }
                         bytecode.push(Instruction::Call {
                             func_name: format!("{}._copy", named.name),
                             nb_args: 1,
                         });
                     }
                     HirTy::Generic(g) => {
-                        // Call the _copy method on the mangled generic name
-                        self.generate_bytecode_expr(&copy_expr.expr, bytecode)?;
+                        // _copy takes &const this, so we need to pass a reference to the object
+                        match copy_expr.expr.as_ref() {
+                            HirExpr::Ident(ident) => {
+                                let var_index = self.local_variables.get_index(ident.name).unwrap();
+                                bytecode.push(Instruction::LoadVarAddr(var_index));
+                            }
+                            _ => {
+                                self.generate_bytecode_expr(&copy_expr.expr, bytecode)?;
+                            }
+                        }
                         bytecode.push(Instruction::Call {
                             func_name: format!("{}._copy", g.name),
                             nb_args: 1,
