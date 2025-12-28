@@ -1,0 +1,68 @@
+// Test file for reference implementation
+import "std/io";
+
+fun test_basic_ref() {
+    let x = 42;
+    let ref_x = &x;      // Take a reference
+    let y = *ref_x;      // Dereference to get value
+    println(y);          // Should print 42
+}
+
+fun test_mutate_through_ref() {
+    let x = 10;
+    let ref_x = &x;
+    *ref_x = 100;        // Mutate through reference
+    println(x);          // Should print 100
+}
+
+struct Point {
+public:
+    x: int64;
+    y: int64;
+    
+    Point(x: int64, y: int64) {
+        this.x = x;
+        this.y = y;
+    }
+}
+
+fun test_struct_field_ref() {
+    let p = new Point(5, 10);
+    // Debug: print p.x directly
+    println(p.x);        // Should print 5
+    
+    // Take a ref to field
+    let ref_x = &p.x;    // Reference to a field
+    println("Took reference");
+    
+    // Test read through ref:
+    let val = *ref_x;
+    println(val);        // Should print 5
+    
+    // Test write through ref:
+    *ref_x = 42;
+    println(p.x);        // Should print 42
+}
+
+// This function intentionally triggers an error - uncomment to test the escape analysis
+fun test_ret_ref() -> &int64 {
+    let p = new Point(50, 100);
+    let ref_p = &p.x;
+    return ref_p;          // Return reference to local variable - DETECTED!
+}
+
+fun main() {
+    println("Testing basic reference:");
+    test_basic_ref();
+    
+    println("Testing mutation through reference:");
+    test_mutate_through_ref();
+    
+    println("Testing struct field reference:");
+    test_struct_field_ref();
+
+    // The test_ret_ref function is correctly rejected by the compiler!
+    println("Testing return reference:");
+    let ref_val = test_ret_ref();
+    println(*ref_val);
+}

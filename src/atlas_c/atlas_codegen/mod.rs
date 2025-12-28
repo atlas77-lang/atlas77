@@ -534,6 +534,15 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         //Store the value in the field
                         bytecode.push(Instruction::SetField { field })
                     }
+                    // Handle assignment through dereference: *ref = value
+                    HirExpr::Unary(u) if u.op == Some(HirUnaryOp::Deref) => {
+                        // First, get the reference (the address to store to)
+                        self.generate_bytecode_expr(&u.expr, bytecode)?;
+                        // Then, get the value to store
+                        self.generate_bytecode_expr(&a.rhs, bytecode)?;
+                        // Store through the reference
+                        bytecode.push(Instruction::StoreIndirect);
+                    }
                     _ => {
                         return Err(Self::unsupported_expr_err(
                             expr,
@@ -567,6 +576,56 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 }
             }
             HirExpr::Unary(u) => {
+                // Handle AsRef specially - don't generate the inner expression's value first
+                if let Some(HirUnaryOp::AsRef) = &u.op {
+                    match u.expr.as_ref() {
+                        HirExpr::Ident(ident) => {
+                            let var_index = match self.local_variables.get_index(ident.name) {
+                                Some(idx) => idx,
+                                None => {
+                                    return Err(Self::unsupported_expr_err(
+                                        expr,
+                                        format!("Variable {} not found", ident.name),
+                                    ));
+                                }
+                            };
+                            bytecode.push(Instruction::LoadVarAddr(var_index));
+                        }
+                        HirExpr::ThisLiteral(_) => {
+                            let var_index = self.local_variables.get_index(THIS_NAME).unwrap();
+                            bytecode.push(Instruction::LoadVarAddr(var_index));
+                        }
+                        HirExpr::FieldAccess(field_access) => {
+                            self.generate_bytecode_expr(field_access.target.as_ref(), bytecode)?;
+                            let obj_name = match self.get_class_name_of_type(field_access.target.ty()) {
+                                Some(n) => n,
+                                None => {
+                                    return Err(Self::unsupported_expr_err(
+                                        expr,
+                                        format!("Field access for: {}", field_access.target.ty()),
+                                    ));
+                                }
+                            };
+                            if let Some(struct_descriptor) = self.struct_pool.iter().find(|s| s.name == obj_name) {
+                                let field = struct_descriptor
+                                    .fields
+                                    .iter()
+                                    .position(|f| *f == field_access.field.name)
+                                    .unwrap();
+                                bytecode.push(Instruction::GetFieldAddr { field });
+                            }
+                        }
+                        _ => {
+                            return Err(Self::unsupported_expr_err(
+                                expr,
+                                format!("Cannot take reference of expression: {}", u.expr.ty()),
+                            ));
+                        }
+                    }
+                    return Ok(());
+                }
+                
+                // For other unary ops, first generate the inner expression
                 //There is no unary instruction, so -x is the same as 0 - x
                 //And !x is the same as x == 0
                 self.generate_bytecode_expr(&u.expr, bytecode)?;
@@ -608,9 +667,14 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                 ));
                             }
                         }
-                        HirUnaryOp::AsRef | HirUnaryOp::Deref => {
-                            //No instruction needed, just a type change &const T and T are represented the same in memory
-                            //It's the type system that prevents misuse
+                        HirUnaryOp::AsRef => {
+                            // This case should never be reached because we handle AsRef at the start of HirExpr::Unary
+                            unreachable!("AsRef should be handled before generating inner expression bytecode");
+                        }
+                        HirUnaryOp::Deref => {
+                            // The expression is a reference, we need to load the value at that address
+                            // The reference value is already on the stack from generate_bytecode_expr
+                            bytecode.push(Instruction::LoadIndirect);
                         }
                     }
                 }

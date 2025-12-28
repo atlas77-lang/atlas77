@@ -27,6 +27,8 @@ pub union RawVMData {
     _as_extern_ptr: *mut c_void,
     /// Pointer to an object in the object map
     as_object: ObjectIndex,
+    /// Raw pointer to a VMData value (used for references &T and &const T)
+    as_ref: *mut VMData,
 }
 
 #[derive(Copy, Clone)]
@@ -54,6 +56,8 @@ pub enum VMTag {
     FnPtr,
     List,
     Object,
+    /// A reference to another VMData value (for &T and &const T)
+    Ref,
 }
 
 impl From<VMTag> for u8 {
@@ -87,6 +91,7 @@ impl Display for VMTag {
                 VMTag::FnPtr => "fn_ptr",
                 VMTag::List => "list",
                 VMTag::Object => "object",
+                VMTag::Ref => "ref",
             }
         )
     }
@@ -165,6 +170,7 @@ impl VMData {
     def_new_vm_data_func!(new_char, as_char, char, Char);
     def_new_vm_data_func!(new_stack_ptr, as_stack_ptr, [u32; 2], StackPtr);
     def_new_vm_data_func!(new_fn_ptr, as_fn_ptr, usize, FnPtr);
+    def_new_vm_data_func!(new_ref, as_ref, *mut VMData, Ref);
 }
 
 impl PartialEq for VMData {
@@ -280,6 +286,7 @@ impl Display for VMData {
                 VMTag::StackPtr =>
                     format!("&[{}, {}]", self.as_stack_ptr()[0], self.as_stack_ptr()[1]),
                 VMTag::FnPtr => self.as_fn_ptr().to_string(),
+                VMTag::Ref => format!("&{:p}", self.as_ref()),
                 _ if self.is_object() => self.as_object().to_string(),
                 _ => "reserved".to_string(),
             }
@@ -325,6 +332,7 @@ impl VMData {
     enum_variant_function!(as_char, is_char, Char, char);
     enum_variant_function!(as_stack_ptr, is_stack_ptr, StackPtr, [u32; 2]);
     enum_variant_function!(as_fn_ptr, is_fn_ptr, FnPtr, usize);
+    enum_variant_function!(as_ref, is_ref, Ref, *mut VMData);
     //Clippy doesn't like #[must_use] on () return types
     #[inline(always)]
     pub fn as_unit(self) {

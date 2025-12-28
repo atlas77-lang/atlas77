@@ -1021,6 +1021,12 @@ impl<'ast> Parser<'ast> {
 
     fn parse_casting(&mut self) -> ParseResult<AstExpr<'ast>> {
         let left = AstExpr::UnaryOp(self.parse_unary()?);
+        // For unary expressions with an operator, handle postfix after the unary
+        // For unary expressions without an operator, postfix was already handled in parse_primary
+        let left = match &left {
+            AstExpr::UnaryOp(u) if u.op.is_some() => self.parse_ident_access(left)?,
+            _ => left,
+        };
         match self.current().kind() {
             TokenKind::KwAs => {
                 self.expect(TokenKind::KwAs)?;
@@ -1059,7 +1065,18 @@ impl<'ast> Parser<'ast> {
             _ => None,
         };
 
-        let expr = self.parse_primary()?;
+        // For & (AsRef): allow field access inside so &p.x means &(p.x)
+        // For * (Deref): no postfix inside so *ref = val means (*ref) = val
+        // For - and !: no postfix inside
+        let expr = match op {
+            Some(AstUnaryOp::AsRef) => {
+                // AsRef: allow field access but not function calls or assignment
+                let primary = self.parse_primary_no_postfix()?;
+                self.parse_field_access_only(primary)?
+            }
+            Some(_) => self.parse_primary_no_postfix()?,
+            None => self.parse_primary()?,
+        };
         let node = AstUnaryOpExpr {
             span: Span::union_span(&start_pos, &self.current().span()),
             op,
@@ -1068,7 +1085,41 @@ impl<'ast> Parser<'ast> {
         Ok(node)
     }
 
-    fn parse_primary(&mut self) -> ParseResult<AstExpr<'ast>> {
+    /// Parse only field access (no function calls or indexing)
+    fn parse_field_access_only(&mut self, mut node: AstExpr<'ast>) -> ParseResult<AstExpr<'ast>> {
+        loop {
+            match self.current().kind() {
+                TokenKind::Dot => {
+                    let start_span = node.span();
+                    self.expect(TokenKind::Dot)?;
+                    let field = self.parse_identifier()?;
+                    
+                    // Check if this is a method call (has parentheses after)
+                    if self.current().kind() == TokenKind::LParen {
+                        // This is a method call - just construct the field access and stop
+                        // (the caller will handle the method call part later)
+                        node = AstExpr::FieldAccess(AstFieldAccessExpr {
+                            span: Span::union_span(&start_span, &field.span),
+                            target: self.arena.alloc(node),
+                            field: self.arena.alloc(field),
+                        });
+                        break;
+                    }
+                    
+                    node = AstExpr::FieldAccess(AstFieldAccessExpr {
+                        span: Span::union_span(&start_span, &field.span),
+                        target: self.arena.alloc(node),
+                        field: self.arena.alloc(field),
+                    });
+                }
+                _ => break,
+            }
+        }
+        Ok(node)
+    }
+
+    /// Parse a primary expression without postfix operations (for unary expressions)
+    fn parse_primary_no_postfix(&mut self) -> ParseResult<AstExpr<'ast>> {
         let tok = self.current().clone();
 
         let node = match tok.kind() {
@@ -1171,6 +1222,12 @@ impl<'ast> Parser<'ast> {
                 ));
             }
         };
+        // Don't parse postfix operations here - let the caller handle them
+        Ok(node)
+    }
+
+    fn parse_primary(&mut self) -> ParseResult<AstExpr<'ast>> {
+        let node = self.parse_primary_no_postfix()?;
         // Parse postfix operations (method calls, field access, indexing) on all primary expressions
         self.parse_ident_access(node)
     }

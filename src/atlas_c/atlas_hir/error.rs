@@ -51,6 +51,7 @@ declare_error_type! {
         TryingToCreateAnUnionWithMoreThanOneActiveField(TryingToCreateAnUnionWithMoreThanOneActiveFieldError),
         TypeDoesNotImplementRequiredConstraint(TypeDoesNotImplementRequiredConstraintError),
         InvalidSpecialMethodSignature(InvalidSpecialMethodSignatureError),
+        ReturningReferenceToLocalVariable(ReturningReferenceToLocalVariableError),
     }
 }
 
@@ -86,6 +87,20 @@ impl HirError {
             _ => HirErrorGravity::Critical,
         }
     }
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::returning_reference_to_local_variable),
+    help("references to local variables cannot be returned because the variable will be dropped when the function returns")
+)]
+#[error("cannot return reference to local variable `{var_name}`")]
+pub struct ReturningReferenceToLocalVariableError {
+    #[label = "returns a reference to local variable `{var_name}`"]
+    pub span: Span,
+    pub var_name: String,
+    #[source_code]
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]

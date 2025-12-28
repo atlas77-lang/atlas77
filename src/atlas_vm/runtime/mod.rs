@@ -582,6 +582,41 @@ impl<'run> AtlasRuntime<'run> {
                 };
                 self.heap.free(obj_ptr)
             }
+            // === Reference operations ===
+            OpCode::LOAD_VAR_ADDR => {
+                // Get the address of a local variable and push it as a reference
+                let local_slot_idx = instr.arg.as_u24() as usize;
+                let var_ptr = self.stack.get_var_ptr(local_slot_idx);
+                self.stack.push(VMData::new_ref(var_ptr))
+            }
+            OpCode::LOAD_INDIRECT => {
+                // Dereference: load the value at the address on top of the stack
+                let ref_data = self.stack.pop()?;
+                let ptr = ref_data.as_ref();
+                // Safety: The pointer should be valid as long as the referenced variable
+                // is still in scope. The type system should ensure this.
+                let value = unsafe { *ptr };
+                self.stack.push(value)
+            }
+            OpCode::STORE_INDIRECT => {
+                // Store a value to the address (dereference and assign)
+                let value = self.stack.pop()?;
+                let ref_data = self.stack.pop()?;
+                let ptr = ref_data.as_ref();
+                // Safety: The pointer should be valid as long as the referenced variable
+                // is still in scope. The type system should ensure this.
+                unsafe { *ptr = value };
+                Ok(())
+            }
+            OpCode::GET_FIELD_ADDR => {
+                // Get the address of a field in an object
+                let field_idx = instr.arg.as_u24() as usize;
+                let obj_ptr = self.stack.pop()?.as_object();
+                let raw_obj = self.heap.get_mut(obj_ptr)?;
+                let structure = raw_obj.structure_mut();
+                let field_ptr = &mut structure.fields.ptr[field_idx] as *mut VMData;
+                self.stack.push(VMData::new_ref(field_ptr))
+            }
             //CAST_TO should really be reworked, it's shitty right now
             OpCode::CAST_TO => {
                 let target_type = VMTag::from(instr.arg.as_u24() as u8);

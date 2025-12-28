@@ -49,6 +49,11 @@ impl<'hir> ContextFunction<'hir> {
     pub fn insert(&mut self, name: &'hir str, var: ContextVariable<'hir>) {
         self.scopes.last_mut().unwrap().insert(name, var);
     }
+
+    /// Get a variable by name, searching through all scopes
+    pub fn get_variable(&self, name: &str) -> Option<&ContextVariable<'hir>> {
+        self.get(name)
+    }
 }
 
 #[derive(Debug)]
@@ -82,4 +87,9 @@ pub struct ContextVariable<'hir> {
     pub ty: &'hir HirTy<'hir>,
     pub _ty_span: Span,
     pub _is_mut: bool,
+    /// Whether this variable is a function parameter (vs a local variable)
+    pub is_param: bool,
+    /// If this variable holds a reference to a local variable, store the name of that local.
+    /// This is used to detect returning references to locals through intermediate variables.
+    pub refs_local: Option<&'hir str>,
 }

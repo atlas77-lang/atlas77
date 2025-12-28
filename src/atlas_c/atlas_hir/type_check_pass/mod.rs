@@ -41,6 +41,7 @@ use crate::atlas_c::atlas_hir::{
     error::{
         TryingToCreateAnUnionWithMoreThanOneActiveFieldError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin,
+        ReturningReferenceToLocalVariableError,
     },
     type_check_pass::context::{ContextFunction, ContextVariable},
 };
@@ -141,6 +142,8 @@ impl<'hir> TypeChecker<'hir> {
                         ty: param.ty,
                         _ty_span: param.ty_span,
                         _is_mut: false,
+                        is_param: true,
+                        refs_local: None,
                     },
                 );
         }
@@ -172,6 +175,8 @@ impl<'hir> TypeChecker<'hir> {
                         ty: param.ty,
                         _ty_span: param.ty_span,
                         _is_mut: false,
+                        is_param: true,
+                        refs_local: None,
                     },
                 );
         }
@@ -204,6 +209,8 @@ impl<'hir> TypeChecker<'hir> {
                         ty: param.ty,
                         _ty_span: param.ty_span,
                         _is_mut: false,
+                        is_param: true,
+                        refs_local: None,
                     },
                 );
         }
@@ -309,6 +316,8 @@ impl<'hir> TypeChecker<'hir> {
                         ty: param.ty,
                         _ty_span: param.ty_span,
                         _is_mut: false,
+                        is_param: true,
+                        refs_local: None,
                     },
                 );
         }
@@ -327,6 +336,20 @@ impl<'hir> TypeChecker<'hir> {
             }
             HirStatement::Return(r) => {
                 let actual_ret_ty = self.check_expr(&mut r.value)?;
+                
+                // Check for returning a reference to a local variable
+                if let Some(local_var_name) = self.get_local_ref_target(&r.value) {
+                    let path = r.span.path;
+                    let src = utils::get_file_content(path).unwrap();
+                    return Err(HirError::ReturningReferenceToLocalVariable(
+                        ReturningReferenceToLocalVariableError {
+                            span: r.value.span(),
+                            var_name: local_var_name.to_string(),
+                            src: NamedSource::new(path, src),
+                        },
+                    ));
+                }
+                
                 let mut expected_ret_ty = self.arena.types().get_uninitialized_ty();
                 let mut span = Span::default();
                 if self.current_class_name.is_some() {
@@ -425,6 +448,10 @@ impl<'hir> TypeChecker<'hir> {
                 let expr_ty = self.check_expr(&mut c.value)?;
                 let const_ty = c.ty.unwrap_or(expr_ty);
                 c.ty = Some(const_ty);
+                
+                // Check if the const is being assigned a reference to a local variable
+                let refs_local = self.get_local_ref_target(&c.value);
+                
                 self.context_functions
                     .last_mut()
                     .unwrap()
@@ -438,6 +465,8 @@ impl<'hir> TypeChecker<'hir> {
                             ty: const_ty,
                             _ty_span: c.ty_span.unwrap_or(c.name_span),
                             _is_mut: false,
+                            is_param: false,
+                            refs_local,
                         },
                     );
 
@@ -452,6 +481,10 @@ impl<'hir> TypeChecker<'hir> {
                 let expr_ty = self.check_expr(&mut l.value)?;
                 let var_ty = l.ty.unwrap_or(expr_ty);
                 l.ty = Some(var_ty);
+                
+                // Check if the let is being assigned a reference to a local variable
+                let refs_local = self.get_local_ref_target(&l.value);
+                
                 self.context_functions
                     .last_mut()
                     .unwrap()
@@ -465,6 +498,8 @@ impl<'hir> TypeChecker<'hir> {
                             ty: var_ty,
                             _ty_span: l.ty_span.unwrap_or(l.name_span),
                             _is_mut: true,
+                            is_param: false,
+                            refs_local,
                         },
                     );
                 self.is_equivalent_ty(
@@ -1879,6 +1914,82 @@ impl<'hir> TypeChecker<'hir> {
             })
             .into();
         eprintln!("{:?}", warning);
+    }
+
+    /// Check if the expression is a reference (`&expr`) to a local variable,
+    /// or an identifier that holds a reference to a local variable.
+    /// Returns the name of the local variable if it is, None otherwise.
+    /// 
+    /// This is used to detect when a function is trying to return a reference
+    /// to a local variable, which would be a dangling reference.
+    fn get_local_ref_target(&self, expr: &HirExpr<'hir>) -> Option<&'hir str> {
+        match expr {
+            HirExpr::Unary(u) => {
+                if matches!(u.op, Some(HirUnaryOp::AsRef)) {
+                    // Check what we're taking a reference to
+                    match u.expr.as_ref() {
+                        HirExpr::Ident(ident) => {
+                            // Check if this is a local variable (not a function parameter)
+                            if self.is_local_variable(ident.name) {
+                                return Some(ident.name);
+                            }
+                        }
+                        HirExpr::FieldAccess(fa) => {
+                            // Check if the base object is a local variable
+                            if let HirExpr::Ident(ident) = fa.target.as_ref() {
+                                if self.is_local_variable(ident.name) {
+                                    return Some(ident.name);
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                    None
+                } else if u.op.is_none() {
+                    // No op - just unwrap and recurse (parser sometimes wraps in Unary with no op)
+                    self.get_local_ref_target(u.expr.as_ref())
+                } else {
+                    None
+                }
+            }
+            HirExpr::Ident(ident) => {
+                // Check if this identifier holds a reference to a local variable
+                self.get_refs_local(ident.name)
+            }
+            _ => None,
+        }
+    }
+
+    /// Get the local variable that a variable references (if any)
+    fn get_refs_local(&self, name: &str) -> Option<&'hir str> {
+        if let Some(context_map) = self.context_functions.last() {
+            if let Some(func_name) = self.current_func_name {
+                if let Some(context_func) = context_map.get(func_name) {
+                    if let Some(var) = context_func.get_variable(name) {
+                        return var.refs_local;
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Check if a variable name refers to a local variable (not a function parameter)
+    fn is_local_variable(&self, name: &str) -> bool {
+        // Get the current function's context
+        if let Some(context_map) = self.context_functions.last() {
+            if let Some(func_name) = self.current_func_name {
+                if let Some(context_func) = context_map.get(func_name) {
+                    // Check if the variable is in the local scope
+                    if let Some(var) = context_func.get_variable(name) {
+                        // If it's a parameter, it's not local
+                        return !var.is_param;
+                    }
+                }
+            }
+        }
+        // If we can't determine, assume it's local (conservative)
+        true
     }
 
     /// + - * / %

@@ -80,6 +80,16 @@ pub enum Instruction {
     //Works for List/String/Object
     DeleteObj, // [ObjPtr] -> []
 
+    // === Reference operations ===
+    /// Load the address of a local variable onto the stack
+    LoadVarAddr(usize), // [local_slot_idx] -> [Ref]
+    /// Load the value at the address on top of stack (dereference)
+    LoadIndirect, // [Ref] -> [Value]
+    /// Store a value to the address on top of stack
+    StoreIndirect, // [Ref, Value] -> []
+    /// Get the address of a field in an object
+    GetFieldAddr { field: usize }, // [ObjPtr] -> [Ref]
+
     // === Type ops ===
     CastTo(Type), // Explicit type coercion (if kept)
 
@@ -133,6 +143,10 @@ impl Display for Instruction {
             Instruction::GetField { field } => write!(f, "GetField {}", field),
             Instruction::SetField { field } => write!(f, "SetField {}", field),
             Instruction::DeleteObj => write!(f, "DeleteObj"),
+            Instruction::LoadVarAddr(i) => write!(f, "LoadVarAddr {}", i),
+            Instruction::LoadIndirect => write!(f, "LoadIndirect"),
+            Instruction::StoreIndirect => write!(f, "StoreIndirect"),
+            Instruction::GetFieldAddr { field } => write!(f, "GetFieldAddr {}", field),
             Instruction::CastTo(t) => write!(f, "CastTo {:?}", t),
             Instruction::Halt => write!(f, "Halt"),
         }

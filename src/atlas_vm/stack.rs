@@ -151,6 +151,18 @@ impl Stack {
         self.values[self.base_ptr + pos + 2] = data
     }
 
+    /// Get a mutable pointer to a variable in the local space.
+    /// 
+    /// This is used for reference operations (&T and &const T) to get
+    /// the actual memory address of a variable.
+    /// 
+    /// # Safety
+    /// The returned pointer is valid as long as the stack frame is not popped.
+    #[inline(always)]
+    pub fn get_var_ptr(&mut self, pos: usize) -> *mut VMData {
+        &mut self.values[self.base_ptr + pos + 2] as *mut VMData
+    }
+
     /// Clear the stack (i.e. set the top of the stack to 0)
     ///
     /// NB: It does zero the stack at all.
