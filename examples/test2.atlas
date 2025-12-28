@@ -23,8 +23,8 @@ public:
     
     fun _copy(&const this) -> Copyable {
         println("Copying...");
-        let val: int64 = *this.value;  // Dereference the const ref to get the value
-        return new Copyable(val);
+        // Dereference to get the value and create a new instance
+        return new Copyable(*this.value);
     }
 }
 
