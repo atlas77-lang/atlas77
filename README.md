@@ -12,7 +12,7 @@
 <br />
 <div align="center">
   <a href="https://github.com/atlas77-lang/Atlas77">
-    <img src="images/logo.png" alt="Logo">
+    <img src="images/logo.png" alt="Logo" width="160" height="160">
   </a>
 
 <h3 align="center">Atlas77</h3>

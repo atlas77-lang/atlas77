@@ -165,8 +165,6 @@ public:
     }
 
     fun into_iter(this) -> Iter<char> {
-        let chars = to_chars(&this.s);
-        let vec = new Vector<char>(chars);
-        return vec.into_iter();
+        return Iter<char>::from_string(this.s);
     }
 }
