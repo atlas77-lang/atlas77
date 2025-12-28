@@ -1743,12 +1743,12 @@ impl<'hir> TypeChecker<'hir> {
             (HirTy::MutableReference(mutable1), HirTy::MutableReference(mutable2)) => {
                 self.is_equivalent_ty(mutable1.inner, ty1_span, mutable2.inner, ty2_span)
             }
-            (HirTy::ReadOnlyReference(read_only), _) => {
-                self.is_equivalent_ty(read_only.inner, ty1_span, ty2, ty2_span)
-            }
-            (HirTy::MutableReference(mutable), _) => {
-                self.is_equivalent_ty(mutable.inner, ty1_span, ty2, ty2_span)
-            }
+            // NOTE: Removed implicit value-to-reference coercion.
+            // Previously, `&const T` could match `T` and `&mut T` could match `T`.
+            // This caused issues with ownership: the type checker would accept `len(list)` 
+            // when `len` expects `&const [T]`, but the ownership pass didn't know about
+            // the implicit borrow and would try to move/consume the list.
+            // Now users must explicitly write `len(&list)` to borrow.
             _ => {
                 if HirTyId::from(ty1) == HirTyId::from(ty2) {
                     Ok(())

@@ -509,29 +509,34 @@ impl<'hir> OwnershipPass<'hir> {
                 // Return always moves the value
                 let transformed = self.transform_expr_for_return(&ret.value)?;
 
-                // Before returning, delete all owned variables EXCEPT the one being returned
-                // IMPORTANT: Only delete variables that were declared BEFORE this return statement
-                let returned_var_name = self.get_returned_var_name(&ret.value);
+                // Collect ALL variables used in the return expression
+                // These should NOT be deleted because the return expression needs them
+                let mut vars_used_in_return = Vec::new();
+                self.collect_vars_used_in_expr(&ret.value, &mut vars_used_in_return);
+
                 let mut result = Vec::new();
 
                 // Generate delete statements for owned vars declared before this statement
+                // EXCEPT for any variable used in the return expression
                 let owned_vars = self.scope_map.get_all_owned_vars();
                 for var in owned_vars {
                     // Skip variables declared after this return statement
                     if var.declaration_stmt_index > self.current_stmt_index {
                         continue;
                     }
-                    if Some(var.name) != returned_var_name {
-                        // Skip primitives (no destructor needed)
-                        if var.kind == VarKind::Primitive {
-                            continue;
-                        }
-                        // Skip references (they don't own anything)
-                        if var.kind == VarKind::Reference {
-                            continue;
-                        }
-                        result.push(Self::create_delete_stmt(var.name, var.ty, ret.span));
+                    // Skip variables used in the return expression
+                    if vars_used_in_return.contains(&var.name) {
+                        continue;
                     }
+                    // Skip primitives (no destructor needed)
+                    if var.kind == VarKind::Primitive {
+                        continue;
+                    }
+                    // Skip references (they don't own anything)
+                    if var.kind == VarKind::Reference {
+                        continue;
+                    }
+                    result.push(Self::create_delete_stmt(var.name, var.ty, ret.span));
                 }
 
                 // Add the return statement
@@ -637,9 +642,14 @@ impl<'hir> OwnershipPass<'hir> {
                 let transformed_callee = self.transform_expr_ownership(&call.callee, false)?;
                 let mut transformed_args = Vec::new();
 
-                for arg in call.args.iter() {
-                    // Arguments by value consume ownership
-                    transformed_args.push(self.transform_expr_ownership(arg, true)?);
+                for (i, arg) in call.args.iter().enumerate() {
+                    // Check if the parameter type is a reference - if so, don't consume ownership
+                    let is_ref_param = call.args_ty.get(i).is_some_and(|ty| {
+                        matches!(ty, HirTy::ReadOnlyReference(_) | HirTy::MutableReference(_))
+                    });
+                    // Arguments by value consume ownership, references don't
+                    let consumes_ownership = !is_ref_param;
+                    transformed_args.push(self.transform_expr_ownership(arg, consumes_ownership)?);
                 }
 
                 Ok(HirExpr::Call(crate::atlas_c::atlas_hir::expr::HirFunctionCallExpr {
@@ -1035,6 +1045,55 @@ impl<'hir> OwnershipPass<'hir> {
         }
     }
 
+    /// Collect all variable names used in an expression
+    /// This is used to avoid deleting variables that are used in return expressions
+    fn collect_vars_used_in_expr(&self, expr: &HirExpr<'hir>, vars: &mut Vec<&'hir str>) {
+        match expr {
+            HirExpr::Ident(ident) => {
+                vars.push(ident.name);
+            }
+            HirExpr::Move(mv) => self.collect_vars_used_in_expr(&mv.expr, vars),
+            HirExpr::Copy(cp) => self.collect_vars_used_in_expr(&cp.expr, vars),
+            HirExpr::Unary(unary) => self.collect_vars_used_in_expr(&unary.expr, vars),
+            HirExpr::HirBinaryOperation(binary) => {
+                self.collect_vars_used_in_expr(&binary.lhs, vars);
+                self.collect_vars_used_in_expr(&binary.rhs, vars);
+            }
+            HirExpr::FieldAccess(field) => {
+                self.collect_vars_used_in_expr(&field.target, vars);
+            }
+            HirExpr::Indexing(idx) => {
+                self.collect_vars_used_in_expr(&idx.target, vars);
+                self.collect_vars_used_in_expr(&idx.index, vars);
+            }
+            HirExpr::Call(call) => {
+                for arg in call.args.iter() {
+                    self.collect_vars_used_in_expr(arg, vars);
+                }
+            }
+            HirExpr::NewObj(new_obj) => {
+                for arg in new_obj.args.iter() {
+                    self.collect_vars_used_in_expr(arg, vars);
+                }
+            }
+            HirExpr::ListLiteral(arr) => {
+                for elem in arr.items.iter() {
+                    self.collect_vars_used_in_expr(elem, vars);
+                }
+            }
+            HirExpr::ObjLiteral(obj) => {
+                for field in obj.fields.iter() {
+                    self.collect_vars_used_in_expr(&field.value, vars);
+                }
+            }
+            HirExpr::Casting(cast) => {
+                self.collect_vars_used_in_expr(&cast.expr, vars);
+            }
+            // Literals and other expressions don't use variables
+            _ => {}
+        }
+    }
+
     // =========================================================================
     // Type Classification Helpers
     // =========================================================================
@@ -1087,8 +1146,10 @@ impl<'hir> OwnershipPass<'hir> {
             // Function pointers are copyable
             HirTy::Function(_) => true,
 
-            // Lists are copyable if their inner type is copyable
-            HirTy::List(list) => self.is_type_copyable(list.inner),
+            // Lists are NOT copyable - they must be moved to avoid double-free
+            // When a list is assigned to a field or passed as argument, ownership transfers
+            // This prevents the original variable from being deleted and freeing the shared data
+            HirTy::List(_) => false,
 
             // Named types (structs) are copyable if they have a _copy method
             HirTy::Named(named) => {

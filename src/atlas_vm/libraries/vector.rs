@@ -6,14 +6,13 @@ use crate::atlas_vm::vm_data::VMData;
 
 pub const VECTOR_FUNCTIONS: [(&str, CallBack); 2] = [("len", len), ("slice", slice)];
 
+// len(l: &const [T]) -> uint64
 pub fn len(state: VMState) -> Result<VMData, RuntimeError> {
-    let val = state.stack.pop()?;
-    let list_ptr = val.as_object();
-    let raw_list = state.object_map.get(list_ptr)?;
+    let list_ref: *mut VMData = state.stack.pop()?.as_ref();
+    let raw_list = state.object_map.get(unsafe { list_ref.as_ref().unwrap().as_object() })?;
     let list = raw_list.list();
-    //Completely stupid to have to take owernship of a whole list just to get its length...
-    state.object_map.free(list_ptr)?;
-    Ok(VMData::new_i64(list.len() as i64))
+    let len = list.len() as u64;
+    Ok(VMData::new_u64(len))
 }
 
 pub fn slice(state: VMState) -> Result<VMData, RuntimeError> {

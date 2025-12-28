@@ -57,11 +57,11 @@ public:
     //fun as_bytes(this) -> [uint8] {}
     fun concat(this, other: String) -> String {
         //I should really implement the <- operator for copying objects
-        let self_chars = to_chars(this.s);
-        let other_chars = to_chars(other.s);
-        let res = new [char; len(self_chars) + len(other_chars)];
+        let self_chars = to_chars(&this.s);
+        let other_chars = to_chars(&other.s);
+        let res = new [char; len(&self_chars) + len(&other_chars)];
         let i = 0u;
-        while i < len(self_chars) {
+        while i < len(&self_chars) {
             res[i] = self_chars[i];
             i = i + 1u;
         }
@@ -70,36 +70,36 @@ public:
 
     fun push(this, c: char) -> unit {
         //Same... I should implement the <- operator
-        let self_chars = to_chars(this.s);
-        let res = new [char; len(self_chars) + 1u];
+        let self_chars = to_chars(&this.s);
+        let res = new [char; len(&self_chars) + 1u];
         let i = 0u;
-        while i < len(self_chars) {
+        while i < len(&self_chars) {
             res[i] = self_chars[i];
             i = i + 1u;
         }
         res[i] = c;
         this.s = from_chars(res);
-        this.len = str_len(this.s);
+        this.len = str_len(&this.s);
         return;
     }
 
     fun push_str(this, s: String) -> unit {
-        let self_chars = to_chars(this.s);
-        let s_chars = to_chars(s.s);
-        let res = new [char; len(self_chars) + len(s_chars)];
+        let self_chars = to_chars(&this.s);
+        let s_chars = to_chars(&s.s);
+        let res = new [char; len(&self_chars) + len(&s_chars)];
         let i = 0u;
-        while i < len(self_chars) {
+        while i < len(&self_chars) {
             res[i] = self_chars[i];
             i = i + 1u;
         }
         let j = 0u;
-        while j < len(s_chars) {
+        while j < len(&s_chars) {
             res[i] = s_chars[j];
             i = i + 1u;
             j = j + 1u;
         }
         this.s = from_chars(res);
-        this.len = str_len(this.s);
+        this.len = str_len(&this.s);
         return;
     }
 
@@ -107,11 +107,11 @@ public:
         let res = -1;
         let i = 0u;
         let j = 0u;
-        let self_chars = to_chars(this.s);
-        let sub_chars = to_chars(sub_string.s);
-        while i < len(self_chars) && res == -1 {
+        let self_chars = to_chars(&this.s);
+        let sub_chars = to_chars(&sub_string.s);
+        while i < len(&self_chars) && res == -1 {
             if self_chars[i] == sub_chars[j] {
-                const size_sub_chars: uint64 = len(sub_chars) - 1u;
+                const size_sub_chars: uint64 = len(&sub_chars) - 1u;
                 if j == size_sub_chars {
                     res = i as int64 - j as int64;
                 }
@@ -138,7 +138,7 @@ public:
     }
 
     fun to_chars(this) -> [char] {
-        return to_chars(this.s);
+        return to_chars(&this.s);
     }
 
     fun to_upper(this) -> String {
@@ -154,7 +154,7 @@ public:
     }
 
     fun split(this, sep: string) -> [String] {
-        let s: [string] = split(this.s, sep);
+        let s: [string] = split(&this.s, &sep);
         let i = 0u;
         let res = new [String; len(&s)];
         while i < len(&s) {
@@ -165,7 +165,7 @@ public:
     }
 
     fun into_iter(this) -> Iter<char> {
-        let chars = to_chars(this.s);
+        let chars = to_chars(&this.s);
         let vec = new Vector<char>(chars);
         return vec.into_iter();
     }

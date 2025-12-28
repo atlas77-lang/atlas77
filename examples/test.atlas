@@ -41,7 +41,7 @@ public:
     }
 
     fun _copy(&const this) -> Container<T> {
-        return new Container<T>(this.value);
+        return new Container<T>(*this.value);
     }
 }
 
