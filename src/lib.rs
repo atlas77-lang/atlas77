@@ -69,10 +69,10 @@ pub fn build(path: String, flag: CompilationFlag, using_std: bool) -> miette::Re
 
     //monomorphize
     let mut monomorphizer = MonomorphizationPass::new(&hir_arena, lower.generic_pool);
-    let mut hir = monomorphizer.monomorphize(hir)?;
+    let hir = monomorphizer.monomorphize(hir)?;
     //type-check
     let mut type_checker = TypeChecker::new(&hir_arena);
-    let mut hir = type_checker.check(hir)?;
+    let hir = type_checker.check(hir)?;
 
     // Ownership analysis pass (MOVE/COPY semantics and destructor insertion)
     let mut ownership_pass = OwnershipPass::new(hir.signature.clone(), &hir_arena);

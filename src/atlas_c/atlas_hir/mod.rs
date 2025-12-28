@@ -11,8 +11,6 @@ pub mod arena;
 pub mod constant_folding_pass;
 pub mod dead_code_elimination_pass;
 pub mod error;
-/// Legacy pass - use ownership_pass instead
-pub mod lifetime_pass;
 pub mod monomorphization_pass;
 /// Ownership analysis pass: implements MOVE/COPY semantics and destructor insertion
 pub mod ownership_pass;
