@@ -11,6 +11,8 @@ pub fn len(state: VMState) -> Result<VMData, RuntimeError> {
     let list_ptr = val.as_object();
     let raw_list = state.object_map.get(list_ptr)?;
     let list = raw_list.list();
+    //Completely stupid to have to take owernship of a whole list just to get its length...
+    state.object_map.free(list_ptr)?;
     Ok(VMData::new_i64(list.len() as i64))
 }
 
@@ -22,6 +24,7 @@ pub fn slice(state: VMState) -> Result<VMData, RuntimeError> {
     let list = raw_list.list();
     let sliced = list[start as usize..end as usize].to_vec();
     let obj_idx = state.object_map.put(ObjectKind::List(sliced));
+    state.object_map.free(list_ptr)?;
     match obj_idx {
         Ok(index) => Ok(VMData::new_list(index)),
         Err(_) => Err(RuntimeError::OutOfMemory),

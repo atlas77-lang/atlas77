@@ -19,22 +19,22 @@ pub fn str_len(state: VMState) -> RuntimeResult<VMData> {
     let string_ptr = state.stack.pop()?.as_object();
     let raw_string = state.object_map.get(string_ptr)?;
     let string = raw_string.string();
+    state.object_map.free(string_ptr)?;
     Ok(VMData::new_i64(string.len() as i64))
 }
 
+//This function should be rewritten to use "string_ptr" so we can properly free the two strings
 pub fn str_cmp(state: VMState) -> RuntimeResult<VMData> {
-    let string1 = state
-        .object_map
-        .get(state.stack.pop()?.as_object())?
-        .string()
-        .clone();
-    let string2 = state
-        .object_map
-        .get(state.stack.pop()?.as_object())?
-        .string()
-        .clone();
-    let cmp = string1.cmp(&string2);
-    Ok(VMData::new_i64(cmp as i64))
+    let string_b_ptr = state.stack.pop()?.as_object();
+    let string_a_ptr = state.stack.pop()?.as_object();
+    let raw_string_a = state.object_map.get(string_a_ptr)?;
+    let raw_string_b = state.object_map.get(string_b_ptr)?;
+    let string_a = raw_string_a.string();
+    let string_b = raw_string_b.string();
+    let cmp = string_a.cmp(string_b) as i64;
+    state.object_map.free(string_a_ptr)?;
+    state.object_map.free(string_b_ptr)?;
+    Ok(VMData::new_i64(cmp))
 }
 
 pub fn trim(state: VMState) -> RuntimeResult<VMData> {
@@ -44,6 +44,7 @@ pub fn trim(state: VMState) -> RuntimeResult<VMData> {
     let trimmed = string.trim().to_string();
 
     let obj_idx = state.object_map.put(ObjectKind::String(trimmed));
+    state.object_map.free(string_ptr)?;
     match obj_idx {
         Ok(index) => Ok(VMData::new_string(index)),
         Err(_) => Err(RuntimeError::OutOfMemory),
@@ -58,6 +59,7 @@ pub fn to_upper(state: VMState) -> RuntimeResult<VMData> {
     let upper = string.to_uppercase();
 
     let obj_idx = state.object_map.put(ObjectKind::String(upper));
+    state.object_map.free(string_ptr)?;
     match obj_idx {
         Ok(index) => Ok(VMData::new_string(index)),
         Err(_) => Err(RuntimeError::OutOfMemory),
@@ -72,6 +74,7 @@ pub fn to_lower(state: VMState) -> RuntimeResult<VMData> {
     let lower = string.to_lowercase();
 
     let obj_idx = state.object_map.put(ObjectKind::String(lower));
+    state.object_map.free(string_ptr)?;
     match obj_idx {
         Ok(index) => Ok(VMData::new_string(index)),
         Err(_) => Err(RuntimeError::OutOfMemory),
@@ -99,6 +102,8 @@ pub fn split(state: VMState) -> RuntimeResult<VMData> {
         .collect::<Vec<_>>();
 
     let list_idx = state.object_map.put(ObjectKind::List(list));
+    state.object_map.free(string_ptr)?;
+    state.object_map.free(delimiter_ptr)?;
     match list_idx {
         Ok(index) => Ok(VMData::new_list(index)),
         Err(_) => Err(RuntimeError::OutOfMemory),
@@ -113,6 +118,7 @@ pub fn from_chars(state: VMState) -> RuntimeResult<VMData> {
     let string: String = list.iter().map(|data| data.as_char()).collect();
 
     let obj_idx = state.object_map.put(ObjectKind::String(string));
+    state.object_map.free(list_ptr)?;
     match obj_idx {
         Ok(index) => Ok(VMData::new_string(index)),
         Err(_) => Err(RuntimeError::OutOfMemory),
@@ -128,6 +134,7 @@ pub fn to_chars(state: VMState) -> RuntimeResult<VMData> {
     let char_list: Vec<VMData> = string.chars().map(VMData::new_char).collect();
 
     let list_idx = state.object_map.put(ObjectKind::List(char_list));
+    state.object_map.free(string_ptr)?;
     match list_idx {
         Ok(index) => Ok(VMData::new_list(index)),
         Err(_) => Err(RuntimeError::OutOfMemory),

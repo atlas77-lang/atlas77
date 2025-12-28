@@ -21,14 +21,20 @@ pub fn println(state: VMState) -> Result<VMData, RuntimeError> {
         | VMTag::Char => {
             println!("{}", val)
         }
+        VMTag::Ref => {
+            println!("{}", val)
+        }
         VMTag::Object => {
-            println!("{}", state.object_map.get(val.as_object())?.structure())
+            println!("{}", state.object_map.get(val.as_object())?.structure());
+            state.object_map.free(val.as_object())?;
         }
         VMTag::String => {
-            println!("{}", state.object_map.get(val.as_object())?.string())
+            println!("{}", state.object_map.get(val.as_object())?.string());
+            state.object_map.free(val.as_object())?;
         }
         _ => {
-            println!("{}", state.object_map.get(val.as_object())?)
+            println!("{}", state.object_map.get(val.as_object())?);
+            state.object_map.free(val.as_object())?;
         }
     }
     Ok(VMData::new_unit())
@@ -45,14 +51,20 @@ pub fn print(state: VMState) -> Result<VMData, RuntimeError> {
         | VMTag::Char => {
             print!("{}", val)
         }
+        VMTag::Ref => {
+            println!("{}", val)
+        }
         VMTag::String => {
-            print!("{}", state.object_map.get(val.as_object())?.string())
+            print!("{}", state.object_map.get(val.as_object())?.string());
+            state.object_map.free(val.as_object())?;
         }
         VMTag::Object => {
-            print!("{}", state.object_map.get(val.as_object())?.structure())
+            print!("{}", state.object_map.get(val.as_object())?.structure());
+            state.object_map.free(val.as_object())?;
         }
         _ => {
-            print!("{}", state.object_map.get(val.as_object())?)
+            print!("{}", state.object_map.get(val.as_object())?);
+            state.object_map.free(val.as_object())?;
         }
     }
     Ok(VMData::new_unit())
@@ -82,16 +94,25 @@ pub fn panic(state: VMState) -> Result<VMData, RuntimeError> {
             println!("{}", val);
             std::process::exit(1);
         }
+        VMTag::Ref => {
+            println!("{}", val);
+            std::process::exit(1);
+        }
+        //For the sake of cleaning up memory, we free the object before exiting
+        //It's useless since the program is ending, but it's a good practice
         VMTag::String => {
             println!("{}", state.object_map.get(val.as_object())?.string());
+            state.object_map.free(val.as_object())?;
             std::process::exit(1);
         }
         VMTag::Object => {
             println!("{}", state.object_map.get(val.as_object())?.structure());
+            state.object_map.free(val.as_object())?;
             std::process::exit(1);
         }
         _ => {
             println!("{}", state.object_map.get(val.as_object())?);
+            state.object_map.free(val.as_object())?;
             std::process::exit(1);
         }
     }

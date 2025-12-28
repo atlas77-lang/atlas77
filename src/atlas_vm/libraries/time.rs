@@ -11,10 +11,10 @@ pub const TIME_FUNCTIONS: [(&str, CallBack); 4] = [
     ("now", now),
     ("format_time_iso", format_time_iso),
     ("format_time", format_time),
-    ("elapsed", elapsed),
+    ("sleep", sleep),
 ];
 
-//now() -> &Time
+//now() -> Time
 pub fn now(state: VMState) -> Result<VMData, RuntimeError> {
     let time = std::time::SystemTime::now();
     let duration = time.duration_since(std::time::UNIX_EPOCH).unwrap();
@@ -33,7 +33,7 @@ pub fn now(state: VMState) -> Result<VMData, RuntimeError> {
     }
 }
 
-//format_time_iso(time: &Time) -> &string
+//format_time_iso(time: Time) -> string
 pub fn format_time_iso(state: VMState) -> Result<VMData, RuntimeError> {
     let time_ptr = state.stack.pop()?.as_object();
     let raw_time_obj = state.object_map.get(time_ptr)?;
@@ -51,13 +51,14 @@ pub fn format_time_iso(state: VMState) -> Result<VMData, RuntimeError> {
     let formatted = time.format(&fmt).unwrap();
 
     let obj_idx = state.object_map.put(ObjectKind::String(formatted));
+    state.object_map.free(time_ptr)?;
     match obj_idx {
         Ok(index) => Ok(VMData::new_string(index)),
         Err(_) => Err(RuntimeError::OutOfMemory),
     }
 }
 
-//format_time(time: &Time, format: &string) -> &string
+//format_time(time: Time, format: string) -> string
 pub fn format_time(state: VMState) -> Result<VMData, RuntimeError> {
     let format_ptr = state.stack.pop()?.as_object(); // a string is an object
     let time_ptr = state.stack.pop()?.as_object();
@@ -76,42 +77,25 @@ pub fn format_time(state: VMState) -> Result<VMData, RuntimeError> {
     let formatted = time.format(&fmt).unwrap();
 
     let obj_idx = state.object_map.put(ObjectKind::String(formatted));
+    state.object_map.free(time_ptr)?;
+    state.object_map.free(format_ptr)?;
     match obj_idx {
         Ok(index) => Ok(VMData::new_string(index)),
         Err(_) => Err(RuntimeError::OutOfMemory),
     }
 }
 
-// elapsed(start: &Time, end: &Time) -> &Time
-pub fn elapsed(state: VMState) -> Result<VMData, RuntimeError> {
-    let end_ptr = state.stack.pop()?.as_object();
-    let start_ptr = state.stack.pop()?.as_object();
+fn sleep(state: VMState) -> Result<VMData, RuntimeError> {
+    let time_ptr = state.stack.pop()?.as_object();
+    let raw_time_obj = state.object_map.get(time_ptr)?;
+    let time_obj = raw_time_obj.structure();
 
-    let raw_start_obj = state.object_map.get(start_ptr)?;
-    let start_obj = raw_start_obj.structure();
+    let sec = time_obj[0].as_i64();
+    let nsec = time_obj[1].as_i64();
 
-    let start_sec = start_obj[0].as_i64();
-    let start_nsec = start_obj[1].as_i64();
+    let duration = std::time::Duration::new(sec as u64, nsec as u32);
+    std::thread::sleep(duration);
 
-    let raw_end_obj = state.object_map.get(end_ptr)?;
-    let end_obj = raw_end_obj.structure();
-
-    let end_sec = end_obj[0].as_i64();
-    let end_nsec = end_obj[1].as_i64();
-
-    let elapsed_sec = end_sec - start_sec;
-    let elapsed_nsec = end_nsec - start_nsec;
-
-    let fields = vec![VMData::new_i64(elapsed_sec), VMData::new_i64(elapsed_nsec)];
-
-    let obj_idx = state.object_map.put(ObjectKind::Structure(Structure::new(
-        fields.len(),
-        fields,
-        2,
-    )));
-
-    match obj_idx {
-        Ok(index) => Ok(VMData::new_object(index)),
-        Err(_) => Err(RuntimeError::OutOfMemory),
-    }
+    state.object_map.free(time_ptr)?;
+    Ok(VMData::new_unit())
 }

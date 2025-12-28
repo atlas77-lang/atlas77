@@ -4,7 +4,7 @@
 private extern now() -> Time;
 private extern format_time(t: Time, fmt: string) -> string;
 private extern sleep(t: Time);
-
+private extern format_time_iso(t: Time) -> string;
 
 public struct Time {
 public:
