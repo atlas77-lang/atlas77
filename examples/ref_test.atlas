@@ -69,6 +69,12 @@ public:
 //     return ref_p;          // Return reference to local variable - DETECTED!
 // }
 
+// fun test_const_ref(a: &const int64) {
+//     let val = *a;
+//     println(val);
+//     *a = 20;  // Should trigger error - modifying through const ref
+// }
+
 fun main() {
     println("Testing basic reference:");
     test_basic_ref();
@@ -79,5 +85,4 @@ fun main() {
     println("Testing struct field reference:");
     test_struct_field_ref();
 
-    // Both escape analysis tests are correctly rejected by the compiler!
 }

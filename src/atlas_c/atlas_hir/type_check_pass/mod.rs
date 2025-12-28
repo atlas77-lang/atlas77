@@ -1288,10 +1288,11 @@ impl<'hir> TypeChecker<'hir> {
             HirExpr::Assign(a) => {
                 let rhs = self.check_expr(&mut a.rhs)?;
                 let lhs = self.check_expr(&mut a.lhs)?;
-                //Todo needs a special rule for `self.field = value`, because you can assign once to a const field
+                //Todo needs a special rule for `this.field = value`, because you can assign once to a const field
 
+                //Check if lhs is a const reference
                 if lhs.is_const() {
-                    //TODO: Add assignement in copy constructor
+                    //Check if we're in a constructor
                     if self.current_func_name == Some("constructor")
                         && self.current_class_name.is_some()
                     {
@@ -1299,6 +1300,26 @@ impl<'hir> TypeChecker<'hir> {
                         return Ok(lhs);
                     } else {
                         return Err(Self::trying_to_mutate_const_reference(&a.lhs.span(), lhs));
+                    }
+                }
+                //Let's check if we are dereferencing a const reference
+                if let HirExpr::Unary(unary_expr) = &*a.lhs {
+                    if let Some(HirUnaryOp::Deref) = &unary_expr.op {
+                        let deref_target_ty = self.check_expr(&mut unary_expr.expr.clone())?;
+                        if deref_target_ty.is_const() {
+                            //Check if we're in a constructor
+                            if self.current_func_name == Some("constructor")
+                                && self.current_class_name.is_some()
+                            {
+                                self.is_equivalent_ty(lhs, a.lhs.span(), rhs, a.rhs.span())?;
+                                return Ok(lhs);
+                            } else {
+                                return Err(Self::trying_to_mutate_const_reference(
+                                    &a.lhs.span(),
+                                    deref_target_ty,
+                                ));
+                            }
+                        }
                     }
                 }
                 self.is_equivalent_ty(lhs, a.lhs.span(), rhs, a.rhs.span())?;
