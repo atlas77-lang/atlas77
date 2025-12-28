@@ -1,0 +1,40 @@
+// ============================================================================
+// ERROR TEST: Use after move
+// ============================================================================
+// This should produce a compile-time error: trying to access a moved value
+
+import "std/io";
+
+// Non-copyable struct (no _copy method)
+struct NonCopyable {
+public:
+    value: int64;
+
+    NonCopyable(value: int64) {
+        this.value = value;
+        println("NonCopyable created");
+    }
+
+    ~NonCopyable() {
+        println("NonCopyable destroyed");
+    }
+
+    fun get_value(&const this) -> int64 {
+        return this.value;
+    }
+}
+
+fun consume(obj: NonCopyable) {
+    println("Consuming:");
+    println(obj.get_value());
+}
+
+fun main() {
+    let obj = new NonCopyable(42);
+    
+    // First use - moves ownership
+    consume(obj);
+    
+    // ERROR: This should fail - obj was already moved!
+    consume(obj);  // <-- Expected error: trying to access a moved value
+}

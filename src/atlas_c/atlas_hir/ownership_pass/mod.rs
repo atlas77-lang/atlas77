@@ -103,6 +103,12 @@ impl<'hir> OwnershipPass<'hir> {
                 self.errors.push(e);
             }
         }
+        
+        // Return the first error if any were collected
+        if let Some(err) = self.errors.pop() {
+            return Err(err);
+        }
+        
         Ok(hir)
     }
 

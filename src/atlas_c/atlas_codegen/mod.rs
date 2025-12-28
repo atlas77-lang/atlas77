@@ -1104,14 +1104,18 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         eprintln!("{:?}", Into::<miette::Report>::into(err));
                         std::process::exit(1);
                     });
-                //Call the destructor
+                // Generate the object pointer, duplicate it so we can both call destroy and free
                 self.generate_bytecode_expr(&delete.expr, bytecode)?;
+                bytecode.push(Instruction::Dup); // Stack: [obj_ptr, obj_ptr]
+                // Call the destructor (consumes one copy)
                 bytecode.push(Instruction::Call {
                     func_name: format!("{}.destroy", name),
                     nb_args: 1,
-                });
-                //Free the object memory
-                bytecode.push(Instruction::DeleteObj);
+                }); // Stack: [obj_ptr, unit]
+                // Pop the Unit return value from destroy
+                bytecode.push(Instruction::Pop); // Stack: [obj_ptr]
+                // Free the object memory
+                bytecode.push(Instruction::DeleteObj); // Stack: []
             }
             // Move expressions: ownership transfer, just generate the inner expression
             // The ownership semantics are handled by the ownership pass
