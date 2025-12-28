@@ -44,12 +44,30 @@ fun test_struct_field_ref() {
     println(p.x);        // Should print 42
 }
 
-// This function intentionally triggers an error - uncomment to test the escape analysis
-fun test_ret_ref() -> &int64 {
-    let p = new Point(50, 100);
-    let ref_p = &p.x;
-    return ref_p;          // Return reference to local variable - DETECTED!
+struct Stuff {
+public:
+    a: &int64;
+    b: &int64;
+    Stuff(a: &int64, b: &int64) {
+        this.a = a;
+        this.b = b;
+    }
 }
+
+// This function triggers an error - the struct contains refs to locals
+// fun test_ret_struct_field_ref() -> Stuff {
+//     let a = 1;
+//     let b = 2;
+//     let stuff = new Stuff(&a, &b);
+//     return stuff;        // Returning references to local variables - DETECTED!
+// }
+
+// This function intentionally triggers an error - uncomment to test the escape analysis
+// fun test_ret_ref() -> &int64 {
+//     let p = new Point(50, 100);
+//     let ref_p = &p.x;
+//     return ref_p;          // Return reference to local variable - DETECTED!
+// }
 
 fun main() {
     println("Testing basic reference:");
@@ -61,8 +79,5 @@ fun main() {
     println("Testing struct field reference:");
     test_struct_field_ref();
 
-    // The test_ret_ref function is correctly rejected by the compiler!
-    println("Testing return reference:");
-    let ref_val = test_ret_ref();
-    println(*ref_val);
+    // Both escape analysis tests are correctly rejected by the compiler!
 }

@@ -89,7 +89,8 @@ pub struct ContextVariable<'hir> {
     pub _is_mut: bool,
     /// Whether this variable is a function parameter (vs a local variable)
     pub is_param: bool,
-    /// If this variable holds a reference to a local variable, store the name of that local.
-    /// This is used to detect returning references to locals through intermediate variables.
-    pub refs_local: Option<&'hir str>,
+    /// Local variables that this variable holds references to (directly or transitively).
+    /// This is used to detect returning references to locals through intermediate variables
+    /// or structs containing reference fields.
+    pub refs_locals: Vec<&'hir str>,
 }

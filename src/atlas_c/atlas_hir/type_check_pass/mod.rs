@@ -143,7 +143,7 @@ impl<'hir> TypeChecker<'hir> {
                         _ty_span: param.ty_span,
                         _is_mut: false,
                         is_param: true,
-                        refs_local: None,
+                        refs_locals: vec![],
                     },
                 );
         }
@@ -176,7 +176,7 @@ impl<'hir> TypeChecker<'hir> {
                         _ty_span: param.ty_span,
                         _is_mut: false,
                         is_param: true,
-                        refs_local: None,
+                        refs_locals: vec![],
                     },
                 );
         }
@@ -210,7 +210,7 @@ impl<'hir> TypeChecker<'hir> {
                         _ty_span: param.ty_span,
                         _is_mut: false,
                         is_param: true,
-                        refs_local: None,
+                        refs_locals: vec![],
                     },
                 );
         }
@@ -317,7 +317,7 @@ impl<'hir> TypeChecker<'hir> {
                         _ty_span: param.ty_span,
                         _is_mut: false,
                         is_param: true,
-                        refs_local: None,
+                        refs_locals: vec![],
                     },
                 );
         }
@@ -337,8 +337,9 @@ impl<'hir> TypeChecker<'hir> {
             HirStatement::Return(r) => {
                 let actual_ret_ty = self.check_expr(&mut r.value)?;
                 
-                // Check for returning a reference to a local variable
-                if let Some(local_var_name) = self.get_local_ref_target(&r.value) {
+                // Check for returning a reference to a local variable (directly or through a struct)
+                let local_refs = self.get_local_ref_targets(&r.value);
+                if let Some(local_var_name) = local_refs.first() {
                     let path = r.span.path;
                     let src = utils::get_file_content(path).unwrap();
                     return Err(HirError::ReturningReferenceToLocalVariable(
@@ -450,7 +451,7 @@ impl<'hir> TypeChecker<'hir> {
                 c.ty = Some(const_ty);
                 
                 // Check if the const is being assigned a reference to a local variable
-                let refs_local = self.get_local_ref_target(&c.value);
+                let refs_locals = self.get_local_ref_targets(&c.value);
                 
                 self.context_functions
                     .last_mut()
@@ -466,7 +467,7 @@ impl<'hir> TypeChecker<'hir> {
                             _ty_span: c.ty_span.unwrap_or(c.name_span),
                             _is_mut: false,
                             is_param: false,
-                            refs_local,
+                            refs_locals,
                         },
                     );
 
@@ -483,7 +484,7 @@ impl<'hir> TypeChecker<'hir> {
                 l.ty = Some(var_ty);
                 
                 // Check if the let is being assigned a reference to a local variable
-                let refs_local = self.get_local_ref_target(&l.value);
+                let refs_locals = self.get_local_ref_targets(&l.value);
                 
                 self.context_functions
                     .last_mut()
@@ -499,7 +500,7 @@ impl<'hir> TypeChecker<'hir> {
                             _ty_span: l.ty_span.unwrap_or(l.name_span),
                             _is_mut: true,
                             is_param: false,
-                            refs_local,
+                            refs_locals,
                         },
                     );
                 self.is_equivalent_ty(
@@ -1922,7 +1923,12 @@ impl<'hir> TypeChecker<'hir> {
     /// 
     /// This is used to detect when a function is trying to return a reference
     /// to a local variable, which would be a dangling reference.
-    fn get_local_ref_target(&self, expr: &HirExpr<'hir>) -> Option<&'hir str> {
+    /// Get all local variables that the expression references (directly or transitively).
+    /// Returns a list of local variable names if any, empty vec otherwise.
+    /// 
+    /// This is used to detect when a function is trying to return a reference
+    /// to a local variable, which would be a dangling reference.
+    fn get_local_ref_targets(&self, expr: &HirExpr<'hir>) -> Vec<&'hir str> {
         match expr {
             HirExpr::Unary(u) => {
                 if matches!(u.op, Some(HirUnaryOp::AsRef)) {
@@ -1931,47 +1937,55 @@ impl<'hir> TypeChecker<'hir> {
                         HirExpr::Ident(ident) => {
                             // Check if this is a local variable (not a function parameter)
                             if self.is_local_variable(ident.name) {
-                                return Some(ident.name);
+                                return vec![ident.name];
                             }
                         }
                         HirExpr::FieldAccess(fa) => {
                             // Check if the base object is a local variable
                             if let HirExpr::Ident(ident) = fa.target.as_ref() {
                                 if self.is_local_variable(ident.name) {
-                                    return Some(ident.name);
+                                    return vec![ident.name];
                                 }
                             }
                         }
                         _ => {}
                     }
-                    None
+                    vec![]
                 } else if u.op.is_none() {
                     // No op - just unwrap and recurse (parser sometimes wraps in Unary with no op)
-                    self.get_local_ref_target(u.expr.as_ref())
+                    self.get_local_ref_targets(u.expr.as_ref())
                 } else {
-                    None
+                    vec![]
                 }
             }
             HirExpr::Ident(ident) => {
-                // Check if this identifier holds a reference to a local variable
-                self.get_refs_local(ident.name)
+                // Check if this identifier holds references to local variables
+                self.get_refs_locals(ident.name)
             }
-            _ => None,
+            HirExpr::NewObj(new_obj) => {
+                // Check if any constructor argument is a reference to a local
+                let mut refs = vec![];
+                for arg in &new_obj.args {
+                    refs.extend(self.get_local_ref_targets(arg));
+                }
+                refs
+            }
+            _ => vec![],
         }
     }
 
-    /// Get the local variable that a variable references (if any)
-    fn get_refs_local(&self, name: &str) -> Option<&'hir str> {
+    /// Get the local variables that a variable references (if any)
+    fn get_refs_locals(&self, name: &str) -> Vec<&'hir str> {
         if let Some(context_map) = self.context_functions.last() {
             if let Some(func_name) = self.current_func_name {
                 if let Some(context_func) = context_map.get(func_name) {
                     if let Some(var) = context_func.get_variable(name) {
-                        return var.refs_local;
+                        return var.refs_locals.clone();
                     }
                 }
             }
         }
-        None
+        vec![]
     }
 
     /// Check if a variable name refers to a local variable (not a function parameter)
