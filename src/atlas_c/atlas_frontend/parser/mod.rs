@@ -1065,16 +1065,15 @@ impl<'ast> Parser<'ast> {
             _ => None,
         };
 
-        // For & (AsRef): allow field access inside so &p.x means &(p.x)
-        // For * (Deref): no postfix inside so *ref = val means (*ref) = val
-        // For - and !: no postfix inside
+        // All unary operators allow field access inside:
+        // &p.x means &(p.x), !this.has_value means !(this.has_value),
+        // -point.x means -(point.x), *stuff.hehe means *(stuff.hehe)
         let expr = match op {
-            Some(AstUnaryOp::AsRef) => {
-                // AsRef: allow field access but not function calls or assignment
+            Some(_) => {
+                // Allow field access but not function calls or assignment
                 let primary = self.parse_primary_no_postfix()?;
                 self.parse_field_access_only(primary)?
             }
-            Some(_) => self.parse_primary_no_postfix()?,
             None => self.parse_primary()?,
         };
         let node = AstUnaryOpExpr {
