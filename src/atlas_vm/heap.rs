@@ -90,7 +90,10 @@ impl Heap {
             Object {
                 kind: ObjectKind::Free { .. },
                 ..
-            } => Err(RuntimeError::NullReference),
+            } => Err(RuntimeError::NullReference(format!(
+                "Double free detected at index {}",
+                usize::from(index)
+            ))),
             _ => {
                 self.used_space = self.used_space.saturating_sub(1);
                 self.deallocations += 1;

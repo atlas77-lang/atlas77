@@ -47,7 +47,6 @@ use crate::atlas_c::{
         arena::HirArena,
         error::{
             HirError, HirResult, TryingToAccessAMovedValueError,
-            TryingToCopyNonCopyableTypeError,
         },
         expr::{HirCopyExpr, HirDeleteExpr, HirExpr, HirIdentExpr, HirMoveExpr},
         item::HirFunction,
@@ -827,6 +826,23 @@ impl<'hir> OwnershipPass<'hir> {
                     expr: Box::new(transformed),
                     ty: cast.ty,
                 }))
+            }
+            // Delete expressions - mark the variable as deleted so it won't be auto-deleted later
+            HirExpr::Delete(del) => {
+                // If deleting an identifier, mark it as deleted
+                // The inner expression might be wrapped in a Unary with op=None, so unwrap it
+                let inner_expr = match del.expr.as_ref() {
+                    HirExpr::Unary(u) if u.op.is_none() => u.expr.as_ref(),
+                    other => other,
+                };
+                
+                if let HirExpr::Ident(ident) = inner_expr {
+                    if let Some(var_data) = self.scope_map.get_mut(ident.name) {
+                        var_data.status = VarStatus::Deleted { delete_span: del.span };
+                    }
+                }
+                // Return the delete expression as-is
+                Ok(expr.clone())
             }
             // Literals are always owned by the expression creating them
             _ => Ok(expr.clone()),

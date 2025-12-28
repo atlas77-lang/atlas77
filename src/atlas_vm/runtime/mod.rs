@@ -764,7 +764,10 @@ impl<'run> AtlasRuntime<'run> {
                 // Deep clone a string: pop string ptr, clone the string data, push new ptr
                 let val = self.stack.pop()?;
                 if val.tag != VMTag::String {
-                    return Err(RuntimeError::InvalidOperation);
+                    return Err(RuntimeError::NullReference(format!(
+                        "Expected String for CLONE_STRING, got {:?}",
+                        val.tag
+                    )));
                 }
                 let original_ptr = val.as_object();
                 let original_string = self.heap.get(original_ptr)?.string().clone();

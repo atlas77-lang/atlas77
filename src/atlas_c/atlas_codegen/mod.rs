@@ -432,9 +432,17 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
             HirStatement::Expr(e) => {
                 self.generate_bytecode_expr(&e.expr, bytecode)?;
-                if let Some(Instruction::LoadConst(ConstantValue::Unit)) = bytecode.last() {
-                    bytecode.pop();
-                    return Ok(());
+                // Skip Pop for instructions that don't leave anything on the stack
+                match bytecode.last() {
+                    Some(Instruction::LoadConst(ConstantValue::Unit)) => {
+                        bytecode.pop();
+                        return Ok(());
+                    }
+                    // DeleteObj for strings/lists doesn't push anything to the stack
+                    Some(Instruction::DeleteObj) => {
+                        return Ok(());
+                    }
+                    _ => {}
                 }
                 //TODO: Remove this Pop for instructions that leave nothing on the stack
                 //(e.g. function calls that return Unit)

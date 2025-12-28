@@ -16,7 +16,7 @@ pub const FILE_FUNCTIONS: [(&str, CallBack); 6] = [
 // We need to manually close files to ensure data integrity
 pub fn close_file(state: VMState) -> Result<VMData, RuntimeError> {
     let file_ptr = state.stack.pop()?.as_object();
-    state.object_map.free(file_ptr)?;
+    //state.object_map.free(file_ptr)?;
     // In Rust, files are automatically closed when they go out of scope.
     // However, in this VM context, we can simulate closing a file by removing
     // its reference from the object map if needed.
@@ -42,7 +42,7 @@ pub fn read_dir(state: VMState) -> Result<VMData, RuntimeError> {
     }
 
     let list_idx = state.object_map.put(ObjectKind::List(list));
-    state.object_map.free(path_ptr)?;
+    //state.object_map.free(path_ptr)?;
     match list_idx {
         Ok(index) => Ok(VMData::new_list(index)),
         Err(_) => Err(RuntimeError::OutOfMemory),
@@ -57,7 +57,7 @@ pub fn read_file(state: VMState) -> Result<VMData, RuntimeError> {
     let content = std::fs::read_to_string(path).unwrap();
     let obj_idx = state.object_map.put(ObjectKind::String(content));
     
-    state.object_map.free(path_ptr)?;
+    //state.object_map.free(path_ptr)?;
     match obj_idx {
         Ok(index) => Ok(VMData::new_string(index)),
         Err(_) => Err(RuntimeError::OutOfMemory),
@@ -74,8 +74,8 @@ pub fn write_file(state: VMState) -> Result<VMData, RuntimeError> {
 
     std::fs::write(path, content).unwrap();
     
-    state.object_map.free(path_ptr)?;
-    state.object_map.free(content_ptr)?;
+    //state.object_map.free(path_ptr)?;
+    //state.object_map.free(content_ptr)?;
     Ok(VMData::new_unit())
 }
 
@@ -85,7 +85,7 @@ pub fn file_exists(state: VMState) -> Result<VMData, RuntimeError> {
     let path = raw_path.string();
 
     let exists = std::path::Path::new(&path).exists();
-    state.object_map.free(path_ptr)?;
+    //state.object_map.free(path_ptr)?;
     Ok(VMData::new_boolean(exists))
 }
 
@@ -95,6 +95,6 @@ pub fn remove_file(state: VMState) -> Result<VMData, RuntimeError> {
     let path = raw_path.string();
 
     std::fs::remove_file(path).unwrap();
-    state.object_map.free(path_ptr)?;
+    //state.object_map.free(path_ptr)?;
     Ok(VMData::new_unit())
 }
