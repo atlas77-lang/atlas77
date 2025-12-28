@@ -147,9 +147,28 @@ fun main() {
     test_function_params();
     println("");
     
-    test_references();  // Disabled due to VM reference bug
+    test_references();
     println("");
     
+    //Let's test Stuff struct
+    println("=== TEST 6: Struct with Copyable field ===");
+    let s = new Stuff(new Copyable(500));
+    print("Stuff data value: ");
+    println(s.get_data().get_value());
+    println("Struct with Copyable field test passed!");
+    println("");
+
     println("===================================");
     println("All Ownership Tests Completed!");
+}
+
+struct Stuff {
+public:
+    data: Copyable;
+    Stuff(data: Copyable) {
+        this.data = data;
+    }
+    fun get_data(&const this) -> Copyable {
+        return this.data;
+    }
 }

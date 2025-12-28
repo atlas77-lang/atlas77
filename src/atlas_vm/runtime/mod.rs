@@ -760,6 +760,20 @@ impl<'run> AtlasRuntime<'run> {
                 };
                 self.stack.push(casted_value)
             }
+            OpCode::CLONE_STRING => {
+                // Deep clone a string: pop string ptr, clone the string data, push new ptr
+                let val = self.stack.pop()?;
+                if val.tag != VMTag::String {
+                    return Err(RuntimeError::InvalidOperation);
+                }
+                let original_ptr = val.as_object();
+                let original_string = self.heap.get(original_ptr)?.string().clone();
+                let new_ptr = match self.heap.put(ObjectKind::String(original_string)) {
+                    Ok(ptr) => ptr,
+                    Err(_) => return Err(RuntimeError::OutOfMemory),
+                };
+                self.stack.push(VMData::new_string(new_ptr))
+            }
             OpCode::Halt => Err(RuntimeError::HaltEncountered),
             _ => unimplemented!("{:?}", instr),
         }

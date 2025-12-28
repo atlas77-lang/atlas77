@@ -94,6 +94,7 @@ impl<'hir> OwnershipPass<'hir> {
         &mut self,
         hir: &'hir mut HirModule<'hir>,
     ) -> HirResult<&'hir mut HirModule<'hir>> {
+        // Process top-level functions
         for func in hir.body.functions.values_mut() {
             // Reset state for each function
             self.scope_map = ScopeMap::new();
@@ -101,6 +102,85 @@ impl<'hir> OwnershipPass<'hir> {
 
             if let Err(e) = self.analyze_function(func) {
                 self.errors.push(e);
+            }
+        }
+        
+        // Process struct methods and constructors
+        for struct_def in hir.body.structs.values_mut() {
+            // Process methods
+            for method in struct_def.methods.iter_mut() {
+                self.scope_map = ScopeMap::new();
+                self.current_stmt_index = 0;
+                
+                // Register method parameters including 'this'
+                for param in method.signature.params.iter() {
+                    let kind = self.classify_type_kind(param.ty);
+                    let is_copyable = self.is_type_copyable(param.ty);
+                    self.scope_map.insert(
+                        param.name,
+                        VarData::new(param.name, param.span, kind, param.ty, is_copyable),
+                    );
+                }
+                
+                // First pass: collect uses
+                if let Err(e) = self.collect_uses_in_block(&method.body) {
+                    self.errors.push(e);
+                    continue;
+                }
+                
+                // Second pass: transform
+                self.current_stmt_index = 0;
+                if let Err(e) = self.transform_block(&mut method.body) {
+                    self.errors.push(e);
+                }
+            }
+            
+            // Process constructor
+            {
+                self.scope_map = ScopeMap::new();
+                self.current_stmt_index = 0;
+                
+                for param in struct_def.constructor.params.iter() {
+                    let kind = self.classify_type_kind(param.ty);
+                    let is_copyable = self.is_type_copyable(param.ty);
+                    self.scope_map.insert(
+                        param.name,
+                        VarData::new(param.name, param.span, kind, param.ty, is_copyable),
+                    );
+                }
+                
+                if let Err(e) = self.collect_uses_in_block(&struct_def.constructor.body) {
+                    self.errors.push(e);
+                } else {
+                    self.current_stmt_index = 0;
+                    if let Err(e) = self.transform_block(&mut struct_def.constructor.body) {
+                        self.errors.push(e);
+                    }
+                }
+            }
+            
+            // Process destructor
+            {
+                self.scope_map = ScopeMap::new();
+                self.current_stmt_index = 0;
+                
+                for param in struct_def.destructor.params.iter() {
+                    let kind = self.classify_type_kind(param.ty);
+                    let is_copyable = self.is_type_copyable(param.ty);
+                    self.scope_map.insert(
+                        param.name,
+                        VarData::new(param.name, param.span, kind, param.ty, is_copyable),
+                    );
+                }
+                
+                if let Err(e) = self.collect_uses_in_block(&struct_def.destructor.body) {
+                    self.errors.push(e);
+                } else {
+                    self.current_stmt_index = 0;
+                    if let Err(e) = self.transform_block(&mut struct_def.destructor.body) {
+                        self.errors.push(e);
+                    }
+                }
             }
         }
         
@@ -633,24 +713,83 @@ impl<'hir> OwnershipPass<'hir> {
             }
             HirExpr::FieldAccess(field) => {
                 let transformed_target = self.transform_expr_ownership(&field.target, false)?;
-                Ok(HirExpr::FieldAccess(
+                let field_access_expr = HirExpr::FieldAccess(
                     crate::atlas_c::atlas_hir::expr::HirFieldAccessExpr {
                         span: field.span,
                         target: Box::new(transformed_target),
                         field: field.field.clone(),
                         ty: field.ty,
                     },
-                ))
+                );
+                
+                // If ownership is being consumed (e.g., returning a field, passing to a function),
+                // we need to either COPY the field value (if copyable) or error out.
+                // This prevents the aliasing issue where both the struct and the returned value
+                // point to the same heap object.
+                if is_ownership_consuming {
+                    let is_copyable = self.is_type_copyable(field.ty);
+                    if is_copyable {
+                        // Generate a COPY expression for the field value
+                        Ok(HirExpr::Copy(HirCopyExpr {
+                            span: field.span,
+                            source_name: field.field.name,
+                            expr: Box::new(field_access_expr),
+                            ty: field.ty,
+                        }))
+                    } else {
+                        // Non-copyable field being consumed - this is an error
+                        // The user should either:
+                        // 1. Make the field type copyable (implement _copy)
+                        // 2. Move the entire struct
+                        // 3. Return a reference instead
+                        let path = field.span.path;
+                        let src = utils::get_file_content(path).unwrap_or_default();
+                        Err(HirError::TryingToCopyNonCopyableType(
+                            TryingToCopyNonCopyableTypeError {
+                                span: field.span,
+                                ty: format!("{}", field.ty),
+                                src: NamedSource::new(path, src),
+                            },
+                        ))
+                    }
+                } else {
+                    Ok(field_access_expr)
+                }
             }
             HirExpr::Indexing(indexing) => {
                 let transformed_target = self.transform_expr_ownership(&indexing.target, false)?;
                 let transformed_index = self.transform_expr_ownership(&indexing.index, false)?;
-                Ok(HirExpr::Indexing(crate::atlas_c::atlas_hir::expr::HirIndexingExpr {
+                let indexing_expr = HirExpr::Indexing(crate::atlas_c::atlas_hir::expr::HirIndexingExpr {
                     span: indexing.span,
                     target: Box::new(transformed_target),
                     index: Box::new(transformed_index),
                     ty: indexing.ty,
-                }))
+                });
+                
+                // Same as FieldAccess: if ownership is being consumed, we need to COPY
+                if is_ownership_consuming {
+                    let is_copyable = self.is_type_copyable(indexing.ty);
+                    if is_copyable {
+                        Ok(HirExpr::Copy(HirCopyExpr {
+                            span: indexing.span,
+                            source_name: "<indexed>",
+                            expr: Box::new(indexing_expr),
+                            ty: indexing.ty,
+                        }))
+                    } else {
+                        let path = indexing.span.path;
+                        let src = utils::get_file_content(path).unwrap_or_default();
+                        Err(HirError::TryingToCopyNonCopyableType(
+                            TryingToCopyNonCopyableTypeError {
+                                span: indexing.span,
+                                ty: format!("{}", indexing.ty),
+                                src: NamedSource::new(path, src),
+                            },
+                        ))
+                    }
+                } else {
+                    Ok(indexing_expr)
+                }
             }
             HirExpr::Casting(cast) => {
                 let transformed = self.transform_expr_ownership(&cast.expr, is_ownership_consuming)?;

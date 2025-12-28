@@ -94,6 +94,8 @@ pub enum Instruction {
     CastTo(Type), // Explicit type coercion (if kept)
 
     // === Misc ===
+    /// Deep clone the string on top of stack (for passing to extern functions)
+    CloneString, // [String] -> [ClonedString]
     Halt, // Stop execution
 }
 
@@ -148,6 +150,7 @@ impl Display for Instruction {
             Instruction::StoreIndirect => write!(f, "StoreIndirect"),
             Instruction::GetFieldAddr { field } => write!(f, "GetFieldAddr {}", field),
             Instruction::CastTo(t) => write!(f, "CastTo {:?}", t),
+            Instruction::CloneString => write!(f, "CloneString"),
             Instruction::Halt => write!(f, "Halt"),
         }
     }

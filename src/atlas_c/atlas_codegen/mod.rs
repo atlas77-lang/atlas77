@@ -1124,6 +1124,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
             // Copy expressions: for primitives, just generate the inner expression (bitwise copy)
             // For objects with _copy method, call the copy constructor
+            // For strings, deep copy using CloneString instruction
             HirExpr::Copy(copy_expr) => {
                 // Check if this is an object type that needs copy constructor call
                 match copy_expr.ty {
@@ -1143,7 +1144,12 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                             nb_args: 1,
                         });
                     }
-                    // For primitives, strings, and other types, just evaluate the expression
+                    // For strings, deep copy the string data
+                    HirTy::String(_) => {
+                        self.generate_bytecode_expr(&copy_expr.expr, bytecode)?;
+                        bytecode.push(Instruction::CloneString);
+                    }
+                    // For primitives and other types, just evaluate the expression
                     // (bitwise copy is implicit)
                     _ => {
                         self.generate_bytecode_expr(&copy_expr.expr, bytecode)?;

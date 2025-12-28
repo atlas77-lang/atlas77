@@ -54,7 +54,7 @@ public:
         let tokens = Vector<Token>::with_capacity(this.source.len());
         let src_iter = this.source.into_iter();
         while src_iter.has_next() {
-            const c: char = src_iter.next().unwrap();
+            const c: char = src_iter.next().value();
             if c == '>' {
                 tokens.push(new Token(TokenKind::SHIFT_RIGHT, new String(">")));
             } else if c == '<' {

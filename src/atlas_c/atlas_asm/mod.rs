@@ -789,6 +789,13 @@ impl Assembler {
                     };
                     bytecode.push(instr);
                 }
+                Instruction::CloneString => {
+                    let instr = Instr {
+                        opcode: OpCode::CLONE_STRING,
+                        arg: Arg::default(),
+                    };
+                    bytecode.push(instr);
+                }
                 Instruction::Halt => {
                     let instr = Instr {
                         opcode: OpCode::Halt,
@@ -975,6 +982,7 @@ impl Display for AsmProgram {
                 }
 
                 // === Misc ===
+                OpCode::CLONE_STRING => "CLONE_STRING".to_string(),
                 OpCode::NoOp => "NOOP".to_string(),
                 OpCode::Halt => "HALT".to_string(),
             };

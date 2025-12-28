@@ -137,6 +137,9 @@ pub enum OpCode {
     CAST_TO,
 
     // === Misc ===
+    /// Deep clone the string on top of stack
+    /// No Args: [String] -> [ClonedString]
+    CLONE_STRING,
     /// No Args
     NoOp = 254,
     /// No Args

@@ -25,7 +25,7 @@ public:
         println("Running BrainFuck Interpreter...");
         let iterator: Iter<Token> = tokens.into_iter();
         while iterator.has_next() {
-            let token = iterator.next().unwrap();
+            let token = iterator.next().value();
             if token.kind == TokenKind::SHIFT_RIGHT {
                 this.pointer = this.pointer + 1u;
             } else if token.kind == TokenKind::SHIFT_LEFT {
