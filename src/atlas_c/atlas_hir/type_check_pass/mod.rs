@@ -521,7 +521,6 @@ impl<'hir> TypeChecker<'hir> {
         }
     }
     pub fn check_expr(&mut self, expr: &mut HirExpr<'hir>) -> HirResult<&'hir HirTy<'hir>> {
-        //eprintln!("Type checking expression: {}", expr.kind());
         match expr {
             HirExpr::IntegerLiteral(_) => Ok(self.arena.types().get_integer64_ty()),
             HirExpr::FloatLiteral(_) => Ok(self.arena.types().get_float64_ty()),

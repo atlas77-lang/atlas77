@@ -212,6 +212,8 @@ pub struct VarData<'hir> {
     pub uses: Vec<VarUse>,
     /// Number of active borrows
     pub borrow_count: usize,
+    /// Statement index where this variable was declared
+    pub declaration_stmt_index: usize,
 }
 
 impl<'hir> VarData<'hir> {
@@ -221,6 +223,7 @@ impl<'hir> VarData<'hir> {
         kind: VarKind,
         ty: &'hir HirTy<'hir>,
         is_copyable: bool,
+        declaration_stmt_index: usize,
     ) -> Self {
         Self {
             name,
@@ -231,6 +234,7 @@ impl<'hir> VarData<'hir> {
             is_copyable,
             uses: Vec::new(),
             borrow_count: 0,
+            declaration_stmt_index,
         }
     }
 

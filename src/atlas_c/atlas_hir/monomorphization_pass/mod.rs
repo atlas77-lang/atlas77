@@ -144,7 +144,6 @@ impl<'hir> MonomorphizationPass<'hir> {
                     inner: instance.args.clone(),
                     span: instance.span,
                 });
-                //eprintln!("Monomorphizing function instance: {}", HirTy::Generic(generic_ty.clone()));
                 self.monomorphize_function(module, generic_ty, instance.span)?;
                 instance.is_done = true;
                 is_done = false;
@@ -396,10 +395,6 @@ impl<'hir> MonomorphizationPass<'hir> {
         }
 
         let base_name = actual_type.name;
-        eprintln!(
-            "DEBUG: Monomorphizing function {} as {}",
-            base_name, mangled_name
-        );
         let template = match module.body.functions.get(base_name) {
             Some(func) => func.clone(),
             None => {
@@ -850,12 +845,10 @@ impl<'hir> MonomorphizationPass<'hir> {
                 };
                 let res = self.arena.intern(HirTy::Generic(generic_ty.clone()));
                 // An `something<T>` could be either an union or a struct, we need to check it here:
-                //eprintln!("DEBUG: Registering generic instance for {}", g.name);
                 if module.signature.structs.contains_key(g.name) {
                     self.generic_pool
                         .register_struct_instance(generic_ty, &module.signature);
                 } else if module.signature.unions.contains_key(g.name) {
-                    eprintln!("DEBUG: Registering union instance for {}", g.name);
                     self.generic_pool
                         .register_union_instance(&generic_ty, &module.signature);
                 }

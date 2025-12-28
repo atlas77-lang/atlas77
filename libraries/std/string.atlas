@@ -5,14 +5,21 @@
 import "std/vector";
 import "std/iter";
 
-// Miscellaneous functions for raw strings
-public extern str_len(s: string) -> uint64;
+/// Takes a `&const string` and returns its length as `uint64`.
+public extern str_len(s: &const string) -> uint64;
+/// Takes a `string` and returns a new `string` with leading and trailing whitespace removed.
 public extern trim(s: string) -> string;
+/// Takes a `string` and returns a new `string` converted to uppercase.
 public extern to_upper(s: string) -> string;
+/// Takes a `string` and returns a new `string` converted to lowercase.
 public extern to_lower(s: string) -> string;
-public extern split(s: string, sep: string) -> [string];
-public extern str_cmp(s1: string, s2: string) -> uint64;
-public extern to_chars(s: string) -> [char];
+/// Takes a `&string` and a `&string` separator, and returns an array of `string` split by the separator.
+public extern split(s: &string, sep: &string) -> [string];
+/// Compares two constant strings lexicographically.
+public extern str_cmp(s1: &const string, s2: &const string) -> uint64;
+/// Converts a `&const string` to an array of `char`.
+public extern to_chars(s: &const string) -> [char];
+/// Converts an array of `char` to a `string`.
 public extern from_chars(s: [char]) -> string;
 
 
@@ -23,17 +30,19 @@ public:
 
     String(s: string) {
         this.s = s;
-        this.len = str_len(s);
+        this.len = str_len(&s);
     }
 
-    ~String() {}
+    ~String() {
+        delete this.s;
+    }
 
     fun from_chars(s: [char]) -> String {
         return new String(from_chars(s));
     }
 
     /// Example: String::str_len("Hello") -> 5
-    fun str_len(s: string) -> uint64 {
+    fun str_len(s: &const string) -> uint64 {
         return str_len(s);
     }
 
@@ -147,8 +156,8 @@ public:
     fun split(this, sep: string) -> [String] {
         let s: [string] = split(this.s, sep);
         let i = 0u;
-        let res = new [String; len(s)];
-        while i < len(s) {
+        let res = new [String; len(&s)];
+        while i < len(&s) {
             res[i] = new String(s[i]);
             i = i + 1u;
         }

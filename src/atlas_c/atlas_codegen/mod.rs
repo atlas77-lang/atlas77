@@ -861,7 +861,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     None => {
                         return Err(Self::unsupported_expr_err(
                             expr,
-                            format!("Variable {} not found", i.name),
+                            format!("STUFF: Variable {} not found", i.name),
                         ));
                     }
                 };

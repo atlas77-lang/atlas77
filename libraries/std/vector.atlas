@@ -1,8 +1,8 @@
 import "std/io";
 import "std/iter";
 
-public extern len<T>(data: [T]) -> uint64;
-public extern slice<T>(data: [T], start: uint64, end: uint64) -> [T];
+public extern len<T>(data: &const [T]) -> uint64;
+public extern slice<T>(data: &const [T], start: uint64, end: uint64) -> [T];
 
 public struct Vector<T> {
 private:
@@ -12,7 +12,7 @@ public:
     capacity: uint64;
 
     Vector(data: [T]) {
-        this.length = len(data);
+        this.length = len(&data);
         this.capacity = this.length;
         this.data = data;
     }

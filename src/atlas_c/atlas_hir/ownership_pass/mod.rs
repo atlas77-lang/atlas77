@@ -118,7 +118,7 @@ impl<'hir> OwnershipPass<'hir> {
                     let is_copyable = self.is_type_copyable(param.ty);
                     self.scope_map.insert(
                         param.name,
-                        VarData::new(param.name, param.span, kind, param.ty, is_copyable),
+                        VarData::new(param.name, param.span, kind, param.ty, is_copyable, 0),
                     );
                 }
                 
@@ -145,7 +145,7 @@ impl<'hir> OwnershipPass<'hir> {
                     let is_copyable = self.is_type_copyable(param.ty);
                     self.scope_map.insert(
                         param.name,
-                        VarData::new(param.name, param.span, kind, param.ty, is_copyable),
+                        VarData::new(param.name, param.span, kind, param.ty, is_copyable, 0),
                     );
                 }
                 
@@ -169,7 +169,7 @@ impl<'hir> OwnershipPass<'hir> {
                     let is_copyable = self.is_type_copyable(param.ty);
                     self.scope_map.insert(
                         param.name,
-                        VarData::new(param.name, param.span, kind, param.ty, is_copyable),
+                        VarData::new(param.name, param.span, kind, param.ty, is_copyable, 0),
                     );
                 }
                 
@@ -201,7 +201,7 @@ impl<'hir> OwnershipPass<'hir> {
 
             self.scope_map.insert(
                 param.name,
-                VarData::new(param.name, param.span, kind, param.ty, is_copyable),
+                VarData::new(param.name, param.span, kind, param.ty, is_copyable, 0),
             );
         }
 
@@ -243,7 +243,7 @@ impl<'hir> OwnershipPass<'hir> {
 
                 self.scope_map.insert(
                     var_stmt.name,
-                    VarData::new(var_stmt.name, var_stmt.span, kind, ty, is_copyable),
+                    VarData::new(var_stmt.name, var_stmt.span, kind, ty, is_copyable, self.current_stmt_index),
                 );
             }
             HirStatement::Const(var_stmt) => {
@@ -255,7 +255,7 @@ impl<'hir> OwnershipPass<'hir> {
 
                 self.scope_map.insert(
                     var_stmt.name,
-                    VarData::new(var_stmt.name, var_stmt.span, kind, ty, is_copyable),
+                    VarData::new(var_stmt.name, var_stmt.span, kind, ty, is_copyable, self.current_stmt_index),
                 );
             }
             HirStatement::Expr(expr_stmt) => {
@@ -429,11 +429,32 @@ impl<'hir> OwnershipPass<'hir> {
         }
 
         // Phase 4: Insert destructors at end of scope
-        let delete_stmts = self.generate_scope_destructors(block.span);
-        new_statements.extend(delete_stmts);
+        // BUT: Don't add destructors if the block ends with a return (they're handled there)
+        // Also check if the block ends with an if-else where both branches return
+        let ends_with_return = new_statements.last().is_some_and(|s| Self::statement_always_returns(s));
+        if !ends_with_return {
+            let delete_stmts = self.generate_scope_destructors(block.span);
+            new_statements.extend(delete_stmts);
+        }
 
         block.statements = new_statements;
         Ok(())
+    }
+
+    /// Check if a statement always returns (either is a return, or is an if-else where both branches return)
+    fn statement_always_returns(stmt: &HirStatement) -> bool {
+        match stmt {
+            HirStatement::Return(_) => true,
+            HirStatement::IfElse(if_else) => {
+                // Check if both branches end with return
+                let then_returns = if_else.then_branch.statements.last()
+                    .is_some_and(|s| Self::statement_always_returns(s));
+                let else_returns = if_else.else_branch.as_ref()
+                    .is_some_and(|b| b.statements.last().is_some_and(|s| Self::statement_always_returns(s)));
+                then_returns && else_returns
+            }
+            _ => false,
+        }
     }
 
     /// Transform a statement, possibly generating multiple statements
@@ -489,12 +510,17 @@ impl<'hir> OwnershipPass<'hir> {
                 let transformed = self.transform_expr_for_return(&ret.value)?;
 
                 // Before returning, delete all owned variables EXCEPT the one being returned
+                // IMPORTANT: Only delete variables that were declared BEFORE this return statement
                 let returned_var_name = self.get_returned_var_name(&ret.value);
                 let mut result = Vec::new();
 
-                // Generate delete statements for all owned vars except the returned one
+                // Generate delete statements for owned vars declared before this statement
                 let owned_vars = self.scope_map.get_all_owned_vars();
                 for var in owned_vars {
+                    // Skip variables declared after this return statement
+                    if var.declaration_stmt_index > self.current_stmt_index {
+                        continue;
+                    }
                     if Some(var.name) != returned_var_name {
                         // Skip primitives (no destructor needed)
                         if var.kind == VarKind::Primitive {
@@ -723,7 +749,7 @@ impl<'hir> OwnershipPass<'hir> {
                 );
                 
                 // If ownership is being consumed (e.g., returning a field, passing to a function),
-                // we need to either COPY the field value (if copyable) or error out.
+                // we need to either COPY the field value (if copyable) or MOVE it (if not).
                 // This prevents the aliasing issue where both the struct and the returned value
                 // point to the same heap object.
                 if is_ownership_consuming {
@@ -737,20 +763,15 @@ impl<'hir> OwnershipPass<'hir> {
                             ty: field.ty,
                         }))
                     } else {
-                        // Non-copyable field being consumed - this is an error
-                        // The user should either:
-                        // 1. Make the field type copyable (implement _copy)
-                        // 2. Move the entire struct
-                        // 3. Return a reference instead
-                        let path = field.span.path;
-                        let src = utils::get_file_content(path).unwrap_or_default();
-                        Err(HirError::TryingToCopyNonCopyableType(
-                            TryingToCopyNonCopyableTypeError {
-                                span: field.span,
-                                ty: format!("{}", field.ty),
-                                src: NamedSource::new(path, src),
-                            },
-                        ))
+                        // Non-copyable field being consumed - generate a MOVE
+                        // This is safe when the containing struct is also being consumed
+                        // (like Rust's Option::unwrap)
+                        Ok(HirExpr::Move(HirMoveExpr {
+                            span: field.span,
+                            source_name: field.field.name,
+                            expr: Box::new(field_access_expr),
+                            ty: field.ty,
+                        }))
                     }
                 } else {
                     Ok(field_access_expr)
@@ -766,7 +787,7 @@ impl<'hir> OwnershipPass<'hir> {
                     ty: indexing.ty,
                 });
                 
-                // Same as FieldAccess: if ownership is being consumed, we need to COPY
+                // Same as FieldAccess: if ownership is being consumed, we need to COPY or MOVE
                 if is_ownership_consuming {
                     let is_copyable = self.is_type_copyable(indexing.ty);
                     if is_copyable {
@@ -777,15 +798,13 @@ impl<'hir> OwnershipPass<'hir> {
                             ty: indexing.ty,
                         }))
                     } else {
-                        let path = indexing.span.path;
-                        let src = utils::get_file_content(path).unwrap_or_default();
-                        Err(HirError::TryingToCopyNonCopyableType(
-                            TryingToCopyNonCopyableTypeError {
-                                span: indexing.span,
-                                ty: format!("{}", indexing.ty),
-                                src: NamedSource::new(path, src),
-                            },
-                        ))
+                        // Non-copyable element being consumed - generate a MOVE
+                        Ok(HirExpr::Move(HirMoveExpr {
+                            span: indexing.span,
+                            source_name: "<indexed>",
+                            expr: Box::new(indexing_expr),
+                            ty: indexing.ty,
+                        }))
                     }
                 } else {
                     Ok(indexing_expr)
@@ -844,48 +863,35 @@ impl<'hir> OwnershipPass<'hir> {
             return Ok(HirExpr::Ident(ident.clone()));
         }
 
-        // For object types: check if we can safely move (no future uses of any kind)
-        // We can only MOVE if there are no future uses (read or consuming)
+        // For copyable types: always use COPY to be safe
+        // (The "move optimization" is disabled because loop analysis isn't reliable yet)
+        if var_data.is_copyable {
+            return Ok(HirExpr::Copy(HirCopyExpr {
+                span: ident.span,
+                source_name: ident.name,
+                expr: Box::new(HirExpr::Ident(ident.clone())),
+                ty: ident.ty,
+            }));
+        }
+
+        // For non-copyable types: must MOVE
+        // Check if we can safely move (no future uses of any kind)
         let can_move = var_data.can_move_at(self.current_stmt_index);
 
-        if can_move || !var_data.is_copyable {
-            // Use MOVE
-            if !var_data.is_copyable && !can_move {
-                // Non-copyable type used multiple times - this will fail on second use
-                // We'll catch this when they try to use it again
-            }
-
-            // Mark as moved
-            self.scope_map.mark_as_moved(ident.name, ident.span);
-
-            Ok(HirExpr::Move(HirMoveExpr {
-                span: ident.span,
-                source_name: ident.name,
-                expr: Box::new(HirExpr::Ident(ident.clone())),
-                ty: ident.ty,
-            }))
-        } else {
-            // Use COPY
-            if !var_data.is_copyable {
-                // Error: trying to copy a non-copyable type
-                let path = ident.span.path;
-                let src = utils::get_file_content(path).unwrap_or_default();
-                return Err(HirError::TryingToCopyNonCopyableType(
-                    TryingToCopyNonCopyableTypeError {
-                        span: ident.span,
-                        ty: format!("{}", ident.ty),
-                        src: NamedSource::new(path, src),
-                    },
-                ));
-            }
-
-            Ok(HirExpr::Copy(HirCopyExpr {
-                span: ident.span,
-                source_name: ident.name,
-                expr: Box::new(HirExpr::Ident(ident.clone())),
-                ty: ident.ty,
-            }))
+        if !can_move {
+            // Non-copyable type used multiple times - this will fail on second use
+            // We'll catch this when they try to use it again
         }
+
+        // Mark as moved
+        self.scope_map.mark_as_moved(ident.name, ident.span);
+
+        Ok(HirExpr::Move(HirMoveExpr {
+            span: ident.span,
+            source_name: ident.name,
+            expr: Box::new(HirExpr::Ident(ident.clone())),
+            ty: ident.ty,
+        }))
     }
 
     /// Transform an expression for return context (always moves)
@@ -930,6 +936,16 @@ impl<'hir> OwnershipPass<'hir> {
                 } else {
                     Ok(expr.clone())
                 }
+            }
+            // Unary expressions (e.g., negation, None-wrapping) - recurse into inner
+            HirExpr::Unary(unary) => {
+                let transformed_inner = self.transform_expr_for_return(&unary.expr)?;
+                Ok(HirExpr::Unary(crate::atlas_c::atlas_hir::expr::UnaryOpExpr {
+                    span: unary.span,
+                    op: unary.op.clone(),
+                    expr: Box::new(transformed_inner),
+                    ty: unary.ty,
+                }))
             }
             // For complex expressions, transform recursively
             _ => self.transform_expr_ownership(expr, true),
@@ -1014,6 +1030,7 @@ impl<'hir> OwnershipPass<'hir> {
             HirExpr::Ident(ident) => Some(ident.name),
             HirExpr::Move(mv) => self.get_returned_var_name(&mv.expr),
             HirExpr::Copy(cp) => self.get_returned_var_name(&cp.expr),
+            HirExpr::Unary(unary) => self.get_returned_var_name(&unary.expr),
             _ => None,
         }
     }
