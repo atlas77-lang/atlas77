@@ -52,6 +52,8 @@ declare_error_type! {
         TypeDoesNotImplementRequiredConstraint(TypeDoesNotImplementRequiredConstraintError),
         InvalidSpecialMethodSignature(InvalidSpecialMethodSignatureError),
         ReturningReferenceToLocalVariable(ReturningReferenceToLocalVariableError),
+        TryingToCopyNonCopyableType(TryingToCopyNonCopyableTypeError),
+        DoubleMoveError(DoubleMoveError),
     }
 }
 
@@ -690,6 +692,35 @@ pub struct TypeMismatchActual {
     pub actual_ty: String,
     #[label = "found {actual_ty}"]
     pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::trying_to_copy_non_copyable_type),
+    help("type `{ty}` does not implement a copy constructor (`_copy` method). Consider moving the value instead, or implement a `_copy` method for the type.")
+)]
+#[error("cannot copy value of type `{ty}` because it does not implement a copy constructor")]
+pub struct TryingToCopyNonCopyableTypeError {
+    #[label = "trying to copy this value"]
+    pub span: Span,
+    pub ty: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::double_move),
+    help("a value can only be moved once. Consider cloning the value before the first move if you need to use it multiple times.")
+)]
+#[error("value has already been moved")]
+pub struct DoubleMoveError {
+    #[label = "value was first moved here"]
+    pub first_move_span: Span,
+    #[label = "trying to move again here"]
+    pub second_move_span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }

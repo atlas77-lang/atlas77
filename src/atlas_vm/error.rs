@@ -19,6 +19,7 @@ pub enum RuntimeError {
     InvalidConstantPoolPointer(usize),
     HaltEncountered,
     OutOfBoundProgram(usize),
+    InvalidObjectAccess(VMTag),
 }
 
 impl std::fmt::Display for RuntimeError {
@@ -46,6 +47,7 @@ impl std::fmt::Display for RuntimeError {
             InvalidConstantPoolPointer(ptr) => {
                 writeln!(f, "Invalid constant pool pointer: {}", ptr)
             }
+            InvalidObjectAccess(tag) => writeln!(f, "Invalid object access: {}", tag),
             HaltEncountered => writeln!(f, "Halt instruction encountered"),
             OutOfBoundProgram(pos) => writeln!(f, "Program counter out of bounds: {}", pos),
         }

@@ -1113,6 +1113,39 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 //Free the object memory
                 bytecode.push(Instruction::DeleteObj);
             }
+            // Move expressions: ownership transfer, just generate the inner expression
+            // The ownership semantics are handled by the ownership pass
+            HirExpr::Move(move_expr) => {
+                self.generate_bytecode_expr(&move_expr.expr, bytecode)?;
+            }
+            // Copy expressions: for primitives, just generate the inner expression (bitwise copy)
+            // For objects with _copy method, call the copy constructor
+            HirExpr::Copy(copy_expr) => {
+                // Check if this is an object type that needs copy constructor call
+                match copy_expr.ty {
+                    HirTy::Named(named) => {
+                        // Call the _copy method
+                        self.generate_bytecode_expr(&copy_expr.expr, bytecode)?;
+                        bytecode.push(Instruction::Call {
+                            func_name: format!("{}._copy", named.name),
+                            nb_args: 1,
+                        });
+                    }
+                    HirTy::Generic(g) => {
+                        // Call the _copy method on the mangled generic name
+                        self.generate_bytecode_expr(&copy_expr.expr, bytecode)?;
+                        bytecode.push(Instruction::Call {
+                            func_name: format!("{}._copy", g.name),
+                            nb_args: 1,
+                        });
+                    }
+                    // For primitives, strings, and other types, just evaluate the expression
+                    // (bitwise copy is implicit)
+                    _ => {
+                        self.generate_bytecode_expr(&copy_expr.expr, bytecode)?;
+                    }
+                }
+            }
         }
         Ok(())
     }

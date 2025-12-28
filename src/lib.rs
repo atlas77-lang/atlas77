@@ -16,6 +16,7 @@ use atlas_c::{
     atlas_frontend::{parse, parser::arena::AstArena},
     atlas_hir::{
         arena::HirArena, monomorphization_pass::MonomorphizationPass,
+        ownership_pass::OwnershipPass,
         syntax_lowering_pass::AstSyntaxLoweringPass, type_check_pass::TypeChecker,
     },
 };
@@ -71,11 +72,11 @@ pub fn build(path: String, flag: CompilationFlag, using_std: bool) -> miette::Re
     let mut hir = monomorphizer.monomorphize(hir)?;
     //type-check
     let mut type_checker = TypeChecker::new(&hir_arena);
-    hir = type_checker.check(hir)?;
+    let mut hir = type_checker.check(hir)?;
 
-    //Lifetime analysis pass
-    //let mut lifetime = LifeTimePass::new(hir.signature.clone(), &hir_arena);
-    //hir = lifetime.run(hir)?;
+    // Ownership analysis pass (MOVE/COPY semantics and destructor insertion)
+    let mut ownership_pass = OwnershipPass::new(hir.signature.clone(), &hir_arena);
+    let mut hir = ownership_pass.run(hir)?;
 
     //Dead code elimination (only in release mode)
     if flag == CompilationFlag::Release {

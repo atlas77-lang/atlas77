@@ -1483,6 +1483,18 @@ impl<'hir> TypeChecker<'hir> {
                     ))
                 }
             }
+            // Move expressions: type-check the inner expression
+            HirExpr::Move(move_expr) => {
+                let ty = self.check_expr(&mut move_expr.expr)?;
+                move_expr.ty = ty;
+                Ok(ty)
+            }
+            // Copy expressions: type-check the inner expression
+            HirExpr::Copy(copy_expr) => {
+                let ty = self.check_expr(&mut copy_expr.expr)?;
+                copy_expr.ty = ty;
+                Ok(ty)
+            }
         }
     }
 

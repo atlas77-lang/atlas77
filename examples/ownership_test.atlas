@@ -1,0 +1,155 @@
+// ============================================================================
+// OWNERSHIP/MOVE/COPY SEMANTICS TEST FILE
+// ============================================================================
+// Simplified tests for ownership semantics
+
+import "std/io";
+
+// ============================================================================
+// Copyable struct (has _copy method)
+// ============================================================================
+struct Copyable {
+public:
+    value: int64;
+
+    Copyable(value: int64) {
+        this.value = value;
+        println("Copyable created");
+    }
+
+    ~Copyable() {
+        println("Copyable destroyed");
+    }
+
+    // This makes the struct copyable!
+    fun _copy(&const this) -> Copyable {
+        println("Copyable._copy called");
+        let result = new Copyable(this.value);
+        return result;
+    }
+
+    fun get_value(&const this) -> int64 {
+        return this.value;
+    }
+}
+
+// ============================================================================
+// TEST 1: Primitive types are always copied
+// ============================================================================
+fun test_primitives() {
+    println("=== TEST 1: Primitives (always copy) ===");
+    
+    let a: int64 = 42;
+    let b: int64 = a;    // Copy (primitives are always copied)
+    let c: int64 = a;    // Copy again - a is still valid
+    
+    println(a);  // Should print 42
+    println(b);  // Should print 42
+    println(c);  // Should print 42
+    
+    println("Primitives test passed!");
+}
+
+// ============================================================================
+// TEST 2: Copyable struct - simple creation and destruction
+// ============================================================================
+fun test_simple_object() {
+    println("=== TEST 2: Simple object creation ===");
+    
+    let obj = new Copyable(100);
+    println(obj.get_value());
+    
+    println("Simple object test passed!");
+}
+// Destructor should be called here for obj
+
+// ============================================================================
+// TEST 3: Copyable struct - multiple uses (should copy)
+// ============================================================================
+fun test_copyable_multiple_uses() {
+    println("=== TEST 3: Copyable multiple uses ===");
+    
+    let original = new Copyable(200);
+    
+    // First use - should COPY (not last use)
+    let copy1 = original;
+    println(copy1.get_value());  // 200
+    
+    // Second use - should be last use, could MOVE
+    let copy2 = original;
+    println(copy2.get_value());  // 200
+    
+    println("Copyable multiple uses test passed!");
+}
+
+// ============================================================================
+// TEST 4: Function parameters - pass by value
+// ============================================================================
+fun consume_copyable(c: Copyable) {
+    println("Inside consume_copyable");
+    println(c.get_value());
+}
+
+fun test_function_params() {
+    println("=== TEST 4: Function params ===");
+    
+    let obj = new Copyable(300);
+    
+    // Passing to function - should COPY since we use obj again
+    consume_copyable(obj);
+    
+    // obj is still valid
+    println(obj.get_value());  // 300
+    
+    println("Function params test passed!");
+}
+
+// ============================================================================
+// TEST 5: References are borrowed (never owned) - DISABLED due to VM bug
+// ============================================================================
+fun borrow_value(ref: &const Copyable) {
+    println("Borrowing value:");
+    println(ref.get_value());
+}
+
+fun test_references() {
+    println("=== TEST 5: References (borrowed) ===");
+    
+    let obj = new Copyable(400);
+    
+    // Taking a reference does NOT transfer ownership
+    borrow_value(&obj);
+    borrow_value(&obj);
+    
+    // Original is still valid and owned
+    println(obj.get_value());  // 400
+    
+    println("References test passed!");
+}
+
+// ============================================================================
+// MAIN - Run all tests
+// ============================================================================
+fun main() {
+    println("Starting Ownership Semantics Tests");
+    println("===================================");
+    println("");
+    
+    test_primitives();
+    println("");
+    
+    test_simple_object();
+    println("");
+    
+    test_copyable_multiple_uses();
+    println("");
+    
+    test_function_params();
+    println("");
+    
+    test_references();  // Disabled due to VM reference bug
+    println("");
+    
+    println("===================================");
+    println("All Ownership Tests Completed!");
+}

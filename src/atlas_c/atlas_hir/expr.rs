@@ -26,6 +26,12 @@ pub enum HirExpr<'hir> {
     FieldAccess(HirFieldAccessExpr<'hir>),
     Indexing(HirIndexingExpr<'hir>),
     StaticAccess(HirStaticAccessExpr<'hir>),
+    /// Move semantics: transfers ownership from the source variable.
+    /// The source variable becomes invalid after this operation.
+    Move(HirMoveExpr<'hir>),
+    /// Copy semantics: creates a new owned copy via copy constructor.
+    /// The source variable remains valid after this operation.
+    Copy(HirCopyExpr<'hir>),
 }
 
 pub fn is_self_access(field_access_expr: &HirFieldAccessExpr) -> bool {
@@ -57,6 +63,8 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::FieldAccess(expr) => expr.span,
             HirExpr::Indexing(expr) => expr.span,
             HirExpr::StaticAccess(expr) => expr.span,
+            HirExpr::Move(expr) => expr.span,
+            HirExpr::Copy(expr) => expr.span,
         }
     }
 
@@ -84,6 +92,8 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::FieldAccess(_) => "Field Access Expression",
             HirExpr::Indexing(_) => "Indexing Expression",
             HirExpr::StaticAccess(_) => "Static Access Expression",
+            HirExpr::Move(_) => "Move Expression",
+            HirExpr::Copy(_) => "Copy Expression",
         }
     }
 
@@ -111,6 +121,8 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::FieldAccess(expr) => expr.ty,
             HirExpr::Indexing(expr) => expr.ty,
             HirExpr::StaticAccess(expr) => expr.ty,
+            HirExpr::Move(expr) => expr.ty,
+            HirExpr::Copy(expr) => expr.ty,
         }
     }
 }
@@ -314,5 +326,38 @@ pub struct HirIntegerLiteralExpr<'hir> {
 pub struct HirIdentExpr<'hir> {
     pub name: &'hir str,
     pub span: Span,
+    pub ty: &'hir HirTy<'hir>,
+}
+
+/// Move expression: transfers ownership from the source.
+/// After a move, the source variable is no longer valid.
+/// 
+/// This is inserted by the ownership pass when:
+/// - A non-copyable type is used in an ownership-consuming context
+/// - A copyable type is used for the last time (optimization from copy)
+#[derive(Debug, Clone)]
+pub struct HirMoveExpr<'hir> {
+    pub span: Span,
+    /// The source variable name being moved from
+    pub source_name: &'hir str,
+    /// The expression being moved (usually an identifier)
+    pub expr: Box<HirExpr<'hir>>,
+    /// The type of the value being moved
+    pub ty: &'hir HirTy<'hir>,
+}
+
+/// Copy expression: creates a new owned copy via copy constructor.
+/// The source variable remains valid after this operation.
+/// 
+/// For primitive types, this is a bitwise copy.
+/// For structs with a `_copy` method, this calls the copy constructor.
+#[derive(Debug, Clone)]
+pub struct HirCopyExpr<'hir> {
+    pub span: Span,
+    /// The source variable name being copied from
+    pub source_name: &'hir str,
+    /// The expression being copied (usually an identifier)
+    pub expr: Box<HirExpr<'hir>>,
+    /// The type of the value being copied
     pub ty: &'hir HirTy<'hir>,
 }

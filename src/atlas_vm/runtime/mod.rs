@@ -558,7 +558,35 @@ impl<'run> AtlasRuntime<'run> {
             }
             OpCode::GET_FIELD => {
                 let field_idx = instr.arg.as_u24() as usize;
-                let obj_ptr = self.stack.pop()?.as_object();
+                let stack_top = self.stack.pop()?;
+                let obj_ptr = match stack_top {
+                    VMData {
+                        tag: VMTag::Object | VMTag::List | VMTag::String,
+                        ..
+                    } => {
+                        stack_top.as_object()
+                    }
+                    VMData {
+                        tag: VMTag::Ref,
+                        ..
+                    } => {
+                        let ref_ptr = stack_top.as_ref();
+                        // Safety: The pointer should be valid as long as the referenced variable
+                        // is still in scope. The type system should ensure this.
+                        let deref_data = unsafe { *ref_ptr };
+                        if !deref_data.is_object() {
+                            return Err(RuntimeError::InvalidObjectAccess(
+                                deref_data.tag,
+                            ));
+                        }
+                        deref_data.as_object()
+                    }
+                    _ => {
+                        return Err(RuntimeError::InvalidObjectAccess(
+                            stack_top.tag,
+                        ));
+                    }
+                };
                 let raw_obj = self.heap.get(obj_ptr)?;
                 let structure = raw_obj.structure();
                 let field_value = structure.fields.ptr[field_idx];
