@@ -47,6 +47,7 @@ use crate::atlas_c::{
         arena::HirArena,
         error::{
             HirError, HirResult, TryingToAccessAMovedValueError,
+            CannotTransferOwnershipInBorrowingMethodError,
         },
         expr::{HirCopyExpr, HirDeleteExpr, HirExpr, HirIdentExpr, HirMoveExpr},
         item::HirFunction,
@@ -73,6 +74,24 @@ pub struct OwnershipPass<'hir> {
     hir_arena: &'hir HirArena<'hir>,
     /// Current statement index (for use tracking)
     current_stmt_index: usize,
+    /// Current method modifier (None if not in a method, or the modifier if in a method)
+    /// Used to detect ownership transfer in borrowing methods
+    current_method_context: Option<MethodContext<'hir>>,
+}
+
+/// Context for the current method being analyzed
+#[derive(Clone)]
+struct MethodContext<'hir> {
+    /// The method modifier (&this, &const this, this, or Static)
+    modifier: HirStructMethodModifier,
+    /// Span of the method signature (for error reporting)
+    method_span: Span,
+    /// The name of the struct this method belongs to (for checking if struct is copyable)
+    struct_name: &'hir str,
+    /// Whether the struct has type parameters (is generic)
+    /// For generic structs, we skip some ownership checks for field accesses
+    /// because the concrete types are unknown at definition time
+    is_generic_struct: bool,
 }
 
 impl<'hir> OwnershipPass<'hir> {
@@ -86,6 +105,7 @@ impl<'hir> OwnershipPass<'hir> {
             hir_signature,
             hir_arena,
             current_stmt_index: 0,
+            current_method_context: None,
         }
     }
 
@@ -107,10 +127,27 @@ impl<'hir> OwnershipPass<'hir> {
         
         // Process struct methods and constructors
         for struct_def in hir.body.structs.values_mut() {
+            // Check if this is a generic struct (has type parameters) or a monomorphized
+            // version of a generic struct. Monomorphized structs have mangled names like:
+            // "__atlas77__struct__Pair__int64_string" or contain '<' like in optional types
+            // If so, skip field ownership checks because we can't reliably determine
+            // if the concrete type parameter is copyable at definition time
+            let is_generic_struct = !struct_def.signature.generics.is_empty()
+                || struct_def.signature.name.starts_with("__atlas77__struct__")
+                || struct_def.signature.name.contains('<');
+            
             // Process methods
             for method in struct_def.methods.iter_mut() {
                 self.scope_map = ScopeMap::new();
                 self.current_stmt_index = 0;
+                
+                // Set method context for ownership checking
+                self.current_method_context = Some(MethodContext {
+                    modifier: method.signature.modifier.clone(),
+                    method_span: method.signature.span,
+                    struct_name: struct_def.signature.name,
+                    is_generic_struct,
+                });
                 
                 // Register method parameters including 'this'
                 for param in method.signature.params.iter() {
@@ -125,6 +162,7 @@ impl<'hir> OwnershipPass<'hir> {
                 // First pass: collect uses
                 if let Err(e) = self.collect_uses_in_block(&method.body) {
                     self.errors.push(e);
+                    self.current_method_context = None;
                     continue;
                 }
                 
@@ -133,6 +171,8 @@ impl<'hir> OwnershipPass<'hir> {
                 if let Err(e) = self.transform_block(&mut method.body) {
                     self.errors.push(e);
                 }
+                
+                self.current_method_context = None;
             }
             
             // Process constructor
@@ -302,6 +342,13 @@ impl<'hir> OwnershipPass<'hir> {
         expr: &HirExpr<'hir>,
         is_ownership_consuming: bool,
     ) -> HirResult<()> {
+        // Check for ownership transfer in borrowing methods
+        if is_ownership_consuming {
+            if let Some(err) = self.check_ownership_transfer_in_borrowing_method(expr, expr.span()) {
+                return Err(err);
+            }
+        }
+        
         match expr {
             HirExpr::Ident(ident) => {
                 let use_kind = if is_ownership_consuming {
@@ -1258,6 +1305,106 @@ impl<'hir> OwnershipPass<'hir> {
             // Other types are not copyable
             _ => false,
         }
+    }
+
+    /// Check if a type is a type parameter (uninstantiated generic like T, K, V)
+    /// 
+    /// Type parameters are represented as HirTy::Named where the name is not a known struct.
+    /// We skip ownership checks for these because the actual type is unknown at generic
+    /// definition time - the check will happen at instantiation when concrete types are used.
+    fn is_type_parameter(&self, ty: &HirTy<'hir>) -> bool {
+        match ty {
+            HirTy::Named(named) => {
+                // If the name is not a known struct, it's likely a type parameter
+                !self.hir_signature.structs.contains_key(named.name)
+            }
+            _ => false,
+        }
+    }
+
+    /// Check if we're in a borrowing method (`&this` or `&const this`) and trying to
+    /// transfer ownership of `this` or a non-copyable field of `this`.
+    /// 
+    /// This catches errors like:
+    /// ```atlas
+    /// fun into_iter(&this) -> Iter<T> {  // ERROR: &this means we don't own this
+    ///     return new Iter<T>(this);       // but we're trying to give it away
+    /// }
+    /// ```
+    fn check_ownership_transfer_in_borrowing_method(
+        &self,
+        expr: &HirExpr<'hir>,
+        expr_span: Span,
+    ) -> Option<HirError> {
+        // Only check if we're in a borrowing method
+        let ctx = self.current_method_context.as_ref()?;
+        
+        // Only &this (Mutable) and &const this (Const) are borrowing methods
+        // `this` (None) owns and can transfer, Static has no `this`
+        if !matches!(ctx.modifier, HirStructMethodModifier::Mutable | HirStructMethodModifier::Const) {
+            return None;
+        }
+        
+        // Check if the expression is `this` or `this.field`
+        let (value_name, is_this_related) = match expr {
+            HirExpr::ThisLiteral(_) => {
+                // Check if the struct type is copyable by looking it up in hir_signature
+                if self.hir_signature.structs.get(ctx.struct_name)
+                    .is_some_and(|s| s.methods.contains_key("_copy")) 
+                {
+                    return None;
+                }
+                ("this".to_string(), true)
+            }
+            HirExpr::FieldAccess(fa) => {
+                // Check if target is `this`
+                if matches!(fa.target.as_ref(), HirExpr::ThisLiteral(_)) {
+                    // For generic structs, skip check for field accesses
+                    // The concrete types are unknown at definition time, and the check
+                    // will happen on the monomorphized version with concrete types
+                    if ctx.is_generic_struct {
+                        return None;
+                    }
+                    
+                    // Check if the field type is copyable or is a type parameter
+                    let field_ty = fa.ty;
+                    
+                    // Skip check for type parameters (uninstantiated generics like T, K, V)
+                    // These are represented as HirTy::Named with a single-letter name typically
+                    // The check will happen at instantiation time when the concrete type is known
+                    if self.is_type_parameter(field_ty) {
+                        return None;
+                    }
+                    
+                    if !self.is_type_copyable(field_ty) {
+                        (format!("this.{}", fa.field.name), true)
+                    } else {
+                        // Field is copyable, no problem
+                        return None;
+                    }
+                } else {
+                    return None;
+                }
+            }
+            HirExpr::Ident(ident) if ident.name == "this" => ("this".to_string(), true),
+            _ => return None,
+        };
+
+        if !is_this_related {
+            return None;
+        }
+
+        // We're in a borrowing method and trying to transfer ownership of this or this.field
+        let path = ctx.method_span.path;
+        let src = utils::get_file_content(path).unwrap_or_default();
+        Some(HirError::CannotTransferOwnershipInBorrowingMethod(
+            CannotTransferOwnershipInBorrowingMethodError {
+                method_span: ctx.method_span,
+                transfer_span: expr_span,
+                value_name,
+                src: NamedSource::new(path, src),
+            }
+        ))
     }
 }
 

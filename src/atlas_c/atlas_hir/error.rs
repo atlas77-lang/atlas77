@@ -57,6 +57,7 @@ declare_error_type! {
         UnknownIdentifier(UnknownIdentifierError),
         UnknownField(UnknownFieldError),
         UnknownMethod(UnknownMethodError),
+        CannotTransferOwnershipInBorrowingMethod(CannotTransferOwnershipInBorrowingMethodError),
     }
 }
 
@@ -768,6 +769,22 @@ pub struct UnknownMethodError {
     pub ty_name: String,
     #[label = "method not found"]
     pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::cannot_transfer_ownership_in_borrowing_method),
+    help("change the method to use `this` instead of `&this` if it needs to transfer ownership, or copy the value if the type is copyable")
+)]
+#[error("cannot transfer ownership of `{value_name}` in a borrowing method")]
+pub struct CannotTransferOwnershipInBorrowingMethodError {
+    #[label = "this method borrows `this` (uses `&this`), it does not own it"]
+    pub method_span: Span,
+    #[label = "trying to transfer ownership here"]
+    pub transfer_span: Span,
+    pub value_name: String,
     #[source_code]
     pub src: NamedSource<String>,
 }

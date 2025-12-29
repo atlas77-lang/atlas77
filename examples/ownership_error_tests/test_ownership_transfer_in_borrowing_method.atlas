@@ -1,0 +1,49 @@
+// Test: Cannot transfer ownership in a borrowing method
+// This should produce a compile-time error
+
+import "std/io";
+
+struct Container<T> {
+public:
+    data: T;
+
+    Container(data: T) {
+        this.data = data;
+    }
+
+    ~Container() {
+        delete this.data;
+    }
+}
+
+struct Wrapper<T> {
+public:
+    inner: Container<T>;
+
+    Wrapper(inner: Container<T>) {
+        this.inner = inner;
+    }
+
+    // ERROR: This method uses &this (borrowing) but tries to transfer ownership
+    // of `this` to a new Wrapper - this would cause a double-free!
+    fun bad_method(&this) -> Wrapper<T> {
+        // This should error: we're passing `this` to an ownership-consuming context
+        // but we don't own `this` (we're just borrowing it with &this)
+        return new Wrapper<T>(this.inner);
+    }
+
+    // This is correct: the method consumes ownership (uses `this` not `&this`)
+    fun good_consuming_method(this) -> Wrapper<T> {
+        return new Wrapper<T>(this.inner);
+    }
+}
+
+fun main() {
+    let container = new Container<int64>(42);
+    let wrapper = new Wrapper<int64>(container);
+    
+    // This would cause a double-free if allowed
+    let bad = wrapper.bad_method();
+    
+    println("Done");
+}

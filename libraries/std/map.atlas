@@ -16,7 +16,8 @@ public:
     fun get_second(&this) -> V {
         return this.value;
     }
-    fun swap(&this) -> Pair<V, K> {
+    /// Consumes this pair and returns a new pair with swapped key and value
+    fun swap(this) -> Pair<V, K> {
         return new Pair<V, K>(this.value, this.key);
     }
 }
