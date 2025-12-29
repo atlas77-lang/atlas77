@@ -567,7 +567,7 @@ impl<'hir> MonomorphizationPass<'hir> {
     ) -> HirResult<()> {
         match expr {
             HirExpr::NewObj(new_obj_expr) => {
-                if let HirTy::Generic(g) = new_obj_expr.ty {
+                if let HirTy::Generic(_g) = new_obj_expr.ty {
                     let monomorphized_ty =
                         self.swap_generic_types_in_ty(new_obj_expr.ty, types_to_change.clone());
 
@@ -584,7 +584,7 @@ impl<'hir> MonomorphizationPass<'hir> {
                 }
             }
             HirExpr::ObjLiteral(obj_lit_expr) => {
-                if let HirTy::Generic(g) = obj_lit_expr.ty {
+                if let HirTy::Generic(_g) = obj_lit_expr.ty {
                     let monomorphized_ty =
                         self.swap_generic_types_in_ty(obj_lit_expr.ty, types_to_change.clone());
 
@@ -671,7 +671,7 @@ impl<'hir> MonomorphizationPass<'hir> {
                 }
             }
             HirExpr::NewArray(new_array_expr) => {
-                if let HirTy::List(l) = new_array_expr.ty {
+                if let HirTy::List(_l) = new_array_expr.ty {
                     let ty =
                         self.swap_generic_types_in_ty(new_array_expr.ty, types_to_change.clone());
 

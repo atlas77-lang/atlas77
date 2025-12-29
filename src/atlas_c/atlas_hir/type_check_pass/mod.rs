@@ -3,7 +3,7 @@ mod context;
 use super::{
     HirFunction, HirModule, HirModuleSignature,
     arena::HirArena,
-    error::{HirError, HirResult, TypeMismatchError, UnknownTypeError},
+    error::{HirError, HirResult, TypeMismatchError, UnknownTypeError, UnknownIdentifierError, UnknownFieldError, UnknownMethodError},
     expr,
     expr::{HirBinaryOperator, HirExpr},
     stmt::HirStatement,
@@ -907,7 +907,7 @@ impl<'hir> TypeChecker<'hir> {
                     let field_signature = match union_signature.variants.get(field.name) {
                         Some(f) => f,
                         None => {
-                            return Err(Self::unknown_type_err(field.name, &field.span));
+                            return Err(Self::unknown_field_err(field.name, union_ty.name, &field.span));
                         }
                     };
                     let field_ty = self.check_expr(&mut field.value)?;
@@ -1201,8 +1201,9 @@ impl<'hir> TypeChecker<'hir> {
 
                             Ok(func_expr.ty)
                         } else {
-                            Err(Self::unknown_type_err(
+                            Err(Self::unknown_method_err(
                                 field_access.field.name,
+                                name,
                                 &field_access.span,
                             ))
                         }
@@ -1271,8 +1272,9 @@ impl<'hir> TypeChecker<'hir> {
 
                             Ok(func_expr.ty)
                         } else {
-                            Err(Self::unknown_type_err(
+                            Err(Self::unknown_method_err(
                                 static_access.field.name,
+                                name,
                                 &static_access.span,
                             ))
                         }
@@ -1360,8 +1362,9 @@ impl<'hir> TypeChecker<'hir> {
                                     return Ok(var.ty);
                                 }
                                 None => {
-                                    return Err(Self::unknown_type_err(
-                                        &format!("{}::{}", name, field_access.field.name),
+                                    return Err(Self::unknown_field_err(
+                                        field_access.field.name,
+                                        name,
                                         &field_access.span,
                                     ));
                                 }
@@ -1413,8 +1416,9 @@ impl<'hir> TypeChecker<'hir> {
                         _ => Ok(field_access.field.ty),
                     }
                 } else {
-                    Err(Self::unknown_type_err(
+                    Err(Self::unknown_field_err(
                         field_access.field.name,
+                        name,
                         &field_access.span,
                     ))
                 }
@@ -1457,8 +1461,9 @@ impl<'hir> TypeChecker<'hir> {
                                     return Ok(self.arena.types().get_uint64_ty());
                                 }
                                 None => {
-                                    return Err(Self::unknown_type_err(
-                                        &format!("{}::{}", name, static_access.field.name),
+                                    return Err(Self::unknown_field_err(
+                                        static_access.field.name,
+                                        name,
                                         &static_access.span,
                                     ));
                                 }
@@ -1476,8 +1481,9 @@ impl<'hir> TypeChecker<'hir> {
                     static_access.ty = const_signature.ty;
                     Ok(const_signature.ty)
                 } else {
-                    Err(Self::unknown_type_err(
+                    Err(Self::unknown_field_err(
                         static_access.field.name,
+                        name,
                         &static_access.span,
                     ))
                 }
@@ -1681,7 +1687,7 @@ impl<'hir> TypeChecker<'hir> {
             i.ty = ctx_var.ty;
             Ok(ctx_var)
         } else {
-            Err(Self::unknown_type_err(i.name, &i.span))
+            Err(Self::unknown_identifier_err(i.name, &i.span))
         }
     }
 
@@ -1854,6 +1860,41 @@ impl<'hir> TypeChecker<'hir> {
         let src = utils::get_file_content(path).unwrap();
         HirError::UnknownType(UnknownTypeError {
             name: name.to_string(),
+            span: *span,
+            src: NamedSource::new(path, src),
+        })
+    }
+
+    #[inline(always)]
+    fn unknown_identifier_err(name: &str, span: &Span) -> HirError {
+        let path = span.path;
+        let src = utils::get_file_content(path).unwrap();
+        HirError::UnknownIdentifier(UnknownIdentifierError {
+            name: name.to_string(),
+            span: *span,
+            src: NamedSource::new(path, src),
+        })
+    }
+
+    #[inline(always)]
+    fn unknown_field_err(field_name: &str, ty_name: &str, span: &Span) -> HirError {
+        let path = span.path;
+        let src = utils::get_file_content(path).unwrap();
+        HirError::UnknownField(UnknownFieldError {
+            field_name: field_name.to_string(),
+            ty_name: ty_name.to_string(),
+            span: *span,
+            src: NamedSource::new(path, src),
+        })
+    }
+
+    #[inline(always)]
+    fn unknown_method_err(method_name: &str, ty_name: &str, span: &Span) -> HirError {
+        let path = span.path;
+        let src = utils::get_file_content(path).unwrap();
+        HirError::UnknownMethod(UnknownMethodError {
+            method_name: method_name.to_string(),
+            ty_name: ty_name.to_string(),
             span: *span,
             src: NamedSource::new(path, src),
         })

@@ -54,6 +54,9 @@ declare_error_type! {
         ReturningReferenceToLocalVariable(ReturningReferenceToLocalVariableError),
         TryingToCopyNonCopyableType(TryingToCopyNonCopyableTypeError),
         DoubleMoveError(DoubleMoveError),
+        UnknownIdentifier(UnknownIdentifierError),
+        UnknownField(UnknownFieldError),
+        UnknownMethod(UnknownMethodError),
     }
 }
 
@@ -721,6 +724,50 @@ pub struct DoubleMoveError {
     pub first_move_span: Span,
     #[label = "trying to move again here"]
     pub second_move_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::unknown_identifier),
+    help("check the variable name for typos, or ensure it is declared before use")
+)]
+#[error("cannot find value `{name}` in this scope")]
+pub struct UnknownIdentifierError {
+    pub name: String,
+    #[label = "not found in this scope"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::unknown_field),
+    help("check the field name for typos, or ensure the struct has this field")
+)]
+#[error("no field `{field_name}` on type `{ty_name}`")]
+pub struct UnknownFieldError {
+    pub field_name: String,
+    pub ty_name: String,
+    #[label = "unknown field"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::unknown_method),
+    help("check the method name for typos, or ensure the type has this method")
+)]
+#[error("no method `{method_name}` found for type `{ty_name}`")]
+pub struct UnknownMethodError {
+    pub method_name: String,
+    pub ty_name: String,
+    #[label = "method not found"]
+    pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }
