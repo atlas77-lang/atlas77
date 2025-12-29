@@ -122,6 +122,8 @@ public:
             pairs.push(pair);
             i = i + 1u;
         }
+        // Clean up the map now that we've extracted all pairs
+        delete this;
         return new Iter<Pair<K, V>>(pairs);
     }
 }

@@ -13,7 +13,6 @@ public:
         this.index = 0u;
     }
     ~Iter() {
-        println("Deleting iterator data");
         delete this.data;
     }
     /// Returns the next item in the iterator, or None if the end is reached

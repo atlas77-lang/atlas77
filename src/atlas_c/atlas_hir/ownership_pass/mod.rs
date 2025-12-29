@@ -188,6 +188,7 @@ impl<'hir> OwnershipPass<'hir> {
                 }
                 
                 // Warn if this is a consuming method without `delete this` or ownership transfer
+                // TODO: Add a way to warn only once per method
                 if method.signature.modifier == HirStructMethodModifier::None {
                     // Don't warn if:
                     // 1. The method contains `delete this`, OR
@@ -1510,8 +1511,16 @@ impl<'hir> OwnershipPass<'hir> {
     fn expr_is_delete_this(expr: &HirExpr<'hir>) -> bool {
         match expr {
             HirExpr::Delete(delete_expr) => {
-                matches!(delete_expr.expr.as_ref(), HirExpr::ThisLiteral(_))
+                // The inner expression might be wrapped in a Unary with op=None, so unwrap it
+                let inner = match delete_expr.expr.as_ref() {
+                    HirExpr::Unary(u) if u.op.is_none() => u.expr.as_ref(),
+                    other => other,
+                };
+                matches!(inner, HirExpr::ThisLiteral(_))
             }
+            // The entire delete expression might be wrapped in a Unary with op=None
+            // (this happens because parse_unary always wraps in AstUnaryOpExpr)
+            HirExpr::Unary(u) if u.op.is_none() => Self::expr_is_delete_this(&u.expr),
             // Also check Move/Copy wrappers in case transform wrapped the delete
             HirExpr::Move(move_expr) => Self::expr_is_delete_this(&move_expr.expr),
             HirExpr::Copy(copy_expr) => Self::expr_is_delete_this(&copy_expr.expr),

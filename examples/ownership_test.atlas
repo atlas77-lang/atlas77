@@ -154,7 +154,8 @@ fun main() {
     println("=== TEST 6: Struct with Copyable field ===");
     let s = new Stuff(new Copyable(500));
     print("Stuff data value: ");
-    println(s.get_data().get_value());
+    let data = s.get_data();
+    println(data.get_value());
     println("Struct with Copyable field test passed!");
     println("");
 
@@ -168,7 +169,7 @@ public:
     Stuff(data: Copyable) {
         this.data = data;
     }
-    fun get_data(&this) -> Copyable {
+    fun get_data(this) -> Copyable {
         return this.data;
     }
 }

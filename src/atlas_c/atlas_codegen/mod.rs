@@ -784,11 +784,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         }
                     }
                     HirExpr::FieldAccess(field_access) => {
-                        //Get the Class pointer:
-                        self.generate_bytecode_expr(&field_access.target, bytecode)?;
-                        for arg in &func_expr.args {
-                            self.generate_bytecode_expr(arg, bytecode)?;
-                        }
+                        // Get the struct name first to look up method signature
                         let struct_name =
                             match self.get_class_name_of_type(field_access.target.ty()) {
                                 Some(n) => n,
@@ -799,6 +795,30 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                     ));
                                 }
                             };
+                        
+                        // Check if the method takes a reference to `this` (only Const modifier)
+                        // Note: &this (Mutable) methods do NOT take refs, they pass `this` directly
+                        // but just don't consume ownership. Only &const this (Const) takes a reference.
+                        let method_takes_ref = self.hir.signature.structs
+                            .get(struct_name)
+                            .and_then(|s| s.methods.get(field_access.field.name))
+                            //&this (mutable) methods do not take refs, only &const this methods do
+                            //&this methods are similar to passing by value, but they just don't take ownership
+                            .map(|m| matches!(m.modifier, HirStructMethodModifier::Const))
+                            .unwrap_or(false);
+                        
+                        // Generate receiver: address if method takes ref, value otherwise
+                        if method_takes_ref {
+                            // Need to pass the address of the receiver
+                            self.generate_receiver_addr(&field_access.target, bytecode)?;
+                        } else {
+                            // Pass the value (ownership transfer)
+                            self.generate_bytecode_expr(&field_access.target, bytecode)?;
+                        }
+                        
+                        for arg in &func_expr.args {
+                            self.generate_bytecode_expr(arg, bytecode)?;
+                        }
                         bytecode.push(Instruction::Call {
                             func_name: format!("{}.{}", struct_name, field_access.field.name),
                             nb_args: func_expr.args.len() as u8 + 1,
@@ -1154,18 +1174,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 match copy_expr.ty {
                     HirTy::Named(named) => {
                         // _copy takes &const this, so we need to pass a reference to the object
-                        // The source expression should be an identifier
-                        match copy_expr.expr.as_ref() {
-                            HirExpr::Ident(ident) => {
-                                let var_index = self.local_variables.get_index(ident.name).unwrap();
-                                bytecode.push(Instruction::LoadVarAddr(var_index));
-                            }
-                            _ => {
-                                // For non-identifier expressions, we can't take a reference easily
-                                // Fall back to generating the expression (may not work for all cases)
-                                self.generate_bytecode_expr(&copy_expr.expr, bytecode)?;
-                            }
-                        }
+                        self.generate_receiver_addr(&copy_expr.expr, bytecode)?;
                         bytecode.push(Instruction::Call {
                             func_name: format!("{}._copy", named.name),
                             nb_args: 1,
@@ -1173,15 +1182,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     }
                     HirTy::Generic(g) => {
                         // _copy takes &const this, so we need to pass a reference to the object
-                        match copy_expr.expr.as_ref() {
-                            HirExpr::Ident(ident) => {
-                                let var_index = self.local_variables.get_index(ident.name).unwrap();
-                                bytecode.push(Instruction::LoadVarAddr(var_index));
-                            }
-                            _ => {
-                                self.generate_bytecode_expr(&copy_expr.expr, bytecode)?;
-                            }
-                        }
+                        self.generate_receiver_addr(&copy_expr.expr, bytecode)?;
                         bytecode.push(Instruction::Call {
                             func_name: format!("{}._copy", g.name),
                             nb_args: 1,
@@ -1211,6 +1212,107 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             expr: message,
             src: NamedSource::new(path, src),
         })
+    }
+
+    /// Generates the address of a receiver expression for method calls that take &const this or &this.
+    /// This is used when the method takes a reference to `this` rather than ownership.
+    fn generate_receiver_addr(
+        &mut self,
+        target: &HirExpr<'hir>,
+        bytecode: &mut Vec<Instruction>,
+    ) -> CodegenResult<()> {
+        match target {
+            HirExpr::Ident(ident) => {
+                let var_index = match self.local_variables.get_index(ident.name) {
+                    Some(idx) => idx,
+                    None => {
+                        return Err(Self::unsupported_expr_err(
+                            target,
+                            format!("Variable {} not found", ident.name),
+                        ));
+                    }
+                };
+                // If the identifier's type is already a reference, load the value (which IS the address)
+                // Otherwise, load the address of the variable
+                if matches!(ident.ty, HirTy::MutableReference(_) | HirTy::ReadOnlyReference(_)) {
+                    bytecode.push(Instruction::LoadVar(var_index));
+                } else {
+                    bytecode.push(Instruction::LoadVarAddr(var_index));
+                }
+            }
+            HirExpr::ThisLiteral(_) => {
+                let var_index = self.local_variables.get_index(THIS_NAME).unwrap();
+                bytecode.push(Instruction::LoadVarAddr(var_index));
+            }
+            HirExpr::FieldAccess(field_access) => {
+                // First generate the target of the field access
+                self.generate_bytecode_expr(field_access.target.as_ref(), bytecode)?;
+                // If target is a reference, dereference it first to get the object pointer
+                if matches!(field_access.target.ty(), HirTy::MutableReference(_) | HirTy::ReadOnlyReference(_)) {
+                    bytecode.push(Instruction::LoadIndirect);
+                }
+                let obj_name = match self.get_class_name_of_type(field_access.target.ty()) {
+                    Some(n) => n,
+                    None => {
+                        return Err(Self::unsupported_expr_err(
+                            target,
+                            format!("Field access for: {}", field_access.target.ty()),
+                        ));
+                    }
+                };
+                if let Some(struct_descriptor) = self.struct_pool.iter().find(|s| s.name == obj_name) {
+                    let field = struct_descriptor
+                        .fields
+                        .iter()
+                        .position(|f| *f == field_access.field.name)
+                        .unwrap();
+                    bytecode.push(Instruction::GetFieldAddr { field });
+                }
+            }
+            HirExpr::Unary(u) => {
+                // If the target is already a reference (like *ptr or &x), handle that
+                if let Some(HirUnaryOp::AsRef) = &u.op {
+                    // Already taking a reference, just generate that
+                    self.generate_bytecode_expr(target, bytecode)?;
+                } else if let Some(HirUnaryOp::Deref) = &u.op {
+                    // Dereferencing a pointer - the inner expression IS the address
+                    self.generate_bytecode_expr(&u.expr, bytecode)?;
+                } else {
+                    return Err(Self::unsupported_expr_err(
+                        target,
+                        format!("Cannot take address of unary expression: {:?}", u.op),
+                    ));
+                }
+            }
+            // For function calls that return a struct/object, we need to store the result
+            // in a temporary variable first, then take the address of that variable.
+            // This is because &const this methods expect a reference (slot address), not a raw object pointer.
+            HirExpr::Call(_) | HirExpr::NewObj(_) | HirExpr::ObjLiteral(_) | HirExpr::Copy(_) => {
+                // Generate the expression (puts object pointer on stack)
+                self.generate_bytecode_expr(target, bytecode)?;
+                // Store in a temporary slot - we use a unique index to avoid collisions
+                let temp_idx = self.local_variables.insert_anonymous();
+                bytecode.push(Instruction::StoreVar(temp_idx));
+                // Push the address of that slot
+                bytecode.push(Instruction::LoadVarAddr(temp_idx));
+            }
+            // If the target is already a reference type, we can just generate its value
+            // (the value IS the address)
+            _ if matches!(target.ty(), HirTy::MutableReference(_) | HirTy::ReadOnlyReference(_)) => {
+                self.generate_bytecode_expr(target, bytecode)?;
+            }
+            // For struct types (Named, Generic), the value on stack is a heap pointer
+            _ if matches!(target.ty(), HirTy::Named(_) | HirTy::Generic(_)) => {
+                self.generate_bytecode_expr(target, bytecode)?;
+            }
+            _ => {
+                return Err(Self::unsupported_expr_err(
+                    target,
+                    format!("Cannot take address of expression for method receiver: {}", target.ty()),
+                ));
+            }
+        }
+        Ok(())
     }
 
     fn is_std(path: &str) -> bool {

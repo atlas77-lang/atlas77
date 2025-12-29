@@ -54,6 +54,18 @@ impl<T> Table<T> {
     }
 }
 
+impl<'a> Table<&'a str> {
+    /// Insert an anonymous entry that won't be looked up by name.
+    /// Uses a reserved prefix that won't conflict with user-defined names.
+    pub fn insert_anonymous(&mut self) -> usize {
+        // We just need a unique slot index. The name doesn't matter as it won't be looked up.
+        // We use a static empty string since all anonymous temps are equivalent for lookup purposes.
+        // The PartialEq check in insert() would return existing index, so we bypass it.
+        self.items.push("");
+        self.items.len() - 1
+    }
+}
+
 impl<T: fmt::Debug> fmt::Debug for Table<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Table").field("Items", &self.items).finish()
