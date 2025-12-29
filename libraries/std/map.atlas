@@ -5,6 +5,8 @@ import "std/iter";
 //There might be issues with ownership here...
 //get_first() & get_second() might only work if K and V are std::copyable
 //Maybe we should return references to K and V instead?
+// Note: Constraints removed temporarily due to constraint propagation issues
+// The _copy method requires K and V to be copyable anyway for dereferencing to work
 public struct Pair<K, V> {
 public:
     key: K;
@@ -16,6 +18,11 @@ public:
     ~Pair() {
         delete this.key;
         delete this.value;
+    }
+    /// Copy constructor - creates a deep copy of the pair
+    /// Note: K and V must be copyable types for this to work correctly
+    fun _copy(&const this) -> Pair<K, V> {
+        return new Pair<K, V>(*this.key, *this.value);
     }
     fun get_first(&this) -> K {
         return this.key;

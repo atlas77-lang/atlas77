@@ -17,7 +17,12 @@ public:
         this.data = data;
     }
     ~Vector() {
-        delete this.data;
+        // We shouldn't delete anything outside of data[..length]
+        let i: uint64 = 0u;
+        while i < this.length {
+            delete this.data[i];
+            i = i + 1u;
+        }
     }
 
     /// A function that doesn't have a "self" parameter is a static function

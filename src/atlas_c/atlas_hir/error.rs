@@ -58,6 +58,7 @@ declare_error_type! {
         UnknownField(UnknownFieldError),
         UnknownMethod(UnknownMethodError),
         CannotTransferOwnershipInBorrowingMethod(CannotTransferOwnershipInBorrowingMethodError),
+        CannotMoveOutOfContainer(CannotMoveOutOfContainerError),
     }
 }
 
@@ -785,6 +786,20 @@ pub struct CannotTransferOwnershipInBorrowingMethodError {
     #[label = "trying to transfer ownership here"]
     pub transfer_span: Span,
     pub value_name: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::cannot_move_out_of_container),
+    help("consider returning a reference (`&T` or `&const T`) instead, or implement `_copy` for this type to make it copyable")
+)]
+#[error("cannot move non-copyable type `{ty_name}` out of container")]
+pub struct CannotMoveOutOfContainerError {
+    #[label = "attempting to move `{ty_name}` out of array/container here"]
+    pub span: Span,
+    pub ty_name: String,
     #[source_code]
     pub src: NamedSource<String>,
 }

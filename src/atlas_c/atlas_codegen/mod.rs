@@ -1182,9 +1182,15 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     }
                     HirTy::Generic(g) => {
                         // _copy takes &const this, so we need to pass a reference to the object
+                        // For generic types, use the mangled name to find the monomorphized _copy method
+                        let mangled_name = MonomorphizationPass::mangle_generic_object_name(
+                            self.hir_arena,
+                            g,
+                            "struct",
+                        );
                         self.generate_receiver_addr(&copy_expr.expr, bytecode)?;
                         bytecode.push(Instruction::Call {
-                            func_name: format!("{}._copy", g.name),
+                            func_name: format!("{}._copy", mangled_name),
                             nb_args: 1,
                         });
                     }

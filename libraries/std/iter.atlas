@@ -15,7 +15,8 @@ public:
     ~Iter() {
         delete this.data;
     }
-    /// Returns the next item in the iterator, or None if the end is reached
+    /// Returns the next item in the iterator, or None if the end is reached.
+    /// Note: For non-copyable types, this will copy the element.
     fun next(&this) -> optional<T> {
         if this.index >= this.data.length {
             return optional<T>::empty();

@@ -1,0 +1,31 @@
+// Test: Compile-time error when trying to move non-copyable type out of container
+// Expected: sema::cannot_move_out_of_container error
+
+import "std/vector";
+
+struct NonCopyable {
+public:
+    value: int64;
+
+    NonCopyable(v: int64) {
+        this.value = v;
+    }
+
+    ~NonCopyable() {
+        // destructor
+    }
+    // Note: No _copy method, so this type is NOT copyable
+}
+
+fun main() {
+    let vec = new Vector<NonCopyable>(new [NonCopyable; 0]);
+    vec.push(new NonCopyable(42));
+    
+    // This should cause a compile-time error:
+    // Attempting to use Vector.get() which returns the element by value
+    // Since NonCopyable doesn't have _copy, this would move the element
+    // out of the container, which is unsafe.
+    let item = vec.get(0u);  // ERROR: cannot move non-copyable out of container
+    
+    println(item.value);
+}

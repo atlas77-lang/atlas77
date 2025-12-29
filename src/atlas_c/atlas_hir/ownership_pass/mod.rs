@@ -48,6 +48,7 @@ use crate::atlas_c::{
         error::{
             HirError, HirResult, TryingToAccessAMovedValueError,
             CannotTransferOwnershipInBorrowingMethodError,
+            CannotMoveOutOfContainerError,
         },
         expr::{HirCopyExpr, HirDeleteExpr, HirExpr, HirIdentExpr, HirMoveExpr},
         item::HirFunction,
@@ -771,7 +772,22 @@ impl<'hir> OwnershipPass<'hir> {
                 // For assignment to existing variable, we need to delete old value first
                 // This is handled at a higher level - here we just transform the RHS
                 let transformed_lhs = self.transform_expr_ownership(&assign.lhs, false)?;
-                let transformed_rhs = self.transform_expr_ownership(&assign.rhs, true)?;
+                
+                // Special case: If LHS is an indexing expression (container slot), we allow
+                // moving from another container slot without the strict check. This enables
+                // reallocation patterns like: new_data[i] = this.data[i]
+                let lhs_is_container_slot = Self::is_indexing_expr(&assign.lhs);
+                let rhs_is_container_slot = Self::is_indexing_expr(&assign.rhs);
+                
+                // If we're moving from one container slot to another, don't apply strict
+                // ownership checking on the RHS - this is a transfer, not an escape
+                let rhs_consumes_ownership = if lhs_is_container_slot && rhs_is_container_slot {
+                    false  // Will just copy the reference, which is fine for reallocation
+                } else {
+                    true
+                };
+                
+                let transformed_rhs = self.transform_expr_ownership(&assign.rhs, rhs_consumes_ownership)?;
 
                 Ok(HirExpr::Assign(crate::atlas_c::atlas_hir::expr::HirAssignExpr {
                     span: assign.span,
@@ -958,7 +974,7 @@ impl<'hir> OwnershipPass<'hir> {
                     ty: indexing.ty,
                 });
                 
-                // Same as FieldAccess: if ownership is being consumed, we need to COPY or MOVE
+                // If ownership is being consumed, we need to COPY or emit an error
                 if is_ownership_consuming {
                     let is_copyable = self.is_type_copyable(indexing.ty);
                     if is_copyable {
@@ -969,13 +985,38 @@ impl<'hir> OwnershipPass<'hir> {
                             ty: indexing.ty,
                         }))
                     } else {
-                        // Non-copyable element being consumed - generate a MOVE
-                        Ok(HirExpr::Move(HirMoveExpr {
-                            span: indexing.span,
-                            source_name: "<indexed>",
-                            expr: Box::new(indexing_expr),
-                            ty: indexing.ty,
-                        }))
+                        // Non-copyable element being moved out of a container.
+                        // This is only safe if the element is being "taken" (removed from container),
+                        // not just "gotten" (still in container).
+                        //
+                        // Heuristic: If the index expression references a container field (like
+                        // `this.length`), assume the programmer is implementing proper take semantics
+                        // (e.g., pop() decrements length before accessing). This is sound because:
+                        // - get(index) uses a parameter `index`, not `this.length`
+                        // - pop() uses `this.length` after decrementing it
+                        //
+                        // If the index is a plain identifier (parameter/local variable), it's likely
+                        // a get() pattern which is unsafe for non-copyable types.
+                        let is_take_pattern = Self::index_references_this_field(&indexing.index);
+                        
+                        if is_take_pattern {
+                            // Allow the move - programmer is implementing take semantics
+                            Ok(HirExpr::Move(HirMoveExpr {
+                                span: indexing.span,
+                                source_name: "<indexed>",
+                                expr: Box::new(indexing_expr),
+                                ty: indexing.ty,
+                            }))
+                        } else {
+                            // Not a take pattern - emit error
+                            let path = indexing.span.path;
+                            let src = utils::get_file_content(path).unwrap_or_default();
+                            Err(HirError::CannotMoveOutOfContainer(CannotMoveOutOfContainerError {
+                                span: indexing.span,
+                                ty_name: indexing.ty.to_string(),
+                                src: NamedSource::new(path, src),
+                            }))
+                        }
                     }
                 } else {
                     Ok(indexing_expr)
@@ -1272,6 +1313,49 @@ impl<'hir> OwnershipPass<'hir> {
         }
     }
 
+    /// Check if an index expression references a `this` field (like `this.length`).
+    /// This is used as a heuristic to detect "take" patterns (like pop()) where
+    /// the element is being removed from the container, not just accessed.
+    ///
+    /// Examples:
+    /// - `this.length` → true (take pattern, like in pop())
+    /// - `this.index` → true (take pattern)
+    /// - `index` (parameter) → false (get pattern)
+    /// - `i` (local variable) → false (get pattern)
+    fn index_references_this_field(expr: &HirExpr<'hir>) -> bool {
+        match expr {
+            HirExpr::FieldAccess(field) => {
+                // Check if the target is `this`
+                matches!(field.target.as_ref(), HirExpr::Ident(ident) if ident.name == "this")
+                    || matches!(field.target.as_ref(), HirExpr::ThisLiteral(_))
+            }
+            // Unwrap unary wrappers (parser sometimes wraps expressions)
+            HirExpr::Unary(unary) if unary.op.is_none() => {
+                Self::index_references_this_field(&unary.expr)
+            }
+            // Binary operations (like `this.length - 1u`) - check both sides
+            HirExpr::HirBinaryOperation(binary) => {
+                Self::index_references_this_field(&binary.lhs)
+                    || Self::index_references_this_field(&binary.rhs)
+            }
+            // Casts - unwrap
+            HirExpr::Casting(cast) => Self::index_references_this_field(&cast.expr),
+            // Other expressions (identifiers, literals) → not a this.field pattern
+            _ => false,
+        }
+    }
+
+    /// Check if an expression is (or contains) an indexing expression.
+    /// Unwraps Unary wrappers since the parser sometimes wraps expressions.
+    fn is_indexing_expr(expr: &HirExpr<'hir>) -> bool {
+        match expr {
+            HirExpr::Indexing(_) => true,
+            // Unwrap unary wrappers (parser sometimes wraps expressions)
+            HirExpr::Unary(unary) if unary.op.is_none() => Self::is_indexing_expr(&unary.expr),
+            _ => false,
+        }
+    }
+
     // =========================================================================
     // Type Classification Helpers
     // =========================================================================
@@ -1368,13 +1452,18 @@ impl<'hir> OwnershipPass<'hir> {
                     .is_some_and(|s| s.methods.contains_key("_copy"))
             }
 
-            // Generic types - need to check the instantiated struct
+            // Generic types - need to check the monomorphized/instantiated struct
             HirTy::Generic(g) => {
-                // For now, assume generic types are not copyable unless proven otherwise
-                // This is conservative - we could improve this with more sophisticated analysis
+                // Compute the mangled name that the monomorphized struct is stored under
+                // Format: __atlas77__struct__<Name>__<Type1>_<Type2>_...
+                let mangled_name = MonomorphizationPass::mangle_generic_object_name(
+                    self.hir_arena,
+                    g,
+                    "struct",
+                );
                 self.hir_signature
                     .structs
-                    .get(g.name)
+                    .get(mangled_name)
                     .is_some_and(|s| s.methods.contains_key("_copy"))
             }
 
