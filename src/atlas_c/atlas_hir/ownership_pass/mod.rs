@@ -188,7 +188,7 @@ impl<'hir> OwnershipPass<'hir> {
                 }
                 
                 // Warn if this is a consuming method without `delete this` or ownership transfer
-                if method.signature.modifier == HirStructMethodModifier::None 
+                if method.signature.modifier == HirStructMethodModifier::None {
                     // Don't warn if:
                     // 1. The method contains `delete this`, OR
                     // 2. The method returns/passes `this` or `this.field` to another function
