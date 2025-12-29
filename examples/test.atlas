@@ -32,11 +32,11 @@ public:
         this.value = val;
     }
 
-    fun get(this) -> T {
+    fun get(&this) -> T {
         return this.value;
     }
 
-    fun set(this, new_val: T) {
+    fun set(&this, new_val: T) {
         this.value = new_val;
     }
 
@@ -56,15 +56,15 @@ public:
         this.second = b;
     }
 
-    fun first_value(this) -> A {
+    fun first_value(&this) -> A {
         return this.first;
     }
 
-    fun second_value(this) -> B {
+    fun second_value(&this) -> B {
         return this.second;
     }
 
-    fun swap_tuple(this) -> GenericTuple<B, A> {
+    fun swap_tuple(&this) -> GenericTuple<B, A> {
         return new GenericTuple<B, A>(this.second, this.first);
     }
 }

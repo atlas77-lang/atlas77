@@ -20,7 +20,7 @@ public:
     }
 
     fun get_id(&const this) -> int64 {
-        return this.id;
+        return *this.id;
     }
 }
 

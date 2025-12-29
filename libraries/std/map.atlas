@@ -10,13 +10,13 @@ public:
         this.key = key;
         this.value = value;
     }
-    fun get_first(this) -> K {
+    fun get_first(&this) -> K {
         return this.key;
     }
-    fun get_second(this) -> V {
+    fun get_second(&this) -> V {
         return this.value;
     }
-    fun swap(this) -> Pair<V, K> {
+    fun swap(&this) -> Pair<V, K> {
         return new Pair<V, K>(this.value, this.key);
     }
 }
@@ -36,7 +36,7 @@ public:
     ~Map() {}
     /// Retrieves the value associated with the given key.
     /// Returns None if the key does not exist.
-    fun get(this, key: K) -> optional<V> {
+    fun get(&this, key: K) -> optional<V> {
         let i: uint64 = 0u;
         while i < this.keys.length {
             if this.keys.get(i) == key {
@@ -48,7 +48,7 @@ public:
     }
     /// Inserts a key-value pair into the map.
     /// If the key already exists, updates its value.
-    fun insert(this, key: K, value: V) {
+    fun insert(&this, key: K, value: V) {
         let i: uint64 = 0u;
         while i < this.keys.length {
             if this.keys.get(i) == key {
@@ -64,7 +64,7 @@ public:
     }
     /// Removes a key-value pair from the map by key.
     /// If the key does not exist, does nothing.
-    fun remove(this, key: K) {
+    fun remove(&this, key: K) {
         let i: uint64 = 0u;
         while i < this.keys.length {
             if this.keys.get(i) == key {
@@ -85,7 +85,7 @@ public:
         return;
     }
     /// Returns the number of key-value pairs in the map.
-    fun size(this) -> uint64 {
+    fun size(&this) -> uint64 {
         return this.keys.length;
     }
 

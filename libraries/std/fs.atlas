@@ -25,41 +25,41 @@ public:
         this.close();
     }
 
-    fun read(this) -> string {
+    fun read(&this) -> string {
         let content = read_file(this.path);
         this.content = content;
         return this.content;
     }
 
-    fun open(this) {
+    fun open(&this) {
         this.content = read_file(this.path);
         return;
     }
 
-    fun close(this) {
+    fun close(&this) {
         close_file(this.path);
         return;
     }
 
-    fun write(this, content: string) {
+    fun write(&this, content: string) {
         write_file(this.path, content);
         return;
     }
 
-    fun remove(this) {
+    fun remove(&this) {
         remove_file(this.path);
         return;
     }
 
-    fun exists(this) -> bool {
+    fun exists(&this) -> bool {
         return file_exists(this.path);
     }
 
-    fun read_dir(this, path: string) -> [string] {
+    fun read_dir(&this, path: string) -> [string] {
         return read_dir(path);
     }
 
-    fun read_file(this, path: string) -> string {
+    fun read_file(&this, path: string) -> string {
         return read_file(path);
     }
 }

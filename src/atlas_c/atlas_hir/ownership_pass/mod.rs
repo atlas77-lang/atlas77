@@ -50,7 +50,8 @@ use crate::atlas_c::{
         },
         expr::{HirCopyExpr, HirDeleteExpr, HirExpr, HirIdentExpr, HirMoveExpr},
         item::HirFunction,
-        signature::HirModuleSignature,
+        monomorphization_pass::MonomorphizationPass,
+        signature::{HirModuleSignature, HirStructMethodModifier},
         stmt::{HirBlock, HirExprStmt, HirStatement, HirVariableStmt},
         ty::HirTy,
     },
@@ -325,10 +326,29 @@ impl<'hir> OwnershipPass<'hir> {
                 self.collect_uses_in_expr(&assign.rhs, true)?;
             }
             HirExpr::Call(call) => {
-                self.collect_uses_in_expr(&call.callee, false)?;
-                for arg in call.args.iter() {
-                    // Arguments by value consume ownership
-                    self.collect_uses_in_expr(arg, true)?;
+                // Check if this is a method call that consumes `this` (modifier == None)
+                // Methods with `&this` or `&const this` don't consume ownership
+                let method_consumes_this = self.method_consumes_this(&call.callee);
+                
+                if method_consumes_this {
+                    // For method calls that consume `this`, mark the target as ownership-consuming
+                    if let HirExpr::FieldAccess(field_access) = call.callee.as_ref() {
+                        self.collect_uses_in_expr(&field_access.target, true)?;
+                    } else {
+                        self.collect_uses_in_expr(&call.callee, false)?;
+                    }
+                } else {
+                    self.collect_uses_in_expr(&call.callee, false)?;
+                }
+                
+                for (i, arg) in call.args.iter().enumerate() {
+                    // Check if the parameter type is a reference - if so, don't consume ownership
+                    let is_ref_param = call.args_ty.get(i).is_some_and(|ty| {
+                        matches!(ty, HirTy::ReadOnlyReference(_) | HirTy::MutableReference(_))
+                    });
+                    // Arguments by value consume ownership, references don't
+                    let consumes_ownership = !is_ref_param;
+                    self.collect_uses_in_expr(arg, consumes_ownership)?;
                 }
             }
             HirExpr::HirBinaryOperation(binop) => {
@@ -638,7 +658,26 @@ impl<'hir> OwnershipPass<'hir> {
                 }))
             }
             HirExpr::Call(call) => {
-                let transformed_callee = self.transform_expr_ownership(&call.callee, false)?;
+                // Check if this is a method call that consumes `this` (modifier == None)
+                let method_consumes_this = self.method_consumes_this(&call.callee);
+                
+                let transformed_callee = if method_consumes_this {
+                    // For method calls that consume `this`, transform the target as ownership-consuming
+                    if let HirExpr::FieldAccess(field_access) = call.callee.as_ref() {
+                        let transformed_target = self.transform_expr_ownership(&field_access.target, true)?;
+                        HirExpr::FieldAccess(crate::atlas_c::atlas_hir::expr::HirFieldAccessExpr {
+                            span: field_access.span,
+                            target: Box::new(transformed_target),
+                            field: field_access.field.clone(),
+                            ty: field_access.ty,
+                        })
+                    } else {
+                        self.transform_expr_ownership(&call.callee, false)?
+                    }
+                } else {
+                    self.transform_expr_ownership(&call.callee, false)?
+                };
+                
                 let mut transformed_args = Vec::new();
 
                 for (i, arg) in call.args.iter().enumerate() {
@@ -1136,8 +1175,39 @@ impl<'hir> OwnershipPass<'hir> {
         }
     }
 
-    /// Check if a type is copyable
-    ///
+    /// Check if a method call consumes `this` (takes ownership, not a reference)
+    /// 
+    /// Returns true if:
+    /// - The callee is a FieldAccess (method call on object)
+    /// - The method has modifier == None (meaning `fun foo(this)` not `fun foo(&this)` or `fun foo(&const this)`)
+    fn method_consumes_this(&self, callee: &HirExpr<'hir>) -> bool {
+        if let HirExpr::FieldAccess(field_access) = callee {
+            // Get the type of the target to find the struct
+            let target_ty = field_access.target.ty();
+            
+            // For generic types, we need to use the mangled name to look up in the signature
+            let struct_name: Option<&str> = match target_ty {
+                HirTy::Named(n) => Some(n.name),
+                HirTy::Generic(g) => {
+                    // Generic types are stored under their mangled name
+                    Some(MonomorphizationPass::mangle_generic_object_name(self.hir_arena, g, "struct"))
+                },
+                _ => None,
+            };
+            
+            if let Some(name) = struct_name {
+                if let Some(struct_sig) = self.hir_signature.structs.get(name) {
+                    if let Some(method_sig) = struct_sig.methods.get(field_access.field.name) {
+                        // Only `fun foo(this)` (modifier == None) consumes ownership
+                        // `fun foo(&this)` (Mutable) and `fun foo(&const this)` (Const) borrow
+                        return method_sig.modifier == HirStructMethodModifier::None;
+                    }
+                }
+            }
+        }
+        false
+    }
+
     /// A type is copyable if:
     /// - It's a primitive type (always implicitly copyable)
     /// - It's a reference type (just a pointer, trivially copyable)

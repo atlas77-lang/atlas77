@@ -12,9 +12,11 @@ public:
         this.data = data;
         this.index = 0u;
     }
-    ~Iter() {}
+    ~Iter() {
+        delete this.data;
+    }
     /// Returns the next item in the iterator, or None if the end is reached
-    fun next(this) -> optional<T> {
+    fun next(&this) -> optional<T> {
         if this.index >= this.data.length {
             return optional<T>::empty();
         }
@@ -23,7 +25,7 @@ public:
         return optional<T>::of(item);
     }
     /// Peeks at the next item without advancing the iterator
-    fun peek(this) -> optional<&const T> {
+    fun peek(&this) -> optional<&const T> {
         if this.index >= this.data.length {
             return optional<&const T>::empty();
         }
@@ -36,7 +38,7 @@ public:
         return new Iter<T>(vector);
     }
 
-    fun has_next(this) -> bool {
+    fun has_next(&this) -> bool {
         return this.index < this.data.length;
     }
     

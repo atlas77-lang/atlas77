@@ -26,14 +26,14 @@ public:
         return vec;
     }
 
-    fun get(this, index: uint64) -> T {
+    fun get(&this, index: uint64) -> T {
         if index >= this.length {
             panic("Index out of bounds");
         }
         return this.data[index];
     }
 
-    fun set(this, index: uint64, val: T) {
+    fun set(&this, index: uint64, val: T) {
         if index >= this.length {
             panic("Index out of bounds");
         }
@@ -42,7 +42,7 @@ public:
 
     /// A function that has a "self" parameter is a method of the struct
     /// and is called like this: "vector_instance.function_name()"
-    fun push(this, val: T) {
+    fun push(&this, val: T) {
         if this.length >= this.capacity {
             // Resize
             let new_capacity: uint64 = 0u;
@@ -64,7 +64,7 @@ public:
         this.length = this.length + 1u;
     }
     
-    fun pop(this) -> T {
+    fun pop(&this) -> T {
         if this.length == 0u {
             panic("Cannot pop from an empty vector");
         }
@@ -72,6 +72,8 @@ public:
         return this.data[this.length];
     }
 
+    /// Consumes the vector and returns an iterator over its elements.
+    /// The vector cannot be used after calling this method.
     fun into_iter(this) -> Iter<T> {
         return new Iter<T>(this);
     }

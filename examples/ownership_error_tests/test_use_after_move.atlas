@@ -20,7 +20,7 @@ public:
     }
 
     fun get_value(&const this) -> int64 {
-        return this.value;
+        return *this.value;
     }
 }
 

@@ -603,7 +603,10 @@ impl<'hir> TypeChecker<'hir> {
                         s.ty = readonly_self_ty;
                         Ok(readonly_self_ty)
                     }
-                    HirStructMethodModifier::None => {
+                    HirStructMethodModifier::Mutable | HirStructMethodModifier::None => {
+                        // Both &this (mutable reference) and this (ownership) use the same
+                        // object type inside the method body - the difference is only in
+                        // ownership semantics at the call site
                         s.ty = self_ty;
                         Ok(self_ty)
                     }

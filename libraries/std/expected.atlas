@@ -49,17 +49,17 @@ public:
         );
     }
     /// Returns true if this holds an expected value.
-    fun is_expected(this) -> bool {
+    fun is_expected(&this) -> bool {
         return this.has_expected_value;
     }
     /// Returns true if this holds an unexpected error.
-    fun is_unexpected(this) -> bool {
+    fun is_unexpected(&this) -> bool {
         return !this.has_expected_value;
     }
     /// Get the contained value, panicking if this is an unexpected error.
     ///
     /// Consider using `expected_value_or(default)` to avoid panics.
-    fun expected_value(this) -> T {
+    fun expected_value(&this) -> T {
         if (!this.has_expected_value) {
             panic("called expected_value() on an unexpected error");
         } else {
@@ -67,7 +67,7 @@ public:
         }
     }
     /// Get the contained error, panicking if this holds an expected value.
-    fun unexpected_value(this) -> E {
+    fun unexpected_value(&this) -> E {
         if (this.has_expected_value) {
             panic("called unexpected_value() on an expected value");
         } else {
@@ -75,7 +75,7 @@ public:
         }
     }
     /// Get the value if present, otherwise return `default`.
-    fun expected_value_or(this, default: T) -> T {
+    fun expected_value_or(&this, default: T) -> T {
         if (this.has_expected_value) {
             return this.data.expected_value;
         } else {

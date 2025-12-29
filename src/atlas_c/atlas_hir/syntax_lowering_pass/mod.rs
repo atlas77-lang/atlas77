@@ -554,6 +554,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             modifier: match node.modifier {
                 AstMethodModifier::Const => HirStructMethodModifier::Const,
                 AstMethodModifier::Static => HirStructMethodModifier::Static,
+                AstMethodModifier::Mutable => HirStructMethodModifier::Mutable,
                 AstMethodModifier::None => HirStructMethodModifier::None,
             },
             span: node.span,

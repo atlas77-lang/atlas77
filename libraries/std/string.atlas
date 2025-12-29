@@ -46,16 +46,16 @@ public:
         return str_len(s);
     }
 
-    fun len(this) -> uint64 {
+    fun len(&this) -> uint64 {
         return this.len;
     }
 
-    fun is_empty(this) -> bool {
+    fun is_empty(&this) -> bool {
         return this.len == 0u;
     }
     //todo: implement as_bytes
     //fun as_bytes(this) -> [uint8] {}
-    fun concat(this, other: String) -> String {
+    fun concat(&this, other: String) -> String {
         //I should really implement the <- operator for copying objects
         let self_chars = to_chars(&this.s);
         let other_chars = to_chars(&other.s);
@@ -68,7 +68,7 @@ public:
         return new String(from_chars(res));
     }
 
-    fun push(this, c: char) -> unit {
+    fun push(&this, c: char) -> unit {
         //Same... I should implement the <- operator
         let self_chars = to_chars(&this.s);
         let res = new [char; len(&self_chars) + 1u];
@@ -83,7 +83,7 @@ public:
         return;
     }
 
-    fun push_str(this, s: String) -> unit {
+    fun push_str(&this, s: String) -> unit {
         let self_chars = to_chars(&this.s);
         let s_chars = to_chars(&s.s);
         let res = new [char; len(&self_chars) + len(&s_chars)];
@@ -103,7 +103,7 @@ public:
         return;
     }
 
-    fun find(this, sub_string: String) -> uint64 {
+    fun find(&this, sub_string: String) -> uint64 {
         let res = -1;
         let i = 0u;
         let j = 0u;
@@ -124,36 +124,36 @@ public:
         return res as uint64;
     }
 
-    fun get(this, i: uint64) -> char {
+    fun get(&this, i: uint64) -> char {
         return this.s[i];
     }
 
-    fun set(this, i: uint64, c: char) -> unit {
+    fun set(&this, i: uint64, c: char) -> unit {
         this.s[i] = c;
         return;
     }
 
-    fun to_str(this) -> string {
+    fun to_str(&this) -> string {
         return this.s;
     }
 
-    fun to_chars(this) -> [char] {
+    fun to_chars(&this) -> [char] {
         return to_chars(&this.s);
     }
 
-    fun to_upper(this) -> String {
+    fun to_upper(&this) -> String {
         return new String(to_upper(this.s));
     }
 
-    fun to_lower(this) -> String {
+    fun to_lower(&this) -> String {
         return new String(to_lower(this.s));
     }
 
-    fun trim(this) -> String {
+    fun trim(&this) -> String {
         return new String(trim(this.s));
     }
 
-    fun split(this, sep: string) -> [String] {
+    fun split(&this, sep: string) -> [String] {
         let s: [string] = split(&this.s, &sep);
         let i = 0u;
         let res = new [String; len(&s)];

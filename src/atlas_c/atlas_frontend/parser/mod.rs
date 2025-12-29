@@ -522,13 +522,22 @@ impl<'ast> Parser<'ast> {
         if self.current().kind() != TokenKind::RParen {
             let obj_field = self.parse_obj_field()?;
             if let AstType::ThisTy(_) = obj_field.ty {
+                // `this` - takes ownership
                 modifier = AstMethodModifier::None;
             } else if let AstType::ReadOnlyRef(AstReadOnlyRefType {
                 inner: AstType::ThisTy(_),
                 ..
             }) = obj_field.ty
             {
+                // `&const this` - immutable reference
                 modifier = AstMethodModifier::Const;
+            } else if let AstType::MutableRef(AstMutableRefType {
+                inner: AstType::ThisTy(_),
+                ..
+            }) = obj_field.ty
+            {
+                // `&this` - mutable reference
+                modifier = AstMethodModifier::Mutable;
             } else {
                 params.push(obj_field);
             }
@@ -1616,27 +1625,52 @@ impl<'ast> Parser<'ast> {
             };
             return Ok(node);
         } else if self.current().kind == TokenKind::Ampersand {
-            //parse `&const this`
+            // Parse `&const this` or `&this`
             let start_span = self.current().span();
             self.expect(TokenKind::Ampersand)?;
-            self.expect(TokenKind::KwConst)?;
-            let end_span = self.expect(TokenKind::KwThis)?.span;
-            let name = AstIdentifier {
-                span: Span::union_span(&start_span, &end_span),
-                name: self.arena.alloc("this"),
-            };
-            let node = AstObjField {
-                vis: AstVisibility::Public,
-                span: Span::union_span(&start_span, &end_span),
-                name: self.arena.alloc(name.clone()),
-                ty: self.arena.alloc(AstType::ReadOnlyRef(AstReadOnlyRefType {
+            
+            // Check if it's `&const this` or just `&this`
+            if self.current().kind == TokenKind::KwConst {
+                // `&const this` - immutable reference
+                self.expect(TokenKind::KwConst)?;
+                let end_span = self.expect(TokenKind::KwThis)?.span;
+                let name = AstIdentifier {
                     span: Span::union_span(&start_span, &end_span),
-                    inner: self
-                        .arena
-                        .alloc(AstType::ThisTy(AstThisType { span: name.span })),
-                })),
-            };
-            return Ok(node);
+                    name: self.arena.alloc("this"),
+                };
+                let node = AstObjField {
+                    vis: AstVisibility::Public,
+                    span: Span::union_span(&start_span, &end_span),
+                    name: self.arena.alloc(name.clone()),
+                    ty: self.arena.alloc(AstType::ReadOnlyRef(AstReadOnlyRefType {
+                        span: Span::union_span(&start_span, &end_span),
+                        inner: self
+                            .arena
+                            .alloc(AstType::ThisTy(AstThisType { span: name.span })),
+                    })),
+                };
+                return Ok(node);
+            } else if self.current().kind == TokenKind::KwThis {
+                // `&this` - mutable reference
+                let end_span = self.expect(TokenKind::KwThis)?.span;
+                let name = AstIdentifier {
+                    span: Span::union_span(&start_span, &end_span),
+                    name: self.arena.alloc("this"),
+                };
+                let node = AstObjField {
+                    vis: AstVisibility::Public,
+                    span: Span::union_span(&start_span, &end_span),
+                    name: self.arena.alloc(name.clone()),
+                    ty: self.arena.alloc(AstType::MutableRef(AstMutableRefType {
+                        span: Span::union_span(&start_span, &end_span),
+                        inner: self
+                            .arena
+                            .alloc(AstType::ThisTy(AstThisType { span: name.span })),
+                    })),
+                };
+                return Ok(node);
+            }
+            // Not a this reference, fall through to parse regular field
         }
         let name = self.parse_identifier()?;
 

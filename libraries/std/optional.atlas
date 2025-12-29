@@ -71,14 +71,14 @@ public:
     ///
     /// Example:
     ///     if (opt.has_value()) { println("has value"); }
-    fun has_value(this) -> bool {
+    fun has_value(&this) -> bool {
         return this.has_value;
     }
     /// Get the contained value or panic if empty.
     ///
     /// Panics with a descriptive message when `has_value` is false.
     /// Consider using `value_or(default)` to avoid panics.
-    fun value(this) -> T {
+    fun value(&this) -> T {
         if (!this.has_value) {
             panic("Called value on a empty optional");
         } else {
@@ -90,7 +90,7 @@ public:
     /// Example:
     ///     let opt = optional<int64>::empty();
     ///     let n = opt.value_or(0);
-    fun value_or(this, default: T) -> T {
+    fun value_or(&this, default: T) -> T {
         if (this.has_value) {
             return this.data.value;
         } else {
