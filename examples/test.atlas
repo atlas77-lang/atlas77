@@ -127,9 +127,9 @@ fun main() {
     }
     let iter = vec.into_iter();
     while iter.has_next() {
-        let val = iter.next();
+        let val: optional<int64> = iter.next();
         print("Value: ");
-        println(val);
+        println(val.value());
     }
     println("");
 
@@ -149,6 +149,24 @@ fun main() {
             print(", Value: ");
             println(pair.get_second());
         }        
+    }
+
+    let vec_of_containers = Vector<Container<string>>::with_capacity(5u);
+    let j = 0;
+    while j < 5 {
+
+        let cont = new Container<string>("Container ");
+        vec_of_containers.push(cont);
+        j = j + 1;
+    }
+    let cont_iter = vec_of_containers.into_iter();
+    while cont_iter.has_next() {
+        let cont_opt = cont_iter.next();
+        if cont_opt.has_value() {
+            let cont = cont_opt.value();
+            print("Container value: ");
+            println(cont.get());
+        }
     }
 
     // Testing file system
