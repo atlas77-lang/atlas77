@@ -18,8 +18,7 @@
 <h3 align="center">Atlas77</h3>
 
   <p align="center">
-    Functional Programming language with a strong interop with Rust,
-    designed to be a functional scripting language.
+    An experimental statically typed systems programming language designed to be a goofy cousin to C++.
     <br />
     <a href="https://atlas77-lang.github.io/atlas77-docs/docs/latest/index.html"><strong>Explore the docs »</strong></a>
     <br />
@@ -36,8 +35,7 @@
 
 ## About The Project
 
-Atlas77 is an experimental **statically typed systems language** designed around a **small core** and **strong interop with Rust**.
-> Might have to remove the **strong interop with Rust** part as I am ditching the VM.
+Atlas77 is an experimental **statically typed systems language** designed around a **small core** and everything else be **userland**.
 It runs on a **custom VM** and aims to provide a clear, minimal foundation for building higher-level abstractions in
 libraries rather than in the compiler itself.
 > [!Note]

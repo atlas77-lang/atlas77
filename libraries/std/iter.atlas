@@ -1,7 +1,8 @@
 import "std/vector";
-import "std/option";
+import "std/optional";
 import "std/string";
 
+//TODO: Add Iter<T>::from_map(Map<K, V>)
 public struct Iter<T> {
 private:
     data: Vector<T>;
@@ -9,30 +10,34 @@ private:
 public:
     Iter(data: Vector<T>) {
         this.data = data;
-        this.index = 0_uint64;
+        this.index = 0u;
     }
     ~Iter() {}
     /// Returns the next item in the iterator, or None if the end is reached
-    fun next(this) -> Option<T> {
+    fun next(this) -> optional<T> {
         if this.index >= this.data.length {
-            return Option::<T>::none();
+            return optional<T>::empty();
         }
         let item = this.data.get(this.index);
-        this.index = this.index + 1_uint64;
-        return Option::<T>::some(item);
+        this.index = this.index + 1u;
+        return optional<T>::of(item);
     }
     /// Peeks at the next item without advancing the iterator
-    fun peek(this) -> Option<&const T> {
+    fun peek(this) -> optional<&const T> {
         if this.index >= this.data.length {
-            return Option::<&const T>::none();
+            return optional<&const T>::empty();
         }
         let item = this.data.get(this.index);
-        return Option::<&const T>::some(&item);
+        return optional<&const T>::of(&item);
     }
 
     fun from_array(data: [T]) -> Iter<T> {
         let vector = new Vector<T>(data);
         return new Iter<T>(vector);
+    }
+
+    fun has_next(this) -> bool {
+        return this.index < this.data.length;
     }
     
     fun from_string(data: string) -> Iter<char> {

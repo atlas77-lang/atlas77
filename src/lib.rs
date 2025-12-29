@@ -6,10 +6,7 @@ pub mod atlas_vm;
 
 use crate::{
     atlas_c::{
-        atlas_asm::AsmProgram,
-        atlas_hir::{
-            dead_code_elimination_pass::DeadCodeEliminationPass, lifetime_pass::LifeTimePass,
-        },
+        atlas_asm::AsmProgram, atlas_hir::dead_code_elimination_pass::DeadCodeEliminationPass,
     },
     atlas_vm::runtime::AtlasRuntime,
 };
@@ -77,7 +74,7 @@ pub fn build(path: String, flag: CompilationFlag, using_std: bool) -> miette::Re
     hir = type_checker.check(hir)?;
 
     //Lifetime analysis pass
-    let mut lifetime = LifeTimePass::new();
+    //let mut lifetime = LifeTimePass::new(hir.signature.clone(), &hir_arena);
     //hir = lifetime.run(hir)?;
 
     //Dead code elimination (only in release mode)

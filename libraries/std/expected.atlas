@@ -1,0 +1,85 @@
+/// Storage for `expected<T, E>`.
+///
+/// Holds either an `expected_value: T` when the computation succeeded,
+/// or an `unexpected_value: E` when it failed. Presence is tracked by
+/// `expected<T, E>::has_expected_value`.
+private union expected_storage<T, E> { 
+    expected_value: T;
+    unexpected_value: E;
+}
+
+/// A result-like type representing either a value `T` or an error `E`.
+///
+/// - Construct with `expected::expect(value)` for success or `expected::unexpected(error)` for failure.
+/// - Query with `is_expected()` / `is_unexpected()`.
+/// - Access with `expected_value()` / `unexpected_value()` or use
+///   `expected_value_or(default)`.
+public struct expected<T, E> {
+private:
+    data: expected_storage<T, E>;
+    has_expected_value: bool;
+    /// Private constructor used by `expect` and `unexpected`.
+    expected(data: expected_storage<T, E>, has_expected_value: bool) {
+        this.data = data;
+        this.has_expected_value = has_expected_value;
+    }
+public:
+    /// Construct a successful `expected` containing `data`.
+    ///
+    /// Example:
+    ///     let e = expected<int64, string>::expect(42);
+    fun expect(data: T) -> expected<T, E> {
+        return new expected<T, E>(
+            expected_storage<T, E> { 
+                .expected_value = data 
+            }, 
+            true
+        );
+    }
+    /// Construct a failing `expected` containing `error`.
+    ///
+    /// Example:
+    ///     let e = expected<int64, string>::unexpected("oops");
+    fun unexpected(error: E) -> expected<T, E> {
+        return new expected<T, E>(
+            expected_storage<T, E> { 
+                .unexpected_value = error 
+            }, 
+            false
+        );
+    }
+    /// Returns true if this holds an expected value.
+    fun is_expected(this) -> bool {
+        return this.has_expected_value;
+    }
+    /// Returns true if this holds an unexpected error.
+    fun is_unexpected(this) -> bool {
+        return !this.has_expected_value;
+    }
+    /// Get the contained value, panicking if this is an unexpected error.
+    ///
+    /// Consider using `expected_value_or(default)` to avoid panics.
+    fun expected_value(this) -> T {
+        if (!this.has_expected_value) {
+            panic("called expected_value() on an unexpected error");
+        } else {
+            return this.data.expected_value;
+        }
+    }
+    /// Get the contained error, panicking if this holds an expected value.
+    fun unexpected_value(this) -> E {
+        if (this.has_expected_value) {
+            panic("called unexpected_value() on an expected value");
+        } else {
+            return this.data.unexpected_value;
+        }
+    }
+    /// Get the value if present, otherwise return `default`.
+    fun expected_value_or(this, default: T) -> T {
+        if (this.has_expected_value) {
+            return this.data.expected_value;
+        } else {
+            return default;
+        }
+    }
+}

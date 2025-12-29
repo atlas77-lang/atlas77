@@ -1,0 +1,5 @@
+fun sort<T>(arr: [T], comparator: (T, T) -> int64) -> [T] {
+    if len(arr) <= 1 {
+        return arr
+    }
+}

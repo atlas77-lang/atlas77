@@ -91,7 +91,7 @@ pub enum LIROperand {
 }
 
 #[derive(Debug, Clone)]
-pub enum LIRTerminator {
+pub enum _LIRTerminator {
     Return {
         value: Option<LIROperand>,
     },

@@ -8,8 +8,9 @@ fun main() {
     let source = new String(
         "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++.+++++++++++++++++++++++++++++.+++++++..+++.",
     );
-    let tokens = lex(source);
-    let i: uint64 = 0_uint64;
+    let lexer = new Lexer(source);
+    let tokens = lexer.tokenize();
+    let i: uint64 = 0u;
     println("Lexed tokens:");
     println("Starting interpreter...");
     let interpreter = new BrainFuckInterpreter();

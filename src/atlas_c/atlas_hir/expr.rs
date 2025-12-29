@@ -21,6 +21,7 @@ pub enum HirExpr<'hir> {
     ListLiteral(HirListLiteralExpr<'hir>),
     NewArray(HirNewArrayExpr<'hir>),
     NewObj(HirNewObjExpr<'hir>),
+    ObjLiteral(HirObjLiteralExpr<'hir>),
     Delete(HirDeleteExpr<'hir>),
     FieldAccess(HirFieldAccessExpr<'hir>),
     Indexing(HirIndexingExpr<'hir>),
@@ -31,7 +32,7 @@ pub fn is_self_access(field_access_expr: &HirFieldAccessExpr) -> bool {
     matches!(field_access_expr.target.as_ref(), HirExpr::ThisLiteral(_))
 }
 
-impl HirExpr<'_> {
+impl<'hir> HirExpr<'hir> {
     pub(crate) fn span(&self) -> Span {
         match self {
             HirExpr::Ident(expr) => expr.span,
@@ -51,15 +52,41 @@ impl HirExpr<'_> {
             HirExpr::ListLiteral(expr) => expr.span,
             HirExpr::NewArray(expr) => expr.span,
             HirExpr::NewObj(expr) => expr.span,
+            HirExpr::ObjLiteral(expr) => expr.span,
             HirExpr::Delete(expr) => expr.span,
             HirExpr::FieldAccess(expr) => expr.span,
             HirExpr::Indexing(expr) => expr.span,
             HirExpr::StaticAccess(expr) => expr.span,
         }
     }
-}
 
-impl<'hir> HirExpr<'hir> {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            HirExpr::Ident(_) => "Identifier",
+            HirExpr::IntegerLiteral(_) => "Integer Literal",
+            HirExpr::UnsignedIntegerLiteral(_) => "Unsigned Integer Literal",
+            HirExpr::BooleanLiteral(_) => "Boolean Literal",
+            HirExpr::FloatLiteral(_) => "Float Literal",
+            HirExpr::CharLiteral(_) => "Char Literal",
+            HirExpr::UnitLiteral(_) => "Unit Literal",
+            HirExpr::ThisLiteral(_) => "This Literal",
+            HirExpr::Unary(_) => "Unary Expression",
+            HirExpr::Casting(_) => "Casting Expression",
+            HirExpr::HirBinaryOperation(_) => "Binary Operation Expression",
+            HirExpr::Call(_) => "Function Call Expression",
+            HirExpr::Assign(_) => "Assignment Expression",
+            HirExpr::StringLiteral(_) => "String Literal",
+            HirExpr::ListLiteral(_) => "List Literal",
+            HirExpr::NewArray(_) => "New Array Expression",
+            HirExpr::NewObj(_) => "New Object Expression",
+            HirExpr::ObjLiteral(_) => "Object Literal Expression",
+            HirExpr::Delete(_) => "Delete Expression",
+            HirExpr::FieldAccess(_) => "Field Access Expression",
+            HirExpr::Indexing(_) => "Indexing Expression",
+            HirExpr::StaticAccess(_) => "Static Access Expression",
+        }
+    }
+
     pub fn ty(&self) -> &'hir HirTy<'hir> {
         match self {
             HirExpr::Ident(expr) => expr.ty,
@@ -79,6 +106,7 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::ListLiteral(expr) => expr.ty,
             HirExpr::NewArray(expr) => expr.ty,
             HirExpr::NewObj(expr) => expr.ty,
+            HirExpr::ObjLiteral(expr) => expr.ty,
             HirExpr::Delete(_) => &HirTy::Unit(HirUnitTy {}),
             HirExpr::FieldAccess(expr) => expr.ty,
             HirExpr::Indexing(expr) => expr.ty,
@@ -88,9 +116,17 @@ impl<'hir> HirExpr<'hir> {
 }
 
 #[derive(Debug, Clone)]
+pub struct HirObjLiteralExpr<'hir> {
+    pub span: Span,
+    pub ty: &'hir HirTy<'hir>,
+    pub fields: Vec<HirFieldInit<'hir>>,
+}
+
+#[derive(Debug, Clone)]
 pub struct HirFieldInit<'hir> {
     pub span: Span,
-    pub name: Box<HirIdentExpr<'hir>>,
+    pub name: &'hir str,
+    pub name_span: Span,
     pub ty: &'hir HirTy<'hir>,
     pub value: Box<HirExpr<'hir>>,
 }

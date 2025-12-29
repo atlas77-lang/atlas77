@@ -1,0 +1,29 @@
+public struct HashMapEntry<K, V> {
+public:
+    key: K,
+    value: V,
+    HashMapEntry(key: K, value: V) {
+        this.key = key;
+        this.value = value;
+    }
+    fun get_key() -> K {
+        return this.key;
+    }
+    fun get_value() -> V {
+        return this.value;
+    }
+}
+
+public struct HashMapBucket<K, V> {
+public:
+    entries: [HashMapEntry<K, V>],
+    HashMapBucket() {
+        this.entries = [];
+    }
+    fun add_entry(key: K, value: V) {
+        this.entries.push(HashMapEntry<K, V>(key, value));
+    }
+    fun get_entries() -> [HashMapEntry<K, V>] {
+        return this.entries;
+    }
+}

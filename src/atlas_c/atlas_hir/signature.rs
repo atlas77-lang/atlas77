@@ -16,6 +16,7 @@ pub struct HirModuleSignature<'hir> {
     pub structs: BTreeMap<&'hir str, &'hir HirStructSignature<'hir>>,
     //No need for enum signatures for now
     pub enums: BTreeMap<&'hir str, &'hir HirEnum<'hir>>,
+    pub unions: BTreeMap<&'hir str, &'hir HirUnionSignature<'hir>>,
 }
 
 #[derive(Debug, Clone)]
@@ -28,12 +29,53 @@ pub struct HirStructSignature<'hir> {
     pub methods: BTreeMap<&'hir str, HirStructMethodSignature<'hir>>,
     pub fields: BTreeMap<&'hir str, HirStructFieldSignature<'hir>>,
     /// Generic type parameter names
-    pub generics: Vec<&'hir str>,
+    pub generics: Vec<&'hir HirGenericConstraint<'hir>>,
     /// This is enough to know if the class implement them or not
     pub operators: Vec<HirBinaryOperator>,
     pub constants: BTreeMap<&'hir str, &'hir HirStructConstantSignature<'hir>>,
     pub constructor: HirStructConstructorSignature<'hir>,
     pub destructor: HirStructConstructorSignature<'hir>,
+}
+
+#[derive(Debug, Clone)]
+pub struct HirGenericConstraint<'hir> {
+    pub span: Span,
+    pub generic_name: &'hir str,
+    // For now only `std::copyable`
+    pub kind: Vec<&'hir HirGenericConstraintKind<'hir>>,
+}
+
+#[derive(Debug, Clone)]
+pub enum HirGenericConstraintKind<'hir> {
+    // e.g. std::copyable
+    Std { name: &'hir str, span: Span },
+    // e.g. operator overloading
+    Operator { op: HirBinaryOperator, span: Span },
+    // e.g. user-defined concepts
+    Concept { name: &'hir str, span: Span },
+}
+
+impl Display for HirGenericConstraintKind<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HirGenericConstraintKind::Std { name, .. } => write!(f, "std::{}", name),
+            HirGenericConstraintKind::Operator { op, .. } => write!(f, "operator {:?}", op),
+            HirGenericConstraintKind::Concept { name, .. } => {
+                write!(f, "{}", name)
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct HirUnionSignature<'hir> {
+    pub declaration_span: Span,
+    pub vis: HirVisibility,
+    pub name: &'hir str,
+    pub name_span: Span,
+    pub variants: BTreeMap<&'hir str, HirStructFieldSignature<'hir>>,
+    /// Generic type parameter names
+    pub generics: Vec<&'hir HirGenericConstraint<'hir>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy, Default)]
@@ -168,7 +210,7 @@ pub struct HirFunctionSignature<'hir> {
     pub span: Span,
     pub vis: HirVisibility,
     pub params: Vec<HirFunctionParameterSignature<'hir>>,
-    pub generics: Option<Vec<&'hir HirTypeParameterItemSignature<'hir>>>,
+    pub generics: Vec<&'hir HirGenericConstraint<'hir>>,
     pub type_params: Vec<&'hir HirTypeParameterItemSignature<'hir>>,
     /// The user can declare a function without a return type, in which case the return type is `()`.
     pub return_ty: HirTy<'hir>,
@@ -183,7 +225,7 @@ impl Default for HirFunctionSignature<'_> {
             span: Span::default(),
             vis: HirVisibility::Public,
             params: Vec::new(),
-            generics: None,
+            generics: vec![],
             type_params: Vec::new(),
             return_ty: HirTy::Unit(HirUnitTy {}),
             return_ty_span: None,

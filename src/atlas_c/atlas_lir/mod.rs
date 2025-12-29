@@ -2,9 +2,13 @@ use crate::atlas_c::{
     atlas_hir::{HirModule, expr::HirExpr, item::HirFunction, stmt::HirStatement},
     atlas_lir::{
         error::{CurrentFunctionDoesntExistError, LIRLoweringError, LIRResult},
-        program::{LIRBlock, LIRFunction, LIRInstr, LIROperand, LIRProgram},
+        program::{LIRBlock, LIRFunction, LIRInstr, LIRProgram},
     },
 };
+
+// The LIR really needs more work...
+// I am not sure how to correctly represent everything.
+// I would guess a simple SSA form would be best for now.
 
 pub mod error;
 pub(crate) mod program;

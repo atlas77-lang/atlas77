@@ -1,0 +1,35 @@
+import "std/io";
+
+// Simple generic identity function
+fun id<T>(x: T) -> T {
+    return x;
+}
+
+import "std/optional";
+
+//Need a long generic function to test everything
+fun test<A, B>(a: A, b: B) -> optional<A> {
+    let some_a = optional<A>::of(a);
+    return some_a;
+}
+
+// Generic function that swaps two values
+fun swap<A, B>(a: A, b: B) -> B {
+    return b;
+}
+
+fun main() {
+    // Test id with int64
+    let int_val: int64 = id<int64>(42);
+    println(int_val);
+
+    // Test id with string
+    let str_val: string = id<string>("Hello, Generics!");
+    println(str_val);
+
+    // Test swap
+    let swapped: float64 = swap<int64, float64>(10, 3.14);
+    println(swapped);
+
+    //test<int64, string>(100, "Test");
+}

@@ -416,92 +416,100 @@ impl Assembler {
                         }
                     }
                 }
-                Instruction::Eq(ty) => {
-                    match ty {
-                        Type::Object | Type::String | Type::List | Type::Unit => {
-                            return Err(ASMError::UnsupportedInstruction(
-                                UnsupportedInstructionError {
-                                    details: format!(
-                                        "Equality operation not supported for this type: {:?}",
-                                        ty
-                                    ),
-                                },
-                            ));
-                        }
-                        //Integer and Char use the same equality instruction
-                        Type::Integer | Type::Char => {
-                            let instr = Instr {
-                                opcode: OpCode::INT_EQUAL,
-                                arg: Arg::default(),
-                            };
-                            bytecode.push(instr);
-                        }
-                        Type::Float => {
-                            let instr = Instr {
-                                opcode: OpCode::FLOAT_EQUAL,
-                                arg: Arg::default(),
-                            };
-                            bytecode.push(instr);
-                        }
-                        Type::UnsignedInteger => {
-                            let instr = Instr {
-                                opcode: OpCode::UINT_EQUAL,
-                                arg: Arg::default(),
-                            };
-                            bytecode.push(instr);
-                        }
-                        Type::Boolean => {
-                            let instr = Instr {
-                                opcode: OpCode::BOOL_EQUAL,
-                                arg: Arg::default(),
-                            };
-                            bytecode.push(instr);
-                        }
+                Instruction::Eq(ty) => match ty {
+                    Type::Object | Type::String | Type::List | Type::Unit => {
+                        return Err(ASMError::UnsupportedInstruction(
+                            UnsupportedInstructionError {
+                                details: format!(
+                                    "Equality operation not supported for this type: {:?}",
+                                    ty
+                                ),
+                            },
+                        ));
                     }
-                }
-                Instruction::Neq(ty) => {
-                    match ty {
-                        Type::Object | Type::String | Type::List | Type::Unit => {
-                            return Err(ASMError::UnsupportedInstruction(
-                                UnsupportedInstructionError {
-                                    details: format!(
-                                        "Inequality operation not supported for this type: {:?}",
-                                        ty
-                                    ),
-                                },
-                            ));
-                        }
-                        //Integer and Char use the same inequality instruction
-                        Type::Integer | Type::Char => {
-                            let instr = Instr {
-                                opcode: OpCode::INT_NOT_EQUAL,
-                                arg: Arg::default(),
-                            };
-                            bytecode.push(instr);
-                        }
-                        Type::Float => {
-                            let instr = Instr {
-                                opcode: OpCode::FLOAT_NOT_EQUAL,
-                                arg: Arg::default(),
-                            };
-                            bytecode.push(instr);
-                        }
-                        Type::UnsignedInteger => {
-                            let instr = Instr {
-                                opcode: OpCode::UINT_NOT_EQUAL,
-                                arg: Arg::default(),
-                            };
-                            bytecode.push(instr);
-                        }
-                        Type::Boolean => {
-                            let instr = Instr {
-                                opcode: OpCode::BOOL_NOT_EQUAL,
-                                arg: Arg::default(),
-                            };
-                            bytecode.push(instr);
-                        }
+                    Type::Integer => {
+                        let instr = Instr {
+                            opcode: OpCode::INT_EQUAL,
+                            arg: Arg::default(),
+                        };
+                        bytecode.push(instr);
                     }
-                }
+                    Type::Char => {
+                        let instr = Instr {
+                            opcode: OpCode::CHAR_EQUAL,
+                            arg: Arg::default(),
+                        };
+                        bytecode.push(instr);
+                    }
+                    Type::Float => {
+                        let instr = Instr {
+                            opcode: OpCode::FLOAT_EQUAL,
+                            arg: Arg::default(),
+                        };
+                        bytecode.push(instr);
+                    }
+                    Type::UnsignedInteger => {
+                        let instr = Instr {
+                            opcode: OpCode::UINT_EQUAL,
+                            arg: Arg::default(),
+                        };
+                        bytecode.push(instr);
+                    }
+                    Type::Boolean => {
+                        let instr = Instr {
+                            opcode: OpCode::BOOL_EQUAL,
+                            arg: Arg::default(),
+                        };
+                        bytecode.push(instr);
+                    }
+                },
+                Instruction::Neq(ty) => match ty {
+                    Type::Object | Type::String | Type::List | Type::Unit => {
+                        return Err(ASMError::UnsupportedInstruction(
+                            UnsupportedInstructionError {
+                                details: format!(
+                                    "Inequality operation not supported for this type: {:?}",
+                                    ty
+                                ),
+                            },
+                        ));
+                    }
+                    Type::Integer => {
+                        let instr = Instr {
+                            opcode: OpCode::INT_NOT_EQUAL,
+                            arg: Arg::default(),
+                        };
+                        bytecode.push(instr);
+                    }
+                    Type::Char => {
+                        let instr = Instr {
+                            opcode: OpCode::CHAR_NOT_EQUAL,
+                            arg: Arg::default(),
+                        };
+                        bytecode.push(instr);
+                    }
+                    Type::Float => {
+                        let instr = Instr {
+                            opcode: OpCode::FLOAT_NOT_EQUAL,
+                            arg: Arg::default(),
+                        };
+                        bytecode.push(instr);
+                    }
+                    Type::UnsignedInteger => {
+                        let instr = Instr {
+                            opcode: OpCode::UINT_NOT_EQUAL,
+                            arg: Arg::default(),
+                        };
+                        bytecode.push(instr);
+                    }
+                    Type::Boolean => {
+                        let instr = Instr {
+                            opcode: OpCode::BOOL_NOT_EQUAL,
+                            arg: Arg::default(),
+                        };
+                        bytecode.push(instr);
+                    }
+                },
                 Instruction::Gt(ty) => {
                     match ty {
                         Type::Object | Type::String | Type::List | Type::Unit | Type::Boolean => {
@@ -863,11 +871,13 @@ impl Display for AsmProgram {
                 OpCode::UINT_EQUAL => "UINT_EQUAL".to_string(),
                 OpCode::FLOAT_EQUAL => "FLOAT_EQUAL".to_string(),
                 OpCode::BOOL_EQUAL => "BOOL_EQUAL".to_string(),
+                OpCode::CHAR_EQUAL => "CHAR_EQUAL".to_string(),
 
                 OpCode::INT_NOT_EQUAL => "INT_NOT_EQUAL".to_string(),
                 OpCode::UINT_NOT_EQUAL => "UINT_NOT_EQUAL".to_string(),
                 OpCode::FLOAT_NOT_EQUAL => "FLOAT_NOT_EQUAL".to_string(),
                 OpCode::BOOL_NOT_EQUAL => "BOOL_NOT_EQUAL".to_string(),
+                OpCode::CHAR_NOT_EQUAL => "CHAR_NOT_EQUAL".to_string(),
 
                 OpCode::INT_GREATER_THAN => "INT_GREATER_THAN".to_string(),
                 OpCode::UINT_GREATER_THAN => "UINT_GREATER_THAN".to_string(),

@@ -22,7 +22,7 @@ public:
     /// static functions are called like this: "Vector::<T>::function_name()"
     fun with_capacity(capacity: uint64) -> Vector<T> { //Still unstable feature
         let vec = new Vector<T>(new [T; capacity]);
-        vec.length = 0_uint64;
+        vec.length = 0u;
         return vec;
     }
 
@@ -45,30 +45,30 @@ public:
     fun push(this, val: T) {
         if this.length >= this.capacity {
             // Resize
-            let new_capacity: uint64 = 0_uint64;
-            if this.capacity == 0_uint64 {
-                new_capacity = 1_uint64;
+            let new_capacity: uint64 = 0u;
+            if this.capacity == 0u {
+                new_capacity = 1u;
             } else {
-                new_capacity = this.capacity * 2_uint64;
+                new_capacity = this.capacity * 2u;
             }
             let new_data = new [T; new_capacity];
-            let i: uint64 = 0_uint64;
+            let i: uint64 = 0u;
             while i < this.length {
                 new_data[i] = this.data[i];
-                i = i + 1_uint64;
+                i = i + 1u;
             }
             this.data = new_data;
             this.capacity = new_capacity;
         }
         this.data[this.length] = val;
-        this.length = this.length + 1_uint64;
+        this.length = this.length + 1u;
     }
     
     fun pop(this) -> T {
-        if this.length == 0_uint64 {
+        if this.length == 0u {
             panic("Cannot pop from an empty vector");
         }
-        this.length = this.length - 1_uint64;
+        this.length = this.length - 1u;
         return this.data[this.length];
     }
 

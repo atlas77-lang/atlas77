@@ -1,6 +1,5 @@
 use crate::atlas_c::utils::Span;
 use crate::declare_error_type;
-use logos::source;
 use miette::{Diagnostic, NamedSource};
 use std::fmt;
 use std::fmt::Formatter;
@@ -49,7 +48,111 @@ declare_error_type! {
         TryingToAccessADeletedValue(TryingToAccessADeletedValueError),
         CallingNonConstMethodOnConstReference(CallingNonConstMethodOnConstReferenceError),
         TryingToMutateConstReference(TryingToMutateConstReferenceError),
+        TryingToCreateAnUnionWithMoreThanOneActiveField(TryingToCreateAnUnionWithMoreThanOneActiveFieldError),
+        TypeDoesNotImplementRequiredConstraint(TypeDoesNotImplementRequiredConstraintError),
+        InvalidSpecialMethodSignature(InvalidSpecialMethodSignatureError),
     }
+}
+
+//We need an enum that tells the compiler up to where it could go based on the error gravity
+pub enum HirPass {
+    SyntaxLowering = 0,
+    Monomorphization = 1,
+    TypeCheck = 2,
+    LifetimeAnalysis = 3,
+    ConstantFolding = 4,
+    DeadCodeElimination = 5,
+}
+
+pub enum HirErrorGravity {
+    //The error is not critical, the compiler can go up to a certain pass
+    CanGoUpTo(HirPass),
+    //The error is not critical, the compiler can finish the current pass but not continue
+    CanFinishCurrentPassButNotContinue,
+    //The error is critical, the compiler should stop immediately
+    Critical,
+}
+
+impl HirError {
+    pub fn gravity(&self) -> HirErrorGravity {
+        match self {
+            HirError::UnsupportedExpr(_) => HirErrorGravity::CanFinishCurrentPassButNotContinue,
+            HirError::UnsupportedType(_) => HirErrorGravity::CanFinishCurrentPassButNotContinue,
+            HirError::UnsupportedStatement(_) => {
+                HirErrorGravity::CanFinishCurrentPassButNotContinue
+            }
+            HirError::UnsupportedItem(_) => HirErrorGravity::CanFinishCurrentPassButNotContinue,
+            HirError::UnknownFileImport(_) => HirErrorGravity::CanGoUpTo(HirPass::SyntaxLowering),
+            _ => HirErrorGravity::Critical,
+        }
+    }
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::invalid_special_method_signature),
+    help("Ensure special methods have the correct signature, try {expected}")
+)]
+#[error("Invalid special method signature for method '{method_name}': expected {expected}")]
+pub struct InvalidSpecialMethodSignatureError {
+    #[label = "invalid special method signature"]
+    pub span: Span,
+    pub expected: String,
+    pub actual: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+    pub method_name: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::type_does_not_implement_required_constraint),
+    help("implement the required constraint for this type")
+)]
+#[error("type `{ty}` does not implement required constraint `{constraint}`")]
+pub struct TypeDoesNotImplementRequiredConstraintError {
+    #[label = "type `{ty}` does not implement required constraint `{constraint}`"]
+    pub span: Span,
+    pub ty: String,
+    pub constraint: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[source]
+    #[diagnostic_source]
+    pub origin: TypeDoesNotImplementRequiredConstraintOrigin,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic()]
+#[error("")]
+pub struct TypeDoesNotImplementRequiredConstraintOrigin {
+    #[label = "the constraint is required here"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::trying_to_create_an_union_with_more_than_one_active_field))]
+#[error("trying to create an union with more than one active field")]
+pub struct TryingToCreateAnUnionWithMoreThanOneActiveFieldError {
+    #[label = "multiple active fields were provided here"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[source]
+    #[diagnostic_source]
+    pub origin: TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic()]
+#[error("")]
+pub struct TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin {
+    #[label = "unions can only have one active field at a time"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]

@@ -13,6 +13,7 @@ use crate::atlas_c::atlas_hir::expr::{HirBinaryOperator, HirUnaryOp};
 use crate::atlas_c::atlas_hir::item::{HirStruct, HirStructConstructor};
 use crate::atlas_c::atlas_hir::monomorphization_pass::MonomorphizationPass;
 use crate::atlas_c::atlas_hir::signature::{ConstantValue, HirStructMethodModifier};
+use crate::atlas_c::atlas_hir::ty::{HirGenericTy, HirMutableReferenceTy, HirReadOnlyReferenceTy};
 use crate::atlas_c::atlas_hir::{
     HirModule,
     error::{HirResult, UnsupportedExpr, UnsupportedStatement},
@@ -669,29 +670,47 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     }
                 }
             }
-            HirExpr::Call(f) => {
-                let callee = f.callee.as_ref();
+            HirExpr::Call(func_expr) => {
+                let callee = func_expr.callee.as_ref();
                 match callee {
                     HirExpr::Ident(i) => {
-                        for arg in &f.args {
+                        for arg in &func_expr.args {
                             self.generate_bytecode_expr(arg, bytecode)?;
                         }
-                        let func = self.hir.signature.functions.get(i.name).unwrap();
+                        let name = if func_expr.generics.is_empty() {
+                            i.name
+                        } else {
+                            MonomorphizationPass::mangle_generic_object_name(
+                                self.hir_arena,
+                                &HirGenericTy {
+                                    name: i.name,
+                                    //Need to go from Vec<&T> to Vec<T>
+                                    inner: func_expr
+                                        .generics
+                                        .iter()
+                                        .map(|g| (*g).clone())
+                                        .collect(),
+                                    span: i.span,
+                                },
+                                "function",
+                            )
+                        };
+                        let func = self.hir.signature.functions.get(name).unwrap();
                         if func.is_external {
                             bytecode.push(Instruction::ExternCall {
-                                func_name: i.name.to_string(),
+                                func_name: name.to_string(),
                             });
                         } else {
                             bytecode.push(Instruction::Call {
-                                func_name: i.name.to_string(),
-                                nb_args: f.args.len() as u8,
+                                func_name: name.to_string(),
+                                nb_args: func_expr.args.len() as u8,
                             });
                         }
                     }
                     HirExpr::FieldAccess(field_access) => {
                         //Get the Class pointer:
                         self.generate_bytecode_expr(&field_access.target, bytecode)?;
-                        for arg in &f.args {
+                        for arg in &func_expr.args {
                             self.generate_bytecode_expr(arg, bytecode)?;
                         }
                         let struct_name =
@@ -706,15 +725,17 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                             };
                         bytecode.push(Instruction::Call {
                             func_name: format!("{}.{}", struct_name, field_access.field.name),
-                            nb_args: f.args.len() as u8 + 1,
+                            nb_args: func_expr.args.len() as u8 + 1,
                         })
                     }
                     HirExpr::StaticAccess(static_access) => {
                         let name = match static_access.target {
                             HirTy::Named(n) => n.name,
-                            HirTy::Generic(g) => {
-                                MonomorphizationPass::mangle_generic_struct_name(self.hir_arena, g)
-                            }
+                            HirTy::Generic(g) => MonomorphizationPass::mangle_generic_object_name(
+                                self.hir_arena,
+                                g,
+                                "struct",
+                            ),
                             _ => {
                                 return Err(Self::unsupported_expr_err(
                                     expr,
@@ -722,12 +743,12 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                 ));
                             }
                         };
-                        for arg in &f.args {
+                        for arg in &func_expr.args {
                             self.generate_bytecode_expr(arg, bytecode)?;
                         }
                         bytecode.push(Instruction::Call {
                             func_name: format!("{}::{}", name, static_access.field.name),
-                            nb_args: f.args.len() as u8,
+                            nb_args: func_expr.args.len() as u8,
                         })
                     }
                     _ => {
@@ -796,7 +817,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
             HirExpr::FieldAccess(field_access) => {
                 self.generate_bytecode_expr(field_access.target.as_ref(), bytecode)?;
-                let struct_name = match self.get_class_name_of_type(field_access.target.ty()) {
+                let obj_name = match self.get_class_name_of_type(field_access.target.ty()) {
                     Some(n) => n,
                     None => {
                         return Err(Self::unsupported_expr_err(
@@ -805,28 +826,30 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         ));
                     }
                 };
-                let struct_descriptor = self
-                    .struct_pool
-                    .iter()
-                    .find(|c| c.name == struct_name)
-                    .unwrap_or_else(|| {
-                        //should never happen
-                        panic!("Struct {} not found", struct_name)
-                    });
-                //get the position of the field
-                let field = struct_descriptor
-                    .fields
-                    .iter()
-                    .position(|f| *f == field_access.field.name)
-                    .unwrap();
-                bytecode.push(Instruction::GetField { field })
+                if let Some(struct_descriptor) =
+                    self.struct_pool.iter().find(|s| s.name == obj_name)
+                {
+                    // Get the position of the field
+                    let field = struct_descriptor
+                        .fields
+                        .iter()
+                        .position(|f| *f == field_access.field.name)
+                        .unwrap();
+                    bytecode.push(Instruction::GetField { field })
+                } else {
+                    // This might be access an union field
+                    // I don't even think we need to add special instruction for that
+                    // since the field will be at the same position as in a struct
+                }
             }
             HirExpr::StaticAccess(static_access) => {
                 let struct_name = match static_access.target {
                     HirTy::Named(n) => n.name,
-                    HirTy::Generic(g) => {
-                        MonomorphizationPass::mangle_generic_struct_name(self.hir_arena, g)
-                    }
+                    HirTy::Generic(g) => MonomorphizationPass::mangle_generic_object_name(
+                        self.hir_arena,
+                        g,
+                        "struct",
+                    ),
                     _ => {
                         return Err(Self::unsupported_expr_err(
                             expr,
@@ -939,12 +962,18 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     }
                 }
             }
+            // Only used for union literals for now.
+            HirExpr::ObjLiteral(obj_lit) => {
+                self.generate_bytecode_expr(&obj_lit.fields[0].value, bytecode)?;
+            }
             HirExpr::NewObj(new_obj) => {
                 let name = match &new_obj.ty {
                     HirTy::Named(n) => n.name,
-                    HirTy::Generic(g) => {
-                        MonomorphizationPass::mangle_generic_struct_name(self.hir_arena, g)
-                    }
+                    HirTy::Generic(g) => MonomorphizationPass::mangle_generic_object_name(
+                        self.hir_arena,
+                        g,
+                        "struct",
+                    ),
                     _ => {
                         return Err(Self::unsupported_expr_err(
                             expr,
@@ -973,8 +1002,18 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             HirExpr::Delete(delete) => {
                 let name = match &delete.expr.ty() {
                     HirTy::Named(_)
-                    | HirTy::ReadOnlyReference(_)
-                    | HirTy::MutableReference(_)
+                    | HirTy::ReadOnlyReference(HirReadOnlyReferenceTy {
+                        inner: HirTy::Generic(_),
+                    })
+                    | HirTy::ReadOnlyReference(HirReadOnlyReferenceTy {
+                        inner: HirTy::Named(_),
+                    })
+                    | HirTy::MutableReference(HirMutableReferenceTy {
+                        inner: HirTy::Generic(_),
+                    })
+                    | HirTy::MutableReference(HirMutableReferenceTy {
+                        inner: HirTy::Named(_),
+                    })
                     | HirTy::Generic(_) => self.get_class_name_of_type(delete.expr.ty()).unwrap(),
                     HirTy::String(_) | HirTy::List(_) => {
                         //Strings and Lists have their own delete instruction
@@ -994,7 +1033,12 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     .find(|c| c.name == name)
                     .unwrap_or_else(|| {
                         //should never happen
-                        panic!("Struct {} not found", name)
+                        let err = Self::unsupported_expr_err(
+                            expr,
+                            format!("Can't delete object of type: {}", delete.expr.ty()),
+                        );
+                        eprintln!("{:?}", Into::<miette::Report>::into(err));
+                        std::process::exit(1);
                     });
                 //Call the destructor
                 self.generate_bytecode_expr(&delete.expr, bytecode)?;
@@ -1026,9 +1070,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
     fn get_class_name_of_type(&self, ty: &HirTy<'hir>) -> Option<&'hir str> {
         match ty {
             HirTy::Named(n) => Some(n.name),
-            HirTy::Generic(g) => Some(MonomorphizationPass::mangle_generic_struct_name(
+            HirTy::Generic(g) => Some(MonomorphizationPass::mangle_generic_object_name(
                 self.hir_arena,
                 g,
+                "struct",
             )),
             HirTy::ReadOnlyReference(read_only) => self.get_class_name_of_type(read_only.inner),
             HirTy::MutableReference(mutable) => self.get_class_name_of_type(mutable.inner),
