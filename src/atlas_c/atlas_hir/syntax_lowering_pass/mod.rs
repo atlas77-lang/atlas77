@@ -468,7 +468,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         }
 
         let constructor = self.visit_constructor(node.constructor, &fields)?;
-        let destructor = self.visit_destructor(node.destructor)?;
+        let destructor = self.visit_destructor(node.destructor, &fields)?;
 
         let signature = HirStructSignature {
             declaration_span: node.span,
@@ -669,6 +669,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     fn visit_destructor(
         &mut self,
         destructor: Option<&'ast AstDestructor<'ast>>,
+        fields: &[HirStructFieldSignature<'hir>],
     ) -> HirResult<HirStructConstructor<'hir>> {
         if destructor.is_none() {
             let signature = HirStructConstructorSignature {
@@ -677,6 +678,29 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 type_params: Vec::new(),
                 vis: HirVisibility::Public,
             };
+            let mut statements = vec![];
+            for field in fields.iter() {
+                let delete_expr = HirExpr::Delete(HirDeleteExpr {
+                    span: field.span,
+                    expr: Box::new(HirExpr::FieldAccess(HirFieldAccessExpr {
+                        span: field.span,
+                        target: Box::new(HirExpr::ThisLiteral(HirThisLiteral {
+                            span: field.span,
+                            ty: self.arena.types().get_uninitialized_ty()
+                        })),
+                        field: Box::new(HirIdentExpr {
+                            span: field.span,
+                            name: field.name,
+                            ty: field.ty
+                        }),
+                        ty: field.ty
+                    })),
+                });
+                statements.push(HirStatement::Expr(HirExprStmt {
+                    span: field.span,
+                    expr: delete_expr,
+                }));
+            }
             let hir = HirStructConstructor {
                 span: Span::default(),
                 signature: self.arena.intern(signature),
@@ -684,7 +708,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 type_params: Vec::new(),
                 body: HirBlock {
                     span: Span::default(),
-                    statements: Vec::new(),
+                    statements,
                 },
                 //Destructor is public by default
                 vis: HirVisibility::Public,

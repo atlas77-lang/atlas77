@@ -14,7 +14,7 @@ fun main() {
     while iter.has_next() {
         let val = iter.next();
         print("Value: ");
-        println(val);
+        println(val.value());
     }
     
     println("Done!");

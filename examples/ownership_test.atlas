@@ -24,12 +24,12 @@ public:
     // This makes the struct copyable!
     fun _copy(&const this) -> Copyable {
         println("Copyable._copy called");
-        let result = new Copyable(this.value);
+        let result = new Copyable(*this.value);
         return result;
     }
 
     fun get_value(&const this) -> int64 {
-        return this.value;
+        return *this.value;
     }
 }
 
@@ -168,7 +168,7 @@ public:
     Stuff(data: Copyable) {
         this.data = data;
     }
-    fun get_data(&const this) -> Copyable {
+    fun get_data(&this) -> Copyable {
         return this.data;
     }
 }

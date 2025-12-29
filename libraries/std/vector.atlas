@@ -16,7 +16,10 @@ public:
         this.capacity = this.length;
         this.data = data;
     }
-    ~Vector() {}
+    ~Vector() {
+        println("Deleting vector data");
+        delete this.data;
+    }
 
     /// A function that doesn't have a "self" parameter is a static function
     /// static functions are called like this: "Vector::<T>::function_name()"

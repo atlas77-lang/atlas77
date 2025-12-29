@@ -13,6 +13,7 @@ public:
         this.index = 0u;
     }
     ~Iter() {
+        println("Deleting iterator data");
         delete this.data;
     }
     /// Returns the next item in the iterator, or None if the end is reached
@@ -42,8 +43,14 @@ public:
         return this.index < this.data.length;
     }
     
-    fun from_string(data: string) -> Iter<char> {
-        let chars: [char] = to_chars(&data);
+    fun from_string(data: String) -> Iter<char> {
+        let chars: [char] = to_chars(&data.s);
+        let vector = new Vector<char>(chars);
+        return new Iter<char>(vector);
+    }
+
+    fun from_str(data: &const string) -> Iter<char> {
+        let chars: [char] = to_chars(data);
         let vector = new Vector<char>(chars);
         return new Iter<char>(vector);
     }

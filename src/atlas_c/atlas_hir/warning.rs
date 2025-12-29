@@ -9,6 +9,7 @@ declare_warning_type!(
         DeletingReferenceIsNotSafe(DeletingReferenceMightLeadToUB),
         NameShouldBeInDifferentCase(NameShouldBeInDifferentCaseWarning),
         TryingToCastToTheSameType(TryingToCastToTheSameTypeWarning),
+        ConsumingMethodMayLeakThis(ConsumingMethodMayLeakThisWarning),
     }
 );
 
@@ -70,4 +71,19 @@ pub struct ThisTypeIsStillUnstableWarning {
     pub type_name: String,
     //Additional info about why it's unstable
     pub info: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::consuming_method_may_leak_this),
+    severity(warning),
+    help("Add `delete this;` before returning, or change to `&this` / `&const this` if you don't need to consume ownership")
+)]
+#[error("Consuming method `{method_name}` does not explicitly delete `this`")]
+pub struct ConsumingMethodMayLeakThisWarning {
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label = "This method takes ownership of `this` but doesn't delete it, which may cause a memory leak"]
+    pub span: Span,
+    pub method_name: String,
 }

@@ -21,11 +21,12 @@ public:
     ~BrainFuckInterpreter() {
         delete this.cells;
     }
-    fun run(this, tokens: Vector<Token>) {
+    fun run(&this, tokens: Vector<Token>) {
         println("Running BrainFuck Interpreter...");
         let iterator: Iter<Token> = tokens.into_iter();
         while iterator.has_next() {
-            let token = iterator.next().value();
+            let token_next = iterator.next();
+            let token = token_next.value();
             if token.kind == TokenKind::SHIFT_RIGHT {
                 this.pointer = this.pointer + 1u;
             } else if token.kind == TokenKind::SHIFT_LEFT {

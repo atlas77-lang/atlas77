@@ -22,7 +22,7 @@ public:
 
     ~File() {
         //Following the RAII pattern, we close the file when it goes out of scope
-        this.close();
+        close_file(this.path);
     }
 
     fun read(&this) -> string {
@@ -36,9 +36,10 @@ public:
         return;
     }
 
-    fun close(&this) {
-        close_file(this.path);
-        return;
+    /// Closes the file
+    /// NB: Takes ownership of the File object 
+    fun close(this) {
+        delete this;
     }
 
     fun write(&this, content: string) {

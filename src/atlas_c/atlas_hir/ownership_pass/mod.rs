@@ -55,10 +55,11 @@ use crate::atlas_c::{
         signature::{HirModuleSignature, HirStructMethodModifier},
         stmt::{HirBlock, HirExprStmt, HirStatement, HirVariableStmt},
         ty::HirTy,
+        warning::{HirWarning, ConsumingMethodMayLeakThisWarning},
     },
     utils::{self, Span},
 };
-use miette::NamedSource;
+use miette::{ErrReport, NamedSource};
 
 /// The Ownership Analysis Pass
 ///
@@ -149,7 +150,7 @@ impl<'hir> OwnershipPass<'hir> {
                     is_generic_struct,
                 });
                 
-                // Register method parameters including 'this'
+                // Register method parameters
                 for param in method.signature.params.iter() {
                     let kind = self.classify_type_kind(param.ty);
                     let is_copyable = self.is_type_copyable(param.ty);
@@ -158,6 +159,20 @@ impl<'hir> OwnershipPass<'hir> {
                         VarData::new(param.name, param.span, kind, param.ty, is_copyable, 0),
                     );
                 }
+                
+                // For consuming methods (modifier == None), we would ideally register 'this' 
+                // as an owned variable so it gets deleted. However, this is complex because:
+                // 1. If the method returns a field of `this` (like optional.value()), we can't
+                //    delete `this` before reading the field
+                // 2. If the destructor deletes the returned field, we'd have a double-free
+                // 
+                // For now, we skip automatic `this` deletion for consuming methods.
+                // The caller is responsible for ensuring proper cleanup (or the method
+                // should explicitly handle it like setting has_value=false before deleting).
+                //
+                // TODO: Implement proper consuming method semantics:
+                // - Either the method should explicitly delete `this` after extracting values
+                // - Or the runtime should support deallocating without destructor call
                 
                 // First pass: collect uses
                 if let Err(e) = self.collect_uses_in_block(&method.body) {
@@ -170,6 +185,23 @@ impl<'hir> OwnershipPass<'hir> {
                 self.current_stmt_index = 0;
                 if let Err(e) = self.transform_block(&mut method.body) {
                     self.errors.push(e);
+                }
+                
+                // Warn if this is a consuming method without `delete this` or ownership transfer
+                if method.signature.modifier == HirStructMethodModifier::None 
+                    // Don't warn if:
+                    // 1. The method contains `delete this`, OR
+                    // 2. The method returns/passes `this` or `this.field` to another function
+                    //    (ownership is being transferred, not leaked)
+                    let has_delete_this = Self::block_contains_delete_this(&method.body);
+                    let transfers_this_ownership = Self::block_transfers_this_ownership(&method.body);
+                    
+                    if !has_delete_this && !transfers_this_ownership {
+                        Self::emit_consuming_method_warning(
+                            method.name,
+                            method.signature.span,
+                        );
+                    }
                 }
                 
                 self.current_method_context = None;
@@ -310,18 +342,29 @@ impl<'hir> OwnershipPass<'hir> {
                 self.collect_uses_in_expr(&if_else.condition, false)?;
 
                 // Analyze branches with scope snapshot/restore
+                // Note: We create new scopes here to match transform_stmt behavior,
+                // so variables declared inside branches are registered in the correct scope
                 let snapshot = self.scope_map.clone();
+                self.scope_map.new_scope();
                 self.collect_uses_in_block(&if_else.then_branch)?;
+                self.scope_map.end_scope();
 
                 self.scope_map = snapshot;
                 if let Some(else_branch) = &if_else.else_branch {
+                    self.scope_map.new_scope();
                     self.collect_uses_in_block(else_branch)?;
+                    self.scope_map.end_scope();
                 }
             }
             HirStatement::While(while_stmt) => {
                 self.collect_uses_in_expr(&while_stmt.condition, false)?;
                 let snapshot = self.scope_map.clone();
+                // Create a new scope for the while body to match transform_stmt behavior,
+                // so variables declared inside the loop are registered in the correct scope
+                // and will be properly deleted at the end of each iteration
+                self.scope_map.new_scope();
                 self.collect_uses_in_block(&while_stmt.body)?;
+                self.scope_map.end_scope();
                 self.scope_map = snapshot;
             }
             HirStatement::Break(_) | HirStatement::Continue(_) => {}
@@ -532,9 +575,17 @@ impl<'hir> OwnershipPass<'hir> {
             HirStatement::Let(var_stmt) => {
                 let transformed_value = self.transform_expr_ownership(&var_stmt.value, true)?;
 
-                // Note: Variable is already registered during Phase 1 (use collection).
-                // Do NOT re-insert here as that would erase the recorded uses.
-                // The variable already exists in scope_map with its uses tracked.
+                // Register the variable in the current scope.
+                // This is needed because for while/if-else, the scope from Phase 1 was discarded
+                // due to snapshot/restore, so we need to re-register for destructor generation.
+                // For function bodies, this will update the existing entry (which is fine).
+                let ty = var_stmt.ty.unwrap_or(var_stmt.value.ty());
+                let kind = self.classify_type_kind(ty);
+                let is_copyable = self.is_type_copyable(ty);
+                self.scope_map.insert(
+                    var_stmt.name,
+                    VarData::new(var_stmt.name, var_stmt.span, kind, ty, is_copyable, self.current_stmt_index),
+                );
 
                 let new_stmt = HirStatement::Let(HirVariableStmt {
                     span: var_stmt.span,
@@ -550,8 +601,14 @@ impl<'hir> OwnershipPass<'hir> {
             HirStatement::Const(var_stmt) => {
                 let transformed_value = self.transform_expr_ownership(&var_stmt.value, true)?;
 
-                // Note: Variable is already registered during Phase 1 (use collection).
-                // Do NOT re-insert here as that would erase the recorded uses.
+                // Register the variable in the current scope (same reasoning as Let above).
+                let ty = var_stmt.ty.unwrap_or(var_stmt.value.ty());
+                let kind = self.classify_type_kind(ty);
+                let is_copyable = self.is_type_copyable(ty);
+                self.scope_map.insert(
+                    var_stmt.name,
+                    VarData::new(var_stmt.name, var_stmt.span, kind, ty, is_copyable, self.current_stmt_index),
+                );
 
                 let new_stmt = HirStatement::Const(HirVariableStmt {
                     span: var_stmt.span,
@@ -579,8 +636,23 @@ impl<'hir> OwnershipPass<'hir> {
                 // These should NOT be deleted because the return expression needs them
                 let mut vars_used_in_return = Vec::new();
                 self.collect_vars_used_in_expr(&ret.value, &mut vars_used_in_return);
+                
+                // Special case: In methods that consume `this` (modifier == None), we need to
+                // delete `this` even if it's "used" in the return expression (e.g., returning a field).
+                // The method is responsible for cleaning up `this` since it took ownership.
+                // Note: This currently may cause issues with destructors that delete the returned field,
+                // but that's a library design issue (optional.value() should set has_value=false first).
+                let is_consuming_method = self.current_method_context.as_ref()
+                    .is_some_and(|ctx| ctx.modifier == HirStructMethodModifier::None);
+                
+                // Check if we're returning `this` directly (not a field of this)
+                let returning_this_directly = matches!(&ret.value, HirExpr::Ident(ident) if ident.name == "this");
 
                 let mut result = Vec::new();
+                
+                let owned_vars = self.scope_map.get_all_owned_vars();
+
+                // Generate delete statements for owned vars declared before this statement
 
                 // Generate delete statements for owned vars declared before this statement
                 // EXCEPT for any variable used in the return expression
@@ -591,8 +663,11 @@ impl<'hir> OwnershipPass<'hir> {
                         continue;
                     }
                     // Skip variables used in the return expression
+                    // BUT: In consuming methods, don't skip `this` unless we're returning it directly
                     if vars_used_in_return.contains(&var.name) {
-                        continue;
+                        if !(is_consuming_method && var.name == "this" && !returning_this_directly) {
+                            continue;
+                        }
                     }
                     // Skip primitives (no destructor needed)
                     if var.kind == VarKind::Primitive {
@@ -1405,6 +1480,99 @@ impl<'hir> OwnershipPass<'hir> {
                 src: NamedSource::new(path, src),
             }
         ))
+    }
+    
+    /// Checks if a block (recursively) contains a `delete this` statement
+    fn block_contains_delete_this(block: &HirBlock<'hir>) -> bool {
+        for stmt in &block.statements {
+            if Self::stmt_contains_delete_this(stmt) {
+                return true;
+            }
+        }
+        false
+    }
+    
+    /// Checks if a statement (recursively) contains a `delete this` statement
+    fn stmt_contains_delete_this(stmt: &HirStatement<'hir>) -> bool {
+        match stmt {
+            HirStatement::Expr(expr_stmt) => Self::expr_is_delete_this(&expr_stmt.expr),
+            HirStatement::IfElse(if_else) => {
+                Self::block_contains_delete_this(&if_else.then_branch)
+                    || if_else.else_branch.as_ref().is_some_and(Self::block_contains_delete_this)
+            }
+            HirStatement::While(while_stmt) => Self::block_contains_delete_this(&while_stmt.body),
+            HirStatement::_Block(block) => Self::block_contains_delete_this(block),
+            _ => false,
+        }
+    }
+    
+    /// Checks if an expression is `delete this`
+    fn expr_is_delete_this(expr: &HirExpr<'hir>) -> bool {
+        match expr {
+            HirExpr::Delete(delete_expr) => {
+                matches!(delete_expr.expr.as_ref(), HirExpr::ThisLiteral(_))
+            }
+            // Also check Move/Copy wrappers in case transform wrapped the delete
+            HirExpr::Move(move_expr) => Self::expr_is_delete_this(&move_expr.expr),
+            HirExpr::Copy(copy_expr) => Self::expr_is_delete_this(&copy_expr.expr),
+            _ => false,
+        }
+    }
+    
+    /// Checks if a block transfers ownership of `this` (e.g., by returning `this.field` or passing `this` to another function)
+    fn block_transfers_this_ownership(block: &HirBlock<'hir>) -> bool {
+        for stmt in &block.statements {
+            if Self::stmt_transfers_this_ownership(stmt) {
+                return true;
+            }
+        }
+        false
+    }
+    
+    /// Checks if a statement transfers ownership of `this`
+    fn stmt_transfers_this_ownership(stmt: &HirStatement<'hir>) -> bool {
+        match stmt {
+            HirStatement::Return(ret) => Self::expr_uses_this(&ret.value),
+            HirStatement::IfElse(if_else) => {
+                Self::block_transfers_this_ownership(&if_else.then_branch)
+                    || if_else.else_branch.as_ref().is_some_and(Self::block_transfers_this_ownership)
+            }
+            HirStatement::While(while_stmt) => Self::block_transfers_this_ownership(&while_stmt.body),
+            HirStatement::_Block(block) => Self::block_transfers_this_ownership(block),
+            _ => false,
+        }
+    }
+    
+    /// Checks if an expression uses `this` or a field of `this` (indicating ownership transfer)
+    fn expr_uses_this(expr: &HirExpr<'hir>) -> bool {
+        match expr {
+            HirExpr::ThisLiteral(_) => true,
+            HirExpr::FieldAccess(fa) => Self::expr_uses_this(&fa.target),
+            HirExpr::Call(call) => {
+                Self::expr_uses_this(&call.callee) 
+                    || call.args.iter().any(|arg| Self::expr_uses_this(arg))
+            }
+            HirExpr::Move(m) => Self::expr_uses_this(&m.expr),
+            HirExpr::Copy(c) => Self::expr_uses_this(&c.expr),
+            HirExpr::Unary(u) => Self::expr_uses_this(&u.expr),
+            HirExpr::NewObj(obj) => obj.args.iter().any(|arg| Self::expr_uses_this(arg)),
+            HirExpr::ObjLiteral(s) => s.fields.iter().any(|f| Self::expr_uses_this(&f.value)),
+            _ => false,
+        }
+    }
+    
+    /// Emits a warning for consuming methods that don't delete `this`
+    fn emit_consuming_method_warning(method_name: &str, span: Span) {
+        let path = span.path;
+        let src = utils::get_file_content(path).unwrap_or_default();
+        let warning: ErrReport = HirWarning::ConsumingMethodMayLeakThis(
+            ConsumingMethodMayLeakThisWarning {
+                src: NamedSource::new(path, src),
+                span,
+                method_name: method_name.to_string(),
+            }
+        ).into();
+        eprintln!("{:?}", warning);
     }
 }
 

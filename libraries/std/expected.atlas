@@ -24,6 +24,13 @@ private:
         this.has_expected_value = has_expected_value;
     }
 public:
+    ~expected() {
+        if (this.has_expected_value) {
+            delete this.data.expected_value;
+        } else {
+            delete this.data.unexpected_value;
+        }
+    }
     /// Construct a successful `expected` containing `data`.
     ///
     /// Example:

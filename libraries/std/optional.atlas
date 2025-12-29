@@ -81,9 +81,12 @@ public:
     fun value(this) -> T {
         if (!this.has_value) {
             panic("Called value on a empty optional");
-        } else {
-            return this.data.value;
         }
+        let value = this.data.value;
+        // Mark as empty before returning to prevent destructor from double-freeing
+        this.has_value = false;
+        delete this;
+        return value;
     }
     /// Consume the optional and return the contained value or `default` if empty.
     ///
