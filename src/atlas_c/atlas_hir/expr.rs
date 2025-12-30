@@ -331,7 +331,7 @@ pub struct HirIdentExpr<'hir> {
 
 /// Move expression: transfers ownership from the source.
 /// After a move, the source variable is no longer valid.
-/// 
+///
 /// This is inserted by the ownership pass when:
 /// - A non-copyable type is used in an ownership-consuming context
 /// - A copyable type is used for the last time (optimization from copy)
@@ -348,7 +348,7 @@ pub struct HirMoveExpr<'hir> {
 
 /// Copy expression: creates a new owned copy via copy constructor.
 /// The source variable remains valid after this operation.
-/// 
+///
 /// For primitive types, this is a bitwise copy.
 /// For structs with a `_copy` method, this calls the copy constructor.
 #[derive(Debug, Clone)]

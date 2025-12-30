@@ -56,7 +56,7 @@ pub fn read_file(state: VMState) -> Result<VMData, RuntimeError> {
 
     let content = std::fs::read_to_string(path).unwrap();
     let obj_idx = state.object_map.put(ObjectKind::String(content));
-    
+
     //state.object_map.free(path_ptr)?;
     match obj_idx {
         Ok(index) => Ok(VMData::new_string(index)),
@@ -73,7 +73,7 @@ pub fn write_file(state: VMState) -> Result<VMData, RuntimeError> {
     let content = raw_content.string();
 
     std::fs::write(path, content).unwrap();
-    
+
     //state.object_map.free(path_ptr)?;
     //state.object_map.free(content_ptr)?;
     Ok(VMData::new_unit())

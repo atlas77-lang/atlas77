@@ -11,3 +11,12 @@ fun fib(n: int64) -> int64 {
         return fib(n - 1) + fib(n - 2);
     }
 }
+
+struct TestAddingCopyConstructor {
+public:
+    value: int64;
+    TestAddingCopyConstructor(v: int64) {
+        this.value = v;
+    }
+    //Let's see if the _copy constructor is added correctly by the compiler
+}

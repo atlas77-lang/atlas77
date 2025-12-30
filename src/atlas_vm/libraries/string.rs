@@ -17,7 +17,9 @@ pub const STRING_FUNCTIONS: [(&str, CallBack); 8] = [
 // Now it takes a string reference, so we need to change accordingly
 pub fn str_len(state: VMState) -> RuntimeResult<VMData> {
     let string_ref: *mut VMData = state.stack.pop()?.as_ref();
-    let raw_string = state.object_map.get(unsafe { string_ref.as_ref().unwrap().as_object() })?;
+    let raw_string = state
+        .object_map
+        .get(unsafe { string_ref.as_ref().unwrap().as_object() })?;
     let string = raw_string.string();
     let len = string.len() as i64;
     Ok(VMData::new_i64(len))
@@ -28,10 +30,12 @@ pub fn str_cmp(state: VMState) -> RuntimeResult<VMData> {
     let string2_ref: *mut VMData = state.stack.pop()?.as_ref();
     let string1_ref: *mut VMData = state.stack.pop()?.as_ref();
 
-    let raw_string1 =
-        state.object_map.get(unsafe { string1_ref.as_ref().unwrap().as_object() })?;
-    let raw_string2 =
-        state.object_map.get(unsafe { string2_ref.as_ref().unwrap().as_object() })?;
+    let raw_string1 = state
+        .object_map
+        .get(unsafe { string1_ref.as_ref().unwrap().as_object() })?;
+    let raw_string2 = state
+        .object_map
+        .get(unsafe { string2_ref.as_ref().unwrap().as_object() })?;
 
     let string1 = raw_string1.string();
     let string2 = raw_string2.string();
@@ -79,9 +83,12 @@ pub fn split(state: VMState) -> RuntimeResult<VMData> {
     let sep_ref: *mut VMData = state.stack.pop()?.as_ref();
     let string_ref: *mut VMData = state.stack.pop()?.as_ref();
 
-    let raw_string =
-        state.object_map.get(unsafe { string_ref.as_ref().unwrap().as_object() })?;
-    let raw_sep = state.object_map.get(unsafe { sep_ref.as_ref().unwrap().as_object() })?;
+    let raw_string = state
+        .object_map
+        .get(unsafe { string_ref.as_ref().unwrap().as_object() })?;
+    let raw_sep = state
+        .object_map
+        .get(unsafe { sep_ref.as_ref().unwrap().as_object() })?;
 
     let string = raw_string.string();
     let sep = raw_sep.string();
@@ -124,13 +131,12 @@ pub fn from_chars(state: VMState) -> RuntimeResult<VMData> {
 pub fn to_chars(state: VMState) -> RuntimeResult<VMData> {
     let string_ref: *mut VMData = state.stack.pop()?.as_ref();
 
-    let raw_string = state.object_map.get(unsafe { string_ref.as_ref().unwrap().as_object() })?;
+    let raw_string = state
+        .object_map
+        .get(unsafe { string_ref.as_ref().unwrap().as_object() })?;
     let string = raw_string.string();
 
-    let char_data: Vec<VMData> = string
-        .chars()
-        .map(|c| VMData::new_char(c))
-        .collect();
+    let char_data: Vec<VMData> = string.chars().map(|c| VMData::new_char(c)).collect();
 
     let list_idx = state.object_map.put(ObjectKind::List(char_data));
     match list_idx {

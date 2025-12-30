@@ -77,7 +77,9 @@ pub struct ThisTypeIsStillUnstableWarning {
 #[diagnostic(
     code(sema::consuming_method_may_leak_this),
     severity(warning),
-    help("Add `delete this;` before returning, or change to `&this` / `&const this` if you don't need to consume ownership")
+    help(
+        "Add `delete this;` before returning, or change to `&this` / `&const this` if you don't need to consume ownership"
+    )
 )]
 #[error("Consuming method `{method_name}` does not explicitly delete `this`")]
 pub struct ConsumingMethodMayLeakThisWarning {

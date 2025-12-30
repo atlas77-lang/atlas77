@@ -152,10 +152,10 @@ impl Stack {
     }
 
     /// Get a mutable pointer to a variable in the local space.
-    /// 
+    ///
     /// This is used for reference operations (&T and &const T) to get
     /// the actual memory address of a variable.
-    /// 
+    ///
     /// # Safety
     /// The returned pointer is valid as long as the stack frame is not popped.
     #[inline(always)]

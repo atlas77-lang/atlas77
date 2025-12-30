@@ -9,7 +9,9 @@ pub const VECTOR_FUNCTIONS: [(&str, CallBack); 2] = [("len", len), ("slice", sli
 // len(l: &const [T]) -> uint64
 pub fn len(state: VMState) -> Result<VMData, RuntimeError> {
     let list_ref: *mut VMData = state.stack.pop()?.as_ref();
-    let raw_list = state.object_map.get(unsafe { list_ref.as_ref().unwrap().as_object() })?;
+    let raw_list = state
+        .object_map
+        .get(unsafe { list_ref.as_ref().unwrap().as_object() })?;
     let list = raw_list.list();
     let len = list.len() as u64;
     Ok(VMData::new_u64(len))

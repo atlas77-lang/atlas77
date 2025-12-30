@@ -606,10 +606,15 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         HirExpr::FieldAccess(field_access) => {
                             self.generate_bytecode_expr(field_access.target.as_ref(), bytecode)?;
                             // If target is a reference, dereference it first to get the object pointer
-                            if matches!(field_access.target.ty(), HirTy::MutableReference(_) | HirTy::ReadOnlyReference(_)) {
+                            if matches!(
+                                field_access.target.ty(),
+                                HirTy::MutableReference(_) | HirTy::ReadOnlyReference(_)
+                            ) {
                                 bytecode.push(Instruction::LoadIndirect);
                             }
-                            let obj_name = match self.get_class_name_of_type(field_access.target.ty()) {
+                            let obj_name = match self
+                                .get_class_name_of_type(field_access.target.ty())
+                            {
                                 Some(n) => n,
                                 None => {
                                     return Err(Self::unsupported_expr_err(
@@ -618,7 +623,9 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                     ));
                                 }
                             };
-                            if let Some(struct_descriptor) = self.struct_pool.iter().find(|s| s.name == obj_name) {
+                            if let Some(struct_descriptor) =
+                                self.struct_pool.iter().find(|s| s.name == obj_name)
+                            {
                                 let field = struct_descriptor
                                     .fields
                                     .iter()
@@ -636,7 +643,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     }
                     return Ok(());
                 }
-                
+
                 // For other unary ops, first generate the inner expression
                 //There is no unary instruction, so -x is the same as 0 - x
                 //And !x is the same as x == 0
@@ -681,7 +688,9 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         }
                         HirUnaryOp::AsRef => {
                             // This case should never be reached because we handle AsRef at the start of HirExpr::Unary
-                            unreachable!("AsRef should be handled before generating inner expression bytecode");
+                            unreachable!(
+                                "AsRef should be handled before generating inner expression bytecode"
+                            );
                         }
                         HirUnaryOp::Deref => {
                             // The expression is a reference, we need to load the value at that address
@@ -795,18 +804,21 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                     ));
                                 }
                             };
-                        
+
                         // Check if the method takes a reference to `this` (only Const modifier)
                         // Note: &this (Mutable) methods do NOT take refs, they pass `this` directly
                         // but just don't consume ownership. Only &const this (Const) takes a reference.
-                        let method_takes_ref = self.hir.signature.structs
+                        let method_takes_ref = self
+                            .hir
+                            .signature
+                            .structs
                             .get(struct_name)
                             .and_then(|s| s.methods.get(field_access.field.name))
                             //&this (mutable) methods do not take refs, only &const this methods do
                             //&this methods are similar to passing by value, but they just don't take ownership
                             .map(|m| matches!(m.modifier, HirStructMethodModifier::Const))
                             .unwrap_or(false);
-                        
+
                         // Generate receiver: address if method takes ref, value otherwise
                         if method_takes_ref {
                             // Need to pass the address of the receiver
@@ -815,7 +827,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                             // Pass the value (ownership transfer)
                             self.generate_bytecode_expr(&field_access.target, bytecode)?;
                         }
-                        
+
                         for arg in &func_expr.args {
                             self.generate_bytecode_expr(arg, bytecode)?;
                         }
@@ -914,7 +926,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             HirExpr::FieldAccess(field_access) => {
                 self.generate_bytecode_expr(field_access.target.as_ref(), bytecode)?;
                 // Check if target is a reference type
-                let is_ref = matches!(field_access.target.ty(), HirTy::MutableReference(_) | HirTy::ReadOnlyReference(_));
+                let is_ref = matches!(
+                    field_access.target.ty(),
+                    HirTy::MutableReference(_) | HirTy::ReadOnlyReference(_)
+                );
                 // If target is a reference, dereference it first to get the object pointer
                 if is_ref {
                     bytecode.push(Instruction::LoadIndirect);
@@ -1240,7 +1255,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 };
                 // If the identifier's type is already a reference, load the value (which IS the address)
                 // Otherwise, load the address of the variable
-                if matches!(ident.ty, HirTy::MutableReference(_) | HirTy::ReadOnlyReference(_)) {
+                if matches!(
+                    ident.ty,
+                    HirTy::MutableReference(_) | HirTy::ReadOnlyReference(_)
+                ) {
                     bytecode.push(Instruction::LoadVar(var_index));
                 } else {
                     bytecode.push(Instruction::LoadVarAddr(var_index));
@@ -1254,7 +1272,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 // First generate the target of the field access
                 self.generate_bytecode_expr(field_access.target.as_ref(), bytecode)?;
                 // If target is a reference, dereference it first to get the object pointer
-                if matches!(field_access.target.ty(), HirTy::MutableReference(_) | HirTy::ReadOnlyReference(_)) {
+                if matches!(
+                    field_access.target.ty(),
+                    HirTy::MutableReference(_) | HirTy::ReadOnlyReference(_)
+                ) {
                     bytecode.push(Instruction::LoadIndirect);
                 }
                 let obj_name = match self.get_class_name_of_type(field_access.target.ty()) {
@@ -1266,7 +1287,9 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         ));
                     }
                 };
-                if let Some(struct_descriptor) = self.struct_pool.iter().find(|s| s.name == obj_name) {
+                if let Some(struct_descriptor) =
+                    self.struct_pool.iter().find(|s| s.name == obj_name)
+                {
                     let field = struct_descriptor
                         .fields
                         .iter()
@@ -1304,7 +1327,11 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
             // If the target is already a reference type, we can just generate its value
             // (the value IS the address)
-            _ if matches!(target.ty(), HirTy::MutableReference(_) | HirTy::ReadOnlyReference(_)) => {
+            _ if matches!(
+                target.ty(),
+                HirTy::MutableReference(_) | HirTy::ReadOnlyReference(_)
+            ) =>
+            {
                 self.generate_bytecode_expr(target, bytecode)?;
             }
             // For struct types (Named, Generic), the value on stack is a heap pointer
@@ -1314,7 +1341,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             _ => {
                 return Err(Self::unsupported_expr_err(
                     target,
-                    format!("Cannot take address of expression for method receiver: {}", target.ty()),
+                    format!(
+                        "Cannot take address of expression for method receiver: {}",
+                        target.ty()
+                    ),
                 ));
             }
         }

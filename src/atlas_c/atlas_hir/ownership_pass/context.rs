@@ -1,9 +1,6 @@
 use std::collections::HashMap;
 
-use crate::atlas_c::{
-    atlas_hir::ty::HirTy,
-    utils::Span,
-};
+use crate::atlas_c::{atlas_hir::ty::HirTy, utils::Span};
 
 /// Represents how a variable is used in an expression
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,7 +90,9 @@ impl<'hir> ScopeMap<'hir> {
 
         // Now get mutable access to that scope
         if let Some(idx) = scope_index {
-            self.scopes.get_mut(idx).and_then(|s| s.var_status.get_mut(name))
+            self.scopes
+                .get_mut(idx)
+                .and_then(|s| s.var_status.get_mut(name))
         } else {
             None
         }
@@ -252,12 +251,12 @@ impl<'hir> VarData<'hir> {
             .map(|u| u.stmt_index == stmt_index)
             .unwrap_or(false)
     }
-    
+
     /// Check if there are any uses (read or consuming) after the given statement index
     pub fn has_any_use_after(&self, stmt_index: usize) -> bool {
         self.uses.iter().any(|u| u.stmt_index > stmt_index)
     }
-    
+
     /// Check if we can safely move at this statement (no more uses after)
     pub fn can_move_at(&self, stmt_index: usize) -> bool {
         !self.has_any_use_after(stmt_index)
@@ -282,7 +281,10 @@ pub enum VarKind {
 impl VarKind {
     /// Returns true if this kind is always implicitly copyable (no copy constructor needed)
     pub fn is_implicitly_copyable(&self) -> bool {
-        matches!(self, VarKind::Primitive | VarKind::Reference | VarKind::String)
+        matches!(
+            self,
+            VarKind::Primitive | VarKind::Reference | VarKind::String
+        )
     }
 }
 

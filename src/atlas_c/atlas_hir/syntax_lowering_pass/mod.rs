@@ -2,18 +2,19 @@ pub mod case;
 
 use heck::{ToPascalCase, ToSnakeCase};
 use miette::{ErrReport, NamedSource};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, vec};
 
 use crate::atlas_c::{
     atlas_frontend::{
+        lexer::Spanned,
         parse,
         parser::{
             arena::AstArena,
             ast::{
                 AstBinaryOp, AstBlock, AstConstructor, AstDestructor, AstEnum, AstExpr,
-                AstExternFunction, AstFunction, AstGenericConstraint, AstIdentifier, AstImport,
-                AstItem, AstLiteral, AstMethod, AstMethodModifier, AstNamedType, AstObjField,
-                AstProgram, AstStatement, AstStruct, AstType, AstUnaryOp, AstUnion,
+                AstExternFunction, AstFunction, AstGeneric, AstGenericConstraint, AstIdentifier,
+                AstImport, AstItem, AstLiteral, AstMethod, AstMethodModifier, AstNamedType,
+                AstObjField, AstProgram, AstStatement, AstStruct, AstType, AstUnaryOp, AstUnion,
             },
         },
     },
@@ -431,6 +432,12 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             });
         }
 
+        //Let's add a _copy(&const this) -> ClassName method if it doesn't already exist
+        if !methods.iter().any(|m| m.name == "_copy") {
+            let copy_constructor = self.make_copy_constructor(&fields, node.name, node.generics);
+            methods.push(copy_constructor);
+        }
+
         let mut operators = Vec::new();
         for operator in node.operators.iter() {
             operators.push(self.visit_bin_op(&operator.op)?);
@@ -507,6 +514,105 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             destructor,
             vis: node.vis.into(),
         })
+    }
+
+    fn make_copy_constructor(
+        &mut self,
+        fields: &[HirStructFieldSignature<'hir>],
+        struct_name: &'ast AstIdentifier<'ast>,
+        generics: &[&AstGeneric<'ast>],
+    ) -> HirStructMethod<'hir> {
+        let mut params: Vec<HirFunctionParameterSignature<'hir>> = Vec::new();
+        for field in fields.iter() {
+            params.push(HirFunctionParameterSignature {
+                span: field.span,
+                name: field.name,
+                name_span: field.name_span,
+                ty: field.ty,
+                ty_span: field.ty_span,
+            });
+        }
+        let return_ty = if generics.is_empty() {
+            self.arena
+                .types()
+                .get_named_ty(self.arena.names().get(struct_name.name), struct_name.span)
+                .clone()
+        } else {
+            self.arena
+                .types()
+                .get_generic_ty(
+                    self.arena.names().get(struct_name.name),
+                    generics
+                        .iter()
+                        .map(|g| {
+                            self.arena
+                                .types()
+                                .get_named_ty(self.arena.names().get(&*g.name.name), g.name.span)
+                        })
+                        .collect::<Vec<_>>(),
+                    struct_name.span,
+                )
+                .clone()
+        };
+        //The signature should be: _copy(&const this) -> ClassName<generics>
+        let signature = self.arena.intern(HirStructMethodSignature {
+            modifier: HirStructMethodModifier::Const,
+            span: Span::union_span(
+                &fields.first().map(|f| f.span).unwrap_or(struct_name.span),
+                &fields.last().map(|f| f.span).unwrap_or(struct_name.span),
+            ),
+            vis: HirVisibility::Public,
+            params: vec![],
+            //Generics aren't supported yet for normal functions
+            generics: None,
+            type_params: vec![],
+            return_ty: return_ty.clone(),
+            return_ty_span: Some(struct_name.span),
+        });
+        //Let's make the body, it should be: return new ClassName<generics>(*this.field1, *this.field2, ...)
+        let mut field_inits: Vec<HirExpr> = Vec::new();
+        let mut args_ty: Vec<&'hir HirTy<'hir>> = Vec::new();
+        for field in fields.iter() {
+            args_ty.push(field.ty);
+            field_inits.push(HirExpr::Unary(UnaryOpExpr {
+                span: field.span,
+                op: Some(HirUnaryOp::Deref),
+                ty: field.ty,
+                expr: Box::new(HirExpr::FieldAccess(HirFieldAccessExpr {
+                    span: field.span,
+                    target: Box::new(HirExpr::ThisLiteral(HirThisLiteral {
+                        span: field.span,
+                        ty: self.arena.types().get_uninitialized_ty(),
+                    })),
+                    field: Box::new(HirIdentExpr {
+                        span: field.span,
+                        name: field.name,
+                        ty: field.ty,
+                    }),
+                    ty: field.ty,
+                })),
+            }));
+        }
+        let body = HirBlock {
+            span: struct_name.span,
+            statements: vec![HirStatement::Return(HirReturn {
+                span: struct_name.span,
+                value: HirExpr::NewObj(HirNewObjExpr {
+                    span: struct_name.span,
+                    ty: self.arena.intern(return_ty.clone()),
+                    args_ty,
+                    args: field_inits,
+                }),
+                ty: self.arena.intern(return_ty.clone())
+            })],
+        };
+        HirStructMethod {
+            span: struct_name.span,
+            name: self.arena.names().get("_copy"),
+            name_span: struct_name.span,
+            signature,
+            body,
+        }
     }
 
     fn visit_constraint(
@@ -686,14 +792,14 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         span: field.span,
                         target: Box::new(HirExpr::ThisLiteral(HirThisLiteral {
                             span: field.span,
-                            ty: self.arena.types().get_uninitialized_ty()
+                            ty: self.arena.types().get_uninitialized_ty(),
                         })),
                         field: Box::new(HirIdentExpr {
                             span: field.span,
                             name: field.name,
-                            ty: field.ty
+                            ty: field.ty,
                         }),
-                        ty: field.ty
+                        ty: field.ty,
                     })),
                 });
                 statements.push(HirStatement::Expr(HirExprStmt {

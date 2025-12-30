@@ -46,9 +46,8 @@ use crate::atlas_c::{
         HirModule,
         arena::HirArena,
         error::{
-            HirError, HirResult, TryingToAccessAMovedValueError,
-            CannotTransferOwnershipInBorrowingMethodError,
-            CannotMoveOutOfContainerError,
+            CannotMoveOutOfContainerError, CannotTransferOwnershipInBorrowingMethodError, HirError,
+            HirResult, TryingToAccessAMovedValueError,
         },
         expr::{HirCopyExpr, HirDeleteExpr, HirExpr, HirIdentExpr, HirMoveExpr},
         item::HirFunction,
@@ -56,7 +55,7 @@ use crate::atlas_c::{
         signature::{HirModuleSignature, HirStructMethodModifier},
         stmt::{HirBlock, HirExprStmt, HirStatement, HirVariableStmt},
         ty::HirTy,
-        warning::{HirWarning, ConsumingMethodMayLeakThisWarning},
+        warning::{ConsumingMethodMayLeakThisWarning, HirWarning},
     },
     utils::{self, Span},
 };
@@ -97,10 +96,7 @@ struct MethodContext<'hir> {
 }
 
 impl<'hir> OwnershipPass<'hir> {
-    pub fn new(
-        hir_signature: HirModuleSignature<'hir>,
-        hir_arena: &'hir HirArena<'hir>,
-    ) -> Self {
+    pub fn new(hir_signature: HirModuleSignature<'hir>, hir_arena: &'hir HirArena<'hir>) -> Self {
         Self {
             scope_map: ScopeMap::new(),
             errors: Vec::new(),
@@ -112,10 +108,7 @@ impl<'hir> OwnershipPass<'hir> {
     }
 
     /// Run the ownership pass on the entire module
-    pub fn run(
-        &mut self,
-        hir: &'hir mut HirModule<'hir>,
-    ) -> HirResult<&'hir mut HirModule<'hir>> {
+    pub fn run(&mut self, hir: &'hir mut HirModule<'hir>) -> HirResult<&'hir mut HirModule<'hir>> {
         // Process top-level functions
         for func in hir.body.functions.values_mut() {
             // Reset state for each function
@@ -126,7 +119,7 @@ impl<'hir> OwnershipPass<'hir> {
                 self.errors.push(e);
             }
         }
-        
+
         // Process struct methods and constructors
         for struct_def in hir.body.structs.values_mut() {
             // Check if this is a generic struct (has type parameters) or a monomorphized
@@ -137,12 +130,12 @@ impl<'hir> OwnershipPass<'hir> {
             let is_generic_struct = !struct_def.signature.generics.is_empty()
                 || struct_def.signature.name.starts_with("__atlas77__struct__")
                 || struct_def.signature.name.contains('<');
-            
+
             // Process methods
             for method in struct_def.methods.iter_mut() {
                 self.scope_map = ScopeMap::new();
                 self.current_stmt_index = 0;
-                
+
                 // Set method context for ownership checking
                 self.current_method_context = Some(MethodContext {
                     modifier: method.signature.modifier.clone(),
@@ -150,7 +143,7 @@ impl<'hir> OwnershipPass<'hir> {
                     struct_name: struct_def.signature.name,
                     is_generic_struct,
                 });
-                
+
                 // Register method parameters
                 for param in method.signature.params.iter() {
                     let kind = self.classify_type_kind(param.ty);
@@ -160,13 +153,13 @@ impl<'hir> OwnershipPass<'hir> {
                         VarData::new(param.name, param.span, kind, param.ty, is_copyable, 0),
                     );
                 }
-                
-                // For consuming methods (modifier == None), we would ideally register 'this' 
+
+                // For consuming methods (modifier == None), we would ideally register 'this'
                 // as an owned variable so it gets deleted. However, this is complex because:
                 // 1. If the method returns a field of `this` (like optional.value()), we can't
                 //    delete `this` before reading the field
                 // 2. If the destructor deletes the returned field, we'd have a double-free
-                // 
+                //
                 // For now, we skip automatic `this` deletion for consuming methods.
                 // The caller is responsible for ensuring proper cleanup (or the method
                 // should explicitly handle it like setting has_value=false before deleting).
@@ -174,20 +167,20 @@ impl<'hir> OwnershipPass<'hir> {
                 // TODO: Implement proper consuming method semantics:
                 // - Either the method should explicitly delete `this` after extracting values
                 // - Or the runtime should support deallocating without destructor call
-                
+
                 // First pass: collect uses
                 if let Err(e) = self.collect_uses_in_block(&method.body) {
                     self.errors.push(e);
                     self.current_method_context = None;
                     continue;
                 }
-                
+
                 // Second pass: transform
                 self.current_stmt_index = 0;
                 if let Err(e) = self.transform_block(&mut method.body) {
                     self.errors.push(e);
                 }
-                
+
                 // Warn if this is a consuming method without `delete this` or ownership transfer
                 // TODO: Add a way to warn only once per method
                 if method.signature.modifier == HirStructMethodModifier::None {
@@ -196,24 +189,22 @@ impl<'hir> OwnershipPass<'hir> {
                     // 2. The method returns/passes `this` or `this.field` to another function
                     //    (ownership is being transferred, not leaked)
                     let has_delete_this = Self::block_contains_delete_this(&method.body);
-                    let transfers_this_ownership = Self::block_transfers_this_ownership(&method.body);
-                    
+                    let transfers_this_ownership =
+                        Self::block_transfers_this_ownership(&method.body);
+
                     if !has_delete_this && !transfers_this_ownership {
-                        Self::emit_consuming_method_warning(
-                            method.name,
-                            method.signature.span,
-                        );
+                        Self::emit_consuming_method_warning(method.name, method.signature.span);
                     }
                 }
-                
+
                 self.current_method_context = None;
             }
-            
+
             // Process constructor
             {
                 self.scope_map = ScopeMap::new();
                 self.current_stmt_index = 0;
-                
+
                 for param in struct_def.constructor.params.iter() {
                     let kind = self.classify_type_kind(param.ty);
                     let is_copyable = self.is_type_copyable(param.ty);
@@ -222,7 +213,7 @@ impl<'hir> OwnershipPass<'hir> {
                         VarData::new(param.name, param.span, kind, param.ty, is_copyable, 0),
                     );
                 }
-                
+
                 if let Err(e) = self.collect_uses_in_block(&struct_def.constructor.body) {
                     self.errors.push(e);
                 } else {
@@ -232,12 +223,12 @@ impl<'hir> OwnershipPass<'hir> {
                     }
                 }
             }
-            
+
             // Process destructor
             {
                 self.scope_map = ScopeMap::new();
                 self.current_stmt_index = 0;
-                
+
                 for param in struct_def.destructor.params.iter() {
                     let kind = self.classify_type_kind(param.ty);
                     let is_copyable = self.is_type_copyable(param.ty);
@@ -246,7 +237,7 @@ impl<'hir> OwnershipPass<'hir> {
                         VarData::new(param.name, param.span, kind, param.ty, is_copyable, 0),
                     );
                 }
-                
+
                 if let Err(e) = self.collect_uses_in_block(&struct_def.destructor.body) {
                     self.errors.push(e);
                 } else {
@@ -257,12 +248,12 @@ impl<'hir> OwnershipPass<'hir> {
                 }
             }
         }
-        
+
         // Return the first error if any were collected
         if let Some(err) = self.errors.pop() {
             return Err(err);
         }
-        
+
         Ok(hir)
     }
 
@@ -317,7 +308,14 @@ impl<'hir> OwnershipPass<'hir> {
 
                 self.scope_map.insert(
                     var_stmt.name,
-                    VarData::new(var_stmt.name, var_stmt.span, kind, ty, is_copyable, self.current_stmt_index),
+                    VarData::new(
+                        var_stmt.name,
+                        var_stmt.span,
+                        kind,
+                        ty,
+                        is_copyable,
+                        self.current_stmt_index,
+                    ),
                 );
             }
             HirStatement::Const(var_stmt) => {
@@ -329,7 +327,14 @@ impl<'hir> OwnershipPass<'hir> {
 
                 self.scope_map.insert(
                     var_stmt.name,
-                    VarData::new(var_stmt.name, var_stmt.span, kind, ty, is_copyable, self.current_stmt_index),
+                    VarData::new(
+                        var_stmt.name,
+                        var_stmt.span,
+                        kind,
+                        ty,
+                        is_copyable,
+                        self.current_stmt_index,
+                    ),
                 );
             }
             HirStatement::Expr(expr_stmt) => {
@@ -389,11 +394,12 @@ impl<'hir> OwnershipPass<'hir> {
     ) -> HirResult<()> {
         // Check for ownership transfer in borrowing methods
         if is_ownership_consuming {
-            if let Some(err) = self.check_ownership_transfer_in_borrowing_method(expr, expr.span()) {
+            if let Some(err) = self.check_ownership_transfer_in_borrowing_method(expr, expr.span())
+            {
                 return Err(err);
             }
         }
-        
+
         match expr {
             HirExpr::Ident(ident) => {
                 let use_kind = if is_ownership_consuming {
@@ -421,7 +427,7 @@ impl<'hir> OwnershipPass<'hir> {
                 // Check if this is a method call that consumes `this` (modifier == None)
                 // Methods with `&this` or `&const this` don't consume ownership
                 let method_consumes_this = self.method_consumes_this(&call.callee);
-                
+
                 if method_consumes_this {
                     // For method calls that consume `this`, mark the target as ownership-consuming
                     if let HirExpr::FieldAccess(field_access) = call.callee.as_ref() {
@@ -432,7 +438,7 @@ impl<'hir> OwnershipPass<'hir> {
                 } else {
                     self.collect_uses_in_expr(&call.callee, false)?;
                 }
-                
+
                 for (i, arg) in call.args.iter().enumerate() {
                     // Check if the parameter type is a reference - if so, don't consume ownership
                     let is_ref_param = call.args_ty.get(i).is_some_and(|ty| {
@@ -542,7 +548,9 @@ impl<'hir> OwnershipPass<'hir> {
         // Phase 4: Insert destructors at end of scope
         // BUT: Don't add destructors if the block ends with a return (they're handled there)
         // Also check if the block ends with an if-else where both branches return
-        let ends_with_return = new_statements.last().is_some_and(|s| Self::statement_always_returns(s));
+        let ends_with_return = new_statements
+            .last()
+            .is_some_and(|s| Self::statement_always_returns(s));
         if !ends_with_return {
             let delete_stmts = self.generate_scope_destructors(block.span);
             new_statements.extend(delete_stmts);
@@ -558,10 +566,16 @@ impl<'hir> OwnershipPass<'hir> {
             HirStatement::Return(_) => true,
             HirStatement::IfElse(if_else) => {
                 // Check if both branches end with return
-                let then_returns = if_else.then_branch.statements.last()
+                let then_returns = if_else
+                    .then_branch
+                    .statements
+                    .last()
                     .is_some_and(|s| Self::statement_always_returns(s));
-                let else_returns = if_else.else_branch.as_ref()
-                    .is_some_and(|b| b.statements.last().is_some_and(|s| Self::statement_always_returns(s)));
+                let else_returns = if_else.else_branch.as_ref().is_some_and(|b| {
+                    b.statements
+                        .last()
+                        .is_some_and(|s| Self::statement_always_returns(s))
+                });
                 then_returns && else_returns
             }
             _ => false,
@@ -586,7 +600,14 @@ impl<'hir> OwnershipPass<'hir> {
                 let is_copyable = self.is_type_copyable(ty);
                 self.scope_map.insert(
                     var_stmt.name,
-                    VarData::new(var_stmt.name, var_stmt.span, kind, ty, is_copyable, self.current_stmt_index),
+                    VarData::new(
+                        var_stmt.name,
+                        var_stmt.span,
+                        kind,
+                        ty,
+                        is_copyable,
+                        self.current_stmt_index,
+                    ),
                 );
 
                 let new_stmt = HirStatement::Let(HirVariableStmt {
@@ -609,7 +630,14 @@ impl<'hir> OwnershipPass<'hir> {
                 let is_copyable = self.is_type_copyable(ty);
                 self.scope_map.insert(
                     var_stmt.name,
-                    VarData::new(var_stmt.name, var_stmt.span, kind, ty, is_copyable, self.current_stmt_index),
+                    VarData::new(
+                        var_stmt.name,
+                        var_stmt.span,
+                        kind,
+                        ty,
+                        is_copyable,
+                        self.current_stmt_index,
+                    ),
                 );
 
                 let new_stmt = HirStatement::Const(HirVariableStmt {
@@ -638,20 +666,23 @@ impl<'hir> OwnershipPass<'hir> {
                 // These should NOT be deleted because the return expression needs them
                 let mut vars_used_in_return = Vec::new();
                 self.collect_vars_used_in_expr(&ret.value, &mut vars_used_in_return);
-                
+
                 // Special case: In methods that consume `this` (modifier == None), we need to
                 // delete `this` even if it's "used" in the return expression (e.g., returning a field).
                 // The method is responsible for cleaning up `this` since it took ownership.
                 // Note: This currently may cause issues with destructors that delete the returned field,
                 // but that's a library design issue (optional.value() should set has_value=false first).
-                let is_consuming_method = self.current_method_context.as_ref()
+                let is_consuming_method = self
+                    .current_method_context
+                    .as_ref()
                     .is_some_and(|ctx| ctx.modifier == HirStructMethodModifier::None);
-                
+
                 // Check if we're returning `this` directly (not a field of this)
-                let returning_this_directly = matches!(&ret.value, HirExpr::Ident(ident) if ident.name == "this");
+                let returning_this_directly =
+                    matches!(&ret.value, HirExpr::Ident(ident) if ident.name == "this");
 
                 let mut result = Vec::new();
-                
+
                 let owned_vars = self.scope_map.get_all_owned_vars();
 
                 // Generate delete statements for owned vars declared before this statement
@@ -667,7 +698,8 @@ impl<'hir> OwnershipPass<'hir> {
                     // Skip variables used in the return expression
                     // BUT: In consuming methods, don't skip `this` unless we're returning it directly
                     if vars_used_in_return.contains(&var.name) {
-                        if !(is_consuming_method && var.name == "this" && !returning_this_directly) {
+                        if !(is_consuming_method && var.name == "this" && !returning_this_directly)
+                        {
                             continue;
                         }
                     }
@@ -683,11 +715,13 @@ impl<'hir> OwnershipPass<'hir> {
                 }
 
                 // Add the return statement
-                result.push(HirStatement::Return(crate::atlas_c::atlas_hir::stmt::HirReturn {
-                    span: ret.span,
-                    value: transformed,
-                    ty: ret.ty,
-                }));
+                result.push(HirStatement::Return(
+                    crate::atlas_c::atlas_hir::stmt::HirReturn {
+                        span: ret.span,
+                        value: transformed,
+                        ty: ret.ty,
+                    },
+                ));
 
                 Ok(result)
             }
@@ -772,38 +806,42 @@ impl<'hir> OwnershipPass<'hir> {
                 // For assignment to existing variable, we need to delete old value first
                 // This is handled at a higher level - here we just transform the RHS
                 let transformed_lhs = self.transform_expr_ownership(&assign.lhs, false)?;
-                
+
                 // Special case: If LHS is an indexing expression (container slot), we allow
                 // moving from another container slot without the strict check. This enables
                 // reallocation patterns like: new_data[i] = this.data[i]
                 let lhs_is_container_slot = Self::is_indexing_expr(&assign.lhs);
                 let rhs_is_container_slot = Self::is_indexing_expr(&assign.rhs);
-                
+
                 // If we're moving from one container slot to another, don't apply strict
                 // ownership checking on the RHS - this is a transfer, not an escape
                 let rhs_consumes_ownership = if lhs_is_container_slot && rhs_is_container_slot {
-                    false  // Will just copy the reference, which is fine for reallocation
+                    false // Will just copy the reference, which is fine for reallocation
                 } else {
                     true
                 };
-                
-                let transformed_rhs = self.transform_expr_ownership(&assign.rhs, rhs_consumes_ownership)?;
 
-                Ok(HirExpr::Assign(crate::atlas_c::atlas_hir::expr::HirAssignExpr {
-                    span: assign.span,
-                    lhs: Box::new(transformed_lhs),
-                    rhs: Box::new(transformed_rhs),
-                    ty: assign.ty,
-                }))
+                let transformed_rhs =
+                    self.transform_expr_ownership(&assign.rhs, rhs_consumes_ownership)?;
+
+                Ok(HirExpr::Assign(
+                    crate::atlas_c::atlas_hir::expr::HirAssignExpr {
+                        span: assign.span,
+                        lhs: Box::new(transformed_lhs),
+                        rhs: Box::new(transformed_rhs),
+                        ty: assign.ty,
+                    },
+                ))
             }
             HirExpr::Call(call) => {
                 // Check if this is a method call that consumes `this` (modifier == None)
                 let method_consumes_this = self.method_consumes_this(&call.callee);
-                
+
                 let transformed_callee = if method_consumes_this {
                     // For method calls that consume `this`, transform the target as ownership-consuming
                     if let HirExpr::FieldAccess(field_access) = call.callee.as_ref() {
-                        let transformed_target = self.transform_expr_ownership(&field_access.target, true)?;
+                        let transformed_target =
+                            self.transform_expr_ownership(&field_access.target, true)?;
                         HirExpr::FieldAccess(crate::atlas_c::atlas_hir::expr::HirFieldAccessExpr {
                             span: field_access.span,
                             target: Box::new(transformed_target),
@@ -816,7 +854,7 @@ impl<'hir> OwnershipPass<'hir> {
                 } else {
                     self.transform_expr_ownership(&call.callee, false)?
                 };
-                
+
                 let mut transformed_args = Vec::new();
 
                 for (i, arg) in call.args.iter().enumerate() {
@@ -829,15 +867,17 @@ impl<'hir> OwnershipPass<'hir> {
                     transformed_args.push(self.transform_expr_ownership(arg, consumes_ownership)?);
                 }
 
-                Ok(HirExpr::Call(crate::atlas_c::atlas_hir::expr::HirFunctionCallExpr {
-                    span: call.span,
-                    callee: Box::new(transformed_callee),
-                    callee_span: call.callee_span,
-                    args: transformed_args,
-                    args_ty: call.args_ty.clone(),
-                    generics: call.generics.clone(),
-                    ty: call.ty,
-                }))
+                Ok(HirExpr::Call(
+                    crate::atlas_c::atlas_hir::expr::HirFunctionCallExpr {
+                        span: call.span,
+                        callee: Box::new(transformed_callee),
+                        callee_span: call.callee_span,
+                        args: transformed_args,
+                        args_ty: call.args_ty.clone(),
+                        generics: call.generics.clone(),
+                        ty: call.ty,
+                    },
+                ))
             }
             HirExpr::HirBinaryOperation(binop) => {
                 let transformed_lhs = self.transform_expr_ownership(&binop.lhs, false)?;
@@ -866,15 +906,18 @@ impl<'hir> OwnershipPass<'hir> {
                     // No operator means this is just a wrapper - propagate the consuming flag
                     None => is_ownership_consuming,
                 };
-                
-                let transformed_inner = self.transform_expr_ownership(&unary.expr, inner_consumes)?;
 
-                Ok(HirExpr::Unary(crate::atlas_c::atlas_hir::expr::UnaryOpExpr {
-                    span: unary.span,
-                    op: unary.op.clone(),
-                    expr: Box::new(transformed_inner),
-                    ty: unary.ty,
-                }))
+                let transformed_inner =
+                    self.transform_expr_ownership(&unary.expr, inner_consumes)?;
+
+                Ok(HirExpr::Unary(
+                    crate::atlas_c::atlas_hir::expr::UnaryOpExpr {
+                        span: unary.span,
+                        op: unary.op.clone(),
+                        expr: Box::new(transformed_inner),
+                        ty: unary.ty,
+                    },
+                ))
             }
             HirExpr::NewObj(new_obj) => {
                 let mut transformed_args = Vec::new();
@@ -882,12 +925,14 @@ impl<'hir> OwnershipPass<'hir> {
                     transformed_args.push(self.transform_expr_ownership(arg, true)?);
                 }
 
-                Ok(HirExpr::NewObj(crate::atlas_c::atlas_hir::expr::HirNewObjExpr {
-                    span: new_obj.span,
-                    ty: new_obj.ty,
-                    args: transformed_args,
-                    args_ty: new_obj.args_ty.clone(),
-                }))
+                Ok(HirExpr::NewObj(
+                    crate::atlas_c::atlas_hir::expr::HirNewObjExpr {
+                        span: new_obj.span,
+                        ty: new_obj.ty,
+                        args: transformed_args,
+                        args_ty: new_obj.args_ty.clone(),
+                    },
+                ))
             }
             HirExpr::ObjLiteral(obj_lit) => {
                 let mut transformed_fields = Vec::new();
@@ -926,15 +971,14 @@ impl<'hir> OwnershipPass<'hir> {
             }
             HirExpr::FieldAccess(field) => {
                 let transformed_target = self.transform_expr_ownership(&field.target, false)?;
-                let field_access_expr = HirExpr::FieldAccess(
-                    crate::atlas_c::atlas_hir::expr::HirFieldAccessExpr {
+                let field_access_expr =
+                    HirExpr::FieldAccess(crate::atlas_c::atlas_hir::expr::HirFieldAccessExpr {
                         span: field.span,
                         target: Box::new(transformed_target),
                         field: field.field.clone(),
                         ty: field.ty,
-                    },
-                );
-                
+                    });
+
                 // If ownership is being consumed (e.g., returning a field, passing to a function),
                 // we need to either COPY the field value (if copyable) or MOVE it (if not).
                 // This prevents the aliasing issue where both the struct and the returned value
@@ -967,13 +1011,14 @@ impl<'hir> OwnershipPass<'hir> {
             HirExpr::Indexing(indexing) => {
                 let transformed_target = self.transform_expr_ownership(&indexing.target, false)?;
                 let transformed_index = self.transform_expr_ownership(&indexing.index, false)?;
-                let indexing_expr = HirExpr::Indexing(crate::atlas_c::atlas_hir::expr::HirIndexingExpr {
-                    span: indexing.span,
-                    target: Box::new(transformed_target),
-                    index: Box::new(transformed_index),
-                    ty: indexing.ty,
-                });
-                
+                let indexing_expr =
+                    HirExpr::Indexing(crate::atlas_c::atlas_hir::expr::HirIndexingExpr {
+                        span: indexing.span,
+                        target: Box::new(transformed_target),
+                        index: Box::new(transformed_index),
+                        ty: indexing.ty,
+                    });
+
                 // If ownership is being consumed, we need to COPY or emit an error
                 if is_ownership_consuming {
                     let is_copyable = self.is_type_copyable(indexing.ty);
@@ -998,7 +1043,7 @@ impl<'hir> OwnershipPass<'hir> {
                         // If the index is a plain identifier (parameter/local variable), it's likely
                         // a get() pattern which is unsafe for non-copyable types.
                         let is_take_pattern = Self::index_references_this_field(&indexing.index);
-                        
+
                         if is_take_pattern {
                             // Allow the move - programmer is implementing take semantics
                             Ok(HirExpr::Move(HirMoveExpr {
@@ -1011,11 +1056,13 @@ impl<'hir> OwnershipPass<'hir> {
                             // Not a take pattern - emit error
                             let path = indexing.span.path;
                             let src = utils::get_file_content(path).unwrap_or_default();
-                            Err(HirError::CannotMoveOutOfContainer(CannotMoveOutOfContainerError {
-                                span: indexing.span,
-                                ty_name: indexing.ty.to_string(),
-                                src: NamedSource::new(path, src),
-                            }))
+                            Err(HirError::CannotMoveOutOfContainer(
+                                CannotMoveOutOfContainerError {
+                                    span: indexing.span,
+                                    ty_name: indexing.ty.to_string(),
+                                    src: NamedSource::new(path, src),
+                                },
+                            ))
                         }
                     }
                 } else {
@@ -1023,12 +1070,15 @@ impl<'hir> OwnershipPass<'hir> {
                 }
             }
             HirExpr::Casting(cast) => {
-                let transformed = self.transform_expr_ownership(&cast.expr, is_ownership_consuming)?;
-                Ok(HirExpr::Casting(crate::atlas_c::atlas_hir::expr::HirCastExpr {
-                    span: cast.span,
-                    expr: Box::new(transformed),
-                    ty: cast.ty,
-                }))
+                let transformed =
+                    self.transform_expr_ownership(&cast.expr, is_ownership_consuming)?;
+                Ok(HirExpr::Casting(
+                    crate::atlas_c::atlas_hir::expr::HirCastExpr {
+                        span: cast.span,
+                        expr: Box::new(transformed),
+                        ty: cast.ty,
+                    },
+                ))
             }
             // Delete expressions - mark the variable as deleted so it won't be auto-deleted later
             HirExpr::Delete(del) => {
@@ -1038,10 +1088,12 @@ impl<'hir> OwnershipPass<'hir> {
                     HirExpr::Unary(u) if u.op.is_none() => u.expr.as_ref(),
                     other => other,
                 };
-                
+
                 if let HirExpr::Ident(ident) = inner_expr {
                     if let Some(var_data) = self.scope_map.get_mut(ident.name) {
-                        var_data.status = VarStatus::Deleted { delete_span: del.span };
+                        var_data.status = VarStatus::Deleted {
+                            delete_span: del.span,
+                        };
                     }
                 }
                 // Return the delete expression as-is
@@ -1075,11 +1127,13 @@ impl<'hir> OwnershipPass<'hir> {
         if let VarStatus::Moved { move_span } = &var_data.status {
             let path = ident.span.path;
             let src = utils::get_file_content(path).unwrap_or_default();
-            return Err(HirError::TryingToAccessAMovedValue(TryingToAccessAMovedValueError {
-                move_span: *move_span,
-                access_span: ident.span,
-                src: NamedSource::new(path, src),
-            }));
+            return Err(HirError::TryingToAccessAMovedValue(
+                TryingToAccessAMovedValueError {
+                    move_span: *move_span,
+                    access_span: ident.span,
+                    src: NamedSource::new(path, src),
+                },
+            ));
         }
 
         // Reference types don't transfer ownership
@@ -1169,12 +1223,14 @@ impl<'hir> OwnershipPass<'hir> {
             // Unary expressions (e.g., negation, None-wrapping) - recurse into inner
             HirExpr::Unary(unary) => {
                 let transformed_inner = self.transform_expr_for_return(&unary.expr)?;
-                Ok(HirExpr::Unary(crate::atlas_c::atlas_hir::expr::UnaryOpExpr {
-                    span: unary.span,
-                    op: unary.op.clone(),
-                    expr: Box::new(transformed_inner),
-                    ty: unary.ty,
-                }))
+                Ok(HirExpr::Unary(
+                    crate::atlas_c::atlas_hir::expr::UnaryOpExpr {
+                        span: unary.span,
+                        op: unary.op.clone(),
+                        expr: Box::new(transformed_inner),
+                        ty: unary.ty,
+                    },
+                ))
             }
             // For complex expressions, transform recursively
             _ => self.transform_expr_ownership(expr, true),
@@ -1205,7 +1261,11 @@ impl<'hir> OwnershipPass<'hir> {
     }
 
     /// Create a delete statement for a variable
-    fn create_delete_stmt(var_name: &'hir str, var_ty: &'hir HirTy<'hir>, span: Span) -> HirStatement<'hir> {
+    fn create_delete_stmt(
+        var_name: &'hir str,
+        var_ty: &'hir HirTy<'hir>,
+        span: Span,
+    ) -> HirStatement<'hir> {
         HirStatement::Expr(HirExprStmt {
             span,
             expr: HirExpr::Delete(HirDeleteExpr {
@@ -1383,7 +1443,7 @@ impl<'hir> OwnershipPass<'hir> {
     }
 
     /// Check if a method call consumes `this` (takes ownership, not a reference)
-    /// 
+    ///
     /// Returns true if:
     /// - The callee is a FieldAccess (method call on object)
     /// - The method has modifier == None (meaning `fun foo(this)` not `fun foo(&this)` or `fun foo(&const this)`)
@@ -1391,17 +1451,21 @@ impl<'hir> OwnershipPass<'hir> {
         if let HirExpr::FieldAccess(field_access) = callee {
             // Get the type of the target to find the struct
             let target_ty = field_access.target.ty();
-            
+
             // For generic types, we need to use the mangled name to look up in the signature
             let struct_name: Option<&str> = match target_ty {
                 HirTy::Named(n) => Some(n.name),
                 HirTy::Generic(g) => {
                     // Generic types are stored under their mangled name
-                    Some(MonomorphizationPass::mangle_generic_object_name(self.hir_arena, g, "struct"))
-                },
+                    Some(MonomorphizationPass::mangle_generic_object_name(
+                        self.hir_arena,
+                        g,
+                        "struct",
+                    ))
+                }
                 _ => None,
             };
-            
+
             if let Some(name) = struct_name {
                 if let Some(struct_sig) = self.hir_signature.structs.get(name) {
                     if let Some(method_sig) = struct_sig.methods.get(field_access.field.name) {
@@ -1445,22 +1509,18 @@ impl<'hir> OwnershipPass<'hir> {
             HirTy::List(_) => false,
 
             // Named types (structs) are copyable if they have a _copy method
-            HirTy::Named(named) => {
-                self.hir_signature
-                    .structs
-                    .get(named.name)
-                    .is_some_and(|s| s.methods.contains_key("_copy"))
-            }
+            HirTy::Named(named) => self
+                .hir_signature
+                .structs
+                .get(named.name)
+                .is_some_and(|s| s.methods.contains_key("_copy")),
 
             // Generic types - need to check the monomorphized/instantiated struct
             HirTy::Generic(g) => {
                 // Compute the mangled name that the monomorphized struct is stored under
                 // Format: __atlas77__struct__<Name>__<Type1>_<Type2>_...
-                let mangled_name = MonomorphizationPass::mangle_generic_object_name(
-                    self.hir_arena,
-                    g,
-                    "struct",
-                );
+                let mangled_name =
+                    MonomorphizationPass::mangle_generic_object_name(self.hir_arena, g, "struct");
                 self.hir_signature
                     .structs
                     .get(mangled_name)
@@ -1473,7 +1533,7 @@ impl<'hir> OwnershipPass<'hir> {
     }
 
     /// Check if a type is a type parameter (uninstantiated generic like T, K, V)
-    /// 
+    ///
     /// Type parameters are represented as HirTy::Named where the name is not a known struct.
     /// We skip ownership checks for these because the actual type is unknown at generic
     /// definition time - the check will happen at instantiation when concrete types are used.
@@ -1489,7 +1549,7 @@ impl<'hir> OwnershipPass<'hir> {
 
     /// Check if we're in a borrowing method (`&this` or `&const this`) and trying to
     /// transfer ownership of `this` or a non-copyable field of `this`.
-    /// 
+    ///
     /// This catches errors like:
     /// ```atlas
     /// fun into_iter(&this) -> Iter<T> {  // ERROR: &this means we don't own this
@@ -1503,19 +1563,25 @@ impl<'hir> OwnershipPass<'hir> {
     ) -> Option<HirError> {
         // Only check if we're in a borrowing method
         let ctx = self.current_method_context.as_ref()?;
-        
+
         // Only &this (Mutable) and &const this (Const) are borrowing methods
         // `this` (None) owns and can transfer, Static has no `this`
-        if !matches!(ctx.modifier, HirStructMethodModifier::Mutable | HirStructMethodModifier::Const) {
+        if !matches!(
+            ctx.modifier,
+            HirStructMethodModifier::Mutable | HirStructMethodModifier::Const
+        ) {
             return None;
         }
-        
+
         // Check if the expression is `this` or `this.field`
         let (value_name, is_this_related) = match expr {
             HirExpr::ThisLiteral(_) => {
                 // Check if the struct type is copyable by looking it up in hir_signature
-                if self.hir_signature.structs.get(ctx.struct_name)
-                    .is_some_and(|s| s.methods.contains_key("_copy")) 
+                if self
+                    .hir_signature
+                    .structs
+                    .get(ctx.struct_name)
+                    .is_some_and(|s| s.methods.contains_key("_copy"))
                 {
                     return None;
                 }
@@ -1530,17 +1596,17 @@ impl<'hir> OwnershipPass<'hir> {
                     if ctx.is_generic_struct {
                         return None;
                     }
-                    
+
                     // Check if the field type is copyable or is a type parameter
                     let field_ty = fa.ty;
-                    
+
                     // Skip check for type parameters (uninstantiated generics like T, K, V)
                     // These are represented as HirTy::Named with a single-letter name typically
                     // The check will happen at instantiation time when the concrete type is known
                     if self.is_type_parameter(field_ty) {
                         return None;
                     }
-                    
+
                     if !self.is_type_copyable(field_ty) {
                         (format!("this.{}", fa.field.name), true)
                     } else {
@@ -1568,10 +1634,10 @@ impl<'hir> OwnershipPass<'hir> {
                 transfer_span: expr_span,
                 value_name,
                 src: NamedSource::new(path, src),
-            }
+            },
         ))
     }
-    
+
     /// Checks if a block (recursively) contains a `delete this` statement
     fn block_contains_delete_this(block: &HirBlock<'hir>) -> bool {
         for stmt in &block.statements {
@@ -1581,21 +1647,24 @@ impl<'hir> OwnershipPass<'hir> {
         }
         false
     }
-    
+
     /// Checks if a statement (recursively) contains a `delete this` statement
     fn stmt_contains_delete_this(stmt: &HirStatement<'hir>) -> bool {
         match stmt {
             HirStatement::Expr(expr_stmt) => Self::expr_is_delete_this(&expr_stmt.expr),
             HirStatement::IfElse(if_else) => {
                 Self::block_contains_delete_this(&if_else.then_branch)
-                    || if_else.else_branch.as_ref().is_some_and(Self::block_contains_delete_this)
+                    || if_else
+                        .else_branch
+                        .as_ref()
+                        .is_some_and(Self::block_contains_delete_this)
             }
             HirStatement::While(while_stmt) => Self::block_contains_delete_this(&while_stmt.body),
             HirStatement::_Block(block) => Self::block_contains_delete_this(block),
             _ => false,
         }
     }
-    
+
     /// Checks if an expression is `delete this`
     fn expr_is_delete_this(expr: &HirExpr<'hir>) -> bool {
         match expr {
@@ -1616,7 +1685,7 @@ impl<'hir> OwnershipPass<'hir> {
             _ => false,
         }
     }
-    
+
     /// Checks if a block transfers ownership of `this` (e.g., by returning `this.field` or passing `this` to another function)
     fn block_transfers_this_ownership(block: &HirBlock<'hir>) -> bool {
         for stmt in &block.statements {
@@ -1626,28 +1695,33 @@ impl<'hir> OwnershipPass<'hir> {
         }
         false
     }
-    
+
     /// Checks if a statement transfers ownership of `this`
     fn stmt_transfers_this_ownership(stmt: &HirStatement<'hir>) -> bool {
         match stmt {
             HirStatement::Return(ret) => Self::expr_uses_this(&ret.value),
             HirStatement::IfElse(if_else) => {
                 Self::block_transfers_this_ownership(&if_else.then_branch)
-                    || if_else.else_branch.as_ref().is_some_and(Self::block_transfers_this_ownership)
+                    || if_else
+                        .else_branch
+                        .as_ref()
+                        .is_some_and(Self::block_transfers_this_ownership)
             }
-            HirStatement::While(while_stmt) => Self::block_transfers_this_ownership(&while_stmt.body),
+            HirStatement::While(while_stmt) => {
+                Self::block_transfers_this_ownership(&while_stmt.body)
+            }
             HirStatement::_Block(block) => Self::block_transfers_this_ownership(block),
             _ => false,
         }
     }
-    
+
     /// Checks if an expression uses `this` or a field of `this` (indicating ownership transfer)
     fn expr_uses_this(expr: &HirExpr<'hir>) -> bool {
         match expr {
             HirExpr::ThisLiteral(_) => true,
             HirExpr::FieldAccess(fa) => Self::expr_uses_this(&fa.target),
             HirExpr::Call(call) => {
-                Self::expr_uses_this(&call.callee) 
+                Self::expr_uses_this(&call.callee)
                     || call.args.iter().any(|arg| Self::expr_uses_this(arg))
             }
             HirExpr::Move(m) => Self::expr_uses_this(&m.expr),
@@ -1658,18 +1732,18 @@ impl<'hir> OwnershipPass<'hir> {
             _ => false,
         }
     }
-    
+
     /// Emits a warning for consuming methods that don't delete `this`
     fn emit_consuming_method_warning(method_name: &str, span: Span) {
         let path = span.path;
         let src = utils::get_file_content(path).unwrap_or_default();
-        let warning: ErrReport = HirWarning::ConsumingMethodMayLeakThis(
-            ConsumingMethodMayLeakThisWarning {
+        let warning: ErrReport =
+            HirWarning::ConsumingMethodMayLeakThis(ConsumingMethodMayLeakThisWarning {
                 src: NamedSource::new(path, src),
                 span,
                 method_name: method_name.to_string(),
-            }
-        ).into();
+            })
+            .into();
         eprintln!("{:?}", warning);
     }
 }

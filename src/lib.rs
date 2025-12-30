@@ -16,8 +16,8 @@ use atlas_c::{
     atlas_frontend::{parse, parser::arena::AstArena},
     atlas_hir::{
         arena::HirArena, monomorphization_pass::MonomorphizationPass,
-        ownership_pass::OwnershipPass,
-        syntax_lowering_pass::AstSyntaxLoweringPass, type_check_pass::TypeChecker,
+        ownership_pass::OwnershipPass, syntax_lowering_pass::AstSyntaxLoweringPass,
+        type_check_pass::TypeChecker,
     },
 };
 use bumpalo::Bump;

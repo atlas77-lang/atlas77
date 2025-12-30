@@ -99,7 +99,9 @@ impl HirError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
     code(sema::returning_reference_to_local_variable),
-    help("references to local variables cannot be returned because the variable will be dropped when the function returns")
+    help(
+        "references to local variables cannot be returned because the variable will be dropped when the function returns"
+    )
 )]
 #[error("cannot return reference to local variable `{var_name}`")]
 pub struct ReturningReferenceToLocalVariableError {
@@ -115,7 +117,9 @@ pub struct ReturningReferenceToLocalVariableError {
     code(sema::invalid_special_method_signature),
     help("Ensure special methods have the correct signature, try {expected}")
 )]
-#[error("Invalid special method signature for method '{method_name}': expected {expected}")]
+#[error(
+    "Invalid special method signature for method '{method_name}': expected {expected} but found {actual}"
+)]
 pub struct InvalidSpecialMethodSignatureError {
     #[label = "invalid special method signature"]
     pub span: Span,
@@ -704,7 +708,9 @@ pub struct TypeMismatchActual {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
     code(sema::trying_to_copy_non_copyable_type),
-    help("type `{ty}` does not implement a copy constructor (`_copy` method). Consider moving the value instead, or implement a `_copy` method for the type.")
+    help(
+        "type `{ty}` does not implement a copy constructor (`_copy` method). Consider moving the value instead, or implement a `_copy` method for the type."
+    )
 )]
 #[error("cannot copy value of type `{ty}` because it does not implement a copy constructor")]
 pub struct TryingToCopyNonCopyableTypeError {
@@ -718,7 +724,9 @@ pub struct TryingToCopyNonCopyableTypeError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
     code(sema::double_move),
-    help("a value can only be moved once. Consider cloning the value before the first move if you need to use it multiple times.")
+    help(
+        "a value can only be moved once. Consider cloning the value before the first move if you need to use it multiple times."
+    )
 )]
 #[error("value has already been moved")]
 pub struct DoubleMoveError {
@@ -777,7 +785,9 @@ pub struct UnknownMethodError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
     code(sema::cannot_transfer_ownership_in_borrowing_method),
-    help("change the method to use `this` instead of `&this` if it needs to transfer ownership, or copy the value if the type is copyable")
+    help(
+        "change the method to use `this` instead of `&this` if it needs to transfer ownership, or copy the value if the type is copyable"
+    )
 )]
 #[error("cannot transfer ownership of `{value_name}` in a borrowing method")]
 pub struct CannotTransferOwnershipInBorrowingMethodError {
@@ -793,7 +803,9 @@ pub struct CannotTransferOwnershipInBorrowingMethodError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
     code(sema::cannot_move_out_of_container),
-    help("consider returning a reference (`&T` or `&const T`) instead, or implement `_copy` for this type to make it copyable")
+    help(
+        "consider returning a reference (`&T` or `&const T`) instead, or implement `_copy` for this type to make it copyable"
+    )
 )]
 #[error("cannot move non-copyable type `{ty_name}` out of container")]
 pub struct CannotMoveOutOfContainerError {

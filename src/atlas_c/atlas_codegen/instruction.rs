@@ -88,7 +88,9 @@ pub enum Instruction {
     /// Store a value to the address on top of stack
     StoreIndirect, // [Ref, Value] -> []
     /// Get the address of a field in an object
-    GetFieldAddr { field: usize }, // [ObjPtr] -> [Ref]
+    GetFieldAddr {
+        field: usize,
+    }, // [ObjPtr] -> [Ref]
 
     // === Type ops ===
     CastTo(Type), // Explicit type coercion (if kept)

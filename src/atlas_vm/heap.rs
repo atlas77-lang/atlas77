@@ -114,7 +114,7 @@ impl Heap {
             heap_size: self.memory.len(),
         }
     }
-    
+
     /// Count currently allocated (non-free) objects
     pub fn count_allocated_objects(&self) -> usize {
         self.memory
@@ -122,13 +122,13 @@ impl Heap {
             .filter(|obj| !matches!(obj.kind, ObjectKind::Free { .. }))
             .count()
     }
-    
+
     /// Count objects by type
     pub fn count_objects_by_type(&self) -> (usize, usize, usize) {
         let mut strings = 0;
         let mut structures = 0;
         let mut lists = 0;
-        
+
         for obj in &self.memory {
             match &obj.kind {
                 ObjectKind::Free { .. } => {}
@@ -137,15 +137,15 @@ impl Heap {
                 ObjectKind::List(_) => lists += 1,
             }
         }
-        
+
         (strings, structures, lists)
     }
-    
+
     /// Print memory leak report
     pub fn print_memory_report(&self) {
         let stats = self.get_stats();
         let (strings, structures, lists) = self.count_objects_by_type();
-        
+
         println!("\n=== MEMORY REPORT ===");
         println!("Total allocations:   {}", stats.total_allocations);
         println!("Total deallocations: {}", stats.total_deallocations);
@@ -154,14 +154,17 @@ impl Heap {
         println!("  - Strings:         {}", strings);
         println!("  - Structures:      {}", structures);
         println!("  - Lists:           {}", lists);
-        
+
         // String constants are expected to remain (they're literals)
         // Real leaks are structures/lists that weren't freed
         let real_leaks = structures + lists;
         if real_leaks > 0 {
             println!("⚠️  MEMORY LEAK: {} object(s) not freed!", real_leaks);
         } else if strings > 0 {
-            println!("✓ No object memory leaks! ({} string constants remain)", strings);
+            println!(
+                "✓ No object memory leaks! ({} string constants remain)",
+                strings
+            );
         } else {
             println!("✓ No memory leaks detected!");
         }

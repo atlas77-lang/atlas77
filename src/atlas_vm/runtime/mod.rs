@@ -563,28 +563,21 @@ impl<'run> AtlasRuntime<'run> {
                     VMData {
                         tag: VMTag::Object | VMTag::List | VMTag::String,
                         ..
-                    } => {
-                        stack_top.as_object()
-                    }
+                    } => stack_top.as_object(),
                     VMData {
-                        tag: VMTag::Ref,
-                        ..
+                        tag: VMTag::Ref, ..
                     } => {
                         let ref_ptr = stack_top.as_ref();
                         // Safety: The pointer should be valid as long as the referenced variable
                         // is still in scope. The type system should ensure this.
                         let deref_data = unsafe { *ref_ptr };
                         if !deref_data.is_object() {
-                            return Err(RuntimeError::InvalidObjectAccess(
-                                deref_data.tag,
-                            ));
+                            return Err(RuntimeError::InvalidObjectAccess(deref_data.tag));
                         }
                         deref_data.as_object()
                     }
                     _ => {
-                        return Err(RuntimeError::InvalidObjectAccess(
-                            stack_top.tag,
-                        ));
+                        return Err(RuntimeError::InvalidObjectAccess(stack_top.tag));
                     }
                 };
                 let raw_obj = self.heap.get(obj_ptr)?;

@@ -3,7 +3,10 @@ mod context;
 use super::{
     HirFunction, HirModule, HirModuleSignature,
     arena::HirArena,
-    error::{HirError, HirResult, TypeMismatchError, UnknownTypeError, UnknownIdentifierError, UnknownFieldError, UnknownMethodError},
+    error::{
+        HirError, HirResult, TypeMismatchError, UnknownFieldError, UnknownIdentifierError,
+        UnknownMethodError, UnknownTypeError,
+    },
     expr,
     expr::{HirBinaryOperator, HirExpr},
     stmt::HirStatement,
@@ -39,9 +42,9 @@ use crate::atlas_c::atlas_hir::{
 };
 use crate::atlas_c::atlas_hir::{
     error::{
+        ReturningReferenceToLocalVariableError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin,
-        ReturningReferenceToLocalVariableError,
     },
     type_check_pass::context::{ContextFunction, ContextVariable},
 };
@@ -252,7 +255,7 @@ impl<'hir> TypeChecker<'hir> {
                             span: method.signature.span,
                             method_name: name.to_string(),
                             expected: "1 parameter (&const this)".to_string(),
-                            actual: format!("{} parameters", method.signature.params.len()),
+                            actual: format!("{} parameters", method.signature.params.len() + 1), // + 1 for implicit this
                             src: NamedSource::new(
                                 method.signature.span.path,
                                 utils::get_file_content(method.signature.span.path).unwrap(),
@@ -336,7 +339,7 @@ impl<'hir> TypeChecker<'hir> {
             }
             HirStatement::Return(r) => {
                 let actual_ret_ty = self.check_expr(&mut r.value)?;
-                
+
                 // Check for returning a reference to a local variable (directly or through a struct)
                 let local_refs = self.get_local_ref_targets(&r.value);
                 if let Some(local_var_name) = local_refs.first() {
@@ -350,7 +353,7 @@ impl<'hir> TypeChecker<'hir> {
                         },
                     ));
                 }
-                
+
                 let mut expected_ret_ty = self.arena.types().get_uninitialized_ty();
                 let mut span = Span::default();
                 if self.current_class_name.is_some() {
@@ -449,10 +452,10 @@ impl<'hir> TypeChecker<'hir> {
                 let expr_ty = self.check_expr(&mut c.value)?;
                 let const_ty = c.ty.unwrap_or(expr_ty);
                 c.ty = Some(const_ty);
-                
+
                 // Check if the const is being assigned a reference to a local variable
                 let refs_locals = self.get_local_ref_targets(&c.value);
-                
+
                 self.context_functions
                     .last_mut()
                     .unwrap()
@@ -482,10 +485,10 @@ impl<'hir> TypeChecker<'hir> {
                 let expr_ty = self.check_expr(&mut l.value)?;
                 let var_ty = l.ty.unwrap_or(expr_ty);
                 l.ty = Some(var_ty);
-                
+
                 // Check if the let is being assigned a reference to a local variable
                 let refs_locals = self.get_local_ref_targets(&l.value);
-                
+
                 self.context_functions
                     .last_mut()
                     .unwrap()
@@ -910,7 +913,11 @@ impl<'hir> TypeChecker<'hir> {
                     let field_signature = match union_signature.variants.get(field.name) {
                         Some(f) => f,
                         None => {
-                            return Err(Self::unknown_field_err(field.name, union_ty.name, &field.span));
+                            return Err(Self::unknown_field_err(
+                                field.name,
+                                union_ty.name,
+                                &field.span,
+                            ));
                         }
                     };
                     let field_ty = self.check_expr(&mut field.value)?;
@@ -1754,7 +1761,7 @@ impl<'hir> TypeChecker<'hir> {
             }
             // NOTE: Removed implicit value-to-reference coercion.
             // Previously, `&const T` could match `T` and `&mut T` could match `T`.
-            // This caused issues with ownership: the type checker would accept `len(list)` 
+            // This caused issues with ownership: the type checker would accept `len(list)`
             // when `len` expects `&const [T]`, but the ownership pass didn't know about
             // the implicit borrow and would try to move/consume the list.
             // Now users must explicitly write `len(&list)` to borrow.
@@ -1996,12 +2003,12 @@ impl<'hir> TypeChecker<'hir> {
     /// Check if the expression is a reference (`&expr`) to a local variable,
     /// or an identifier that holds a reference to a local variable.
     /// Returns the name of the local variable if it is, None otherwise.
-    /// 
+    ///
     /// This is used to detect when a function is trying to return a reference
     /// to a local variable, which would be a dangling reference.
     /// Get all local variables that the expression references (directly or transitively).
     /// Returns a list of local variable names if any, empty vec otherwise.
-    /// 
+    ///
     /// This is used to detect when a function is trying to return a reference
     /// to a local variable, which would be a dangling reference.
     fn get_local_ref_targets(&self, expr: &HirExpr<'hir>) -> Vec<&'hir str> {

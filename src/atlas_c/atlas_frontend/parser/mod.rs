@@ -1101,7 +1101,7 @@ impl<'ast> Parser<'ast> {
                     let start_span = node.span();
                     self.expect(TokenKind::Dot)?;
                     let field = self.parse_identifier()?;
-                    
+
                     // Check if this is a method call (has parentheses after)
                     if self.current().kind() == TokenKind::LParen {
                         // This is a method call - just construct the field access and stop
@@ -1113,7 +1113,7 @@ impl<'ast> Parser<'ast> {
                         });
                         break;
                     }
-                    
+
                     node = AstExpr::FieldAccess(AstFieldAccessExpr {
                         span: Span::union_span(&start_span, &field.span),
                         target: self.arena.alloc(node),
@@ -1628,7 +1628,7 @@ impl<'ast> Parser<'ast> {
             // Parse `&const this` or `&this`
             let start_span = self.current().span();
             self.expect(TokenKind::Ampersand)?;
-            
+
             // Check if it's `&const this` or just `&this`
             if self.current().kind == TokenKind::KwConst {
                 // `&const this` - immutable reference
