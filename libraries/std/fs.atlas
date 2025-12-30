@@ -20,6 +20,10 @@ public:
         this.path = path;
     }
 
+    fun _copy(&const this) -> File {
+        return new File(*this.path);
+    }
+
     ~File() {
         //Following the RAII pattern, we close the file when it goes out of scope
         close_file(this.path);

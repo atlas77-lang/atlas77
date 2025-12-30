@@ -24,7 +24,10 @@ public:
             i = i + 1u;
         }
     }
-
+    fun _copy(&const this) -> Vector<T> {
+        let new_data = slice(&this.data, 0u, this.length);
+        return new Vector<T>(new_data);
+    }
     /// A function that doesn't have a "self" parameter is a static function
     /// static functions are called like this: "Vector::<T>::function_name()"
     fun with_capacity(capacity: uint64) -> Vector<T> { //Still unstable feature

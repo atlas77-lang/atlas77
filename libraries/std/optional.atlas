@@ -43,6 +43,13 @@ public:
             delete this.data.value;
         }
     }
+    fun _copy(&const this) -> optional<T> {
+        if (*this.has_value) {
+            return optional<T>::of(this.data.value);
+        } else {
+            return optional<T>::empty();
+        }
+    }
     /// Construct an `optional<T>` containing `data`.
     ///
     /// Example:

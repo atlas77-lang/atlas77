@@ -52,6 +52,18 @@ public:
         delete this.keys;
         delete this.values;
     }
+    fun _copy(&const this) -> Map<K, V> {
+        let new_map = new Map<K, V>();
+        let i: uint64 = 0u;
+        while i < *this.keys.length {
+            let key = (*this.keys).get(i);
+            let value = (*this.values).get(i);
+            new_map.keys.push(key);
+            new_map.values.push(value);
+            i = i + 1u;
+        }
+        return new_map;
+    }
     /// Retrieves the value associated with the given key.
     /// Returns None if the key does not exist.
     fun get(&this, key: K) -> optional<&const V> {

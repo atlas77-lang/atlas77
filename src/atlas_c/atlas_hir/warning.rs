@@ -10,8 +10,24 @@ declare_warning_type!(
         NameShouldBeInDifferentCase(NameShouldBeInDifferentCaseWarning),
         TryingToCastToTheSameType(TryingToCastToTheSameTypeWarning),
         ConsumingMethodMayLeakThis(ConsumingMethodMayLeakThisWarning),
+        CannotGenerateACopyConstructorForThisType(CannotGenerateACopyConstructorForThisTypeWarning),
     }
 );
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::cannot_generate_a_copy_constructor_for_this_type),
+    severity(warning),
+    help("Consider implementing a custom copy constructor for this type")
+)]
+#[error("Cannot generate a copy constructor for type `{type_name}`")]
+pub struct CannotGenerateACopyConstructorForThisTypeWarning {
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label = "Automatic copy constructor generation failed for this type"]
+    pub span: Span,
+    pub type_name: String,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(

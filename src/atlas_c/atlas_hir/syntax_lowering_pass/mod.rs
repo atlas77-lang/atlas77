@@ -51,7 +51,10 @@ use crate::atlas_c::{
         },
         syntax_lowering_pass::case::Case,
         ty::{HirGenericTy, HirNamedTy, HirTy},
-        warning::{HirWarning, NameShouldBeInDifferentCaseWarning, ThisTypeIsStillUnstableWarning},
+        warning::{
+            CannotGenerateACopyConstructorForThisTypeWarning, HirWarning,
+            NameShouldBeInDifferentCaseWarning, ThisTypeIsStillUnstableWarning,
+        },
     },
     utils::{self, Span},
 };
@@ -432,12 +435,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             });
         }
 
-        //Let's add a _copy(&const this) -> ClassName method if it doesn't already exist
-        if !methods.iter().any(|m| m.name == "_copy") {
-            let copy_constructor = self.make_copy_constructor(&fields, node.name, node.generics);
-            methods.push(copy_constructor);
-        }
-
         let mut operators = Vec::new();
         for operator in node.operators.iter() {
             operators.push(self.visit_bin_op(&operator.op)?);
@@ -476,6 +473,31 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
         let constructor = self.visit_constructor(node.constructor, &fields)?;
         let destructor = self.visit_destructor(node.destructor, &fields)?;
+
+        //Let's add a _copy(&const this) -> ClassName method if it doesn't already exist
+        if !methods.iter().any(|m| m.name == "_copy") {
+            //Well, this doesn't actually make sense, what if it's the same amount of fields but different types?
+            //Or what if it's the same amount of fields, the same types, but in different order?
+            //Or even more the same amount of fields, same types, same order, but some fields are references?
+            //Or just a different meaning altogether?
+            //Maybe I should rethink how copy constructors work in Atlas...
+            if fields.len() != constructor.signature.params.len() {
+                let path = node.name.span.path;
+                let src = utils::get_file_content(path).unwrap();
+                let report = HirWarning::CannotGenerateACopyConstructorForThisType(
+                    CannotGenerateACopyConstructorForThisTypeWarning {
+                        span: node.name.span,
+                        src: NamedSource::new(path, src),
+                        type_name: name.to_string(),
+                    },
+                );
+                eprintln!("{:?}", Into::<miette::Report>::into(report));
+            } else {
+                let copy_constructor =
+                    self.make_copy_constructor(&fields, node.name, node.generics);
+                methods.push(copy_constructor);
+            }
+        }
 
         let signature = HirStructSignature {
             declaration_span: node.span,
@@ -603,7 +625,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     args_ty,
                     args: field_inits,
                 }),
-                ty: self.arena.intern(return_ty.clone())
+                ty: self.arena.intern(return_ty.clone()),
             })],
         };
         HirStructMethod {
