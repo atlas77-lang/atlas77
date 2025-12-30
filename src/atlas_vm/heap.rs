@@ -56,15 +56,14 @@ impl Heap {
     pub fn put(&mut self, object: ObjectKind) -> Result<ObjectIndex, RuntimeError> {
         //println!("Allocating object: {:?}", object);
         let idx = self.free;
-        let v = self.memory.get_mut(usize::from(self.free)).unwrap();
-        let repl = std::mem::replace(v, Object { kind: object });
-
-        match repl {
-            Object {
-                kind: ObjectKind::Free { next },
-                ..
-            } => {
-                self.free = next;
+        // Look at the slot first. Only replace it if it's actually free.
+        let slot = self.memory.get_mut(usize::from(self.free)).unwrap();
+        match &slot.kind {
+            ObjectKind::Free { next } => {
+                let next_index = *next;
+                // Now safely replace the free slot with the new object
+                *slot = Object { kind: object };
+                self.free = next_index;
                 self.used_space += 1;
                 self.allocations += 1;
                 if self.used_space > self.peak_usage {
@@ -77,31 +76,21 @@ impl Heap {
     }
 
     pub fn free(&mut self, index: ObjectIndex) -> RuntimeResult<()> {
-        let next = self.free;
-        let v = self.memory.get_mut(usize::from(index)).unwrap();
-
-        let repl = std::mem::replace(
-            v,
-            Object {
-                kind: ObjectKind::Free { next },
-            },
-        );
-        let res = match repl {
-            Object {
-                kind: ObjectKind::Free { .. },
-                ..
-            } => Err(RuntimeError::NullReference(format!(
-                "Double free detected at index {}",
-                usize::from(index)
-            ))),
+        // If slot is already free, do nothing — avoid corrupting the free list.
+        let slot = self.memory.get_mut(usize::from(index)).unwrap();
+        match &slot.kind {
+            ObjectKind::Free { .. } => return Ok(()),
             _ => {
+                let next = self.free;
+                *slot = Object {
+                    kind: ObjectKind::Free { next },
+                };
+                self.free = index;
                 self.used_space = self.used_space.saturating_sub(1);
                 self.deallocations += 1;
                 Ok(())
             }
-        };
-        self.free = index;
-        res
+        }
     }
 
     /// Get memory statistics

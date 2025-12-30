@@ -20,6 +20,7 @@ pub fn len(state: VMState) -> Result<VMData, RuntimeError> {
 pub fn slice(state: VMState) -> Result<VMData, RuntimeError> {
     let end = state.stack.pop()?.as_i64();
     let start = state.stack.pop()?.as_i64();
+    eprintln!("Slicing from {} to {}", start, end);
     let list_ptr = state.stack.pop()?.as_object();
     let raw_list = state.object_map.get(list_ptr)?;
     let list = raw_list.list();

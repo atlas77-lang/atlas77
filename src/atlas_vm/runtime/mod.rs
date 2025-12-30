@@ -82,9 +82,14 @@ impl<'run> AtlasRuntime<'run> {
             //eprintln!("Instr @ {}: {:?}", self.pc, instr.opcode); //--- IGNORE ---
             self.pc += 1;
             match self.execute_instruction(instr) {
-                Ok(_) => {}
+                Ok(_) => {
+                    eprint!("{}, ", self.pc-1)
+                }
                 Err(RuntimeError::HaltEncountered) => break,
-                Err(e) => return Err(e),
+                Err(e) => {
+                    eprintln!("Runtime Error at instruction {}: {:?}", self.pc - 1, e); //--- IGNORE ---
+                    return Err(e)
+                },
             }
             instr_count += 1;
         }

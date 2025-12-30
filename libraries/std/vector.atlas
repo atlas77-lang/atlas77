@@ -25,7 +25,9 @@ public:
         }
     }
     fun _copy(&const this) -> Vector<T> {
-        let new_data = slice(&this.data, 0u, this.length);
+        print("Copying Vector of length: ");
+        println(*this.length);
+        let new_data = slice(&this.data, 0u, *this.length);
         return new Vector<T>(new_data);
     }
     /// A function that doesn't have a "self" parameter is a static function

@@ -353,6 +353,13 @@ impl VMData {
     #[inline(always)]
     #[must_use]
     pub fn as_object(self) -> ObjectIndex {
+        // If this is a reference, dereference it first
+        if self.is_ref() {
+            unsafe {
+                let referenced = &*self.as_ref();
+                return referenced.as_object();
+            }
+        }
         if !self.is_object() {
             unreachable!(
                 "Attempted to get an object from a non-object VMData {:?}",
