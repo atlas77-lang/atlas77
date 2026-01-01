@@ -20,6 +20,7 @@ pub enum RuntimeError {
     HaltEncountered,
     OutOfBoundProgram(usize),
     InvalidObjectAccess(VMTag),
+    InvalidMemCpySource,
 }
 
 impl std::fmt::Display for RuntimeError {
@@ -50,6 +51,7 @@ impl std::fmt::Display for RuntimeError {
             InvalidObjectAccess(tag) => writeln!(f, "Invalid object access: {}", tag),
             HaltEncountered => writeln!(f, "Halt instruction encountered"),
             OutOfBoundProgram(pos) => writeln!(f, "Program counter out of bounds: {}", pos),
+            InvalidMemCpySource => writeln!(f, "Invalid source for memcpy; must be an object"),
         }
     }
 }

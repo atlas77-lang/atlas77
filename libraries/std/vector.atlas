@@ -1,5 +1,7 @@
 import "std/io";
 import "std/iter";
+// We need to import std/mem to use memcpy for the try_take function
+import "std/mem";
 
 public extern len<T>(data: &const [T]) -> uint64;
 public extern slice<T>(data: &const [T], start: uint64, end: uint64) -> [T];
@@ -88,5 +90,28 @@ public:
     /// The vector cannot be used after calling this method.
     fun into_iter(this) -> Iter<T> {
         return new Iter<T>(this);
+    }
+
+    fun take(&this, index: uint64) -> T {
+        // Public method to take an element out of the vector
+        return this.try_take(index);
+    }
+
+private:
+    fun try_take(&this, index: uint64) -> T {
+        if index >= this.length {
+            panic("Index out of bounds");
+        }
+        // Use memcpy to create a copy of the element at index
+        let val = this.data[index];
+        let item = memcpy(&val);
+        // Shift elements to fill the gap
+        let i: uint64 = index;
+        while i + 1u < this.length {
+            this.data[i] = this.data[i + 1u];
+            i = i + 1u;
+        }
+        this.length = this.length - 1u;
+        return item;
     }
 }

@@ -160,6 +160,19 @@ impl VMData {
             _ => false,
         }
     }
+    pub fn is_primitive(&self) -> bool {
+        match self.tag {
+            VMTag::Int64
+            | VMTag::Int32
+            | VMTag::UInt64
+            | VMTag::UInt32
+            | VMTag::Float64
+            | VMTag::Float32
+            | VMTag::Boolean
+            | VMTag::Char => true,
+            _ => false,
+        }
+    }
     def_new_vm_data_func!(new_i64, as_i64, i64, Int64);
     def_new_vm_data_func!(new_i32, as_i32, i32, Int32);
     def_new_vm_data_func!(new_u64, as_u64, u64, UInt64);

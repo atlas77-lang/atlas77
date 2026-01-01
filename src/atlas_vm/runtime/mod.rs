@@ -54,6 +54,10 @@ impl<'run> AtlasRuntime<'run> {
             for (name, func) in atlas_vm::libraries::vector::VECTOR_FUNCTIONS.iter() {
                 extern_fn.insert(name, *func as CallBack);
             }
+            //std/mem
+            for (name, func) in atlas_vm::libraries::mem::MEM_FUNCTIONS.iter() {
+                extern_fn.insert(name, *func as CallBack);
+            }
         }
         Self {
             stack: Stack::new(),
@@ -83,13 +87,13 @@ impl<'run> AtlasRuntime<'run> {
             self.pc += 1;
             match self.execute_instruction(instr) {
                 Ok(_) => {
-                    eprint!("{}, ", self.pc-1)
+                    //eprint!("{}, ", self.pc-1)
                 }
                 Err(RuntimeError::HaltEncountered) => break,
                 Err(e) => {
                     eprintln!("Runtime Error at instruction {}: {:?}", self.pc - 1, e); //--- IGNORE ---
-                    return Err(e)
-                },
+                    return Err(e);
+                }
             }
             instr_count += 1;
         }

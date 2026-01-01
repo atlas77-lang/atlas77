@@ -1,0 +1,3 @@
+/// Copies the memory of a value of type T and returns a new instance with the same data.
+/// Only does a shallow copy; for deep copies, implement _copy on the type T.
+public extern memcpy<T>(data: &T) -> T;
