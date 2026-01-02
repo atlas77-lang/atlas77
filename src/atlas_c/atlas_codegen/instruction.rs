@@ -91,6 +91,7 @@ pub enum Instruction {
     GetFieldAddr {
         field: usize,
     }, // [ObjPtr] -> [Ref]
+    IndexGetAddr, // [Index, Ptr] -> [Ref]
 
     // === Type ops ===
     CastTo(Type), // Explicit type coercion (if kept)
@@ -151,6 +152,7 @@ impl Display for Instruction {
             Instruction::LoadIndirect => write!(f, "LoadIndirect"),
             Instruction::StoreIndirect => write!(f, "StoreIndirect"),
             Instruction::GetFieldAddr { field } => write!(f, "GetFieldAddr {}", field),
+            Instruction::IndexGetAddr => write!(f, "IndexGetAddr"),
             Instruction::CastTo(t) => write!(f, "CastTo {:?}", t),
             Instruction::CloneString => write!(f, "CloneString"),
             Instruction::Halt => write!(f, "Halt"),
@@ -170,6 +172,7 @@ pub enum Type {
     Char,
     Unit,
     Object,
+    //Ref,
 }
 
 impl From<Type> for VMTag {
@@ -184,6 +187,7 @@ impl From<Type> for VMTag {
             Type::Unit => VMTag::Unit,
             Type::List => VMTag::List,
             Type::Object => VMTag::Object,
+            //Type::Ref => VMTag::Ref,
         }
     }
 }
@@ -200,6 +204,7 @@ impl From<&HirTy<'_>> for Type {
             HirTy::Unit(_) => Type::Unit,
             HirTy::List(_) => Type::List,
             HirTy::Named(_) | HirTy::Generic(_) => Type::Object,
+            //HirTy::ReadOnlyReference(_) | HirTy::MutableReference(_) => Type::Ref,
             _ => {
                 panic!(
                     "Unsupported type for conversion to Instruction::Type {:?}",

@@ -56,8 +56,8 @@ public:
         let new_map = new Map<K, V>();
         let i: uint64 = 0u;
         while i < *this.keys.length {
-            let key = (*this.keys).get(i);
-            let value = (*this.values).get(i);
+            let key = *((*this.keys).get(i));
+            let value = *((*this.values).get(i));
             new_map.keys.push(key);
             new_map.values.push(value);
             i = i + 1u;
@@ -69,9 +69,9 @@ public:
     fun get(&this, key: K) -> optional<&const V> {
         let i: uint64 = 0u;
         while i < this.keys.length {
-            if this.keys.get(i) == key {
+            if this.keys.get(i) == &key {
                 let value = this.values.get(i);
-                return optional<&const V>::of(&value);
+                return optional<&const V>::of(value);
             }
             i = i + 1u;
         }
@@ -82,9 +82,9 @@ public:
     fun get_mut(&this, key: K) -> optional<&V> {
         let i: uint64 = 0u;
         while i < this.keys.length {
-            if this.keys.get(i) == key {
+            if this.keys.get(i) == &key {
                 let value = this.values.get(i);
-                return optional<&V>::of(&value);
+                return optional<&V>::of(value);
             }
             i = i + 1u;
         }
@@ -95,7 +95,7 @@ public:
     fun insert(&this, key: K, value: V) {
         let i: uint64 = 0u;
         while i < this.keys.length {
-            if this.keys.get(i) == key {
+            if this.keys.get(i) == &key {
                 // Key exists, update value
                 this.values.set(i, value);
                 return;
@@ -111,12 +111,12 @@ public:
     fun remove(&this, key: K) {
         let i: uint64 = 0u;
         while i < this.keys.length {
-            if this.keys.get(i) == key {
+            if this.keys.get(i) == &key {
                 // Key found, remove key and value by shifting elements
                 let j: uint64 = i;
                 while j + 1u < this.keys.length {
-                    this.keys.set(j, this.keys.get(j + 1u));
-                    this.values.set(j, this.values.get(j + 1u));
+                    this.keys.set(j, this.keys.take(j + 1u));
+                    this.values.set(j, this.values.take(j + 1u));
                     j = j + 1u;
                 }
                 // Decrease lengths
@@ -137,7 +137,7 @@ public:
         let pairs = Vector<Pair<K, V>>::with_capacity(this.keys.length);
         let i: uint64 = 0u;
         while i < this.keys.length {
-            let pair = new Pair<K, V>(this.keys.get(i), this.values.get(i));
+            let pair = new Pair<K, V>(this.keys.take(i), this.values.take(i));
             pairs.push(pair);
             i = i + 1u;
         }

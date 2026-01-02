@@ -531,7 +531,12 @@ impl<'hir> MonomorphizationPass<'hir> {
                 self.monomorphize_expression(&mut expr_stmt.expr, types_to_change, module)?;
             }
             HirStatement::Let(let_stmt) => {
-                //TODO: Make LetStmt ty not optional then monomorphize it here
+                //Let's monomorphize the type if it's not uninitialized
+                if let_stmt.ty != self.arena.types().get_uninitialized_ty() {
+                    let monomorphized_ty =
+                        self.swap_generic_types_in_ty(let_stmt.ty, types_to_change.clone());
+                    let_stmt.ty = monomorphized_ty;
+                }
                 self.monomorphize_expression(&mut let_stmt.value, types_to_change, module)?;
             }
             HirStatement::While(while_stmt) => {

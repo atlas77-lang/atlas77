@@ -87,7 +87,7 @@ impl<'run> AtlasRuntime<'run> {
             self.pc += 1;
             match self.execute_instruction(instr) {
                 Ok(_) => {
-                    //eprint!("{}, ", self.pc-1)
+                    //eprint!("{}, ", self.pc)
                 }
                 Err(RuntimeError::HaltEncountered) => break,
                 Err(e) => {
@@ -646,6 +646,15 @@ impl<'run> AtlasRuntime<'run> {
                 let structure = raw_obj.structure_mut();
                 let field_ptr = &mut structure.fields.ptr[field_idx] as *mut VMData;
                 self.stack.push(VMData::new_ref(field_ptr))
+            }
+            OpCode::INDEX_GET_ADDR => {
+                // Get the address of an element in a list/array
+                let list_ptr = self.stack.pop()?.as_object();
+                let index = self.stack.pop()?.as_u64() as usize;
+                let raw_list = self.heap.get_mut(list_ptr)?;
+                let list = raw_list.list_mut();
+                let elem_ptr = &mut list[index] as *mut VMData;
+                self.stack.push(VMData::new_ref(elem_ptr))
             }
             //CAST_TO should really be reworked, it's shitty right now
             OpCode::CAST_TO => {

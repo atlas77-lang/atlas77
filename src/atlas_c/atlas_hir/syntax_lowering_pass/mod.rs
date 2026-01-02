@@ -979,7 +979,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     span: node.span(),
                     name,
                     name_span: ast_const.name.span,
-                    ty: Some(ty),
+                    ty,
                     ty_span: Some(ast_const.ty.span()),
                     value,
                 });
@@ -1003,7 +1003,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     span: node.span(),
                     name,
                     name_span: ast_let.name.span,
-                    ty,
+                    // If no type is specified, we use an uninitialized type as a placeholder
+                    ty: ty.unwrap_or_else(|| self.arena.types().get_uninitialized_ty()),
                     ty_span: ty.map(|_| ast_let.ty.unwrap().span()),
                     value,
                 });

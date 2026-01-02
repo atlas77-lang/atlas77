@@ -302,7 +302,7 @@ impl<'hir> OwnershipPass<'hir> {
                 self.collect_uses_in_expr(&var_stmt.value, true)?;
 
                 // Register the new variable
-                let ty = var_stmt.ty.unwrap_or(var_stmt.value.ty());
+                let ty = var_stmt.ty;
                 let kind = self.classify_type_kind(ty);
                 let is_copyable = self.is_type_copyable(ty);
 
@@ -321,7 +321,7 @@ impl<'hir> OwnershipPass<'hir> {
             HirStatement::Const(var_stmt) => {
                 self.collect_uses_in_expr(&var_stmt.value, true)?;
 
-                let ty = var_stmt.ty.unwrap_or(var_stmt.value.ty());
+                let ty = var_stmt.ty;
                 let kind = self.classify_type_kind(ty);
                 let is_copyable = self.is_type_copyable(ty);
 
@@ -595,7 +595,11 @@ impl<'hir> OwnershipPass<'hir> {
                 // This is needed because for while/if-else, the scope from Phase 1 was discarded
                 // due to snapshot/restore, so we need to re-register for destructor generation.
                 // For function bodies, this will update the existing entry (which is fine).
-                let ty = var_stmt.ty.unwrap_or(var_stmt.value.ty());
+                let ty = if var_stmt.ty == self.hir_arena.types().get_uninitialized_ty() {
+                    transformed_value.ty()
+                } else {
+                    var_stmt.ty
+                };
                 let kind = self.classify_type_kind(ty);
                 let is_copyable = self.is_type_copyable(ty);
                 self.scope_map.insert(
@@ -625,7 +629,11 @@ impl<'hir> OwnershipPass<'hir> {
                 let transformed_value = self.transform_expr_ownership(&var_stmt.value, true)?;
 
                 // Register the variable in the current scope (same reasoning as Let above).
-                let ty = var_stmt.ty.unwrap_or(var_stmt.value.ty());
+                let ty = if var_stmt.ty == self.hir_arena.types().get_uninitialized_ty() {
+                    var_stmt.value.ty()
+                } else {
+                    var_stmt.ty
+                };
                 let kind = self.classify_type_kind(ty);
                 let is_copyable = self.is_type_copyable(ty);
                 self.scope_map.insert(

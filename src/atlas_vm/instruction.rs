@@ -129,6 +129,9 @@ pub enum OpCode {
     /// Get the address of a field in an object
     /// Args: [obj_field_idx: 24bits]: [ObjPtr] -> [Ref]
     GET_FIELD_ADDR,
+    /// Get the address of an indexed element in a collection
+    /// No Args: [Index, Ptr] -> [Ref]
+    INDEX_GET_ADDR,
 
     // === Type ops ===
     //Similar than the arithmetic operation,

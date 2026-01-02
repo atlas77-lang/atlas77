@@ -376,7 +376,7 @@ impl<'hir> TypeChecker<'hir> {
                     expected_ret_ty = self.arena.intern(func_ret_from.return_ty.clone());
                     span = func_ret_from.return_ty_span.unwrap_or(r.span);
                 }
-                self.is_equivalent_ty(expected_ret_ty, span, actual_ret_ty, r.value.span(),)
+                self.is_equivalent_ty(expected_ret_ty, span, actual_ret_ty, r.value.span())
             }
             HirStatement::While(w) => {
                 let cond_ty = self.check_expr(&mut w.condition)?;
@@ -450,8 +450,18 @@ impl<'hir> TypeChecker<'hir> {
             }
             HirStatement::Const(c) => {
                 let expr_ty = self.check_expr(&mut c.value)?;
-                let const_ty = c.ty.unwrap_or(expr_ty);
-                c.ty = Some(const_ty);
+                let const_ty = if c.ty == self.arena.types().get_uninitialized_ty() {
+                    //Need inference
+                    expr_ty
+                } else {
+                    self.is_equivalent_ty(
+                        expr_ty,
+                        c.value.span(),
+                        c.ty,
+                        c.ty_span.unwrap_or(c.name_span),
+                    )?;
+                    c.ty
+                };
 
                 // Check if the const is being assigned a reference to a local variable
                 let refs_locals = self.get_local_ref_targets(&c.value);
@@ -483,8 +493,19 @@ impl<'hir> TypeChecker<'hir> {
             }
             HirStatement::Let(l) => {
                 let expr_ty = self.check_expr(&mut l.value)?;
-                let var_ty = l.ty.unwrap_or(expr_ty);
-                l.ty = Some(var_ty);
+                let var_ty = if l.ty == self.arena.types().get_uninitialized_ty() {
+                    //Need inference
+                    expr_ty
+                } else {
+                    self.is_equivalent_ty(
+                        expr_ty,
+                        l.value.span(),
+                        l.ty,
+                        l.ty_span.unwrap_or(l.name_span),
+                    )?;
+                    l.ty
+                };
+                l.ty = var_ty;
 
                 // Check if the let is being assigned a reference to a local variable
                 let refs_locals = self.get_local_ref_targets(&l.value);
@@ -2105,7 +2126,10 @@ impl<'hir> TypeChecker<'hir> {
             | HirTy::Float64(_)
             | HirTy::Char(_)
             | HirTy::Boolean(_)
-            | HirTy::Unit(_) => true,
+            | HirTy::Unit(_)
+            // You can compare references for equality
+            | HirTy::ReadOnlyReference(_)
+            | HirTy::MutableReference(_) => true,
             HirTy::Named(n) => self.signature.enums.contains_key(n.name),
             _ => false,
         }

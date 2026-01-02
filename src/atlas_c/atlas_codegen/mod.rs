@@ -561,86 +561,51 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 bytecode.push(Instruction::LoadConst(ConstantValue::Unit));
             }
             HirExpr::HirBinaryOperation(b) => {
-                self.generate_bytecode_expr(&b.lhs, bytecode)?;
-                self.generate_bytecode_expr(&b.rhs, bytecode)?;
-                match b.op {
-                    HirBinaryOperator::Add => bytecode.push(Instruction::Add(b.lhs.ty().into())),
-                    HirBinaryOperator::Sub => bytecode.push(Instruction::Sub(b.lhs.ty().into())),
-                    HirBinaryOperator::Mul => bytecode.push(Instruction::Mul(b.lhs.ty().into())),
-                    HirBinaryOperator::Div => bytecode.push(Instruction::Div(b.lhs.ty().into())),
-                    HirBinaryOperator::Mod => bytecode.push(Instruction::Mod(b.lhs.ty().into())),
-                    HirBinaryOperator::Eq => bytecode.push(Instruction::Eq(b.lhs.ty().into())),
-                    HirBinaryOperator::Neq => bytecode.push(Instruction::Neq(b.lhs.ty().into())),
-                    HirBinaryOperator::Gt => bytecode.push(Instruction::Gt(b.lhs.ty().into())),
-                    HirBinaryOperator::Gte => bytecode.push(Instruction::Gte(b.lhs.ty().into())),
-                    HirBinaryOperator::Lt => bytecode.push(Instruction::Lt(b.lhs.ty().into())),
-                    HirBinaryOperator::Lte => bytecode.push(Instruction::Lte(b.lhs.ty().into())),
-                    HirBinaryOperator::And => {
-                        bytecode.push(Instruction::And);
+                let mut lhs_bytecode: Vec<Instruction> = vec![];
+                let mut rhs_bytecode: Vec<Instruction> = vec![];
+                self.generate_bytecode_expr(&b.lhs, &mut lhs_bytecode)?;
+                self.generate_bytecode_expr(&b.rhs, &mut rhs_bytecode)?;
+                let instruction = match b.op {
+                    HirBinaryOperator::Add => Instruction::Add(b.lhs.ty().into()),
+                    HirBinaryOperator::Sub => Instruction::Sub(b.lhs.ty().into()),
+                    HirBinaryOperator::Mul => Instruction::Mul(b.lhs.ty().into()),
+                    HirBinaryOperator::Div => Instruction::Div(b.lhs.ty().into()),
+                    HirBinaryOperator::Mod => Instruction::Mod(b.lhs.ty().into()),
+                    HirBinaryOperator::Eq => {
+                        // If the typechecking pass did a good job, both sides should have the same type
+                        if let Some(ty) = b.lhs.ty().get_inner_ref_ty() {
+                            lhs_bytecode.push(Instruction::LoadIndirect);
+                            rhs_bytecode.push(Instruction::LoadIndirect);
+                            Instruction::Eq(ty.into())
+                        } else {
+                            Instruction::Eq(b.lhs.ty().into())
+                        }
                     }
-                    HirBinaryOperator::Or => {
-                        bytecode.push(Instruction::Or);
+                    HirBinaryOperator::Neq => {
+                        // If the typechecking pass did a good job, both sides should have the same type
+                        if let Some(ty) = b.lhs.ty().get_inner_ref_ty() {
+                            lhs_bytecode.push(Instruction::LoadIndirect);
+                            rhs_bytecode.push(Instruction::LoadIndirect);
+                            Instruction::Neq(ty.into())
+                        } else {
+                            Instruction::Neq(b.lhs.ty().into())
+                        }
                     }
-                }
+                    HirBinaryOperator::Gt => Instruction::Gt(b.lhs.ty().into()),
+                    HirBinaryOperator::Gte => Instruction::Gte(b.lhs.ty().into()),
+                    HirBinaryOperator::Lt => Instruction::Lt(b.lhs.ty().into()),
+                    HirBinaryOperator::Lte => Instruction::Lte(b.lhs.ty().into()),
+                    HirBinaryOperator::And => Instruction::And,
+                    HirBinaryOperator::Or => Instruction::Or,
+                };
+                bytecode.extend(lhs_bytecode);
+                bytecode.extend(rhs_bytecode);
+                bytecode.push(instruction);
             }
             HirExpr::Unary(u) => {
                 // Handle AsRef specially - don't generate the inner expression's value first
                 if let Some(HirUnaryOp::AsRef) = &u.op {
-                    match u.expr.as_ref() {
-                        HirExpr::Ident(ident) => {
-                            let var_index = match self.local_variables.get_index(ident.name) {
-                                Some(idx) => idx,
-                                None => {
-                                    return Err(Self::unsupported_expr_err(
-                                        expr,
-                                        format!("Variable {} not found", ident.name),
-                                    ));
-                                }
-                            };
-                            bytecode.push(Instruction::LoadVarAddr(var_index));
-                        }
-                        HirExpr::ThisLiteral(_) => {
-                            let var_index = self.local_variables.get_index(THIS_NAME).unwrap();
-                            bytecode.push(Instruction::LoadVarAddr(var_index));
-                        }
-                        HirExpr::FieldAccess(field_access) => {
-                            self.generate_bytecode_expr(field_access.target.as_ref(), bytecode)?;
-                            // If target is a reference, dereference it first to get the object pointer
-                            if matches!(
-                                field_access.target.ty(),
-                                HirTy::MutableReference(_) | HirTy::ReadOnlyReference(_)
-                            ) {
-                                bytecode.push(Instruction::LoadIndirect);
-                            }
-                            let obj_name = match self
-                                .get_class_name_of_type(field_access.target.ty())
-                            {
-                                Some(n) => n,
-                                None => {
-                                    return Err(Self::unsupported_expr_err(
-                                        expr,
-                                        format!("Field access for: {}", field_access.target.ty()),
-                                    ));
-                                }
-                            };
-                            if let Some(struct_descriptor) =
-                                self.struct_pool.iter().find(|s| s.name == obj_name)
-                            {
-                                let field = struct_descriptor
-                                    .fields
-                                    .iter()
-                                    .position(|f| *f == field_access.field.name)
-                                    .unwrap();
-                                bytecode.push(Instruction::GetFieldAddr { field });
-                            }
-                        }
-                        _ => {
-                            return Err(Self::unsupported_expr_err(
-                                expr,
-                                format!("Cannot take reference of expression: {}", u.expr.ty()),
-                            ));
-                        }
-                    }
+                    self.generate_bytecode_ref_expr(&u.expr, bytecode)?;
                     return Ok(());
                 }
 
@@ -1223,6 +1188,95 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
         }
         Ok(())
+    }
+
+    fn generate_bytecode_ref_expr(
+        &mut self,
+        expr: &HirExpr<'hir>,
+        bytecode: &mut Vec<Instruction>,
+    ) -> CodegenResult<()> {
+        match expr {
+            HirExpr::Ident(ident) => {
+                let var_index = match self.local_variables.get_index(ident.name) {
+                    Some(idx) => idx,
+                    None => {
+                        return Err(Self::unsupported_expr_err(
+                            expr,
+                            format!("Variable {} not found", ident.name),
+                        ));
+                    }
+                };
+                bytecode.push(Instruction::LoadVarAddr(var_index));
+            }
+            HirExpr::ThisLiteral(_) => {
+                let var_index = self.local_variables.get_index(THIS_NAME).unwrap();
+                bytecode.push(Instruction::LoadVarAddr(var_index));
+            }
+            HirExpr::FieldAccess(field_access) => {
+                self.generate_bytecode_expr(field_access.target.as_ref(), bytecode)?;
+                // If target is a reference, dereference it first to get the object pointer
+                if matches!(
+                    field_access.target.ty(),
+                    HirTy::MutableReference(_) | HirTy::ReadOnlyReference(_)
+                ) {
+                    bytecode.push(Instruction::LoadIndirect);
+                }
+                let obj_name = match self.get_class_name_of_type(field_access.target.ty()) {
+                    Some(n) => n,
+                    None => {
+                        return Err(Self::unsupported_expr_err(
+                            expr,
+                            format!("Field access for: {}", field_access.target.ty()),
+                        ));
+                    }
+                };
+                if let Some(struct_descriptor) =
+                    self.struct_pool.iter().find(|s| s.name == obj_name)
+                {
+                    let field = struct_descriptor
+                        .fields
+                        .iter()
+                        .position(|f| *f == field_access.field.name)
+                        .unwrap();
+                    bytecode.push(Instruction::GetFieldAddr { field });
+                }
+            }
+            HirExpr::Indexing(idx_expr) => {
+                // Generate code to get the address of the indexed element
+                self.generate_bytecode_expr(&idx_expr.index, bytecode)?;
+                self.generate_bytecode_expr(&idx_expr.target, bytecode)?;
+                bytecode.push(Instruction::IndexGetAddr);
+            }
+            // For some reason, we can get Unary(Unary(Unary(expr))) here
+            // So we need to recursively handle the case where op is None, if it's None, we just treat it as a normal expression
+            HirExpr::Unary(u) => {
+                if u.op.is_none() {
+                    self.generate_bytecode_ref_expr(&u.expr, bytecode)?;
+                    //bytecode.push(Instruction::LoadIndirect);
+                } else {
+                    self.generate_bytecode_expr(expr, bytecode)?;
+                }
+            }
+            HirExpr::Copy(copy_expr) => {
+                // For copy expressions, we need to get the address of the inner expression
+                self.generate_bytecode_ref_expr(&copy_expr.expr, bytecode)?;
+            }
+            HirExpr::Move(move_expr) => {
+                // For move expressions, we need to get the address of the inner expression
+                self.generate_bytecode_ref_expr(&move_expr.expr, bytecode)?;
+            }
+            _ => {
+                eprintln!("\tExpr Type: {:?}", expr);
+                return Err(Self::unsupported_expr_err(
+                    expr,
+                    format!(
+                        "Cannot take reference of this expression in this context as it would be unsafe\nExpression Type: {}",
+                        expr.ty()
+                    ),
+                ));
+            }
+        }
+        return Ok(());
     }
 
     fn unsupported_expr_err(expr: &HirExpr, message: String) -> HirError {

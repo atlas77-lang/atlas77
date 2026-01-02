@@ -781,6 +781,13 @@ impl Assembler {
                     };
                     bytecode.push(instr);
                 }
+                Instruction::IndexGetAddr => {
+                    let instr = Instr {
+                        opcode: OpCode::INDEX_GET_ADDR,
+                        arg: Arg::default(),
+                    };
+                    bytecode.push(instr);
+                }
                 Instruction::CastTo(ty) => {
                     let ty: VMTag = (*ty).into();
                     let instr = Instr {
@@ -975,6 +982,7 @@ impl Display for AsmProgram {
                 OpCode::GET_FIELD_ADDR => {
                     format!("GET_FIELD_ADDR #{}", instruction.arg.as_u24())
                 }
+                OpCode::INDEX_GET_ADDR => "INDEX_GET_ADDR".to_string(),
 
                 // === Type ops ===
                 OpCode::CAST_TO => {

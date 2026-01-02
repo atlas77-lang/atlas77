@@ -28,14 +28,12 @@ public:
         //Well, if we delete data itself, we get an error for some reason ... so we won't do that yet.
     }
     fun _copy(&const this) -> Vector<T> {
-        print("Copying Vector of length: ");
-        println(*this.length);
         let new_data = slice(&this.data, 0u, *this.length);
         return new Vector<T>(new_data);
     }
-    /// A function that doesn't have a "self" parameter is a static function
-    /// static functions are called like this: "Vector::<T>::function_name()"
-    fun with_capacity(capacity: uint64) -> Vector<T> { //Still unstable feature
+    /// Creates a new Vector with the specified capacity.
+
+    fun with_capacity(capacity: uint64) -> Vector<T> {
         let vec = new Vector<T>(new [T; capacity]);
         vec.length = 0u;
         return vec;
@@ -91,9 +89,8 @@ public:
             panic("Cannot pop from an empty vector");
         }
         this.length = this.length - 1u;
-        let popped_val = &(this.data[this.length]);
-        let val = memcpy(*popped_val);
-        return val;
+        let popped_val = this.data[this.length];
+        return popped_val;
     }
 
     /// Consumes the vector and returns an iterator over its elements.
@@ -114,8 +111,8 @@ private:
             panic("Index out of bounds");
         }
         // Use memcpy to create a copy of the element at index
-        let val = this.get(index);
-        let item = memcpy(val);
+        let val: &const T = this.get(index);
+        let item: T = memcpy(val);
         // Shift elements to fill the gap
         let i: uint64 = index;
         while i + 1u < this.length {
@@ -126,3 +123,28 @@ private:
         return item;
     }
 }
+
+fun main() {
+    let vec: Vector<uint64> = Vector<uint64>::with_capacity(2u);
+    vec.push(10u);
+    vec.push(20u);
+    vec.push(30u);
+    print("Vector length after pushes: ");
+    println(vec.length);
+    let val: uint64 = vec.take(1u);
+    print("Taken value at index 1: ");
+    println(val);
+    print("Vector length after take: ");
+    println(vec.length);
+    let popped: uint64 = vec.pop();
+    print("Popped value: ");
+    println(popped);
+    print("Vector length after pop: ");
+    println(vec.length);
+}
+// Well, this is a bug, it shouldn't be allowed to return a reference to a local variable
+private fun hehe() -> &const int64 {
+    let stuff = [1, 2, 3, 4, 5];
+    return &(stuff[2u]);
+}
+
