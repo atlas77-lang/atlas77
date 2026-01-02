@@ -129,6 +129,8 @@ fun main() {
         vec.push(i);
         i = i + 1;
     }
+    print("Vector contents:");
+    println(vec);
     let iter = vec.into_iter();
     while iter.has_next() {
         let val: optional<int64> = iter.next();

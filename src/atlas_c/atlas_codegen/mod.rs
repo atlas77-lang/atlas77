@@ -174,7 +174,8 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
         for method in hir_struct.methods.iter() {
             let mut bytecode = Vec::new();
             //If the method is not static, reserve space for `this`
-            if method.signature.modifier != HirStructMethodModifier::Static {
+            let has_this = method.signature.modifier != HirStructMethodModifier::Static;
+            if has_this {
                 self.local_variables.insert(THIS_NAME);
             }
             for arg in method.signature.params.iter() {
@@ -184,11 +185,15 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             self.generate_bytecode_block(&method.body, &mut bytecode)?;
 
             //There is no need to reserve space for local variables if there is none
-            if self.local_variables.len() > 0 {
+            // Methods: LocalSpace should only reserve space for locals, not for parameters
+            // Parameters (including 'this' for non-static methods) are already placed by Call instruction
+            let num_params = method.signature.params.len() + if has_this { 1 } else { 0 };
+            let local_space = self.local_variables.len() - num_params;
+            if local_space > 0 {
                 bytecode.insert(
                     0,
                     Instruction::LocalSpace {
-                        nb_vars: self.local_variables.len() as u8,
+                        nb_vars: local_space as u8,
                     },
                 );
             }
@@ -302,7 +307,10 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
 
         self.generate_bytecode_block(&destructor.body, &mut bytecode)?;
 
-        let local_space = self.local_variables.len() - params.len();
+        // Destructor has implicit 'this' parameter passed via Call (nb_args=1),
+        // but 'this' is in local_variables (not in params list).
+        // LocalSpace should only reserve space for locals, not for 'this' which is already placed by Call.
+        let local_space = self.local_variables.len() - params.len() - 1; // -1 for implicit 'this'
         if local_space > 0 {
             bytecode.insert(
                 0,
@@ -431,7 +439,15 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 bytecode.append(&mut value);
             }
             HirStatement::Expr(e) => {
+                let before_len = bytecode.len();
                 self.generate_bytecode_expr(&e.expr, bytecode)?;
+                let after_len = bytecode.len();
+
+                // If no bytecode was generated (e.g., delete of primitives), don't add Pop
+                if before_len == after_len {
+                    return Ok(());
+                }
+
                 // Skip Pop for instructions that don't leave anything on the stack
                 match bytecode.last() {
                     Some(Instruction::LoadConst(ConstantValue::Unit)) => {

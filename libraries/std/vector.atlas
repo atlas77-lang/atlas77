@@ -19,17 +19,19 @@ public:
         this.data = data;
     }
     ~Vector() {
+        println("Vector destructor called");
         // We shouldn't delete anything outside of data[0..length]
         let i: uint64 = 0u;
         while i < this.length {
             delete this.data[i];
             i = i + 1u;
         }
-        //Well, if we delete data itself, we get an error for some reason ... so we won't do that yet.
+        // deleting an array doesn't call destructors on its elements, 
+        // so we do it manually
+        delete this.data;
     }
     fun _copy(&const this) -> Vector<T> {
-        let new_data = slice(&this.data, 0u, *this.length);
-        return new Vector<T>(new_data);
+        return new Vector<T>(*this.data);
     }
     /// Creates a new Vector with the specified capacity.
 
