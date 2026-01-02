@@ -1,4 +1,4 @@
-use crate::atlas_vm::vm_data::VMTag;
+use crate::atlas_vm::{object::ObjectKind, vm_data::VMTag};
 
 pub type RuntimeResult<T> = Result<T, RuntimeError>;
 
@@ -19,7 +19,7 @@ pub enum RuntimeError {
     InvalidConstantPoolPointer(usize),
     HaltEncountered,
     OutOfBoundProgram(usize),
-    InvalidObjectAccess(VMTag),
+    InvalidObjectAccess(VMTag, ObjectKind),
     InvalidMemCpySource,
     CannotDeleteReferenceDirectly,
 }
@@ -49,7 +49,9 @@ impl std::fmt::Display for RuntimeError {
             InvalidConstantPoolPointer(ptr) => {
                 writeln!(f, "Invalid constant pool pointer: {}", ptr)
             }
-            InvalidObjectAccess(tag) => writeln!(f, "Invalid object access: {}", tag),
+            InvalidObjectAccess(tag, obj) => {
+                writeln!(f, "Invalid object access: {} {:?}", tag, obj)
+            }
             HaltEncountered => writeln!(f, "Halt instruction encountered"),
             OutOfBoundProgram(pos) => writeln!(f, "Program counter out of bounds: {}", pos),
             InvalidMemCpySource => writeln!(f, "Invalid source for memcpy; must be an object"),

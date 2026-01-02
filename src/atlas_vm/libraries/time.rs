@@ -62,11 +62,11 @@ pub fn format_time_iso(state: VMState) -> Result<VMData, RuntimeError> {
 pub fn format_time(state: VMState) -> Result<VMData, RuntimeError> {
     let format_ptr = state.stack.pop()?.as_object(); // a string is an object
     let time_ptr = state.stack.pop()?.as_object();
-
-    let fmt_str = if let Some(s) = state.object_map.get(format_ptr)?.string() {
+    let obj_kind = state.object_map.get(format_ptr)?;
+    let fmt_str = if let Some(s) = obj_kind.string() {
         &s.clone()
     } else {
-        return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+        return Err(RuntimeError::InvalidObjectAccess(VMTag::String, obj_kind));
     };
     let raw_time_obj = state.object_map.get(time_ptr)?;
     let time_obj = raw_time_obj.structure();

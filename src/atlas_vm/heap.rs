@@ -124,6 +124,7 @@ impl Heap {
                 ObjectKind::String(_) => strings += 1,
                 ObjectKind::Structure(_) => structures += 1,
                 ObjectKind::List(_) => lists += 1,
+                _ => {}
             }
         }
 

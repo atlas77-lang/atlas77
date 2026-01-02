@@ -29,11 +29,12 @@ pub fn println(state: VMState) -> Result<VMData, RuntimeError> {
             state.object_map.free(val.as_object())?;
         }
         VMTag::String => {
-            if let Some(s) = state.object_map.get(val.as_object())?.string() {
+            let obj_kind = state.object_map.get(val.as_object())?;
+            if let Some(s) = obj_kind.string() {
                 println!("{}", s);
                 state.object_map.free(val.as_object())?;
             } else {
-                return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+                return Err(RuntimeError::InvalidObjectAccess(VMTag::String, obj_kind));
             }
         }
         _ => {
@@ -59,11 +60,12 @@ pub fn print(state: VMState) -> Result<VMData, RuntimeError> {
             print!("{}", val)
         }
         VMTag::String => {
-            if let Some(s) = state.object_map.get(val.as_object())?.string() {
+            let obj_kind = state.object_map.get(val.as_object())?;
+            if let Some(s) = obj_kind.string() {
                 print!("{}", s);
                 state.object_map.free(val.as_object())?;
             } else {
-                return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+                return Err(RuntimeError::InvalidObjectAccess(VMTag::String, obj_kind));
             }
         }
         VMTag::Object => {
@@ -109,12 +111,13 @@ pub fn panic(state: VMState) -> Result<VMData, RuntimeError> {
         //For the sake of cleaning up memory, we free the object before exiting
         //It's useless since the program is ending, but it's a good practice
         VMTag::String => {
-            if let Some(s) = state.object_map.get(val.as_object())?.string() {
+            let obj_kind = state.object_map.get(val.as_object())?;
+            if let Some(s) = obj_kind.string() {
                 println!("{}", s);
                 state.object_map.free(val.as_object())?;
                 std::process::exit(1);
             } else {
-                return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+                return Err(RuntimeError::InvalidObjectAccess(VMTag::String, obj_kind));
             }
         }
         VMTag::Object => {

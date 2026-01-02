@@ -192,11 +192,11 @@ impl<'run> AtlasRuntime<'run> {
             OpCode::STRING_LOAD => {
                 let ptr = self.stack.pop()?.as_object();
                 let index = self.stack.pop()?.as_u64() as usize;
-                let raw_string = self.heap.get(ptr)?;
-                let string = if let Some(s) = raw_string.string() {
+                let obj_kind = self.heap.get(ptr)?;
+                let string = if let Some(s) = obj_kind.string() {
                     s
                 } else {
-                    return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+                    return Err(RuntimeError::InvalidObjectAccess(VMTag::String, obj_kind));
                 };
                 let ch = string.chars().nth(index).unwrap();
                 self.stack.push(VMData::new_char(ch))?;
@@ -206,11 +206,14 @@ impl<'run> AtlasRuntime<'run> {
                 let ch = self.stack.pop()?.as_char();
                 let ptr = self.stack.pop()?.as_object();
                 let index = self.stack.pop()?.as_u64() as usize;
-                let raw_string = self.heap.get_mut(ptr)?;
-                let string = if let Some(s) = raw_string.string_mut() {
+                let obj_kind = self.heap.get_mut(ptr)?;
+                let string = if let Some(s) = obj_kind.string_mut() {
                     s
                 } else {
-                    return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+                    return Err(RuntimeError::InvalidObjectAccess(
+                        VMTag::String,
+                        obj_kind.clone(),
+                    ));
                 };
                 let mut chars: Vec<char> = string.chars().collect();
                 chars[index] = ch;
@@ -589,12 +592,18 @@ impl<'run> AtlasRuntime<'run> {
                         // is still in scope. The type system should ensure this.
                         let deref_data = unsafe { *ref_ptr };
                         if !deref_data.is_object() {
-                            return Err(RuntimeError::InvalidObjectAccess(deref_data.tag));
+                            return Err(RuntimeError::InvalidObjectAccess(
+                                deref_data.tag,
+                                ObjectKind::Primitive,
+                            ));
                         }
                         deref_data.as_object()
                     }
                     _ => {
-                        return Err(RuntimeError::InvalidObjectAccess(stack_top.tag));
+                        return Err(RuntimeError::InvalidObjectAccess(
+                            stack_top.tag,
+                            ObjectKind::Primitive,
+                        ));
                     }
                 };
                 let raw_obj = self.heap.get(obj_ptr)?;
@@ -676,7 +685,10 @@ impl<'run> AtlasRuntime<'run> {
                             let string = if let Some(s) = str_ptr.string() {
                                 s
                             } else {
-                                return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+                                return Err(RuntimeError::InvalidObjectAccess(
+                                    VMTag::String,
+                                    str_ptr,
+                                ));
                             };
                             let parsed = string
                                 .parse::<i64>()
@@ -696,7 +708,10 @@ impl<'run> AtlasRuntime<'run> {
                             let string = if let Some(s) = str_ptr.string() {
                                 s
                             } else {
-                                return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+                                return Err(RuntimeError::InvalidObjectAccess(
+                                    VMTag::String,
+                                    str_ptr,
+                                ));
                             };
                             let parsed = string
                                 .parse::<u64>()
@@ -716,7 +731,10 @@ impl<'run> AtlasRuntime<'run> {
                             let string = if let Some(s) = str_ptr.string() {
                                 s
                             } else {
-                                return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+                                return Err(RuntimeError::InvalidObjectAccess(
+                                    VMTag::String,
+                                    str_ptr,
+                                ));
                             };
                             let parsed = string
                                 .parse::<f64>()
@@ -738,7 +756,10 @@ impl<'run> AtlasRuntime<'run> {
                             let string = if let Some(s) = str_ptr.string() {
                                 s.to_lowercase()
                             } else {
-                                return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+                                return Err(RuntimeError::InvalidObjectAccess(
+                                    VMTag::String,
+                                    str_ptr,
+                                ));
                             };
                             let parsed = match string.as_str() {
                                 "true" => true,
@@ -760,7 +781,10 @@ impl<'run> AtlasRuntime<'run> {
                             let string = if let Some(s) = str_ptr.string() {
                                 s
                             } else {
-                                return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+                                return Err(RuntimeError::InvalidObjectAccess(
+                                    VMTag::String,
+                                    str_ptr,
+                                ));
                             };
                             let mut chars = string.chars();
                             let ch = chars
@@ -792,7 +816,7 @@ impl<'run> AtlasRuntime<'run> {
                         let string = if let Some(s) = str_ptr.string() {
                             s
                         } else {
-                            return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+                            return Err(RuntimeError::InvalidObjectAccess(VMTag::String, str_ptr));
                         };
                         let ptr = match self.heap.put(ObjectKind::String(string.to_string())) {
                             Ok(idx) => idx,
@@ -814,10 +838,11 @@ impl<'run> AtlasRuntime<'run> {
                     )));
                 }
                 let original_ptr = val.as_object();
-                let original_string = if let Some(s) = self.heap.get(original_ptr)?.string() {
+                let obj_kind = self.heap.get(original_ptr)?;
+                let original_string = if let Some(s) = obj_kind.string() {
                     s.clone()
                 } else {
-                    return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+                    return Err(RuntimeError::InvalidObjectAccess(VMTag::String, obj_kind));
                 };
                 let new_ptr = match self.heap.put(ObjectKind::String(original_string)) {
                     Ok(ptr) => ptr,
