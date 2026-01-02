@@ -6,9 +6,11 @@ import "std/vector";
 struct NonCopyable {
 public:
     value: int64;
+    stuff: int64;
 
     NonCopyable(v: int64) {
         this.value = v;
+        this.stuff = v * 2;
     }
 
     ~NonCopyable() {

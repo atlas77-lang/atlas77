@@ -167,11 +167,6 @@ impl<'hir> ScopeMap<'hir> {
         }
         owned_vars
     }
-
-    /// Legacy method for compatibility - returns owned vars as "valid" vars
-    pub fn get_valid_vars(&self) -> Vec<&VarData<'hir>> {
-        self.get_owned_vars_in_current_scope()
-    }
 }
 
 /// Contains all variable information for a given scope

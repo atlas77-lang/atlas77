@@ -376,7 +376,7 @@ impl<'hir> TypeChecker<'hir> {
                     expected_ret_ty = self.arena.intern(func_ret_from.return_ty.clone());
                     span = func_ret_from.return_ty_span.unwrap_or(r.span);
                 }
-                self.is_equivalent_ty(actual_ret_ty, r.value.span(), expected_ret_ty, span)
+                self.is_equivalent_ty(expected_ret_ty, span, actual_ret_ty, r.value.span(),)
             }
             HirStatement::While(w) => {
                 let cond_ty = self.check_expr(&mut w.condition)?;
@@ -1271,7 +1271,7 @@ impl<'hir> TypeChecker<'hir> {
                                 .zip(func_expr.args.iter_mut())
                             {
                                 let arg_ty = self.check_expr(arg)?;
-                                self.is_equivalent_ty(param.ty, param.span, arg_ty, arg.span())?;
+                                self.is_equivalent_ty(arg_ty, arg.span(), param.ty, param.span)?;
                             }
 
                             static_access.ty =

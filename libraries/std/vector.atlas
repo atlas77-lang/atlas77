@@ -19,12 +19,13 @@ public:
         this.data = data;
     }
     ~Vector() {
-        // We shouldn't delete anything outside of data[..length]
+        // We shouldn't delete anything outside of data[0..length]
         let i: uint64 = 0u;
         while i < this.length {
             delete this.data[i];
             i = i + 1u;
         }
+        //Well, if we delete data itself, we get an error for some reason ... so we won't do that yet.
     }
     fun _copy(&const this) -> Vector<T> {
         print("Copying Vector of length: ");
@@ -40,11 +41,18 @@ public:
         return vec;
     }
 
-    fun get(&this, index: uint64) -> T {
+    fun get(&this, index: uint64) -> &const T {
         if index >= this.length {
             panic("Index out of bounds");
         }
-        return this.data[index];
+        return &(this.data[index]);
+    }
+
+    fun get_mut(&this, index: uint64) -> &T {
+        if index >= this.length {
+            panic("Index out of bounds");
+        }
+        return &(this.data[index]);
     }
 
     fun set(&this, index: uint64, val: T) {
@@ -83,7 +91,9 @@ public:
             panic("Cannot pop from an empty vector");
         }
         this.length = this.length - 1u;
-        return this.data[this.length];
+        let popped_val = &(this.data[this.length]);
+        let val = memcpy(*popped_val);
+        return val;
     }
 
     /// Consumes the vector and returns an iterator over its elements.
@@ -91,7 +101,8 @@ public:
     fun into_iter(this) -> Iter<T> {
         return new Iter<T>(this);
     }
-
+    /// Takes an element out of the vector at the specified index,
+    /// shifting subsequent elements to the left.
     fun take(&this, index: uint64) -> T {
         // Public method to take an element out of the vector
         return this.try_take(index);
@@ -103,8 +114,8 @@ private:
             panic("Index out of bounds");
         }
         // Use memcpy to create a copy of the element at index
-        let val = this.data[index];
-        let item = memcpy(&val);
+        let val = this.get(index);
+        let item = memcpy(val);
         // Shift elements to fill the gap
         let i: uint64 = index;
         while i + 1u < this.length {

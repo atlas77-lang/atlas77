@@ -1,6 +1,7 @@
 import "std/vector";
 import "std/optional";
 import "std/string";
+import "std/mem";
 
 //TODO: Add Iter<T>::from_map(Map<K, V>)
 public struct Iter<T> {
@@ -26,7 +27,8 @@ public:
         if this.index >= this.data.length {
             return optional<T>::empty();
         }
-        let item = this.data.get(this.index);
+        
+        let item = *(this.data.get(this.index));
         this.index = this.index + 1u;
         return optional<T>::of(item);
     }
@@ -36,7 +38,7 @@ public:
             return optional<&const T>::empty();
         }
         let item = this.data.get(this.index);
-        return optional<&const T>::of(&item);
+        return optional<&const T>::of(item);
     }
 
     fun from_array(data: [T]) -> Iter<T> {

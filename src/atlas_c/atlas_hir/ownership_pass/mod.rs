@@ -1747,6 +1747,3 @@ impl<'hir> OwnershipPass<'hir> {
         eprintln!("{:?}", warning);
     }
 }
-
-// Legacy alias for backwards compatibility
-pub type LifeTimePass<'hir> = OwnershipPass<'hir>;
