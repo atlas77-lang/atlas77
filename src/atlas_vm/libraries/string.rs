@@ -2,7 +2,7 @@ use crate::atlas_vm::error::{RuntimeError, RuntimeResult};
 use crate::atlas_vm::object::ObjectKind;
 use crate::atlas_vm::runtime::CallBack;
 use crate::atlas_vm::runtime::vm_state::VMState;
-use crate::atlas_vm::vm_data::VMData;
+use crate::atlas_vm::vm_data::{VMData, VMTag};
 
 pub const STRING_FUNCTIONS: [(&str, CallBack); 8] = [
     ("str_len", str_len),
@@ -20,7 +20,11 @@ pub fn str_len(state: VMState) -> RuntimeResult<VMData> {
     let raw_string = state
         .object_map
         .get(unsafe { string_ref.as_ref().unwrap().as_object() })?;
-    let string = raw_string.string();
+    let string = if let Some(s) = raw_string.string() {
+        s
+    } else {
+        return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+    };
     let len = string.len() as i64;
     Ok(VMData::new_i64(len))
 }
@@ -37,8 +41,16 @@ pub fn str_cmp(state: VMState) -> RuntimeResult<VMData> {
         .object_map
         .get(unsafe { string2_ref.as_ref().unwrap().as_object() })?;
 
-    let string1 = raw_string1.string();
-    let string2 = raw_string2.string();
+    let string1 = if let Some(s) = raw_string1.string() {
+        s
+    } else {
+        return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+    };
+    let string2 = if let Some(s) = raw_string2.string() {
+        s
+    } else {
+        return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+    };
 
     let cmp_result = string1.cmp(string2) as i64;
 
@@ -50,7 +62,11 @@ pub fn trim(state: VMState) -> RuntimeResult<VMData> {
     let string_data = state.stack.pop()?;
     let string_ptr = string_data.as_object();
     let raw_string = state.object_map.get_mut(string_ptr)?;
-    let string = raw_string.string_mut();
+    let string = if let Some(s) = raw_string.string_mut() {
+        s
+    } else {
+        return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+    };
     let trimmed = string.trim().to_string();
     *string = trimmed;
     Ok(string_data)
@@ -62,7 +78,11 @@ pub fn to_upper(state: VMState) -> RuntimeResult<VMData> {
     let string_data = state.stack.pop()?;
     let string_ptr = string_data.as_object();
     let raw_string = state.object_map.get_mut(string_ptr)?;
-    let string = raw_string.string_mut();
+    let string = if let Some(s) = raw_string.string_mut() {
+        s
+    } else {
+        return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+    };
     let upper = string.to_uppercase();
     *string = upper;
     Ok(string_data)
@@ -73,7 +93,11 @@ pub fn to_lower(state: VMState) -> RuntimeResult<VMData> {
     let string_data = state.stack.pop()?;
     let string_ptr = string_data.as_object();
     let raw_string = state.object_map.get_mut(string_ptr)?;
-    let string = raw_string.string_mut();
+    let string = if let Some(s) = raw_string.string_mut() {
+        s
+    } else {
+        return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+    };
     let lower = string.to_lowercase();
     *string = lower;
     Ok(string_data)
@@ -90,8 +114,16 @@ pub fn split(state: VMState) -> RuntimeResult<VMData> {
         .object_map
         .get(unsafe { sep_ref.as_ref().unwrap().as_object() })?;
 
-    let string = raw_string.string();
-    let sep = raw_sep.string();
+    let string = if let Some(s) = raw_string.string() {
+        s
+    } else {
+        return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+    };
+    let sep = if let Some(s) = raw_sep.string() {
+        s
+    } else {
+        return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+    };
 
     let split_strings: Vec<VMData> = string
         .split(sep)
@@ -134,7 +166,11 @@ pub fn to_chars(state: VMState) -> RuntimeResult<VMData> {
     let raw_string = state
         .object_map
         .get(unsafe { string_ref.as_ref().unwrap().as_object() })?;
-    let string = raw_string.string();
+    let string = if let Some(s) = raw_string.string() {
+        s
+    } else {
+        return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+    };
 
     let char_data: Vec<VMData> = string.chars().map(|c| VMData::new_char(c)).collect();
 

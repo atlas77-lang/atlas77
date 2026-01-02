@@ -56,6 +56,10 @@ public:
         this.second = b;
     }
 
+    fun _copy(&const this) -> GenericTuple<A, B> {
+        return new GenericTuple<A, B>(*this.first, *this.second);
+    }
+
     fun first_value(&this) -> A {
         return this.first;
     }
@@ -64,7 +68,7 @@ public:
         return this.second;
     }
 
-    fun swap_tuple(&this) -> GenericTuple<B, A> {
+    fun swap_tuple(this) -> GenericTuple<B, A> {
         return new GenericTuple<B, A>(this.second, this.first);
     }
 }
@@ -77,7 +81,7 @@ fun main() {
     println(identity<string>("Hello Generics"));
     
     // Testing generic swap function
-    let swapped_pair = swap_values<int64, string>(100, "test");
+    let swapped_pair: Pair<string, int64> = swap_values<int64, string>(100, "test");
     print("Swapped first (string): ");
     println(swapped_pair.get_first());
     print("Swapped second (int64): ");
@@ -85,25 +89,24 @@ fun main() {
     println("");
 
     // Testing generic Container struct
-    let int_container = new Container<int64>(99);
+    let int_container: Container<int64> = new Container<int64>(99);
     print("Container value: ");
     println(int_container.get());
     int_container.set(88);
     print("After set: ");
     println(int_container.get());
-    
-    let string_container = new Container<string>("Generic Container");
+    let string_container: Container<string> = new Container<string>("Generic Container");
     print("String container: ");
     println(string_container.get());
     println("");
 
     // Testing generic GenericTuple struct
-    let tuple = new GenericTuple<int64, string>(42, "answer");
+    let tuple: GenericTuple<int64, string> = new GenericTuple<int64, string>(42, "answer");
     print("Tuple first: ");
     println(tuple.first_value());
     print("Tuple second: ");
     println(tuple.second_value());
-    let tuple_swapped = tuple.swap_tuple();
+    let tuple_swapped: GenericTuple<string, int64> = tuple.swap_tuple();
     print("Swapped tuple first (string): ");
     println(tuple_swapped.first_value());
     print("Swapped tuple second (int64): ");
@@ -111,12 +114,13 @@ fun main() {
     println("");
 
     // Testing generics with Pair from Map
-    let p = new Pair<int64, String>(42, new String("The answer"));
+    let p: Pair<int64, String> = new Pair<int64, String>(42, new String("The answer"));
     println(p.get_first());
     println(p.get_second().s);
-    let swapped = p.swap();
+    let swapped: Pair<String, int64> = p.swap();
     println(swapped.get_first().s);
     println(swapped.get_second());
+    println("");
     
     // Testing vectors
     let vec = Vector<int64>::with_capacity(10u);

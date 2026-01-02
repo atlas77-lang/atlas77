@@ -2,7 +2,7 @@ use crate::atlas_vm::error::RuntimeError;
 use crate::atlas_vm::object::ObjectKind;
 use crate::atlas_vm::runtime::CallBack;
 use crate::atlas_vm::runtime::vm_state::VMState;
-use crate::atlas_vm::vm_data::VMData;
+use crate::atlas_vm::vm_data::{VMData, VMTag};
 
 pub const FILE_FUNCTIONS: [(&str, CallBack); 6] = [
     ("read_dir", read_dir),
@@ -26,7 +26,11 @@ pub fn close_file(state: VMState) -> Result<VMData, RuntimeError> {
 pub fn read_dir(state: VMState) -> Result<VMData, RuntimeError> {
     let path_ptr = state.stack.pop()?.as_object();
     let raw_path = state.object_map.get(path_ptr)?;
-    let path = raw_path.string();
+    let path = if let Some(s) = raw_path.string() {
+        s
+    } else {
+        return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+    };
 
     let entries = std::fs::read_dir(path).unwrap();
     let mut list = Vec::new();
@@ -52,7 +56,11 @@ pub fn read_dir(state: VMState) -> Result<VMData, RuntimeError> {
 pub fn read_file(state: VMState) -> Result<VMData, RuntimeError> {
     let path_ptr = state.stack.pop()?.as_object();
     let raw_path = state.object_map.get(path_ptr)?;
-    let path = raw_path.string();
+    let path = if let Some(s) = raw_path.string() {
+        s
+    } else {
+        return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+    };
 
     let content = std::fs::read_to_string(path).unwrap();
     let obj_idx = state.object_map.put(ObjectKind::String(content));
@@ -68,9 +76,17 @@ pub fn write_file(state: VMState) -> Result<VMData, RuntimeError> {
     let content_ptr = state.stack.pop()?.as_object();
     let path_ptr = state.stack.pop()?.as_object();
 
-    let path = state.object_map.get(path_ptr)?.string().clone();
+    let path = if let Some(s) = state.object_map.get(path_ptr)?.string() {
+        s.clone()
+    } else {
+        return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+    };
     let raw_content = state.object_map.get(content_ptr)?;
-    let content = raw_content.string();
+    let content = if let Some(s) = raw_content.string() {
+        s.clone()
+    } else {
+        return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+    };
 
     std::fs::write(path, content).unwrap();
 
@@ -82,7 +98,11 @@ pub fn write_file(state: VMState) -> Result<VMData, RuntimeError> {
 pub fn file_exists(state: VMState) -> Result<VMData, RuntimeError> {
     let path_ptr = state.stack.pop()?.as_object();
     let raw_path = state.object_map.get(path_ptr)?;
-    let path = raw_path.string();
+    let path = if let Some(s) = raw_path.string() {
+        s
+    } else {
+        return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+    };
 
     let exists = std::path::Path::new(&path).exists();
     //state.object_map.free(path_ptr)?;
@@ -92,7 +112,11 @@ pub fn file_exists(state: VMState) -> Result<VMData, RuntimeError> {
 pub fn remove_file(state: VMState) -> Result<VMData, RuntimeError> {
     let path_ptr = state.stack.pop()?.as_object();
     let raw_path = state.object_map.get(path_ptr)?;
-    let path = raw_path.string();
+    let path = if let Some(s) = raw_path.string() {
+        s
+    } else {
+        return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+    };
 
     std::fs::remove_file(path).unwrap();
     //state.object_map.free(path_ptr)?;

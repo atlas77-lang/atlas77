@@ -4,7 +4,7 @@ use crate::atlas_vm::error::RuntimeError;
 use crate::atlas_vm::object::{ObjectKind, Structure};
 use crate::atlas_vm::runtime::CallBack;
 use crate::atlas_vm::runtime::vm_state::VMState;
-use crate::atlas_vm::vm_data::VMData;
+use crate::atlas_vm::vm_data::{VMData, VMTag};
 use time::{OffsetDateTime, format_description};
 
 pub const TIME_FUNCTIONS: [(&str, CallBack); 4] = [
@@ -63,7 +63,11 @@ pub fn format_time(state: VMState) -> Result<VMData, RuntimeError> {
     let format_ptr = state.stack.pop()?.as_object(); // a string is an object
     let time_ptr = state.stack.pop()?.as_object();
 
-    let fmt_str = &state.object_map.get(format_ptr)?.string().clone();
+    let fmt_str = if let Some(s) = state.object_map.get(format_ptr)?.string() {
+        &s.clone()
+    } else {
+        return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+    };
     let raw_time_obj = state.object_map.get(time_ptr)?;
     let time_obj = raw_time_obj.structure();
 

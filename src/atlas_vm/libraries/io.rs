@@ -29,8 +29,12 @@ pub fn println(state: VMState) -> Result<VMData, RuntimeError> {
             state.object_map.free(val.as_object())?;
         }
         VMTag::String => {
-            println!("{}", state.object_map.get(val.as_object())?.string());
-            state.object_map.free(val.as_object())?;
+            if let Some(s) = state.object_map.get(val.as_object())?.string() {
+                println!("{}", s);
+                state.object_map.free(val.as_object())?;
+            } else {
+                return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+            }
         }
         _ => {
             println!("{}", state.object_map.get(val.as_object())?);
@@ -52,11 +56,15 @@ pub fn print(state: VMState) -> Result<VMData, RuntimeError> {
             print!("{}", val)
         }
         VMTag::Ref => {
-            println!("{}", val)
+            print!("{}", val)
         }
         VMTag::String => {
-            print!("{}", state.object_map.get(val.as_object())?.string());
-            state.object_map.free(val.as_object())?;
+            if let Some(s) = state.object_map.get(val.as_object())?.string() {
+                print!("{}", s);
+                state.object_map.free(val.as_object())?;
+            } else {
+                return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+            }
         }
         VMTag::Object => {
             print!("{}", state.object_map.get(val.as_object())?.structure());
@@ -101,9 +109,13 @@ pub fn panic(state: VMState) -> Result<VMData, RuntimeError> {
         //For the sake of cleaning up memory, we free the object before exiting
         //It's useless since the program is ending, but it's a good practice
         VMTag::String => {
-            println!("{}", state.object_map.get(val.as_object())?.string());
-            state.object_map.free(val.as_object())?;
-            std::process::exit(1);
+            if let Some(s) = state.object_map.get(val.as_object())?.string() {
+                println!("{}", s);
+                state.object_map.free(val.as_object())?;
+                std::process::exit(1);
+            } else {
+                return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+            }
         }
         VMTag::Object => {
             println!("{}", state.object_map.get(val.as_object())?.structure());

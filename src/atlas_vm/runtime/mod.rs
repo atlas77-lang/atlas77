@@ -193,7 +193,11 @@ impl<'run> AtlasRuntime<'run> {
                 let ptr = self.stack.pop()?.as_object();
                 let index = self.stack.pop()?.as_u64() as usize;
                 let raw_string = self.heap.get(ptr)?;
-                let string = raw_string.string();
+                let string = if let Some(s) = raw_string.string() {
+                    s
+                } else {
+                    return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+                };
                 let ch = string.chars().nth(index).unwrap();
                 self.stack.push(VMData::new_char(ch))?;
                 Ok(())
@@ -203,7 +207,11 @@ impl<'run> AtlasRuntime<'run> {
                 let ptr = self.stack.pop()?.as_object();
                 let index = self.stack.pop()?.as_u64() as usize;
                 let raw_string = self.heap.get_mut(ptr)?;
-                let string = raw_string.string_mut();
+                let string = if let Some(s) = raw_string.string_mut() {
+                    s
+                } else {
+                    return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+                };
                 let mut chars: Vec<char> = string.chars().collect();
                 chars[index] = ch;
                 *string = chars.into_iter().collect();
@@ -664,7 +672,11 @@ impl<'run> AtlasRuntime<'run> {
                     VMTag::Int64 => match value.tag {
                         VMTag::String => {
                             let str_ptr = self.heap.get(value.as_object())?;
-                            let string = str_ptr.string();
+                            let string = if let Some(s) = str_ptr.string() {
+                                s
+                            } else {
+                                return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+                            };
                             let parsed = string
                                 .parse::<i64>()
                                 .map_err(|_| RuntimeError::InvalidCast(value.tag, target_type))?;
@@ -680,7 +692,11 @@ impl<'run> AtlasRuntime<'run> {
                     VMTag::UInt64 => match value.tag {
                         VMTag::String => {
                             let str_ptr = self.heap.get(value.as_object())?;
-                            let string = str_ptr.string();
+                            let string = if let Some(s) = str_ptr.string() {
+                                s
+                            } else {
+                                return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+                            };
                             let parsed = string
                                 .parse::<u64>()
                                 .map_err(|_| RuntimeError::InvalidCast(value.tag, target_type))?;
@@ -696,7 +712,11 @@ impl<'run> AtlasRuntime<'run> {
                     VMTag::Float64 => match value.tag {
                         VMTag::String => {
                             let str_ptr = self.heap.get(value.as_object())?;
-                            let string = str_ptr.string();
+                            let string = if let Some(s) = str_ptr.string() {
+                                s
+                            } else {
+                                return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+                            };
                             let parsed = string
                                 .parse::<f64>()
                                 .map_err(|_| RuntimeError::InvalidCast(value.tag, target_type))?;
@@ -714,7 +734,11 @@ impl<'run> AtlasRuntime<'run> {
                     VMTag::Boolean => match value.tag {
                         VMTag::String => {
                             let str_ptr = self.heap.get(value.as_object())?;
-                            let string = str_ptr.string().to_lowercase();
+                            let string = if let Some(s) = str_ptr.string() {
+                                s.to_lowercase()
+                            } else {
+                                return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+                            };
                             let parsed = match string.as_str() {
                                 "true" => true,
                                 "false" => false,
@@ -732,7 +756,11 @@ impl<'run> AtlasRuntime<'run> {
                     VMTag::Char => match value.tag {
                         VMTag::String => {
                             let str_ptr = self.heap.get(value.as_object())?;
-                            let string = str_ptr.string();
+                            let string = if let Some(s) = str_ptr.string() {
+                                s
+                            } else {
+                                return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+                            };
                             let mut chars = string.chars();
                             let ch = chars
                                 .next()
@@ -760,7 +788,11 @@ impl<'run> AtlasRuntime<'run> {
                     },
                     VMTag::String => {
                         let str_ptr = self.heap.get(value.as_object())?;
-                        let string = str_ptr.string();
+                        let string = if let Some(s) = str_ptr.string() {
+                            s
+                        } else {
+                            return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+                        };
                         let ptr = match self.heap.put(ObjectKind::String(string.to_string())) {
                             Ok(idx) => idx,
                             Err(_) => return Err(RuntimeError::OutOfMemory),
@@ -781,7 +813,11 @@ impl<'run> AtlasRuntime<'run> {
                     )));
                 }
                 let original_ptr = val.as_object();
-                let original_string = self.heap.get(original_ptr)?.string().clone();
+                let original_string = if let Some(s) = self.heap.get(original_ptr)?.string() {
+                    s.clone()
+                } else {
+                    return Err(RuntimeError::InvalidObjectAccess(VMTag::String));
+                };
                 let new_ptr = match self.heap.put(ObjectKind::String(original_string)) {
                     Ok(ptr) => ptr,
                     Err(_) => return Err(RuntimeError::OutOfMemory),

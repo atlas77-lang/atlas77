@@ -64,17 +64,17 @@ impl ObjectKind {
         data.into()
     }
 
-    pub fn string(&self) -> &String {
+    pub fn string(&self) -> Option<&String> {
         match &self {
-            ObjectKind::String(s) => s,
-            _ => unreachable!("Expected a string, got a {:?}", self),
+            ObjectKind::String(s) => Some(s),
+            _ => None,
         }
     }
 
-    pub fn string_mut(&mut self) -> &mut String {
+    pub fn string_mut(&mut self) -> Option<&mut String> {
         match self {
-            ObjectKind::String(s) => s,
-            _ => unreachable!("Expected a string, got a {:?}", self),
+            ObjectKind::String(s) => Some(s),
+            _ => None,
         }
     }
 
