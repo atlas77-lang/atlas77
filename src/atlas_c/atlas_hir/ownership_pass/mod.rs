@@ -1592,6 +1592,8 @@ impl<'hir> OwnershipPass<'hir> {
             | HirTy::Char(_)
             | HirTy::UInt64(_)
             | HirTy::Unit(_) => true,
+            // Extern types are assumed copyable (no ownership semantics)
+            HirTy::ExternTy(_) => true,
 
             // References are copyable (they're just pointers)
             HirTy::ReadOnlyReference(_) | HirTy::MutableReference(_) => true,
