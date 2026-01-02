@@ -1,4 +1,5 @@
 use crate::atlas_vm::error::RuntimeError;
+use crate::atlas_vm::object::ObjectKind;
 use crate::atlas_vm::runtime::CallBack;
 use crate::atlas_vm::runtime::vm_state::VMState;
 use crate::atlas_vm::vm_data::VMData;
@@ -32,15 +33,9 @@ pub fn memcpy(state: VMState) -> Result<VMData, RuntimeError> {
     let obj_idx = src_data.as_object();
     let raw_obj = state.object_map.get(obj_idx)?;
     let new_obj = match raw_obj {
-        crate::atlas_vm::object::ObjectKind::List(list) => {
-            crate::atlas_vm::object::ObjectKind::List(list.clone())
-        }
-        crate::atlas_vm::object::ObjectKind::String(s) => {
-            crate::atlas_vm::object::ObjectKind::String(s.clone())
-        }
-        crate::atlas_vm::object::ObjectKind::Structure(fields) => {
-            crate::atlas_vm::object::ObjectKind::Structure(fields.clone())
-        }
+        ObjectKind::List(list) => ObjectKind::List(list.clone()),
+        ObjectKind::String(s) => ObjectKind::String(s.clone()),
+        ObjectKind::Structure(fields) => ObjectKind::Structure(fields.clone()),
         _ => {
             return Err(RuntimeError::InvalidMemCpySource);
         }

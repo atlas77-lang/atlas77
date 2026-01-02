@@ -7,9 +7,8 @@ public extern len<T>(data: &const [T]) -> uint64;
 public extern slice<T>(data: &const [T], start: uint64, end: uint64) -> [T];
 
 public struct Vector<T> {
-private:
-    data: [T];
 public:
+    data: [T];
     length: uint64;
     capacity: uint64;
 
@@ -125,28 +124,3 @@ private:
         return item;
     }
 }
-
-fun main() {
-    let vec: Vector<uint64> = Vector<uint64>::with_capacity(2u);
-    vec.push(10u);
-    vec.push(20u);
-    vec.push(30u);
-    print("Vector length after pushes: ");
-    println(vec.length);
-    let val: uint64 = vec.take(1u);
-    print("Taken value at index 1: ");
-    println(val);
-    print("Vector length after take: ");
-    println(vec.length);
-    let popped: uint64 = vec.pop();
-    print("Popped value: ");
-    println(popped);
-    print("Vector length after pop: ");
-    println(vec.length);
-}
-// Well, this is a bug, it shouldn't be allowed to return a reference to a local variable
-private fun hehe() -> &const int64 {
-    let stuff = [1, 2, 3, 4, 5];
-    return &(stuff[2u]);
-}
-

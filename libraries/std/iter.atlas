@@ -5,10 +5,10 @@ import "std/mem";
 
 //TODO: Add Iter<T>::from_map(Map<K, V>)
 public struct Iter<T> {
-private:
+public:
     data: Vector<T>;
     index: uint64;
-public:
+
     Iter(data: Vector<T>) {
         this.data = data;
         this.index = 0u;

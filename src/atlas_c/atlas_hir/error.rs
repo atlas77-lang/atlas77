@@ -59,6 +59,7 @@ declare_error_type! {
         UnknownMethod(UnknownMethodError),
         CannotTransferOwnershipInBorrowingMethod(CannotTransferOwnershipInBorrowingMethodError),
         CannotMoveOutOfContainer(CannotMoveOutOfContainerError),
+        RecursiveCopyConstructor(RecursiveCopyConstructorError),
     }
 }
 
@@ -812,6 +813,24 @@ pub struct CannotMoveOutOfContainerError {
     #[label = "attempting to move `{ty_name}` out of array/container here"]
     pub span: Span,
     pub ty_name: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::recursive_copy_constructor),
+    help(
+        "a copy constructor cannot copy the same type it's constructing, as this would cause infinite recursion. Check if you're dereferencing fields of `&const this` - use direct field access instead of `*this.field`"
+    )
+)]
+#[error("recursive copy detected in `_copy` method for type `{type_name}`")]
+pub struct RecursiveCopyConstructorError {
+    #[label = "copy constructor defined here"]
+    pub method_span: Span,
+    #[label = "attempting to copy `{type_name}` inside its own copy constructor"]
+    pub copy_span: Span,
+    pub type_name: String,
     #[source_code]
     pub src: NamedSource<String>,
 }

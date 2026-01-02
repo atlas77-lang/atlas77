@@ -13,8 +13,8 @@ use crate::atlas_c::{
             ast::{
                 AstBinaryOp, AstBlock, AstConstructor, AstDestructor, AstEnum, AstExpr,
                 AstExternFunction, AstFunction, AstGeneric, AstGenericConstraint, AstIdentifier,
-                AstImport, AstItem, AstLiteral, AstMethod, AstMethodModifier, AstNamedType,
-                AstObjField, AstProgram, AstStatement, AstStruct, AstType, AstUnaryOp, AstUnion,
+                AstImport, AstItem, AstLiteral, AstMethod, AstMethodModifier, AstObjField,
+                AstProgram, AstStatement, AstStruct, AstType, AstUnaryOp, AstUnion,
             },
         },
     },
@@ -367,20 +367,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         });
         self.module_signature.functions.insert(name, hir);
         Ok(())
-    }
-
-    //todo: Add constraints to generics
-    fn visit_generic(
-        &self,
-        generics: &'ast AstNamedType,
-    ) -> HirResult<&'hir HirTypeParameterItemSignature<'hir>> {
-        let name = self.arena.names().get(generics.name.name);
-        let hir = self.arena.intern(HirTypeParameterItemSignature {
-            span: generics.span,
-            name,
-            name_span: generics.name.span,
-        });
-        Ok(hir)
     }
 
     fn visit_struct(&mut self, node: &'ast AstStruct<'ast>) -> HirResult<HirStruct<'hir>> {

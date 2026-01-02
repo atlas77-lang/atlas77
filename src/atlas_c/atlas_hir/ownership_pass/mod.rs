@@ -47,7 +47,7 @@ use crate::atlas_c::{
         arena::HirArena,
         error::{
             CannotMoveOutOfContainerError, CannotTransferOwnershipInBorrowingMethodError, HirError,
-            HirResult, TryingToAccessAMovedValueError,
+            HirResult, RecursiveCopyConstructorError, TryingToAccessAMovedValueError,
         },
         expr::{HirCopyExpr, HirDeleteExpr, HirExpr, HirIdentExpr, HirMoveExpr},
         item::HirFunction,
@@ -89,6 +89,10 @@ struct MethodContext<'hir> {
     method_span: Span,
     /// The name of the struct this method belongs to (for checking if struct is copyable)
     struct_name: &'hir str,
+    /// The name of the method (for detecting _copy methods)
+    method_name: &'hir str,
+    /// The return type of the method (for detecting recursive copy)
+    return_ty: Option<HirTy<'hir>>,
     /// Whether the struct has type parameters (is generic)
     /// For generic structs, we skip some ownership checks for field accesses
     /// because the concrete types are unknown at definition time
@@ -141,6 +145,8 @@ impl<'hir> OwnershipPass<'hir> {
                     modifier: method.signature.modifier.clone(),
                     method_span: method.signature.span,
                     struct_name: struct_def.signature.name,
+                    method_name: method.name,
+                    return_ty: Some(method.signature.return_ty.clone()),
                     is_generic_struct,
                 });
 
@@ -250,11 +256,15 @@ impl<'hir> OwnershipPass<'hir> {
         }
 
         // Return the first error if any were collected
+        //Let's print all errors for better debugging except the last one that we returns
         if let Some(err) = self.errors.pop() {
+            while let Some(err) = self.errors.pop() {
+                eprintln!("{:?}", Into::<miette::Report>::into(err));
+            }
             return Err(err);
+        } else {
+            return Ok(hir);
         }
-
-        Ok(hir)
     }
 
     /// Analyze a single function for ownership semantics
@@ -602,17 +612,25 @@ impl<'hir> OwnershipPass<'hir> {
                 };
                 let kind = self.classify_type_kind(ty);
                 let is_copyable = self.is_type_copyable(ty);
-                self.scope_map.insert(
+
+                // Preserve the uses array from the collection phase
+                let existing_uses = self
+                    .scope_map
+                    .get(var_stmt.name)
+                    .map(|v| v.uses.clone())
+                    .unwrap_or_default();
+
+                let mut new_var_data = VarData::new(
                     var_stmt.name,
-                    VarData::new(
-                        var_stmt.name,
-                        var_stmt.span,
-                        kind,
-                        ty,
-                        is_copyable,
-                        self.current_stmt_index,
-                    ),
+                    var_stmt.span,
+                    kind,
+                    ty,
+                    is_copyable,
+                    self.current_stmt_index,
                 );
+                new_var_data.uses = existing_uses;
+
+                self.scope_map.insert(var_stmt.name, new_var_data);
 
                 let new_stmt = HirStatement::Let(HirVariableStmt {
                     span: var_stmt.span,
@@ -636,17 +654,25 @@ impl<'hir> OwnershipPass<'hir> {
                 };
                 let kind = self.classify_type_kind(ty);
                 let is_copyable = self.is_type_copyable(ty);
-                self.scope_map.insert(
+
+                // Preserve the uses array from the collection phase
+                let existing_uses = self
+                    .scope_map
+                    .get(var_stmt.name)
+                    .map(|v| v.uses.clone())
+                    .unwrap_or_default();
+
+                let mut new_var_data = VarData::new(
                     var_stmt.name,
-                    VarData::new(
-                        var_stmt.name,
-                        var_stmt.span,
-                        kind,
-                        ty,
-                        is_copyable,
-                        self.current_stmt_index,
-                    ),
+                    var_stmt.span,
+                    kind,
+                    ty,
+                    is_copyable,
+                    self.current_stmt_index,
                 );
+                new_var_data.uses = existing_uses;
+
+                self.scope_map.insert(var_stmt.name, new_var_data);
 
                 let new_stmt = HirStatement::Const(HirVariableStmt {
                     span: var_stmt.span,
@@ -840,6 +866,32 @@ impl<'hir> OwnershipPass<'hir> {
                 ))
             }
             HirExpr::Call(call) => {
+                // Check if this is an explicit _copy() method call inside a _copy method
+                // This would cause infinite recursion
+                if let Some(method_ctx) = &self.current_method_context {
+                    if method_ctx.method_name == "_copy" {
+                        if let HirExpr::FieldAccess(field_access) = call.callee.as_ref() {
+                            if field_access.field.name == "_copy" {
+                                // Check if the return type of the call matches our return type
+                                if let Some(return_ty) = &method_ctx.return_ty {
+                                    if self.types_match(call.ty, return_ty) {
+                                        let path = call.span.path;
+                                        let src = utils::get_file_content(path).unwrap_or_default();
+                                        return Err(HirError::RecursiveCopyConstructor(
+                                            RecursiveCopyConstructorError {
+                                                copy_span: call.span,
+                                                method_span: method_ctx.method_span,
+                                                type_name: self.get_type_name(call.ty),
+                                                src: NamedSource::new(path, src),
+                                            },
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Check if this is a method call that consumes `this` (modifier == None)
                 let method_consumes_this = self.method_consumes_this(&call.callee);
 
@@ -1173,21 +1225,52 @@ impl<'hir> OwnershipPass<'hir> {
             return Ok(HirExpr::Ident(ident.clone()));
         }
 
-        // For copyable types: always use COPY to be safe
-        // (The "move optimization" is disabled because loop analysis isn't reliable yet)
-        if var_data.is_copyable {
-            return Ok(HirExpr::Copy(HirCopyExpr {
-                span: ident.span,
-                source_name: ident.name,
-                expr: Box::new(HirExpr::Ident(ident.clone())),
-                ty: ident.ty,
-            }));
-        }
-
-        // For non-copyable types: must MOVE
         // Check if we can safely move (no future uses of any kind)
         let can_move = var_data.can_move_at(self.current_stmt_index);
 
+        // For copyable types: prefer MOVE if this is the last use, otherwise COPY
+        if var_data.is_copyable {
+            if can_move {
+                // This is the last use - MOVE to avoid unnecessary copy
+                self.scope_map.mark_as_moved(ident.name, ident.span);
+                return Ok(HirExpr::Move(HirMoveExpr {
+                    span: ident.span,
+                    source_name: ident.name,
+                    expr: Box::new(HirExpr::Ident(ident.clone())),
+                    ty: ident.ty,
+                }));
+            } else {
+                // Still has future uses - must COPY
+                // Check for recursive copy in _copy methods
+                if let Some(method_ctx) = &self.current_method_context {
+                    if method_ctx.method_name == "_copy" {
+                        if let Some(return_ty) = &method_ctx.return_ty {
+                            // Check if we're trying to copy the same type we're returning
+                            if self.types_match(ident.ty, return_ty) {
+                                let path = ident.span.path;
+                                let src = utils::get_file_content(path).unwrap_or_default();
+                                return Err(HirError::RecursiveCopyConstructor(
+                                    RecursiveCopyConstructorError {
+                                        copy_span: ident.span,
+                                        method_span: method_ctx.method_span,
+                                        type_name: self.get_type_name(ident.ty),
+                                        src: NamedSource::new(path, src),
+                                    },
+                                ));
+                            }
+                        }
+                    }
+                }
+                return Ok(HirExpr::Copy(HirCopyExpr {
+                    span: ident.span,
+                    source_name: ident.name,
+                    expr: Box::new(HirExpr::Ident(ident.clone())),
+                    ty: ident.ty,
+                }));
+            }
+        }
+
+        // For non-copyable types: must MOVE
         if !can_move {
             // Non-copyable type used multiple times - this will fail on second use
             // We'll catch this when they try to use it again
@@ -1338,17 +1421,6 @@ impl<'hir> OwnershipPass<'hir> {
             }
         }
         Ok(())
-    }
-
-    /// Get the variable name being returned, if it's a simple identifier
-    fn get_returned_var_name(&self, expr: &HirExpr<'hir>) -> Option<&'hir str> {
-        match expr {
-            HirExpr::Ident(ident) => Some(ident.name),
-            HirExpr::Move(mv) => self.get_returned_var_name(&mv.expr),
-            HirExpr::Copy(cp) => self.get_returned_var_name(&cp.expr),
-            HirExpr::Unary(unary) => self.get_returned_var_name(&unary.expr),
-            _ => None,
-        }
     }
 
     /// Collect all variable names used in an expression
@@ -1570,6 +1642,64 @@ impl<'hir> OwnershipPass<'hir> {
                 | HirTy::UInt64(_)
                 | HirTy::Unit(_)
         )
+    }
+
+    /// Check if two types match (used for detecting recursive copy)
+    fn types_match(&self, ty1: &HirTy<'hir>, ty2: &HirTy<'hir>) -> bool {
+        match (ty1, ty2) {
+            (HirTy::Named(n1), HirTy::Named(n2)) => n1.name == n2.name,
+            (HirTy::Generic(g1), HirTy::Generic(g2)) => {
+                // Compare mangled names for generic types
+                let name1 =
+                    MonomorphizationPass::mangle_generic_object_name(self.hir_arena, g1, "struct");
+                let name2 =
+                    MonomorphizationPass::mangle_generic_object_name(self.hir_arena, g2, "struct");
+                name1 == name2
+            }
+            (HirTy::ReadOnlyReference(r1), HirTy::ReadOnlyReference(r2)) => {
+                self.types_match(r1.inner, r2.inner)
+            }
+            (HirTy::MutableReference(r1), HirTy::MutableReference(r2)) => {
+                self.types_match(r1.inner, r2.inner)
+            }
+            (HirTy::List(l1), HirTy::List(l2)) => self.types_match(l1.inner, l2.inner),
+            (HirTy::Boolean(_), HirTy::Boolean(_))
+            | (HirTy::Int64(_), HirTy::Int64(_))
+            | (HirTy::Float64(_), HirTy::Float64(_))
+            | (HirTy::Char(_), HirTy::Char(_))
+            | (HirTy::UInt64(_), HirTy::UInt64(_))
+            | (HirTy::Unit(_), HirTy::Unit(_))
+            | (HirTy::String(_), HirTy::String(_)) => true,
+            _ => false,
+        }
+    }
+
+    /// Get a human-readable name for a type (used in error messages)
+    fn get_type_name(&self, ty: &HirTy<'hir>) -> String {
+        match ty {
+            HirTy::Named(n) => n.name.to_string(),
+            HirTy::Generic(g) => {
+                let type_args = g
+                    .inner
+                    .iter()
+                    .map(|t| self.get_type_name(t))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{}<{}>", g.name, type_args)
+            }
+            HirTy::ReadOnlyReference(r) => format!("&const {}", self.get_type_name(r.inner)),
+            HirTy::MutableReference(r) => format!("&{}", self.get_type_name(r.inner)),
+            HirTy::List(l) => format!("[{}]", self.get_type_name(l.inner)),
+            HirTy::Boolean(_) => "bool".to_string(),
+            HirTy::Int64(_) => "int64".to_string(),
+            HirTy::Float64(_) => "float64".to_string(),
+            HirTy::Char(_) => "char".to_string(),
+            HirTy::UInt64(_) => "uint64".to_string(),
+            HirTy::Unit(_) => "()".to_string(),
+            HirTy::String(_) => "string".to_string(),
+            HirTy::Function(_) => "function".to_string(),
+            _ => "unknown".to_string(),
+        }
     }
 
     /// Check if a type is a type parameter (uninstantiated generic like T, K, V)
