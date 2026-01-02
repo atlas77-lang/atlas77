@@ -187,7 +187,7 @@ impl HirTy<'_> {
             HirTy::ReadOnlyReference(_) | HirTy::MutableReference(_)
         )
     }
-    pub fn get_inner_ref_ty(&self) -> Option<&HirTy> {
+    pub fn get_inner_ref_ty(&self) -> Option<&HirTy<'_>> {
         match self {
             HirTy::ReadOnlyReference(ty) => Some(ty.inner),
             HirTy::MutableReference(ty) => Some(ty.inner),

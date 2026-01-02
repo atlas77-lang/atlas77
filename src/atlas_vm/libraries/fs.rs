@@ -15,8 +15,8 @@ pub const FILE_FUNCTIONS: [(&str, CallBack); 6] = [
 
 // We need to manually close files to ensure data integrity
 pub fn close_file(state: VMState) -> Result<VMData, RuntimeError> {
-    let _file_ptr = state.stack.pop()?.as_object();
-    //state.object_map.free(file_ptr)?;
+    let file_ptr = state.stack.pop()?.as_object();
+    state.object_map.free(file_ptr)?;
     // In Rust, files are automatically closed when they go out of scope.
     // However, in this VM context, we can simulate closing a file by removing
     // its reference from the object map if needed.

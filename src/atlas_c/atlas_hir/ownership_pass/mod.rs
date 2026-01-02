@@ -691,8 +691,6 @@ impl<'hir> OwnershipPass<'hir> {
 
                 let mut result = Vec::new();
 
-                let owned_vars = self.scope_map.get_all_owned_vars();
-
                 // Generate delete statements for owned vars declared before this statement
 
                 // Generate delete statements for owned vars declared before this statement

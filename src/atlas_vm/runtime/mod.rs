@@ -87,7 +87,7 @@ impl<'run> AtlasRuntime<'run> {
             self.pc += 1;
             match self.execute_instruction(instr) {
                 Ok(_) => {
-                    //eprint!("{}, ", self.pc)
+                    eprint!("{}, ", self.pc)
                 }
                 Err(RuntimeError::HaltEncountered) => break,
                 Err(e) => {
@@ -625,6 +625,7 @@ impl<'run> AtlasRuntime<'run> {
                 // Get the address of a local variable and push it as a reference
                 let local_slot_idx = instr.arg.as_u24() as usize;
                 let var_ptr = self.stack.get_var_ptr(local_slot_idx);
+                println!("Var ptr: {:?}", unsafe { *var_ptr }); //--- IGNORE ---
                 self.stack.push(VMData::new_ref(var_ptr))
             }
             OpCode::LOAD_INDIRECT => {

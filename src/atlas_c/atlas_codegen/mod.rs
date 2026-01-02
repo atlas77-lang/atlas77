@@ -1247,12 +1247,22 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 }
             }
             HirExpr::Copy(copy_expr) => {
-                // For copy expressions, we need to get the address of the inner expression
-                self.generate_bytecode_ref_expr(&copy_expr.expr, bytecode)?;
+                // For copy expressions that produce a temporary value (call/newobj/complex expr),
+                // evaluate the expression, store it in a temporary local slot, and then push
+                // the address of that slot. This mirrors `generate_receiver_addr`'s behavior and
+                // guarantees the address refers to a stable location the callee can read.
+                self.generate_bytecode_expr(&copy_expr.expr, bytecode)?;
+                let temp_idx = self.local_variables.insert_anonymous();
+                bytecode.push(Instruction::StoreVar(temp_idx));
+                bytecode.push(Instruction::LoadVarAddr(temp_idx));
             }
             HirExpr::Move(move_expr) => {
-                // For move expressions, we need to get the address of the inner expression
-                self.generate_bytecode_ref_expr(&move_expr.expr, bytecode)?;
+                // For move expressions, materialize into a temp slot then take its address
+                // (similar reasons as for Copy)
+                self.generate_bytecode_expr(&move_expr.expr, bytecode)?;
+                let temp_idx = self.local_variables.insert_anonymous();
+                bytecode.push(Instruction::StoreVar(temp_idx));
+                bytecode.push(Instruction::LoadVarAddr(temp_idx));
             }
             _ => {
                 eprintln!("\tExpr Type: {:?}", expr);
