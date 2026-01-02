@@ -1,7 +1,7 @@
 import "std/io";
 
 fun main() {
-    println(fib(5));
+    println(fib(40));
 }
 
 fun fib(n: int64) -> int64 {
@@ -10,13 +10,4 @@ fun fib(n: int64) -> int64 {
     } else {
         return fib(n - 1) + fib(n - 2);
     }
-}
-
-struct TestAddingCopyConstructor {
-public:
-    value: int64;
-    TestAddingCopyConstructor() {
-        this.value = 1;
-    }
-    //Let's see if the _copy constructor is added correctly by the compiler
 }

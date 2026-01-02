@@ -13,7 +13,7 @@ use crate::atlas_c::atlas_hir::expr::{HirBinaryOperator, HirUnaryOp};
 use crate::atlas_c::atlas_hir::item::{HirStruct, HirStructConstructor};
 use crate::atlas_c::atlas_hir::monomorphization_pass::MonomorphizationPass;
 use crate::atlas_c::atlas_hir::signature::{ConstantValue, HirStructMethodModifier};
-use crate::atlas_c::atlas_hir::ty::{HirGenericTy, HirMutableReferenceTy, HirReadOnlyReferenceTy};
+use crate::atlas_c::atlas_hir::ty::HirGenericTy;
 use crate::atlas_c::atlas_hir::{
     HirModule,
     error::{HirResult, UnsupportedExpr, UnsupportedStatement},
@@ -1089,20 +1089,9 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
             HirExpr::Delete(delete) => {
                 let name = match &delete.expr.ty() {
-                    HirTy::Named(_)
-                    | HirTy::ReadOnlyReference(HirReadOnlyReferenceTy {
-                        inner: HirTy::Generic(_),
-                    })
-                    | HirTy::ReadOnlyReference(HirReadOnlyReferenceTy {
-                        inner: HirTy::Named(_),
-                    })
-                    | HirTy::MutableReference(HirMutableReferenceTy {
-                        inner: HirTy::Generic(_),
-                    })
-                    | HirTy::MutableReference(HirMutableReferenceTy {
-                        inner: HirTy::Named(_),
-                    })
-                    | HirTy::Generic(_) => self.get_class_name_of_type(delete.expr.ty()).unwrap(),
+                    HirTy::Named(_) | HirTy::Generic(_) => {
+                        self.get_class_name_of_type(delete.expr.ty()).unwrap()
+                    }
                     HirTy::String(_) | HirTy::List(_) => {
                         //Strings and Lists have their own delete instruction
                         self.generate_bytecode_expr(&delete.expr, bytecode)?;
@@ -1110,7 +1099,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         return Ok(());
                     }
                     _ => {
-                        //Just ignore delete for primitive types
+                        //Just ignore delete for primitive types & references
                         return Ok(());
                     }
                 };

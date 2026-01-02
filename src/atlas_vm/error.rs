@@ -21,6 +21,7 @@ pub enum RuntimeError {
     OutOfBoundProgram(usize),
     InvalidObjectAccess(VMTag),
     InvalidMemCpySource,
+    CannotDeleteReferenceDirectly,
 }
 
 impl std::fmt::Display for RuntimeError {
@@ -52,6 +53,7 @@ impl std::fmt::Display for RuntimeError {
             HaltEncountered => writeln!(f, "Halt instruction encountered"),
             OutOfBoundProgram(pos) => writeln!(f, "Program counter out of bounds: {}", pos),
             InvalidMemCpySource => writeln!(f, "Invalid source for memcpy; must be an object"),
+            CannotDeleteReferenceDirectly => writeln!(f, "Cannot delete a reference directly"),
         }
     }
 }

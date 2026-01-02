@@ -1,68 +1,40 @@
 mod context;
 
 use super::{
-    HirFunction, HirModule, HirModuleSignature,
-    arena::HirArena,
-    error::{
-        HirError, HirResult, TypeMismatchError, UnknownFieldError, UnknownIdentifierError,
-        UnknownMethodError, UnknownTypeError,
-    },
-    expr,
-    expr::{HirBinaryOperator, HirExpr},
-    stmt::HirStatement,
-    ty::{HirTy, HirTyId},
+    HirFunction, HirModule, HirModuleSignature, arena::HirArena, expr, stmt::HirStatement,
 };
-use crate::atlas_c::atlas_hir::{
-    error::IllegalUnaryOperationError,
-    signature::{
-        HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier, HirVisibility,
-    },
-    ty::HirGenericTy,
-};
-use crate::atlas_c::atlas_hir::{
-    error::InvalidSpecialMethodSignatureError,
-    warning::{DeletingReferenceMightLeadToUB, HirWarning},
-};
-use crate::atlas_c::atlas_hir::{
-    error::TryingToAccessFieldOnNonObjectTypeError,
-    expr::{HirUnaryOp, HirUnsignedIntegerLiteralExpr},
-    monomorphization_pass::MonomorphizationPass,
-    warning::TryingToCastToTheSameTypeWarning,
+use crate::atlas_c::atlas_hir::item::HirStructConstructor;
+use crate::atlas_c::atlas_hir::signature::{
+    HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier, HirVisibility,
 };
 use crate::atlas_c::atlas_hir::{
     error::{
-        CallingNonConstMethodOnConstReferenceError, CallingNonConstMethodOnConstReferenceOrigin,
-        TryingToMutateConstReferenceError,
-    },
-    ty::HirNamedTy,
-};
-use crate::atlas_c::atlas_hir::{
-    error::{NotEnoughArgumentsError, NotEnoughArgumentsOrigin},
-    item::{HirStruct, HirStructMethod},
-};
-use crate::atlas_c::atlas_hir::{
-    error::{
-        ReturningReferenceToLocalVariableError,
-        TryingToCreateAnUnionWithMoreThanOneActiveFieldError,
-        TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin,
-    },
-    type_check_pass::context::{ContextFunction, ContextVariable},
-};
-use crate::atlas_c::atlas_hir::{
-    expr::{HirFunctionCallExpr, HirIdentExpr},
-    item::HirStructConstructor,
-};
-use crate::atlas_c::utils::Span;
-use crate::atlas_c::{
-    atlas_hir::error::{
         AccessingClassFieldOutsideClassError, AccessingPrivateConstructorError,
         AccessingPrivateFieldError, AccessingPrivateFunctionError, AccessingPrivateFunctionOrigin,
-        AccessingPrivateStructError, AccessingPrivateStructOrigin, CanOnlyConstructStructsError,
-        EmptyListLiteralError, FieldKind, IllegalOperationError,
-        TryingToIndexNonIndexableTypeError, TypeMismatchActual, UnsupportedExpr,
+        AccessingPrivateStructError, AccessingPrivateStructOrigin,
+        CallingNonConstMethodOnConstReferenceError, CallingNonConstMethodOnConstReferenceOrigin,
+        CanOnlyConstructStructsError, EmptyListLiteralError, FieldKind, HirError, HirResult,
+        IllegalOperationError, IllegalUnaryOperationError, InvalidSpecialMethodSignatureError,
+        NotEnoughArgumentsError, NotEnoughArgumentsOrigin, ReturningReferenceToLocalVariableError,
+        TryingToAccessFieldOnNonObjectTypeError,
+        TryingToCreateAnUnionWithMoreThanOneActiveFieldError,
+        TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin, TryingToIndexNonIndexableTypeError,
+        TryingToMutateConstReferenceError, TypeMismatchActual, TypeMismatchError,
+        UnknownFieldError, UnknownIdentifierError, UnknownMethodError, UnknownTypeError,
+        UnsupportedExpr,
     },
-    utils,
+    expr::{
+        HirBinaryOperator, HirExpr, HirFunctionCallExpr, HirIdentExpr, HirUnaryOp,
+        HirUnsignedIntegerLiteralExpr,
+    },
+    item::{HirStruct, HirStructMethod},
+    monomorphization_pass::MonomorphizationPass,
+    ty::{HirGenericTy, HirNamedTy, HirTy, HirTyId},
+    type_check_pass::context::{ContextFunction, ContextVariable},
+    warning::{HirWarning, TryingToCastToTheSameTypeWarning},
 };
+use crate::atlas_c::utils;
+use crate::atlas_c::utils::Span;
 use miette::{ErrReport, NamedSource};
 use std::collections::HashMap;
 
@@ -561,12 +533,6 @@ impl<'hir> TypeChecker<'hir> {
                         return Ok(self.arena.types().get_unit_ty());
                     }
                 };
-                match ty {
-                    HirTy::MutableReference(_) | HirTy::ReadOnlyReference(_) => {
-                        Self::deleting_ref_is_not_safe_warning(&del_expr.span);
-                    }
-                    _ => {}
-                }
                 let class = match self.signature.structs.get(name) {
                     Some(c) => *c,
                     None => {
@@ -1939,19 +1905,6 @@ impl<'hir> TypeChecker<'hir> {
             kind: kind.to_string(),
             src: NamedSource::new(path, src),
         })
-    }
-
-    #[inline(always)]
-    fn deleting_ref_is_not_safe_warning(span: &Span) {
-        let path = span.path;
-        let src = utils::get_file_content(path).unwrap();
-        let warning: ErrReport =
-            HirWarning::DeletingReferenceIsNotSafe(DeletingReferenceMightLeadToUB {
-                span: *span,
-                src: NamedSource::new(path, src),
-            })
-            .into();
-        eprintln!("{:?}", warning);
     }
 
     fn not_enough_arguments_err(

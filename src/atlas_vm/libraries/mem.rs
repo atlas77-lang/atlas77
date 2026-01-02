@@ -3,7 +3,23 @@ use crate::atlas_vm::runtime::CallBack;
 use crate::atlas_vm::runtime::vm_state::VMState;
 use crate::atlas_vm::vm_data::VMData;
 
-pub const MEM_FUNCTIONS: [(&str, CallBack); 1] = [("memcpy", memcpy)];
+pub const MEM_FUNCTIONS: [(&str, CallBack); 2] =
+    [("memcpy", memcpy), ("delete_from_ref", delete_from_ref)];
+
+pub fn delete_from_ref(state: VMState) -> Result<VMData, RuntimeError> {
+    let data_ptr = state.stack.pop()?.as_ref();
+    let src_data = unsafe { &*data_ptr };
+    if src_data.is_ref() {
+        return Err(RuntimeError::CannotDeleteReferenceDirectly);
+    }
+    if src_data.is_primitive() {
+        // For primitive types, no action is needed
+        return Ok(VMData::new_unit());
+    }
+    let obj_idx = src_data.as_object();
+    state.object_map.free(obj_idx)?;
+    Ok(VMData::new_unit())
+}
 
 pub fn memcpy(state: VMState) -> Result<VMData, RuntimeError> {
     let src_ptr = state.stack.pop()?.as_ref();

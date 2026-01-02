@@ -6,7 +6,6 @@ declare_warning_type!(
     #[warning("semantic warning: {0}")]
     pub enum HirWarning {
         ThisTypeIsStillUnstable(ThisTypeIsStillUnstableWarning),
-        DeletingReferenceIsNotSafe(DeletingReferenceMightLeadToUB),
         NameShouldBeInDifferentCase(NameShouldBeInDifferentCaseWarning),
         TryingToCastToTheSameType(TryingToCastToTheSameTypeWarning),
         ConsumingMethodMayLeakThis(ConsumingMethodMayLeakThisWarning),
@@ -64,16 +63,6 @@ pub struct NameShouldBeInDifferentCaseWarning {
     pub name: String,
     //The expected name in the correct case
     pub expected_name: String,
-}
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(code(sema::deleting_reference_is_not_safe), severity(warning))]
-#[error("Deleting a reference might lead to undefined behavior")]
-pub struct DeletingReferenceMightLeadToUB {
-    #[source_code]
-    pub src: NamedSource<String>,
-    #[label = "Deleting references might lead to undefined behavior. Use with caution."]
-    pub span: Span,
 }
 
 #[derive(Error, Diagnostic, Debug)]
