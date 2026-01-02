@@ -916,14 +916,35 @@ impl<'hir> OwnershipPass<'hir> {
                 let transformed_inner =
                     self.transform_expr_ownership(&unary.expr, inner_consumes)?;
 
-                Ok(HirExpr::Unary(
-                    crate::atlas_c::atlas_hir::expr::UnaryOpExpr {
-                        span: unary.span,
-                        op: unary.op.clone(),
-                        expr: Box::new(transformed_inner),
-                        ty: unary.ty,
-                    },
-                ))
+                let unary_expr = HirExpr::Unary(crate::atlas_c::atlas_hir::expr::UnaryOpExpr {
+                    span: unary.span,
+                    op: unary.op.clone(),
+                    expr: Box::new(transformed_inner),
+                    ty: unary.ty,
+                });
+
+                // Special case: Deref in an ownership-consuming context with a copyable result type
+                // needs to produce a copy of the object, not just read the pointer.
+                // This handles cases like `*this.field` in _copy methods where field is an object.
+                if is_ownership_consuming
+                    && matches!(
+                        unary.op,
+                        Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::Deref)
+                    )
+                {
+                    let is_copyable = self.is_type_copyable(unary.ty);
+                    if is_copyable && !Self::is_primitive_type(unary.ty) {
+                        // Wrap in Copy to ensure proper deep copy semantics
+                        return Ok(HirExpr::Copy(HirCopyExpr {
+                            span: unary.span,
+                            source_name: "", // No specific source name for deref expression
+                            expr: Box::new(unary_expr),
+                            ty: unary.ty,
+                        }));
+                    }
+                }
+
+                Ok(unary_expr)
             }
             HirExpr::NewObj(new_obj) => {
                 let mut transformed_args = Vec::new();
@@ -1536,6 +1557,19 @@ impl<'hir> OwnershipPass<'hir> {
             // Other types are not copyable
             _ => false,
         }
+    }
+
+    /// Check if a type is a primitive type (bitwise copyable, no heap allocation)
+    fn is_primitive_type(ty: &HirTy<'hir>) -> bool {
+        matches!(
+            ty,
+            HirTy::Boolean(_)
+                | HirTy::Int64(_)
+                | HirTy::Float64(_)
+                | HirTy::Char(_)
+                | HirTy::UInt64(_)
+                | HirTy::Unit(_)
+        )
     }
 
     /// Check if a type is a type parameter (uninstantiated generic like T, K, V)
