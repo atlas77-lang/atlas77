@@ -6,11 +6,27 @@ declare_warning_type!(
     #[warning("semantic warning: {0}")]
     pub enum HirWarning {
         ThisTypeIsStillUnstable(ThisTypeIsStillUnstableWarning),
-        DeletingReferenceIsNotSafe(DeletingReferenceMightLeadToUB),
         NameShouldBeInDifferentCase(NameShouldBeInDifferentCaseWarning),
         TryingToCastToTheSameType(TryingToCastToTheSameTypeWarning),
+        ConsumingMethodMayLeakThis(ConsumingMethodMayLeakThisWarning),
+        CannotGenerateACopyConstructorForThisType(CannotGenerateACopyConstructorForThisTypeWarning),
     }
 );
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::cannot_generate_a_copy_constructor_for_this_type),
+    severity(warning),
+    help("Consider implementing a custom copy constructor for this type")
+)]
+#[error("Cannot generate a copy constructor for type `{type_name}`")]
+pub struct CannotGenerateACopyConstructorForThisTypeWarning {
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label = "Automatic copy constructor generation failed for this type"]
+    pub span: Span,
+    pub type_name: String,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
@@ -50,16 +66,6 @@ pub struct NameShouldBeInDifferentCaseWarning {
 }
 
 #[derive(Error, Diagnostic, Debug)]
-#[diagnostic(code(sema::deleting_reference_is_not_safe), severity(warning))]
-#[error("Deleting a reference might lead to undefined behavior")]
-pub struct DeletingReferenceMightLeadToUB {
-    #[source_code]
-    pub src: NamedSource<String>,
-    #[label = "Deleting references might lead to undefined behavior. Use with caution."]
-    pub span: Span,
-}
-
-#[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::type_is_still_unstable), severity(warning))]
 #[error("{type_name} is still unstable. {info}")]
 pub struct ThisTypeIsStillUnstableWarning {
@@ -70,4 +76,21 @@ pub struct ThisTypeIsStillUnstableWarning {
     pub type_name: String,
     //Additional info about why it's unstable
     pub info: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::consuming_method_may_leak_this),
+    severity(warning),
+    help(
+        "Add `delete this;` before returning, or change to `&this` / `&const this` if you don't need to consume ownership"
+    )
+)]
+#[error("Consuming method `{method_name}` does not explicitly delete `this`")]
+pub struct ConsumingMethodMayLeakThisWarning {
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label = "This method takes ownership of `this` but doesn't delete it, which may cause a memory leak"]
+    pub span: Span,
+    pub method_name: String,
 }

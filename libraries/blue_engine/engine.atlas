@@ -3,8 +3,8 @@
 // NB: uint32/float32/int32 are not supported in atlas77 yet.
 //package blue_engine;
 
-import "std/result";
-import "std/option";
+import "std/expected";
+import "std/optional";
 import "std/io";
 import "std/time";
 import "std/math";
@@ -19,7 +19,6 @@ public struct Engine {
     private:
         engine_data: extern_ptr;
         Engine() {}
-        ~Engine() {}
     public:
         /// Initializes and returns a new Engine instance
         /// Example: let engine = Engine::init();
@@ -28,15 +27,15 @@ public struct Engine {
             return engine;
         }
         /// Get a mutable reference to the renderer associated with this engine
-        fun renderer(this) -> &Renderer {
+        fun renderer(&this) -> &Renderer {
             return get_renderer_from_engine(&this);
         }
         /// Get a mutable reference to the object storage associated with this engine
-        fun objects(this) -> &ObjectStorage {
+        fun objects(&this) -> &ObjectStorage {
             return get_object_storage_from_engine(&this);
         }
         /// Get a mutable reference to the camera associated with this engine
-        fun camera(this) -> &Camera {
+        fun camera(&this) -> &Camera {
             return get_camera_from_engine(&this);
         }
 }
@@ -46,7 +45,6 @@ public struct Renderer {
     private:
         renderer_data: extern_ptr;
         Renderer() {}
-        ~Renderer() {}
     public:
         fun init(window_name: string, width: uint64, height: uint64) -> Renderer {
             let renderer = new_renderer(window_name, width, height);
@@ -59,26 +57,25 @@ private extern object_storage_insert(
     storage: extern_ptr, 
     name: string, 
     obj: Object
-) -> Result<unit, BlueEngineError>;
-private extern get_mut_object_from_storage(storage: extern_ptr, name: string) -> Option<&Object>;
-private extern get_object_from_storage(storage: extern_ptr, name: string) -> Option<&const Object>;
+) -> expected<unit, BlueEngineError>;
+private extern get_mut_object_from_storage(storage: extern_ptr, name: string) -> optional<&Object>;
+private extern get_object_from_storage(storage: extern_ptr, name: string) -> optional<&const Object>;
 public struct ObjectStorage {
     private:
         object_storage_data: extern_ptr;
         ObjectStorage() {}
-        ~ObjectStorage() {}
     public:
         fun init() -> ObjectStorage {
             let storage = new_object_storage();
             return storage;
         }
-        fun insert(this, name: string, obj: Object) -> Result<unit, BlueEngineError> {
+        fun insert(this, name: string, obj: Object) -> expected<unit, BlueEngineError> {
             return object_storage_insert(this.object_storage_data, name, obj);
         }
-        fun get(this, name: string) -> Option<&const Object> {
+        fun get(this, name: string) -> optional<&const Object> {
             return get_object_from_storage(this.object_storage_data, name);
         }
-        fun get_mut(this, name: string) -> Option<&Object> {
+        fun get_mut(this, name: string) -> optional<&Object> {
             return get_mut_object_from_storage(this.object_storage_data, name);
         }
 }
@@ -88,7 +85,6 @@ public struct ObjectSettings {
     private:
         object_settings_data: extern_ptr;
         ObjectSettings() {}
-        ~ObjectSettings() {}
     public:
         fun init(camera_effect: string) -> ObjectSettings {
             let settings = new_object_settings(camera_effect);
@@ -104,7 +100,6 @@ public struct Vertex {
         Vertex(position: [float64], uv: [float64], normal: [float64]) {
             this.vertex_data = new_vertex(position, uv, normal);
         }
-        ~Vertex() {}
 }
 
 private extern new_object(
@@ -124,7 +119,6 @@ private extern set_object_color(
 public struct Object {
     private:
         object_data: extern_ptr;
-        ~Object() {}
         Object() {}
     public:
         fun init(
@@ -137,7 +131,7 @@ public struct Object {
             let object = new_object(name, vertices, indices, settings, renderer);
             return object;
         }
-        fun set_color(this, r: float64, g: float64, b: float64, a: float64) {
+        fun set_color(&this, r: float64, g: float64, b: float64, a: float64) {
             set_object_color(this.object_data, r, g, b, a);
         }
 }
@@ -152,63 +146,60 @@ public struct Camera {
     private:
         camera_data: extern_ptr;
         Camera() {}
-        ~Camera() {}
     public:
-        fun set_camera_position(this, x: float64, y: float64, z: float64) {
+        fun set_camera_position(&this, x: float64, y: float64, z: float64) {
             set_camera_position(this.camera_data, x, y, z);
         }
 }
 
 
-public fun cube(name: string, settings: ObjectSettings, renderer: &Renderer, objects: &ObjectStorage) -> Result<string, BlueEngineError> {
-    objects.insert(
+public fun cube(name: string, settings: ObjectSettings, renderer: &Renderer, objects: &ObjectStorage) -> expected<string, BlueEngineError> {
+    let obj = Object::init(
         name,
-        Object::init(
-            name,
-            [
-                new Vertex([-1.0, -1.0, 1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
-                new Vertex([1.0, -1.0, 1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
-                new Vertex([1.0, 1.0, 1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
-                new Vertex([-1.0, 1.0, 1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
-                // Back Face
-                new Vertex([-1.0, 1.0, -1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
-                new Vertex([1.0, 1.0, -1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
-                new Vertex([1.0, -1.0, -1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
-                new Vertex([-1.0, -1.0, -1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
-                // Right face
-                new Vertex([1.0, -1.0, -1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
-                new Vertex([1.0, 1.0, -1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
-                new Vertex([1.0, 1.0, 1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
-                new Vertex([1.0, -1.0, 1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
-                // Left face
-                new Vertex([-1.0, -1.0, 1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
-                new Vertex([-1.0, 1.0, 1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
-                new Vertex([-1.0, 1.0, -1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
-                new Vertex([-1.0, -1.0, -1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
-                // Top face
-                new Vertex([1.0, 1.0, -1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
-                new Vertex([-1.0, 1.0, -1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
-                new Vertex([-1.0, 1.0, 1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
-                new Vertex([1.0, 1.0, 1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
-                // Bottom face
-                new Vertex([1.0, -1.0, 1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
-                new Vertex([-1.0, -1.0, 1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
-                new Vertex([-1.0, -1.0, -1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
-                new Vertex([1.0, -1.0, -1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
-            ],
-            [
-                0_uint64, 1_uint64, 2_uint64, 2_uint64, 3_uint64, 0_uint64, // top
-                4_uint64, 5_uint64, 6_uint64, 6_uint64, 7_uint64, 4_uint64, // bottom
-                8_uint64, 9_uint64, 10_uint64, 10_uint64, 11_uint64, 8_uint64, // right
-                12_uint64, 13_uint64, 14_uint64, 14_uint64, 15_uint64, 12_uint64, // left
-                16_uint64, 17_uint64, 18_uint64, 18_uint64, 19_uint64, 16_uint64, // front
-                20_uint64, 21_uint64, 22_uint64, 22_uint64, 23_uint64, 20_uint64, // back
-            ],
-            settings,
-            renderer
-        )
-    ).unwrap();
-    return Result::<string, BlueEngineError>::ok("Cube created successfully");
+        [
+            new Vertex([-1.0, -1.0, 1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
+            new Vertex([1.0, -1.0, 1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
+            new Vertex([1.0, 1.0, 1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
+            new Vertex([-1.0, 1.0, 1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
+            // Back Face
+            new Vertex([-1.0, 1.0, -1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
+            new Vertex([1.0, 1.0, -1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
+            new Vertex([1.0, -1.0, -1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
+            new Vertex([-1.0, -1.0, -1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
+            // Right face
+            new Vertex([1.0, -1.0, -1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
+            new Vertex([1.0, 1.0, -1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
+            new Vertex([1.0, 1.0, 1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
+            new Vertex([1.0, -1.0, 1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
+            // Left face
+            new Vertex([-1.0, -1.0, 1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
+            new Vertex([-1.0, 1.0, 1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
+            new Vertex([-1.0, 1.0, -1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
+            new Vertex([-1.0, -1.0, -1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
+            // Top face
+            new Vertex([1.0, 1.0, -1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
+            new Vertex([-1.0, 1.0, -1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
+            new Vertex([-1.0, 1.0, 1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
+            new Vertex([1.0, 1.0, 1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
+            // Bottom face
+            new Vertex([1.0, -1.0, 1.0], [1.0, 0.0], [0.0, 0.0, 0.0]),
+            new Vertex([-1.0, -1.0, 1.0], [0.0, 0.0], [0.0, 0.0, 0.0]),
+            new Vertex([-1.0, -1.0, -1.0], [0.0, 1.0], [0.0, 0.0, 0.0]),
+            new Vertex([1.0, -1.0, -1.0], [1.0, 1.0], [0.0, 0.0, 0.0]),
+        ],
+        [
+            0u, 1u, 2u, 2u, 3u, 0u, // top
+            4u, 5u, 6u, 6u, 7u, 4u, // bottom
+            8u, 9u, 10u, 10u, 11u, 8u, // right
+            12u, 13u, 14u, 14u, 15u, 12u, // left
+            16u, 17u, 18u, 18u, 19u, 16u, // front
+            20u, 21u, 22u, 22u, 23u, 20u, // back
+        ],
+        settings,
+        renderer
+    );
+    objects.insert(name, obj).expected_value();
+    return expected::<string, BlueEngineError>::expect("Cube created successfully");
 }
 
 /// Calls the specified update function every frame.
@@ -230,14 +221,14 @@ fun main() {
         ObjectSettings::init("default"), 
         engine.renderer(), 
         engine.objects()
-    ).is_err() {
+    ).is_expected() {
         panic("Failed to create cube object");
     }
 
     engine
         .objects()
         .get_mut("cube1")
-        .unwrap()
+        .value()
         .set_color(0.0, 0.0, 1.0, 1.0);
     
     let start_time = Time::now();

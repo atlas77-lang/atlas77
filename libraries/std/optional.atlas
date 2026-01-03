@@ -43,6 +43,13 @@ public:
             delete this.data.value;
         }
     }
+    fun _copy(&const this) -> optional<T> {
+        if (*this.has_value) {
+            return optional<T>::of(this.data.value);
+        } else {
+            return optional<T>::empty();
+        }
+    }
     /// Construct an `optional<T>` containing `data`.
     ///
     /// Example:
@@ -71,21 +78,24 @@ public:
     ///
     /// Example:
     ///     if (opt.has_value()) { println("has value"); }
-    fun has_value(this) -> bool {
+    fun has_value(&this) -> bool {
         return this.has_value;
     }
-    /// Get the contained value or panic if empty.
+    /// Consume the optional and return the contained value.
     ///
     /// Panics with a descriptive message when `has_value` is false.
     /// Consider using `value_or(default)` to avoid panics.
     fun value(this) -> T {
         if (!this.has_value) {
             panic("Called value on a empty optional");
-        } else {
-            return this.data.value;
         }
+        let value = this.data.value;
+        // Mark as empty before returning to prevent destructor from double-freeing
+        this.has_value = false;
+        delete this;
+        return value;
     }
-    /// Get the contained value or return `default` when empty.
+    /// Consume the optional and return the contained value or `default` if empty.
     ///
     /// Example:
     ///     let opt = optional<int64>::empty();

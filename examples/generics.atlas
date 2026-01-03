@@ -12,18 +12,18 @@ struct Either<T, U> {
     }
 
     fun _copy(&const this) -> Either<T, U> {
-        return new Either<T, U>(this.first, this.second);
+        return new Either<T, U>(*this.first, *this.second);
     }
 
     fun swap(this) -> Either<U, T> {
         return new Either<U, T>(this.second, this.first);
     }
 
-    fun fn_first(this) -> T {
+    fun fn_first(&this) -> T {
         return this.first;
     }
 
-    fun fn_second(this) -> U {
+    fun fn_second(&this) -> U {
         return this.second;
     }
 

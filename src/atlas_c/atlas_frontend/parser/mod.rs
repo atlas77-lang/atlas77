@@ -522,13 +522,22 @@ impl<'ast> Parser<'ast> {
         if self.current().kind() != TokenKind::RParen {
             let obj_field = self.parse_obj_field()?;
             if let AstType::ThisTy(_) = obj_field.ty {
+                // `this` - takes ownership
                 modifier = AstMethodModifier::None;
             } else if let AstType::ReadOnlyRef(AstReadOnlyRefType {
                 inner: AstType::ThisTy(_),
                 ..
             }) = obj_field.ty
             {
+                // `&const this` - immutable reference
                 modifier = AstMethodModifier::Const;
+            } else if let AstType::MutableRef(AstMutableRefType {
+                inner: AstType::ThisTy(_),
+                ..
+            }) = obj_field.ty
+            {
+                // `&this` - mutable reference
+                modifier = AstMethodModifier::Mutable;
             } else {
                 params.push(obj_field);
             }
@@ -1021,6 +1030,12 @@ impl<'ast> Parser<'ast> {
 
     fn parse_casting(&mut self) -> ParseResult<AstExpr<'ast>> {
         let left = AstExpr::UnaryOp(self.parse_unary()?);
+        // For unary expressions with an operator, handle postfix after the unary
+        // For unary expressions without an operator, postfix was already handled in parse_primary
+        let left = match &left {
+            AstExpr::UnaryOp(u) if u.op.is_some() => self.parse_ident_access(left)?,
+            _ => left,
+        };
         match self.current().kind() {
             TokenKind::KwAs => {
                 self.expect(TokenKind::KwAs)?;
@@ -1059,7 +1074,17 @@ impl<'ast> Parser<'ast> {
             _ => None,
         };
 
-        let expr = self.parse_primary()?;
+        // All unary operators allow field access inside:
+        // &p.x means &(p.x), !this.has_value means !(this.has_value),
+        // -point.x means -(point.x), *stuff.hehe means *(stuff.hehe)
+        let expr = match op {
+            Some(_) => {
+                // Allow field access but not function calls or assignment
+                let primary = self.parse_primary_no_postfix()?;
+                self.parse_field_access_only(primary)?
+            }
+            None => self.parse_primary()?,
+        };
         let node = AstUnaryOpExpr {
             span: Span::union_span(&start_pos, &self.current().span()),
             op,
@@ -1068,7 +1093,41 @@ impl<'ast> Parser<'ast> {
         Ok(node)
     }
 
-    fn parse_primary(&mut self) -> ParseResult<AstExpr<'ast>> {
+    /// Parse only field access (no function calls or indexing)
+    fn parse_field_access_only(&mut self, mut node: AstExpr<'ast>) -> ParseResult<AstExpr<'ast>> {
+        loop {
+            match self.current().kind() {
+                TokenKind::Dot => {
+                    let start_span = node.span();
+                    self.expect(TokenKind::Dot)?;
+                    let field = self.parse_identifier()?;
+
+                    // Check if this is a method call (has parentheses after)
+                    if self.current().kind() == TokenKind::LParen {
+                        // This is a method call - just construct the field access and stop
+                        // (the caller will handle the method call part later)
+                        node = AstExpr::FieldAccess(AstFieldAccessExpr {
+                            span: Span::union_span(&start_span, &field.span),
+                            target: self.arena.alloc(node),
+                            field: self.arena.alloc(field),
+                        });
+                        break;
+                    }
+
+                    node = AstExpr::FieldAccess(AstFieldAccessExpr {
+                        span: Span::union_span(&start_span, &field.span),
+                        target: self.arena.alloc(node),
+                        field: self.arena.alloc(field),
+                    });
+                }
+                _ => break,
+            }
+        }
+        Ok(node)
+    }
+
+    /// Parse a primary expression without postfix operations (for unary expressions)
+    fn parse_primary_no_postfix(&mut self) -> ParseResult<AstExpr<'ast>> {
         let tok = self.current().clone();
 
         let node = match tok.kind() {
@@ -1171,6 +1230,12 @@ impl<'ast> Parser<'ast> {
                 ));
             }
         };
+        // Don't parse postfix operations here - let the caller handle them
+        Ok(node)
+    }
+
+    fn parse_primary(&mut self) -> ParseResult<AstExpr<'ast>> {
+        let node = self.parse_primary_no_postfix()?;
         // Parse postfix operations (method calls, field access, indexing) on all primary expressions
         self.parse_ident_access(node)
     }
@@ -1560,27 +1625,52 @@ impl<'ast> Parser<'ast> {
             };
             return Ok(node);
         } else if self.current().kind == TokenKind::Ampersand {
-            //parse `&const this`
+            // Parse `&const this` or `&this`
             let start_span = self.current().span();
             self.expect(TokenKind::Ampersand)?;
-            self.expect(TokenKind::KwConst)?;
-            let end_span = self.expect(TokenKind::KwThis)?.span;
-            let name = AstIdentifier {
-                span: Span::union_span(&start_span, &end_span),
-                name: self.arena.alloc("this"),
-            };
-            let node = AstObjField {
-                vis: AstVisibility::Public,
-                span: Span::union_span(&start_span, &end_span),
-                name: self.arena.alloc(name.clone()),
-                ty: self.arena.alloc(AstType::ReadOnlyRef(AstReadOnlyRefType {
+
+            // Check if it's `&const this` or just `&this`
+            if self.current().kind == TokenKind::KwConst {
+                // `&const this` - immutable reference
+                self.expect(TokenKind::KwConst)?;
+                let end_span = self.expect(TokenKind::KwThis)?.span;
+                let name = AstIdentifier {
                     span: Span::union_span(&start_span, &end_span),
-                    inner: self
-                        .arena
-                        .alloc(AstType::ThisTy(AstThisType { span: name.span })),
-                })),
-            };
-            return Ok(node);
+                    name: self.arena.alloc("this"),
+                };
+                let node = AstObjField {
+                    vis: AstVisibility::Public,
+                    span: Span::union_span(&start_span, &end_span),
+                    name: self.arena.alloc(name.clone()),
+                    ty: self.arena.alloc(AstType::ReadOnlyRef(AstReadOnlyRefType {
+                        span: Span::union_span(&start_span, &end_span),
+                        inner: self
+                            .arena
+                            .alloc(AstType::ThisTy(AstThisType { span: name.span })),
+                    })),
+                };
+                return Ok(node);
+            } else if self.current().kind == TokenKind::KwThis {
+                // `&this` - mutable reference
+                let end_span = self.expect(TokenKind::KwThis)?.span;
+                let name = AstIdentifier {
+                    span: Span::union_span(&start_span, &end_span),
+                    name: self.arena.alloc("this"),
+                };
+                let node = AstObjField {
+                    vis: AstVisibility::Public,
+                    span: Span::union_span(&start_span, &end_span),
+                    name: self.arena.alloc(name.clone()),
+                    ty: self.arena.alloc(AstType::MutableRef(AstMutableRefType {
+                        span: Span::union_span(&start_span, &end_span),
+                        inner: self
+                            .arena
+                            .alloc(AstType::ThisTy(AstThisType { span: name.span })),
+                    })),
+                };
+                return Ok(node);
+            }
+            // Not a this reference, fall through to parse regular field
         }
         let name = self.parse_identifier()?;
 

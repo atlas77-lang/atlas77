@@ -33,6 +33,8 @@ pub enum ObjectKind {
     Structure(Structure),
     List(Vec<VMData>),
     Free { next: ObjectIndex },
+    // Used for error handling
+    Primitive,
 }
 impl Default for ObjectKind {
     fn default() -> Self {
@@ -55,6 +57,7 @@ impl Display for ObjectKind {
                 write!(f, "]")
             }
             ObjectKind::Free { next } => write!(f, "Free: next -> {}", next),
+            ObjectKind::Primitive => write!(f, "Primitive"),
         }
     }
 }
@@ -64,17 +67,17 @@ impl ObjectKind {
         data.into()
     }
 
-    pub fn string(&self) -> &String {
+    pub fn string(&self) -> Option<&String> {
         match &self {
-            ObjectKind::String(s) => s,
-            _ => unreachable!("Expected a string, got a {:?}", self),
+            ObjectKind::String(s) => Some(s),
+            _ => None,
         }
     }
 
-    pub fn string_mut(&mut self) -> &mut String {
+    pub fn string_mut(&mut self) -> Option<&mut String> {
         match self {
-            ObjectKind::String(s) => s,
-            _ => unreachable!("Expected a string, got a {:?}", self),
+            ObjectKind::String(s) => Some(s),
+            _ => None,
         }
     }
 

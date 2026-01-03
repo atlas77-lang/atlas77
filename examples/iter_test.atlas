@@ -1,0 +1,21 @@
+import "std/vector";
+import "std/iter";
+import "std/io";
+
+fun main() {
+    println("Creating vector...");
+    let data: [int64] = [1, 2, 3];
+    let vec = new Vector<int64>(data);
+    
+    println("Creating iterator...");
+    let iter = vec.into_iter();
+    
+    println("Iterating...");
+    while iter.has_next() {
+        let val = iter.next();
+        print("Value: ");
+        println(val.value());
+    }
+    
+    println("Done!");
+}

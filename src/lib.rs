@@ -16,7 +16,8 @@ use atlas_c::{
     atlas_frontend::{parse, parser::arena::AstArena},
     atlas_hir::{
         arena::HirArena, monomorphization_pass::MonomorphizationPass,
-        syntax_lowering_pass::AstSyntaxLoweringPass, type_check_pass::TypeChecker,
+        ownership_pass::OwnershipPass, syntax_lowering_pass::AstSyntaxLoweringPass,
+        type_check_pass::TypeChecker,
     },
 };
 use bumpalo::Bump;
@@ -68,14 +69,14 @@ pub fn build(path: String, flag: CompilationFlag, using_std: bool) -> miette::Re
 
     //monomorphize
     let mut monomorphizer = MonomorphizationPass::new(&hir_arena, lower.generic_pool);
-    let mut hir = monomorphizer.monomorphize(hir)?;
+    let hir = monomorphizer.monomorphize(hir)?;
     //type-check
     let mut type_checker = TypeChecker::new(&hir_arena);
-    hir = type_checker.check(hir)?;
+    let hir = type_checker.check(hir)?;
 
-    //Lifetime analysis pass
-    //let mut lifetime = LifeTimePass::new(hir.signature.clone(), &hir_arena);
-    //hir = lifetime.run(hir)?;
+    // Ownership analysis pass (MOVE/COPY semantics and destructor insertion)
+    let mut ownership_pass = OwnershipPass::new(hir.signature.clone(), &hir_arena);
+    let mut hir = ownership_pass.run(hir)?;
 
     //Dead code elimination (only in release mode)
     if flag == CompilationFlag::Release {
@@ -125,6 +126,11 @@ pub fn run(path: String, _flag: CompilationFlag, using_std: bool) -> miette::Res
         Err(e) => {
             eprintln!("{}", e);
         }
+    }
+
+    // Print memory report if ATLAS_MEMORY_REPORT env var is set
+    if std::env::var("ATLAS_MEMORY_REPORT").is_ok() {
+        vm.heap.print_memory_report();
     }
 
     Ok(())

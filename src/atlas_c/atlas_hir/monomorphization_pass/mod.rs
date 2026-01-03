@@ -144,7 +144,6 @@ impl<'hir> MonomorphizationPass<'hir> {
                     inner: instance.args.clone(),
                     span: instance.span,
                 });
-                //eprintln!("Monomorphizing function instance: {}", HirTy::Generic(generic_ty.clone()));
                 self.monomorphize_function(module, generic_ty, instance.span)?;
                 instance.is_done = true;
                 is_done = false;
@@ -396,10 +395,6 @@ impl<'hir> MonomorphizationPass<'hir> {
         }
 
         let base_name = actual_type.name;
-        eprintln!(
-            "DEBUG: Monomorphizing function {} as {}",
-            base_name, mangled_name
-        );
         let template = match module.body.functions.get(base_name) {
             Some(func) => func.clone(),
             None => {
@@ -536,7 +531,12 @@ impl<'hir> MonomorphizationPass<'hir> {
                 self.monomorphize_expression(&mut expr_stmt.expr, types_to_change, module)?;
             }
             HirStatement::Let(let_stmt) => {
-                //TODO: Make LetStmt ty not optional then monomorphize it here
+                //Let's monomorphize the type if it's not uninitialized
+                if let_stmt.ty != self.arena.types().get_uninitialized_ty() {
+                    let monomorphized_ty =
+                        self.swap_generic_types_in_ty(let_stmt.ty, types_to_change.clone());
+                    let_stmt.ty = monomorphized_ty;
+                }
                 self.monomorphize_expression(&mut let_stmt.value, types_to_change, module)?;
             }
             HirStatement::While(while_stmt) => {
@@ -572,7 +572,7 @@ impl<'hir> MonomorphizationPass<'hir> {
     ) -> HirResult<()> {
         match expr {
             HirExpr::NewObj(new_obj_expr) => {
-                if let HirTy::Generic(g) = new_obj_expr.ty {
+                if let HirTy::Generic(_g) = new_obj_expr.ty {
                     let monomorphized_ty =
                         self.swap_generic_types_in_ty(new_obj_expr.ty, types_to_change.clone());
 
@@ -589,7 +589,7 @@ impl<'hir> MonomorphizationPass<'hir> {
                 }
             }
             HirExpr::ObjLiteral(obj_lit_expr) => {
-                if let HirTy::Generic(g) = obj_lit_expr.ty {
+                if let HirTy::Generic(_g) = obj_lit_expr.ty {
                     let monomorphized_ty =
                         self.swap_generic_types_in_ty(obj_lit_expr.ty, types_to_change.clone());
 
@@ -676,7 +676,7 @@ impl<'hir> MonomorphizationPass<'hir> {
                 }
             }
             HirExpr::NewArray(new_array_expr) => {
-                if let HirTy::List(l) = new_array_expr.ty {
+                if let HirTy::List(_l) = new_array_expr.ty {
                     let ty =
                         self.swap_generic_types_in_ty(new_array_expr.ty, types_to_change.clone());
 
@@ -850,12 +850,10 @@ impl<'hir> MonomorphizationPass<'hir> {
                 };
                 let res = self.arena.intern(HirTy::Generic(generic_ty.clone()));
                 // An `something<T>` could be either an union or a struct, we need to check it here:
-                //eprintln!("DEBUG: Registering generic instance for {}", g.name);
                 if module.signature.structs.contains_key(g.name) {
                     self.generic_pool
                         .register_struct_instance(generic_ty, &module.signature);
                 } else if module.signature.unions.contains_key(g.name) {
-                    eprintln!("DEBUG: Registering union instance for {}", g.name);
                     self.generic_pool
                         .register_union_instance(&generic_ty, &module.signature);
                 }

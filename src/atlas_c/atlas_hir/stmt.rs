@@ -51,7 +51,7 @@ pub struct HirVariableStmt<'hir> {
     pub span: Span,
     pub name: &'hir str,
     pub name_span: Span,
-    pub ty: Option<&'hir HirTy<'hir>>,
+    pub ty: &'hir HirTy<'hir>,
     pub ty_span: Option<Span>,
     pub value: HirExpr<'hir>,
 }

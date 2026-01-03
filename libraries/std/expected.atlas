@@ -24,6 +24,13 @@ private:
         this.has_expected_value = has_expected_value;
     }
 public:
+    ~expected() {
+        if (this.has_expected_value) {
+            delete this.data.expected_value;
+        } else {
+            delete this.data.unexpected_value;
+        }
+    }
     /// Construct a successful `expected` containing `data`.
     ///
     /// Example:
@@ -49,14 +56,14 @@ public:
         );
     }
     /// Returns true if this holds an expected value.
-    fun is_expected(this) -> bool {
+    fun is_expected(&this) -> bool {
         return this.has_expected_value;
     }
     /// Returns true if this holds an unexpected error.
-    fun is_unexpected(this) -> bool {
+    fun is_unexpected(&this) -> bool {
         return !this.has_expected_value;
     }
-    /// Get the contained value, panicking if this is an unexpected error.
+    /// Consume the expected and return the contained value, panicking if this is an unexpected error.
     ///
     /// Consider using `expected_value_or(default)` to avoid panics.
     fun expected_value(this) -> T {
@@ -66,7 +73,9 @@ public:
             return this.data.expected_value;
         }
     }
-    /// Get the contained error, panicking if this holds an expected value.
+    /// Consume the expected and return the contained error, panicking if this is an expected value.
+    ///
+    /// Consider using `unexpected_value_or(default)` to avoid panics.
     fun unexpected_value(this) -> E {
         if (this.has_expected_value) {
             panic("called unexpected_value() on an expected value");
@@ -74,10 +83,19 @@ public:
             return this.data.unexpected_value;
         }
     }
-    /// Get the value if present, otherwise return `default`.
+    /// Consume the expected and return the contained value, or return `default` if this is an unexpected error.
     fun expected_value_or(this, default: T) -> T {
         if (this.has_expected_value) {
             return this.data.expected_value;
+        } else {
+            return default;
+        }
+    }
+
+    /// Consume the expected and return the contained error, or return `default` if this is an expected value.
+    fun unexpected_value_or(this, default: E) -> E {
+        if (!this.has_expected_value) {
+            return this.data.unexpected_value;
         } else {
             return default;
         }

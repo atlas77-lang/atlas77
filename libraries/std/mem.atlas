@@ -1,0 +1,6 @@
+/// Copies the memory of a value of type T and returns a new instance with the same data.
+/// Only does a shallow copy; for deep copies, implement _copy on the type T.
+public extern memcpy<T>(data: &const T) -> T;
+/// Deletes the memory of a value of type T referenced by a reference.
+/// Use with caution, as deleting a reference might lead to undefined behavior.
+public extern delete_from_ref<T>(data: &const T);

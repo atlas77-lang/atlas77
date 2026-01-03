@@ -753,11 +753,53 @@ impl Assembler {
                     };
                     bytecode.push(instr);
                 }
+                Instruction::LoadVarAddr(idx) => {
+                    let instr = Instr {
+                        opcode: OpCode::LOAD_VAR_ADDR,
+                        arg: Arg::from_u24(*idx as u32),
+                    };
+                    bytecode.push(instr);
+                }
+                Instruction::LoadIndirect => {
+                    let instr = Instr {
+                        opcode: OpCode::LOAD_INDIRECT,
+                        arg: Arg::default(),
+                    };
+                    bytecode.push(instr);
+                }
+                Instruction::StoreIndirect => {
+                    let instr = Instr {
+                        opcode: OpCode::STORE_INDIRECT,
+                        arg: Arg::default(),
+                    };
+                    bytecode.push(instr);
+                }
+                Instruction::GetFieldAddr { field } => {
+                    let instr = Instr {
+                        opcode: OpCode::GET_FIELD_ADDR,
+                        arg: Arg::from_u24(*field as u32),
+                    };
+                    bytecode.push(instr);
+                }
+                Instruction::IndexGetAddr => {
+                    let instr = Instr {
+                        opcode: OpCode::INDEX_GET_ADDR,
+                        arg: Arg::default(),
+                    };
+                    bytecode.push(instr);
+                }
                 Instruction::CastTo(ty) => {
                     let ty: VMTag = (*ty).into();
                     let instr = Instr {
                         opcode: OpCode::CAST_TO,
                         arg: Arg::from_u24(ty as u32),
+                    };
+                    bytecode.push(instr);
+                }
+                Instruction::CloneString => {
+                    let instr = Instr {
+                        opcode: OpCode::CLONE_STRING,
+                        arg: Arg::default(),
                     };
                     bytecode.push(instr);
                 }
@@ -931,12 +973,24 @@ impl Display for AsmProgram {
                 }
                 OpCode::DELETE_OBJ => "DELETE_OBJ".to_string(),
 
+                // === Reference operations ===
+                OpCode::LOAD_VAR_ADDR => {
+                    format!("LOAD_VAR_ADDR @{}", instruction.arg.as_u24())
+                }
+                OpCode::LOAD_INDIRECT => "LOAD_INDIRECT".to_string(),
+                OpCode::STORE_INDIRECT => "STORE_INDIRECT".to_string(),
+                OpCode::GET_FIELD_ADDR => {
+                    format!("GET_FIELD_ADDR #{}", instruction.arg.as_u24())
+                }
+                OpCode::INDEX_GET_ADDR => "INDEX_GET_ADDR".to_string(),
+
                 // === Type ops ===
                 OpCode::CAST_TO => {
                     format!("CAST_TO #{}", instruction.arg.as_u24())
                 }
 
                 // === Misc ===
+                OpCode::CLONE_STRING => "CLONE_STRING".to_string(),
                 OpCode::NoOp => "NOOP".to_string(),
                 OpCode::Halt => "HALT".to_string(),
             };

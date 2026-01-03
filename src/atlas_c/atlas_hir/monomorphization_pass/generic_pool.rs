@@ -105,10 +105,6 @@ impl<'hir> HirGenericPool<'hir> {
             return;
         }
         let name = MonomorphizationPass::mangle_generic_object_name(self.arena, generic, "union");
-        eprintln!(
-            "DEBUG: Registered union {} with mangled name {}",
-            generic.name, name
-        );
         self.unions.entry(name).or_insert(HirGenericInstance {
             name: generic.name,
             args: generic.inner.clone(),
@@ -122,10 +118,6 @@ impl<'hir> HirGenericPool<'hir> {
         generic: HirGenericTy<'hir>,
         module: &HirModuleSignature<'hir>,
     ) {
-        eprintln!(
-            "DEBUG: register_function_instance called for {}",
-            HirTy::Generic(generic.clone())
-        );
         // Check for constraints if function has generics
         if let Some(func_sig) = module.functions.get(generic.name) {
             if !func_sig.generics.is_empty() {
@@ -141,20 +133,12 @@ impl<'hir> HirGenericPool<'hir> {
 
         // Check if this is an instantiated generic or a generic definition
         let is_instantiated = self.is_generic_instantiated(&generic, module);
-        eprintln!(
-            "DEBUG: {}<...> is_instantiated = {}",
-            generic.name, is_instantiated
-        );
         if !is_instantiated {
             return;
         }
 
         let mangled_name =
             MonomorphizationPass::mangle_generic_object_name(self.arena, &generic, "function");
-        eprintln!(
-            "DEBUG: Registered function {} with mangled name {}",
-            generic.name, mangled_name
-        );
         self.functions
             .entry(mangled_name)
             .or_insert(HirGenericInstance {

@@ -4,7 +4,7 @@ use thiserror::Error;
 use crate::{atlas_c::utils::Span, declare_error_type};
 
 declare_error_type! {
-    #[error("Parse error: {0}")]
+    #[error("lir_error: {0}")]
     pub enum LIRLoweringError {
         UnsupportedHirExpr(UnsupportedHirExprError),
         CurrentFunctionDoesntExist(CurrentFunctionDoesntExistError),

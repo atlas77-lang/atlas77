@@ -5,7 +5,7 @@ on:
     branches: [ "main" ]
 # Let's add the v0.6.x & dev branches
   pull_request:
-    branches: [ "main", "v0.6.x", "dev" ]
+    branches: [ "main", "v0.6.x", "dev", "v0.7.x" ]
 
 # env:
 #  CARGO_TERM_COLOR: always
