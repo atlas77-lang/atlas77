@@ -57,7 +57,7 @@ public:
     }
 
     fun _copy(&const this) -> GenericTuple<A, B> {
-        return new GenericTuple<A, B>(*this.first, *this.second);
+        return new GenericTuple<A, B>((*this).first, (*this).second);
     }
 
     fun first_value(&this) -> A {
