@@ -850,7 +850,7 @@ impl<'run> AtlasRuntime<'run> {
                 };
                 self.stack.push(VMData::new_string(new_ptr))
             }
-            OpCode::Halt => Err(RuntimeError::HaltEncountered),
+            OpCode::HALT => Err(RuntimeError::HaltEncountered),
             _ => unimplemented!("{:?}", instr),
         }
     }

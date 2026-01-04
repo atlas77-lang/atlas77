@@ -146,7 +146,7 @@ pub enum OpCode {
     /// No Args
     NoOp = 254,
     /// No Args
-    Halt = 255,
+    HALT = 255,
 }
 
 #[repr(C)]

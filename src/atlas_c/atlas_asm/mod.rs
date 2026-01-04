@@ -805,7 +805,7 @@ impl Assembler {
                 }
                 Instruction::Halt => {
                     let instr = Instr {
-                        opcode: OpCode::Halt,
+                        opcode: OpCode::HALT,
                         arg: Arg::default(),
                     };
                     bytecode.push(instr);
@@ -992,7 +992,7 @@ impl Display for AsmProgram {
                 // === Misc ===
                 OpCode::CLONE_STRING => "CLONE_STRING".to_string(),
                 OpCode::NoOp => "NOOP".to_string(),
-                OpCode::Halt => "HALT".to_string(),
+                OpCode::HALT => "HALT".to_string(),
             };
             writeln!(f, "\t{}", instr)?;
         }
