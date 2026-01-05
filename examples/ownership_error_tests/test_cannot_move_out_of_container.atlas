@@ -27,7 +27,7 @@ fun main() {
     // Attempting to use Vector.get() which returns the element by value
     // Since NonCopyable doesn't have _copy, this would move the element
     // out of the container, which is unsafe.
-    let item = vec.get(0u);  // ERROR: cannot move non-copyable out of container
+    let item = vec.pop();  // ERROR: cannot move non-copyable out of container
     
     println(item.value);
 }

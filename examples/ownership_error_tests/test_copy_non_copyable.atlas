@@ -10,8 +10,8 @@ struct NonCopyable {
 public:
     value: int64;
 
-    NonCopyable(value: int64) {
-        this.value = value;
+    NonCopyable() {
+        this.value = 42;
         println("NonCopyable created");
     }
 
@@ -25,7 +25,7 @@ public:
 }
 
 fun main() {
-    let obj = new NonCopyable(42);
+    let obj = new NonCopyable();
     
     // First use - OK
     println(obj.get_value());

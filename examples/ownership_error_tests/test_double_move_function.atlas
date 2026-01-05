@@ -9,9 +9,11 @@ import "std/io";
 struct Resource {
 public:
     id: int64;
+    hehe: float64;
 
     Resource(id: int64) {
         this.id = id;
+        this.hehe = 3.14;
         println("Resource acquired");
     }
 

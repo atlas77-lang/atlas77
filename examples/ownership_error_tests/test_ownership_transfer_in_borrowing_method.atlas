@@ -6,9 +6,10 @@ import "std/io";
 struct Container<T> {
 public:
     data: T;
-
+    id: int64;
     Container(data: T) {
         this.data = data;
+        this.id = 0;
     }
 
     ~Container() {
@@ -19,9 +20,11 @@ public:
 struct Wrapper<T> {
 public:
     inner: Container<T>;
+    id: int64;
 
     Wrapper(inner: Container<T>) {
         this.inner = inner;
+        this.id = 0;
     }
 
     // ERROR: This method uses &this (borrowing) but tries to transfer ownership

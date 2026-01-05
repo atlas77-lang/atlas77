@@ -89,9 +89,9 @@ public:
         if this.length == 0u {
             panic("Cannot pop from an empty vector");
         }
+        let popped = this.get(this.length - 1u);
         this.length = this.length - 1u;
-        let popped_val = this.data[this.length];
-        return popped_val;
+        return memcpy(popped);
     }
 
     /// Consumes the vector and returns an iterator over its elements.
@@ -111,7 +111,9 @@ private:
         if index >= this.length {
             panic("Index out of bounds");
         }
-        // Use memcpy to create a copy of the element at index
+        // We do memcpy and not a call to a copy constructor, because we only
+        // need a shallow copy here to move the value out of the container.
+        // The underlying data of T doesn't need to itself be copied.
         let val: &const T = this.get(index);
         let item: T = memcpy(val);
         // Shift elements to fill the gap
