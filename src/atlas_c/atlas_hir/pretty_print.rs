@@ -1,4 +1,4 @@
-use crate::atlas_c::atlas_hir::item::HirUnion;
+use crate::atlas_c::atlas_hir::{item::HirUnion, signature::HirStructMethodModifier};
 
 use super::{
     HirModule, HirModuleBody,
@@ -173,7 +173,12 @@ impl HirPrettyPrinter {
     fn print_method(&mut self, method: &HirStructMethod) {
         self.write_indent();
         self.write(&format!("fun {}(", method.name));
-
+        match &method.signature.modifier {
+            HirStructMethodModifier::Const => self.write("&const this"),
+            HirStructMethodModifier::Mutable => self.write("&this"),
+            HirStructMethodModifier::None => self.write("this"),
+            HirStructMethodModifier::Static => {}
+        }
         for (i, param) in method.signature.params.iter().enumerate() {
             if i > 0 {
                 self.write(", ");
