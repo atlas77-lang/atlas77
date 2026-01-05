@@ -1335,15 +1335,29 @@ impl<'hir> OwnershipPass<'hir> {
             }
             // Unary expressions (e.g., negation, None-wrapping) - recurse into inner
             HirExpr::Unary(unary) => {
-                let transformed_inner = self.transform_expr_for_return(&unary.expr)?;
-                Ok(HirExpr::Unary(
-                    crate::atlas_c::atlas_hir::expr::UnaryOpExpr {
-                        span: unary.span,
-                        op: unary.op.clone(),
-                        expr: Box::new(transformed_inner),
-                        ty: unary.ty,
-                    },
-                ))
+                // Special case: AsRef (&) doesn't consume ownership
+                // We need to process the inner expression with is_ownership_consuming = false
+                if matches!(unary.op, Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::AsRef)) {
+                    let transformed_inner = self.transform_expr_ownership(&unary.expr, false)?;
+                    Ok(HirExpr::Unary(
+                        crate::atlas_c::atlas_hir::expr::UnaryOpExpr {
+                            span: unary.span,
+                            op: unary.op.clone(),
+                            expr: Box::new(transformed_inner),
+                            ty: unary.ty,
+                        },
+                    ))
+                } else {
+                    let transformed_inner = self.transform_expr_for_return(&unary.expr)?;
+                    Ok(HirExpr::Unary(
+                        crate::atlas_c::atlas_hir::expr::UnaryOpExpr {
+                            span: unary.span,
+                            op: unary.op.clone(),
+                            expr: Box::new(transformed_inner),
+                            ty: unary.ty,
+                        },
+                    ))
+                }
             }
             // For complex expressions, transform recursively
             _ => self.transform_expr_ownership(expr, true),
