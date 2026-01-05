@@ -129,14 +129,12 @@ impl<'hir> OwnershipPass<'hir> {
 
         // Process struct methods and constructors
         for struct_def in hir.body.structs.values_mut() {
-            // Check if this is a generic struct (has type parameters) or a monomorphized
-            // version of a generic struct. Monomorphized structs have mangled names like:
-            // "__atlas77__struct__Pair__int64_string" or contain '<' like in optional types
-            // If so, skip field ownership checks because we can't reliably determine
-            // if the concrete type parameter is copyable at definition time
-            let is_generic_struct = !struct_def.signature.generics.is_empty()
-                || struct_def.signature.name.starts_with("__atlas77__struct__")
-                || struct_def.signature.name.contains('<');
+            // Check if this is a generic struct (has type parameters).
+            // For generic structs, skip field ownership checks because we can't reliably
+            // determine if the concrete type parameter is copyable at definition time.
+            // NB: there shouldn't be any generic structs remaining in the HIR at this point
+            //  in the compilation pipeline, but we keep this check for safety.
+            let is_generic_struct = !struct_def.signature.generics.is_empty();
 
             // Process methods
             for method in struct_def.methods.iter_mut() {
@@ -1337,7 +1335,10 @@ impl<'hir> OwnershipPass<'hir> {
             HirExpr::Unary(unary) => {
                 // Special case: AsRef (&) doesn't consume ownership
                 // We need to process the inner expression with is_ownership_consuming = false
-                if matches!(unary.op, Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::AsRef)) {
+                if matches!(
+                    unary.op,
+                    Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::AsRef)
+                ) {
                     let transformed_inner = self.transform_expr_ownership(&unary.expr, false)?;
                     Ok(HirExpr::Unary(
                         crate::atlas_c::atlas_hir::expr::UnaryOpExpr {
