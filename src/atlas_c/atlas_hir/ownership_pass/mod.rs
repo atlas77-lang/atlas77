@@ -1110,40 +1110,17 @@ impl<'hir> OwnershipPass<'hir> {
                             ty: indexing.ty,
                         }))
                     } else {
-                        // Non-copyable element being moved out of a container.
-                        // This is only safe if the element is being "taken" (removed from container),
-                        // not just "gotten" (still in container).
-                        //
-                        // Heuristic: If the index expression references a container field (like
-                        // `this.length`), assume the programmer is implementing proper take semantics
-                        // (e.g., pop() decrements length before accessing). This is sound because:
-                        // - get(index) uses a parameter `index`, not `this.length`
-                        // - pop() uses `this.length` after decrementing it
-                        //
-                        // If the index is a plain identifier (parameter/local variable), it's likely
-                        // a get() pattern which is unsafe for non-copyable types.
-                        let is_take_pattern = Self::index_references_this_field(&indexing.index);
-
-                        if is_take_pattern {
-                            // Allow the move - programmer is implementing take semantics
-                            Ok(HirExpr::Move(HirMoveExpr {
+                        // Cannot move non-copyable element out of a container.
+                        // Use methods like try_take() that use memcpy to extract elements.
+                        let path = indexing.span.path;
+                        let src = utils::get_file_content(path).unwrap_or_default();
+                        Err(HirError::CannotMoveOutOfContainer(
+                            CannotMoveOutOfContainerError {
                                 span: indexing.span,
-                                source_name: "<indexed>",
-                                expr: Box::new(indexing_expr),
-                                ty: indexing.ty,
-                            }))
-                        } else {
-                            // Not a take pattern - emit error
-                            let path = indexing.span.path;
-                            let src = utils::get_file_content(path).unwrap_or_default();
-                            Err(HirError::CannotMoveOutOfContainer(
-                                CannotMoveOutOfContainerError {
-                                    span: indexing.span,
-                                    ty_name: indexing.ty.to_string(),
-                                    src: NamedSource::new(path, src),
-                                },
-                            ))
-                        }
+                                ty_name: indexing.ty.to_string(),
+                                src: NamedSource::new(path, src),
+                            },
+                        ))
                     }
                 } else {
                     Ok(indexing_expr)
@@ -1487,38 +1464,6 @@ impl<'hir> OwnershipPass<'hir> {
             }
             // Literals and other expressions don't use variables
             _ => {}
-        }
-    }
-
-    /// Check if an index expression references a `this` field (like `this.length`).
-    /// This is used as a heuristic to detect "take" patterns (like pop()) where
-    /// the element is being removed from the container, not just accessed.
-    ///
-    /// Examples:
-    /// - `this.length` → true (take pattern, like in pop())
-    /// - `this.index` → true (take pattern)
-    /// - `index` (parameter) → false (get pattern)
-    /// - `i` (local variable) → false (get pattern)
-    fn index_references_this_field(expr: &HirExpr<'hir>) -> bool {
-        match expr {
-            HirExpr::FieldAccess(field) => {
-                // Check if the target is `this`
-                matches!(field.target.as_ref(), HirExpr::Ident(ident) if ident.name == "this")
-                    || matches!(field.target.as_ref(), HirExpr::ThisLiteral(_))
-            }
-            // Unwrap unary wrappers (parser sometimes wraps expressions)
-            HirExpr::Unary(unary) if unary.op.is_none() => {
-                Self::index_references_this_field(&unary.expr)
-            }
-            // Binary operations (like `this.length - 1u`) - check both sides
-            HirExpr::HirBinaryOperation(binary) => {
-                Self::index_references_this_field(&binary.lhs)
-                    || Self::index_references_this_field(&binary.rhs)
-            }
-            // Casts - unwrap
-            HirExpr::Casting(cast) => Self::index_references_this_field(&cast.expr),
-            // Other expressions (identifiers, literals) → not a this.field pattern
-            _ => false,
         }
     }
 
