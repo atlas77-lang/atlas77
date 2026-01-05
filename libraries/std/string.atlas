@@ -29,8 +29,8 @@ public:
     len: uint64;
 
     String(s: string) {
-        this.s = s;
         this.len = str_len(&s);
+        this.s = s;
     }
 
     ~String() {

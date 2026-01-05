@@ -1,3 +1,5 @@
+use core::fmt;
+
 use super::ty::{HirTy, HirUnitTy};
 use crate::atlas_c::utils::Span;
 
@@ -284,6 +286,27 @@ pub enum HirBinaryOperator {
     Sub,
 }
 
+impl fmt::Display for HirBinaryOperator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let op_str = match self {
+            HirBinaryOperator::Add => "+",
+            HirBinaryOperator::And => "&&",
+            HirBinaryOperator::Div => "/",
+            HirBinaryOperator::Eq => "==",
+            HirBinaryOperator::Gt => ">",
+            HirBinaryOperator::Gte => ">=",
+            HirBinaryOperator::Lt => "<",
+            HirBinaryOperator::Lte => "<=",
+            HirBinaryOperator::Mod => "%",
+            HirBinaryOperator::Mul => "*",
+            HirBinaryOperator::Neq => "!=",
+            HirBinaryOperator::Or => "||",
+            HirBinaryOperator::Sub => "-",
+        };
+        write!(f, "{}", op_str)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct UnaryOpExpr<'hir> {
     pub span: Span,
@@ -299,6 +322,18 @@ pub enum HirUnaryOp {
     Not,
     AsRef,
     Deref,
+}
+
+impl fmt::Display for HirUnaryOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let op_str = match self {
+            HirUnaryOp::Neg => "-",
+            HirUnaryOp::Not => "!",
+            HirUnaryOp::AsRef => "&",
+            HirUnaryOp::Deref => "*",
+        };
+        write!(f, "{}", op_str)
+    }
 }
 
 #[derive(Debug, Clone)]

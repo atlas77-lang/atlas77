@@ -20,6 +20,7 @@ pub mod type_check_pass;
 //todo: The Hir needs a little rework to correctly define what is an item, a statement, an expression, a type, etc.
 pub mod expr;
 pub mod item;
+pub mod pretty_print;
 mod scope;
 pub mod signature;
 pub mod stmt;

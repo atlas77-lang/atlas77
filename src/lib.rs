@@ -76,13 +76,31 @@ pub fn build(path: String, flag: CompilationFlag, using_std: bool) -> miette::Re
 
     // Ownership analysis pass (MOVE/COPY semantics and destructor insertion)
     let mut ownership_pass = OwnershipPass::new(hir.signature.clone(), &hir_arena);
-    let mut hir = ownership_pass.run(hir)?;
+    let mut hir = match ownership_pass.run(hir) {
+        Ok(hir) => hir,
+        Err((hir, err)) => {
+            // Write HIR output (even if there are ownership errors)
+            use crate::atlas_c::atlas_hir::pretty_print::HirPrettyPrinter;
+            let mut hir_printer = HirPrettyPrinter::new();
+            let hir_output = hir_printer.print_module(&hir);
+            let mut file_hir = std::fs::File::create("output.atlas").unwrap();
+            file_hir.write_all(hir_output.as_bytes()).unwrap();
+            return Err((err).into());
+        }
+    };
 
     //Dead code elimination (only in release mode)
     if flag == CompilationFlag::Release {
         let mut dce_pass = DeadCodeEliminationPass::new(&hir_arena);
         hir = dce_pass.eliminate_dead_code(hir)?;
     }
+
+    // Write HIR output
+    use crate::atlas_c::atlas_hir::pretty_print::HirPrettyPrinter;
+    let mut hir_printer = HirPrettyPrinter::new();
+    let hir_output = hir_printer.print_module(&hir);
+    let mut file_hir = std::fs::File::create("output.atlas").unwrap();
+    file_hir.write_all(hir_output.as_bytes()).unwrap();
 
     //codegen
     let bump = Bump::new();

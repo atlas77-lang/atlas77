@@ -112,7 +112,10 @@ impl<'hir> OwnershipPass<'hir> {
     }
 
     /// Run the ownership pass on the entire module
-    pub fn run(&mut self, hir: &'hir mut HirModule<'hir>) -> HirResult<&'hir mut HirModule<'hir>> {
+    pub fn run(
+        &mut self,
+        hir: &'hir mut HirModule<'hir>,
+    ) -> Result<&'hir mut HirModule<'hir>, (&'hir mut HirModule<'hir>, HirError)> {
         // Process top-level functions
         for func in hir.body.functions.values_mut() {
             // Reset state for each function
@@ -261,7 +264,7 @@ impl<'hir> OwnershipPass<'hir> {
             while let Some(err) = self.errors.pop() {
                 eprintln!("{:?}", Into::<miette::Report>::into(err));
             }
-            return Err(err);
+            return Err((hir, err));
         } else {
             return Ok(hir);
         }
