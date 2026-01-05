@@ -1,3 +1,5 @@
+use crate::atlas_c::atlas_hir::item::HirUnion;
+
 use super::{
     HirModule, HirModuleBody,
     expr::*,
@@ -25,9 +27,22 @@ impl HirPrettyPrinter {
         self.writeln("// Generated after ownership pass");
         self.writeln("");
 
+        for (name, extern_fn) in &module.signature.functions {
+            if extern_fn.is_external {
+                self.print_external_function(*name, extern_fn);
+            }
+        }
+
         self.print_body(&module.body);
 
         self.output.clone()
+    }
+
+    fn print_external_function(&mut self, name: &str, extern_fn: &HirFunctionSignature) {
+        self.write("extern fun ");
+        self.write(name);
+        self.print_function_signature(extern_fn);
+        self.writeln(";");
     }
 
     fn print_body(&mut self, body: &HirModuleBody) {
@@ -44,7 +59,11 @@ impl HirPrettyPrinter {
             self.print_struct(struct_def);
             self.writeln("");
         }
-
+        // Print unions
+        for (_, union_def) in &body.unions {
+            self.print_union(union_def);
+            self.writeln("");
+        }
         // Print enums
         for (_, enum_def) in &body.enums {
             self.print_enum(enum_def);
@@ -176,6 +195,22 @@ impl HirPrettyPrinter {
         self.write(" {\n");
         self.indent();
         self.print_block(&method.body);
+        self.dedent();
+        self.writeln("}");
+    }
+
+    fn print_union(&mut self, union_def: &HirUnion) {
+        self.writeln(&format!(
+            "{} union {} {{",
+            self.visibility_str(union_def.vis),
+            union_def.name
+        ));
+        self.indent();
+
+        for field in &union_def.variants {
+            self.writeln(&format!("{}: {};", field.name, self.type_str(field.ty)));
+        }
+
         self.dedent();
         self.writeln("}");
     }
