@@ -288,6 +288,7 @@ pub struct StructDescriptor<'run> {
     pub name: &'run str,
     pub fields: Vec<&'run str>,
     pub constants: BTreeMap<&'run str, ConstantValue>,
+    pub is_union: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]

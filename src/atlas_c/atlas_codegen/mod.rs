@@ -10,7 +10,7 @@ use crate::atlas_c::atlas_codegen::table::Table;
 use crate::atlas_c::atlas_hir::arena::HirArena;
 use crate::atlas_c::atlas_hir::error::{HirError, NoReturnInFunctionError};
 use crate::atlas_c::atlas_hir::expr::{HirBinaryOperator, HirUnaryOp};
-use crate::atlas_c::atlas_hir::item::{HirStruct, HirStructConstructor};
+use crate::atlas_c::atlas_hir::item::{HirStruct, HirStructConstructor, HirUnion};
 use crate::atlas_c::atlas_hir::monomorphization_pass::MonomorphizationPass;
 use crate::atlas_c::atlas_hir::signature::{ConstantValue, HirStructMethodModifier};
 use crate::atlas_c::atlas_hir::ty::HirGenericTy;
@@ -138,6 +138,8 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
         for (struct_name, hir_struct) in self.hir.body.structs.clone() {
             self.generate_bytecode_struct(struct_name, &hir_struct, &mut labels, &mut functions)?;
         }
+        // Don't process unions - they're not real objects, just type-level constructs
+        // Union field access should be transparent (no-op)
 
         self.program.entry_point = String::from("main");
         self.program.labels = labels;
@@ -359,6 +361,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             name: self.codegen_arena.alloc(struct_name.to_string()),
             fields,
             constants,
+            is_union: false,
         };
         self.struct_pool.push(struct_constant);
     }
@@ -556,7 +559,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                             .position(|f| *f == field_access.field.name)
                             .unwrap();
                         //Store the value in the field
-                        bytecode.push(Instruction::SetField { field })
+                        bytecode.push(Instruction::SetField { field });
                     }
                     // Handle assignment through dereference: *ref = value
                     HirExpr::Unary(u) if u.op == Some(HirUnaryOp::Deref) => {
@@ -933,17 +936,24 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         .iter()
                         .position(|f| *f == field_access.field.name)
                         .unwrap();
+                    // For unions, all fields are at index 0 (same memory location)
+                    // We still generate the instruction but always use field 0
+                    let actual_field = if struct_descriptor.is_union { 0 } else { field };
                     // If accessing through a reference, return field address (reference to field)
                     // Otherwise return field value
                     if is_ref {
-                        bytecode.push(Instruction::GetFieldAddr { field });
+                        bytecode.push(Instruction::GetFieldAddr {
+                            field: actual_field,
+                        });
                     } else {
-                        bytecode.push(Instruction::GetField { field });
+                        bytecode.push(Instruction::GetField {
+                            field: actual_field,
+                        });
                     }
                 } else {
-                    // This might be access an union field
-                    // I don't even think we need to add special instruction for that
-                    // since the field will be at the same position as in a struct
+                    // This is a union field access - unions aren't in struct_pool
+                    // Union field access is a no-op at runtime (type-checking only)
+                    // The union value is already on the stack, do nothing
                 }
             }
             HirExpr::StaticAccess(static_access) => {
@@ -1068,6 +1078,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
             // Only used for union literals for now.
             HirExpr::ObjLiteral(obj_lit) => {
+                // Unions are not objects - just push the underlying value
                 self.generate_bytecode_expr(&obj_lit.fields[0].value, bytecode)?;
             }
             HirExpr::NewObj(new_obj) => {
@@ -1218,6 +1229,27 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 bytecode.push(Instruction::LoadVarAddr(var_index));
             }
             HirExpr::FieldAccess(field_access) => {
+                // Check if this is a union field access by looking up the type
+                let obj_name_for_check = match self.get_class_name_of_type(field_access.target.ty())
+                {
+                    Some(n) => n,
+                    None => "",
+                };
+                let is_union_access = self
+                    .struct_pool
+                    .iter()
+                    .find(|s| s.name == obj_name_for_check)
+                    .is_none()
+                    && !obj_name_for_check.is_empty();
+
+                // For union field access, get the address of the union itself (all fields same location)
+                // For struct field access, get the struct object value first
+                if is_union_access {
+                    self.generate_bytecode_ref_expr(field_access.target.as_ref(), bytecode)?;
+                    // Union field access is no-op - address of union = address of any field
+                    return Ok(());
+                }
+
                 self.generate_bytecode_expr(field_access.target.as_ref(), bytecode)?;
                 // If target is a reference, dereference it first to get the object pointer
                 if matches!(
@@ -1245,6 +1277,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         .unwrap();
                     bytecode.push(Instruction::GetFieldAddr { field });
                 }
+                // If not found, it's a union - field access is no-op
             }
             HirExpr::Indexing(idx_expr) => {
                 // Generate code to get the address of the indexed element
@@ -1338,15 +1371,6 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 bytecode.push(Instruction::LoadVarAddr(var_index));
             }
             HirExpr::FieldAccess(field_access) => {
-                // First generate the target of the field access
-                self.generate_bytecode_expr(field_access.target.as_ref(), bytecode)?;
-                // If target is a reference, dereference it first to get the object pointer
-                if matches!(
-                    field_access.target.ty(),
-                    HirTy::MutableReference(_) | HirTy::ReadOnlyReference(_)
-                ) {
-                    bytecode.push(Instruction::LoadIndirect);
-                }
                 let obj_name = match self.get_class_name_of_type(field_access.target.ty()) {
                     Some(n) => n,
                     None => {
@@ -1356,9 +1380,30 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         ));
                     }
                 };
-                if let Some(struct_descriptor) =
-                    self.struct_pool.iter().find(|s| s.name == obj_name)
-                {
+
+                // Check if this is a union field access
+                let is_union = !self.struct_pool.iter().any(|s| s.name == obj_name);
+
+                if is_union {
+                    // For union field access, all fields are at the same address
+                    // So just get the address of the target (the union itself)
+                    self.generate_receiver_addr(field_access.target.as_ref(), bytecode)?;
+                } else {
+                    // For struct field access, generate the target then get field address
+                    self.generate_bytecode_expr(field_access.target.as_ref(), bytecode)?;
+                    // If target is a reference, dereference it first to get the object pointer
+                    if matches!(
+                        field_access.target.ty(),
+                        HirTy::MutableReference(_) | HirTy::ReadOnlyReference(_)
+                    ) {
+                        bytecode.push(Instruction::LoadIndirect);
+                    }
+
+                    let struct_descriptor = self
+                        .struct_pool
+                        .iter()
+                        .find(|s| s.name == obj_name)
+                        .unwrap();
                     let field = struct_descriptor
                         .fields
                         .iter()

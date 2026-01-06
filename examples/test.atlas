@@ -57,7 +57,8 @@ public:
     }
 
     fun _copy(&const this) -> GenericTuple<A, B> {
-        return new GenericTuple<A, B>((*this).first, (*this).second);
+        println("Copying GenericTuple");
+        return new GenericTuple<A, B>((*this.first), (*this.second));
     }
 
     fun first_value(&this) -> A {
@@ -149,6 +150,25 @@ fun main() {
 
     // TODO: Container<string> iteration also has the same const reference field access bug
     println("Container iteration test skipped (same const reference field issue)");
+    // Testing iterator over GenericTuple
+    let arr_gen_tuple: [GenericTuple<int64, string>] = [
+        new GenericTuple<int64, string>(1, "one"),
+        new GenericTuple<int64, string>(2, "two"),
+        new GenericTuple<int64, string>(3, "three")
+    ];
+    let vec_gen_tuple = new Vector<GenericTuple<int64, string>>(arr_gen_tuple);
+    let iter_over_gen_tuple = vec_gen_tuple.into_iter();
+    print("Iterator over GenericTuple:");
+    while iter_over_gen_tuple.has_next() {
+        print("Iteration - ");
+        let val: optional<GenericTuple<int64, string>> = iter_over_gen_tuple.next();
+        let value = val.value();
+        print("First: ");
+        println(value.first_value());
+        print("Second: ");
+        println(value.second_value());
+    }
+
 
     // Testing file system
     let path = "test_file.txt";

@@ -240,4 +240,5 @@ pub struct StructDescriptor {
     pub name: String,
     pub nb_fields: usize,
     pub fields: Vec<String>,
+    pub is_union: bool,
 }

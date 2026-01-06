@@ -7,6 +7,7 @@
 /// the stored value when present.
 
 import "std/io";
+import "std/mem";
 
 
 /// Internal storage for `optional<T>`.
@@ -46,7 +47,9 @@ public:
     }
     fun _copy(&const this) -> optional<T> {
         if (*this.has_value) {
-            return optional<T>::of(this.data.value);
+            // Access through const reference - copy the value from the union
+            let value = this.data.value;
+            return optional<T>::of(value);
         } else {
             return optional<T>::empty();
         }
@@ -90,11 +93,11 @@ public:
         if (!this.has_value) {
             panic("Called value on a empty optional");
         }
-        println("Returning value from optional");
-        let value = this.data.value;
-        println(&value);
+        // Move the value out before marking as empty
+        let value = memcpy(&(this.data.value));
         // Mark as empty before returning to prevent destructor from double-freeing
         this.has_value = false;
+        // Delete the container structure itself (but not the value we already moved)
         delete this;
         return value;
     }
@@ -105,8 +108,13 @@ public:
     ///     let n = opt.value_or(0);
     fun value_or(this, default: T) -> T {
         if (this.has_value) {
-            return this.data.value;
+            let value = this.data.value;
+            // Mark as empty before returning
+            this.has_value = false;
+            delete this;
+            return value;
         } else {
+            delete this;
             return default;
         }
     }

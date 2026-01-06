@@ -28,7 +28,7 @@ public:
             return optional<T>::empty();
         }
         
-        let item = *(this.data.get(this.index));
+        let item: T = memcpy(this.data.get(this.index));
         this.index = this.index + 1u;
         return optional<T>::of(item);
     }

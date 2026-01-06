@@ -71,7 +71,6 @@ pub enum TokenKind {
         let raw = &lex.slice()[1..lex.slice().len()-1];
         let mut result = String::new();
         let mut chars = raw.chars();
-        
         while let Some(ch) = chars.next() {
             if ch == '\\' {
                 match chars.next() {

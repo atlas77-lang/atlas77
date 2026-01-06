@@ -819,13 +819,19 @@ impl Assembler {
         for struct_descriptor in source.structs.iter() {
             struct_descriptors.push(StructDescriptor {
                 name: struct_descriptor.name.to_owned(),
-                nb_fields: struct_descriptor.fields.len(),
+                // For unions, only allocate 1 field (all variants share same memory)
+                nb_fields: if struct_descriptor.is_union {
+                    1
+                } else {
+                    struct_descriptor.fields.len()
+                },
                 fields: struct_descriptor
                     .fields
                     .clone()
                     .into_iter()
                     .map(|s| s.to_owned())
                     .collect(),
+                is_union: struct_descriptor.is_union,
             });
         }
         Ok(AsmProgram {
