@@ -1781,6 +1781,12 @@ impl<'hir> TypeChecker<'hir> {
             (HirTy::MutableReference(mutable1), HirTy::MutableReference(mutable2)) => {
                 self.is_equivalent_ty(mutable1.inner, ty1_span, mutable2.inner, ty2_span)
             }
+            (HirTy::List(list1), HirTy::List(list2)) => self.is_equivalent_ty(
+                list1.inner,
+                ty1_span,
+                list2.inner,
+                ty2_span,
+            ),
             // NOTE: Removed implicit value-to-reference coercion.
             // Previously, `&const T` could match `T` and `&mut T` could match `T`.
             // This caused issues with ownership: the type checker would accept `len(list)`
