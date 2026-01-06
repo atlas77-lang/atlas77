@@ -1,6 +1,7 @@
 import "std/vector";
 import "std/optional";
 import "std/iter";
+import "std/mem";
 
 //There might be issues with ownership here...
 //get_first() & get_second() might only work if K and V are std::copyable
@@ -138,11 +139,13 @@ public:
         let pairs = Vector<Pair<K, V>>::with_capacity(size);
         let i = 0u;
         while i < size {
-            // Get references to the elements without copying
+            // Create pair directly from array access to avoid take() issues
             let key_ref = this.keys.get(i);
             let value_ref = this.values.get(i);
-            // Dereference to get owned values (will trigger proper copy/move semantics)
-            let pair = new Pair<K, V>(*key_ref, *value_ref);
+            // Copy the values (which will properly deep-copy for object types)
+            let key = *key_ref;
+            let value = *value_ref;
+            let pair = new Pair<K, V>(key, value);
             pairs.push(pair);
             i = i + 1u;
         }

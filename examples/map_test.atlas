@@ -16,24 +16,22 @@ fun main() {
     map.insert(3, "three");
 
     println("Before into_iter");
-    let map_iter: Iter<Pair<int64, string>> = map.into_iter();
+    let map_iter = map.into_iter();
     println("After into_iter");
+    println("About to check has_next");
     
     while map_iter.has_next() {
-        println("Calling next");
-        let pair_opt: optional<Pair<int64, string>> = map_iter.next();
-        println("After next");
+        let pair_opt = map_iter.next();
         if pair_opt.has_value() {
-            println("Has value");
-            println((&pair_opt));
             let pair = pair_opt.value();
-            println(&pair);
             print("Key: ");
             print(pair.get_first());
             print(", Value: ");
             println(pair.get_second());
+            delete pair;
         }        
     }
     println("Done");
+    delete map_iter;
 
 }
