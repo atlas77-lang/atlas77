@@ -52,11 +52,13 @@ use crate::atlas_c::{
         expr::{HirCopyExpr, HirDeleteExpr, HirExpr, HirIdentExpr, HirMoveExpr},
         item::HirFunction,
         monomorphization_pass::MonomorphizationPass,
+        pretty_print,
         signature::{HirModuleSignature, HirStructMethodModifier},
         stmt::{HirBlock, HirExprStmt, HirStatement, HirVariableStmt},
         ty::HirTy,
         warning::{
-            ConsumingMethodMayLeakThisWarning, HirWarning, UnnecessaryCopyDueToLaterBorrowsWarning,
+            ConsumingMethodMayLeakThisWarning, HirWarning, TemporaryValueCannotBeFreedWarning,
+            UnnecessaryCopyDueToLaterBorrowsWarning,
         },
     },
     utils::{self, Span},
@@ -1129,6 +1131,28 @@ impl<'hir> OwnershipPass<'hir> {
                 }
             }
             HirExpr::Casting(cast) => {
+                // Check if the inner expression creates a temporary value that needs to be freed
+                // If so, emit a warning because the ownership pass can't properly free it
+                if self.should_warn_about_temporary_in_cast(&cast.expr) {
+                    let path = cast.span.path;
+                    let src = utils::get_file_content(path).unwrap_or_default();
+
+                    let expr_kind = Self::get_expr_description(&cast.expr);
+                    let target_type = self.get_type_name(cast.ty);
+
+                    let warning: ErrReport = HirWarning::TemporaryValueCannotBeFreed(
+                        TemporaryValueCannotBeFreedWarning {
+                            src: NamedSource::new(path, src),
+                            span: cast.expr.span(),
+                            expr_kind,
+                            var_name: "result".to_string(), // Generic name for help message
+                            target_type,
+                        },
+                    )
+                    .into();
+                    eprintln!("{:?}", warning);
+                }
+
                 let transformed =
                     self.transform_expr_ownership(&cast.expr, is_ownership_consuming)?;
                 Ok(HirExpr::Casting(
@@ -1928,5 +1952,78 @@ impl<'hir> OwnershipPass<'hir> {
             })
             .into();
         eprintln!("{:?}", warning);
+    }
+
+    /// Check if an expression creates a temporary value that needs to be freed
+    /// but can't be freed when used inside a cast expression
+    fn should_warn_about_temporary_in_cast(&self, expr: &HirExpr<'hir>) -> bool {
+        match expr {
+            // Unary expressions: check recursively for operator-less (grouping),
+            // or check if the result type needs management for operators like * (dereference)
+            HirExpr::Unary(unary) => {
+                if unary.op.is_none() {
+                    // Just grouping/wrapping - check the inner expression
+                    self.should_warn_about_temporary_in_cast(&unary.expr)
+                } else {
+                    // Has an operator (like dereference *) - check if result needs management
+                    // Example: *(&my_string) might create a copy that needs freeing
+                    !unary.ty.is_ref() && self.type_needs_memory_management(unary.ty)
+                }
+            }
+            // Function calls that return owned values (not references) create temporaries
+            HirExpr::Call(call) => {
+                let return_type = call.ty;
+                // If the return type is not a reference and needs memory management, warn
+                // This includes strings (which are copyable but still need freeing)
+                !return_type.is_ref() && self.type_needs_memory_management(return_type)
+            }
+            // New object expressions create temporaries
+            HirExpr::NewObj(new_obj) => {
+                !new_obj.ty.is_ref() && self.type_needs_memory_management(new_obj.ty)
+            }
+            // Binary operations that create new values (like string concatenation)
+            HirExpr::HirBinaryOperation(binop) => {
+                !binop.ty.is_ref() && self.type_needs_memory_management(binop.ty)
+            }
+            // Any other expression that creates a value needing memory management
+            _ => false,
+        }
+    }
+
+    /// Check if a type needs memory management (i.e., it's not a primitive that can be trivially copied)
+    /// This includes strings, structs, lists, etc. - even if they're copyable, they still need freeing
+    fn type_needs_memory_management(&self, ty: &HirTy<'hir>) -> bool {
+        match ty {
+            // Primitives don't need memory management
+            HirTy::Int64(_)
+            | HirTy::Float64(_)
+            | HirTy::UInt64(_)
+            | HirTy::Char(_)
+            | HirTy::Boolean(_)
+            | HirTy::Unit(_) => false,
+
+            // References don't need to be freed (they're borrowed)
+            HirTy::MutableReference(_) | HirTy::ReadOnlyReference(_) => false,
+
+            // Strings need memory management even though they're copyable
+            HirTy::String(_) => true,
+
+            // Lists, structs, and other complex types need memory management
+            HirTy::List(_) | HirTy::Named(_) | HirTy::Generic(_) => true,
+
+            // Nullable types need management if their inner type does
+            HirTy::Nullable(nullable) => self.type_needs_memory_management(nullable.inner),
+
+            // Other types
+            HirTy::Uninitialized(_) | HirTy::ExternTy(_) | HirTy::Function(_) => false,
+        }
+    }
+
+    /// Get a human-readable description of an expression for error messages
+    fn get_expr_description(expr: &HirExpr) -> String {
+        let mut pretty_printer = pretty_print::HirPrettyPrinter::new();
+        pretty_printer.print_expr(expr);
+
+        pretty_printer.get_output()
     }
 }

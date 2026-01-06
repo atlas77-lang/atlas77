@@ -4,7 +4,7 @@ use super::{
     HirModule, HirModuleBody,
     expr::*,
     item::{HirEnum, HirFunction, HirImport, HirStruct, HirStructConstructor, HirStructMethod},
-    signature::{HirFunctionSignature, HirModuleSignature, HirStructFieldSignature, HirVisibility},
+    signature::{HirFunctionSignature, HirStructFieldSignature, HirVisibility},
     stmt::*,
     ty::HirTy,
 };
@@ -20,6 +20,10 @@ impl HirPrettyPrinter {
             output: String::new(),
             indent: 0,
         }
+    }
+
+    pub fn get_output(self) -> String {
+        self.output
     }
 
     pub fn print_module(&mut self, module: &HirModule) -> String {
@@ -349,7 +353,7 @@ impl HirPrettyPrinter {
         }
     }
 
-    fn print_expr(&mut self, expr: &HirExpr) {
+    pub fn print_expr(&mut self, expr: &HirExpr) {
         match expr {
             HirExpr::Ident(ident) => {
                 self.write(ident.name);

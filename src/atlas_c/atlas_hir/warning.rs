@@ -11,6 +11,7 @@ declare_warning_type!(
         ConsumingMethodMayLeakThis(ConsumingMethodMayLeakThisWarning),
         CannotGenerateACopyConstructorForThisType(CannotGenerateACopyConstructorForThisTypeWarning),
         UnnecessaryCopyDueToLaterBorrows(UnnecessaryCopyDueToLaterBorrowsWarning),
+        TemporaryValueCannotBeFreed(TemporaryValueCannotBeFreedWarning),
     }
 );
 
@@ -114,4 +115,26 @@ pub struct UnnecessaryCopyDueToLaterBorrowsWarning {
     pub var_name: String,
     #[label(collection, "Borrowed here")]
     pub borrow_uses: Vec<Span>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::temporary_value_cannot_be_freed),
+    severity(warning),
+    help(
+        "Store the result in a variable first: \n\t\t- let temp = {expr_kind};\n\t\t- let {var_name} = temp as {target_type};"
+    )
+)]
+#[error("Temporary value from `{expr_kind}` cannot be freed in this expression")]
+pub struct TemporaryValueCannotBeFreedWarning {
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label(
+        primary,
+        "This creates a temporary value that should be freed, but the ownership pass cannot insert a free here"
+    )]
+    pub span: Span,
+    pub expr_kind: String,
+    pub var_name: String,
+    pub target_type: String,
 }
