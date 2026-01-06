@@ -52,7 +52,7 @@ use crate::atlas_c::{
         expr::{HirCopyExpr, HirDeleteExpr, HirExpr, HirIdentExpr, HirMoveExpr},
         item::HirFunction,
         monomorphization_pass::MonomorphizationPass,
-        pretty_print,
+        pretty_print::HirPrettyPrinter,
         signature::{HirModuleSignature, HirStructMethodModifier},
         stmt::{HirBlock, HirExprStmt, HirStatement, HirVariableStmt},
         ty::HirTy,
@@ -1054,6 +1054,31 @@ impl<'hir> OwnershipPass<'hir> {
                 ))
             }
             HirExpr::FieldAccess(field) => {
+                // Check if the target expression creates a temporary value that needs to be freed
+                // This catches method chaining like: foo.bar().baz() where bar() returns a temporary
+                if self.should_warn_about_temporary_in_method_chain(&field.target) {
+                    let path = field.span.path;
+                    let src = utils::get_file_content(path).unwrap_or_default();
+
+                    let target_expr_str = Self::get_expr_description(&field.target);
+                    let field_name = field.field.name;
+
+                    let warning: ErrReport = HirWarning::TemporaryValueCannotBeFreed(
+                        TemporaryValueCannotBeFreedWarning {
+                            src: NamedSource::new(path, src),
+                            span: field.target.span(),
+                            expr_kind: format!("{}", target_expr_str),
+                            var_name: "result".to_string(),
+                            target_expr: format!(
+                                ".{} //Rest of your method chain here",
+                                field_name
+                            ),
+                        },
+                    )
+                    .into();
+                    eprintln!("{:?}", warning);
+                }
+
                 let transformed_target = self.transform_expr_ownership(&field.target, false)?;
                 let field_access_expr =
                     HirExpr::FieldAccess(crate::atlas_c::atlas_hir::expr::HirFieldAccessExpr {
@@ -1146,7 +1171,7 @@ impl<'hir> OwnershipPass<'hir> {
                             span: cast.expr.span(),
                             expr_kind,
                             var_name: "result".to_string(), // Generic name for help message
-                            target_type,
+                            target_expr: format!(" as {}", target_type),
                         },
                     )
                     .into();
@@ -2019,9 +2044,31 @@ impl<'hir> OwnershipPass<'hir> {
         }
     }
 
+    /// Check if an expression creates a temporary value in a method chain
+    /// Example: foo.bar().baz() - bar() creates a temporary that's used for .baz()
+    fn should_warn_about_temporary_in_method_chain(&self, expr: &HirExpr<'hir>) -> bool {
+        match expr {
+            // Unwrap unary expressions with no operator
+            HirExpr::Unary(unary) if unary.op.is_none() => {
+                self.should_warn_about_temporary_in_method_chain(&unary.expr)
+            }
+            // Function/method calls that return owned values create temporaries
+            HirExpr::Call(call) => {
+                let return_type = call.ty;
+                !return_type.is_ref() && self.type_needs_memory_management(return_type)
+            }
+            // Field access on a temporary: check if the target is a temporary
+            HirExpr::FieldAccess(field) => {
+                self.should_warn_about_temporary_in_method_chain(&field.target)
+            }
+            // Other expressions don't create problematic temporaries in method chains
+            _ => false,
+        }
+    }
+
     /// Get a human-readable description of an expression for error messages
     fn get_expr_description(expr: &HirExpr) -> String {
-        let mut pretty_printer = pretty_print::HirPrettyPrinter::new();
+        let mut pretty_printer = HirPrettyPrinter::new();
         pretty_printer.print_expr(expr);
 
         pretty_printer.get_output()

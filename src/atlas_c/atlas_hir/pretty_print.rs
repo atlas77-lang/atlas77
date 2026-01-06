@@ -22,8 +22,11 @@ impl HirPrettyPrinter {
         }
     }
 
-    pub fn get_output(self) -> String {
-        self.output
+    pub fn get_output(&mut self) -> String {
+        let output = self.output.clone();
+        self.output = String::new();
+        self.indent = 0;
+        output
     }
 
     pub fn print_module(&mut self, module: &HirModule) -> String {
