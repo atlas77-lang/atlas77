@@ -39,6 +39,7 @@ public:
     /// If `has_value` is true, `this.data.value` is deleted. Otherwise,
     /// nothing is performed.
     ~optional() {
+        println("Destroying optional");
         if (this.has_value) {
             delete this.data.value;
         }
@@ -89,7 +90,9 @@ public:
         if (!this.has_value) {
             panic("Called value on a empty optional");
         }
+        println("Returning value from optional");
         let value = this.data.value;
+        println(&value);
         // Mark as empty before returning to prevent destructor from double-freeing
         this.has_value = false;
         delete this;

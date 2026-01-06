@@ -499,7 +499,7 @@ impl HirPrettyPrinter {
             HirTy::Named(n) => n.name.to_string(),
             HirTy::List(l) => format!("[{}]", self.type_str(l.inner)),
             HirTy::ReadOnlyReference(r) => format!("&const {}", self.type_str(r.inner)),
-            HirTy::MutableReference(r) => format!("&mut {}", self.type_str(r.inner)),
+            HirTy::MutableReference(r) => format!("&{}", self.type_str(r.inner)),
             HirTy::Generic(g) => format!("{}<{}>", g.name.to_string(), 
                 g.inner.iter()
                     .map(|arg| self.type_str(arg))

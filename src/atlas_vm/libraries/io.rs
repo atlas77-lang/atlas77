@@ -22,7 +22,12 @@ pub fn println(state: VMState) -> Result<VMData, RuntimeError> {
             println!("{}", val)
         }
         VMTag::Ref => {
-            println!("{}", val)
+            let val = unsafe{ &*val.as_ref() };
+            if val.is_object() {
+                println!("{}", state.object_map.get(val.as_object())?);
+            } else {
+                println!("{}", val)
+            }
         }
         VMTag::Object => {
             println!("{}", state.object_map.get(val.as_object())?.structure());
@@ -57,6 +62,7 @@ pub fn print(state: VMState) -> Result<VMData, RuntimeError> {
             print!("{}", val)
         }
         VMTag::Ref => {
+            let val = unsafe{ &*val.as_ref() };
             print!("{}", val)
         }
         VMTag::String => {
@@ -105,6 +111,7 @@ pub fn panic(state: VMState) -> Result<VMData, RuntimeError> {
             std::process::exit(1);
         }
         VMTag::Ref => {
+            let val = unsafe{ &*val.as_ref() };
             println!("{}", val);
             std::process::exit(1);
         }
