@@ -1538,7 +1538,9 @@ impl<'hir> TypeChecker<'hir> {
             for (param, _arg) in signature.params.iter().zip(args_ty.iter()) {
                 // Substitute the generic with the concrete type while preserving type constructors
                 let param_ty = if let Some(generic_name) = Self::get_generic_name(param.ty) {
-                    if let Some((_, concrete_ty)) = generics.iter().find(|(name, _)| *name == generic_name) {
+                    if let Some((_, concrete_ty)) =
+                        generics.iter().find(|(name, _)| *name == generic_name)
+                    {
                         self.get_generic_ret_ty(param.ty, concrete_ty)
                     } else {
                         param.ty
@@ -1546,7 +1548,7 @@ impl<'hir> TypeChecker<'hir> {
                 } else {
                     param.ty
                 };
-                
+
                 let param_sign: HirFunctionParameterSignature = HirFunctionParameterSignature {
                     name: param.name,
                     name_span: param.name_span,
@@ -1580,7 +1582,9 @@ impl<'hir> TypeChecker<'hir> {
             for (param, _arg) in signature.params.iter().zip(args_ty.iter()) {
                 // Find the concrete type for this parameter's generic
                 let param_ty = if let Some(generic_name) = Self::get_generic_name(param.ty) {
-                    if let Some((_, concrete_ty)) = generics.iter().find(|(name, _)| *name == generic_name) {
+                    if let Some((_, concrete_ty)) =
+                        generics.iter().find(|(name, _)| *name == generic_name)
+                    {
                         // Substitute the generic with the concrete type while preserving type constructors
                         self.get_generic_ret_ty(param.ty, concrete_ty)
                     } else {
@@ -1589,7 +1593,7 @@ impl<'hir> TypeChecker<'hir> {
                 } else {
                     param.ty
                 };
-                
+
                 let param_sign: HirFunctionParameterSignature = HirFunctionParameterSignature {
                     name: param.name,
                     name_span: param.name_span,

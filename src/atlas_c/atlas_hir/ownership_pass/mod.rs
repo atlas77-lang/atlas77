@@ -55,7 +55,9 @@ use crate::atlas_c::{
         signature::{HirModuleSignature, HirStructMethodModifier},
         stmt::{HirBlock, HirExprStmt, HirStatement, HirVariableStmt},
         ty::HirTy,
-        warning::{ConsumingMethodMayLeakThisWarning, HirWarning},
+        warning::{
+            ConsumingMethodMayLeakThisWarning, HirWarning, UnnecessaryCopyDueToLaterBorrowsWarning,
+        },
     },
     utils::{self, Span},
 };
@@ -1219,6 +1221,36 @@ impl<'hir> OwnershipPass<'hir> {
                 }));
             } else {
                 // Still has future uses - must COPY
+                // Check if all remaining uses are just reads (borrows) - if so, emit a warning
+                let later_uses: Vec<&VarUse> = var_data
+                    .uses
+                    .iter()
+                    .filter(|u| u.stmt_index > self.current_stmt_index)
+                    .collect();
+
+                let all_later_uses_are_reads = later_uses.iter().all(|u| u.kind == UseKind::Read);
+
+                if all_later_uses_are_reads && !later_uses.is_empty() {
+                    // Emit warning: copying here but only borrowing later
+                    // Collect all the borrow uses as related diagnostics
+                    let path = ident.span.path;
+                    let src = utils::get_file_content(path).unwrap_or_default();
+
+                    let borrow_uses: Vec<Span> =
+                        later_uses.iter().map(|var_use| var_use.span).collect();
+
+                    let warning: ErrReport = HirWarning::UnnecessaryCopyDueToLaterBorrows(
+                        UnnecessaryCopyDueToLaterBorrowsWarning {
+                            span: ident.span,
+                            var_name: ident.name.to_string(),
+                            src: NamedSource::new(path, src),
+                            borrow_uses,
+                        },
+                    )
+                    .into();
+                    eprintln!("{:?}", warning);
+                }
+
                 // Check for recursive copy in _copy methods
                 if let Some(method_ctx) = &self.current_method_context {
                     if method_ctx.method_name == "_copy" {
@@ -1325,14 +1357,12 @@ impl<'hir> OwnershipPass<'hir> {
                     self.transform_expr_ownership(&unary.expr, false)?
                 };
 
-                let unary_expr = HirExpr::Unary(
-                    crate::atlas_c::atlas_hir::expr::UnaryOpExpr {
-                        span: unary.span,
-                        op: unary.op.clone(),
-                        expr: Box::new(transformed_inner),
-                        ty: unary.ty,
-                    },
-                );
+                let unary_expr = HirExpr::Unary(crate::atlas_c::atlas_hir::expr::UnaryOpExpr {
+                    span: unary.span,
+                    op: unary.op.clone(),
+                    expr: Box::new(transformed_inner),
+                    ty: unary.ty,
+                });
 
                 // Special case: Deref in a return context with a copyable result type
                 // needs to produce a copy of the dereferenced object.

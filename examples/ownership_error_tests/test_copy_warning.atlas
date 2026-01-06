@@ -1,0 +1,21 @@
+import "std/io";
+
+// Already in the VM's externs
+extern str_len(s: &const string) -> uint64;
+
+public struct MyString {
+public:
+    s: string;
+    len: uint64;
+
+public:
+    MyString(str: string) {
+        this.s = str;
+        this.len = str_len(&str);
+    }
+}
+
+fun main() {
+    let s = new MyString("hello");
+    println(s.s);
+}

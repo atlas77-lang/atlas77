@@ -10,6 +10,7 @@ declare_warning_type!(
         TryingToCastToTheSameType(TryingToCastToTheSameTypeWarning),
         ConsumingMethodMayLeakThis(ConsumingMethodMayLeakThisWarning),
         CannotGenerateACopyConstructorForThisType(CannotGenerateACopyConstructorForThisTypeWarning),
+        UnnecessaryCopyDueToLaterBorrows(UnnecessaryCopyDueToLaterBorrowsWarning),
     }
 );
 
@@ -93,4 +94,24 @@ pub struct ConsumingMethodMayLeakThisWarning {
     #[label = "This method takes ownership of `this` but doesn't delete it, which may cause a memory leak"]
     pub span: Span,
     pub method_name: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::unnecessary_copy_due_to_later_borrows),
+    severity(warning),
+    help("Consider reordering statements to move `{var_name}` last")
+)]
+#[error("Variable `{var_name}` is copied here but only borrowed later")]
+pub struct UnnecessaryCopyDueToLaterBorrowsWarning {
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label(
+        primary,
+        "This copies `{var_name}` because it's used later, but all later uses are just borrows"
+    )]
+    pub span: Span,
+    pub var_name: String,
+    #[label(collection, "Borrowed here")]
+    pub borrow_uses: Vec<Span>,
 }

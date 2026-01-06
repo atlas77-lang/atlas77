@@ -433,9 +433,7 @@ impl HirPrettyPrinter {
             }
             HirExpr::NewArray(new_array) => {
                 let ty = match new_array.ty {
-                    HirTy::List(l) => {
-                        l.inner
-                    }
+                    HirTy::List(l) => l.inner,
                     _ => panic!("NewArray must have List type"),
                 };
                 self.write(&format!("new [{}; ", self.type_str(ty)));
@@ -500,8 +498,11 @@ impl HirPrettyPrinter {
             HirTy::List(l) => format!("[{}]", self.type_str(l.inner)),
             HirTy::ReadOnlyReference(r) => format!("&const {}", self.type_str(r.inner)),
             HirTy::MutableReference(r) => format!("&{}", self.type_str(r.inner)),
-            HirTy::Generic(g) => format!("{}<{}>", g.name.to_string(), 
-                g.inner.iter()
+            HirTy::Generic(g) => format!(
+                "{}<{}>",
+                g.name.to_string(),
+                g.inner
+                    .iter()
                     .map(|arg| self.type_str(arg))
                     .collect::<Vec<_>>()
                     .join(", ")
