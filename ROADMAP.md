@@ -29,6 +29,9 @@ To give more visibility into the expected progression of the v0.7 series, the cu
 - Introduction of constraints on methods of generic structs, based on the generic parameters of the struct  
   > Example: `Vector<T>.foo()` may only exist if `T` satisfies `std::copyable`
 
+#### Other planned v0.7.x features (not strictly tied to a specific sub-release)
+- Compiler recover from certain errors and continue processing to provide more complete diagnostics
+- Improvements to error messages and diagnostics
 ---
 
 ### v0.8.x
