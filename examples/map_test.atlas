@@ -15,10 +15,16 @@ fun main() {
     map.insert(2, "two");
     map.insert(3, "three");
 
+    println("Before into_iter");
     let map_iter = map.into_iter();
+    println("After into_iter");
+    
     while map_iter.has_next() {
+        println("Calling next");
         let pair_opt = map_iter.next();
+        println("After next");
         if pair_opt.has_value() {
+            println("Has value");
             let pair = pair_opt.value();
             print("Key: ");
             print(pair.get_first());
@@ -26,5 +32,6 @@ fun main() {
             println(pair.get_second());
         }        
     }
+    println("Done");
 
 }

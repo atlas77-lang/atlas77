@@ -298,9 +298,9 @@ impl<'hir> OwnershipPass<'hir> {
 
     /// Collect all variable uses in a block (first pass)
     fn collect_uses_in_block(&mut self, block: &HirBlock<'hir>) -> HirResult<()> {
-        for stmt in block.statements.iter() {
+        for (idx, stmt) in block.statements.iter().enumerate() {
+            self.current_stmt_index = idx;
             self.collect_uses_in_stmt(stmt)?;
-            self.current_stmt_index += 1;
         }
         Ok(())
     }
