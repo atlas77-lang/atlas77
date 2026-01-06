@@ -181,9 +181,9 @@ impl HirPrettyPrinter {
         self.write_indent();
         self.write(&format!("fun {}(", method.name));
         match &method.signature.modifier {
-            HirStructMethodModifier::Const => self.write("&const this"),
-            HirStructMethodModifier::Mutable => self.write("&this"),
-            HirStructMethodModifier::None => self.write("this"),
+            HirStructMethodModifier::Const => self.write("&const this, "),
+            HirStructMethodModifier::Mutable => self.write("&this, "),
+            HirStructMethodModifier::None => self.write("this, "),
             HirStructMethodModifier::Static => {}
         }
         for (i, param) in method.signature.params.iter().enumerate() {
