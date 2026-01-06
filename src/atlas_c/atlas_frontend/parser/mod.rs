@@ -1030,12 +1030,6 @@ impl<'ast> Parser<'ast> {
 
     fn parse_casting(&mut self) -> ParseResult<AstExpr<'ast>> {
         let left = AstExpr::UnaryOp(self.parse_unary()?);
-        // For unary expressions with an operator, handle postfix after the unary
-        // For unary expressions without an operator, postfix was already handled in parse_primary
-        let left = match &left {
-            AstExpr::UnaryOp(u) if u.op.is_some() => self.parse_ident_access(left)?,
-            _ => left,
-        };
         match self.current().kind() {
             TokenKind::KwAs => {
                 self.expect(TokenKind::KwAs)?;
@@ -1074,55 +1068,15 @@ impl<'ast> Parser<'ast> {
             _ => None,
         };
 
-        // All unary operators allow field access inside:
-        // &p.x means &(p.x), !this.has_value means !(this.has_value),
-        // -point.x means -(point.x), *stuff.hehe means *(stuff.hehe)
-        let expr = match op {
-            Some(_) => {
-                // Allow field access but not function calls or assignment
-                let primary = self.parse_primary_no_postfix()?;
-                self.parse_field_access_only(primary)?
-            }
-            None => self.parse_primary()?,
-        };
+        // Unary operators apply to the full postfix expression:
+        // &get_string() means &(get_string()), -arr[0] means -(arr[0]),
+        // *ptr.field means *(ptr.field), !obj.method() means !(obj.method())
+        let expr = self.parse_primary()?;
         let node = AstUnaryOpExpr {
             span: Span::union_span(&start_pos, &self.current().span()),
             op,
             expr: self.arena.alloc(expr),
         };
-        Ok(node)
-    }
-
-    /// Parse only field access (no function calls or indexing)
-    fn parse_field_access_only(&mut self, mut node: AstExpr<'ast>) -> ParseResult<AstExpr<'ast>> {
-        loop {
-            match self.current().kind() {
-                TokenKind::Dot => {
-                    let start_span = node.span();
-                    self.expect(TokenKind::Dot)?;
-                    let field = self.parse_identifier()?;
-
-                    // Check if this is a method call (has parentheses after)
-                    if self.current().kind() == TokenKind::LParen {
-                        // This is a method call - just construct the field access and stop
-                        // (the caller will handle the method call part later)
-                        node = AstExpr::FieldAccess(AstFieldAccessExpr {
-                            span: Span::union_span(&start_span, &field.span),
-                            target: self.arena.alloc(node),
-                            field: self.arena.alloc(field),
-                        });
-                        break;
-                    }
-
-                    node = AstExpr::FieldAccess(AstFieldAccessExpr {
-                        span: Span::union_span(&start_span, &field.span),
-                        target: self.arena.alloc(node),
-                        field: self.arena.alloc(field),
-                    });
-                }
-                _ => break,
-            }
-        }
         Ok(node)
     }
 

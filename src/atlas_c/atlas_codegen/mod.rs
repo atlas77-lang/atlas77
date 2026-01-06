@@ -10,7 +10,7 @@ use crate::atlas_c::atlas_codegen::table::Table;
 use crate::atlas_c::atlas_hir::arena::HirArena;
 use crate::atlas_c::atlas_hir::error::{HirError, NoReturnInFunctionError};
 use crate::atlas_c::atlas_hir::expr::{HirBinaryOperator, HirUnaryOp};
-use crate::atlas_c::atlas_hir::item::{HirStruct, HirStructConstructor, HirUnion};
+use crate::atlas_c::atlas_hir::item::{HirStruct, HirStructConstructor};
 use crate::atlas_c::atlas_hir::monomorphization_pass::MonomorphizationPass;
 use crate::atlas_c::atlas_hir::signature::{ConstantValue, HirStructMethodModifier};
 use crate::atlas_c::atlas_hir::ty::HirGenericTy;
@@ -1314,7 +1314,6 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 bytecode.push(Instruction::LoadVarAddr(temp_idx));
             }
             _ => {
-                eprintln!("\tExpr Type: {:?}", expr);
                 return Err(Self::unsupported_expr_err(
                     expr,
                     format!(
