@@ -34,13 +34,11 @@ public:
     }
 
     ~String() {
-        println("Destroying String...");
         delete this.s;
     }
 
     /// Copy constructor - creates a deep copy of the string
     fun _copy(&const this) -> String {
-        println("Copying String...");
         return new String(*this.s);
     }
 

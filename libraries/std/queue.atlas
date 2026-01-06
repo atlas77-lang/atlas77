@@ -58,14 +58,3 @@ public:
         return this.count == 0u;
     }
 }
-
-fun main() {
-    let queue = Queue<int64>::with_size(5u);
-    queue.enqueue(10);
-    queue.enqueue(20);
-    queue.enqueue(30);
-    println(queue.dequeue());
-    println(queue.dequeue());
-    queue.enqueue(40);
-    println(queue.dequeue());
-}

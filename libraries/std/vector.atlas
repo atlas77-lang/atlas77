@@ -18,7 +18,6 @@ public:
         this.data = data;
     }
     ~Vector() {
-        println("Vector destructor called");
         // We shouldn't delete anything outside of data[0..length]
         let i: uint64 = 0u;
         while i < this.length {
