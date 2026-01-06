@@ -1,0 +1,30 @@
+import "std/io";
+import "std/map";
+
+fun main() {
+    // Testing maps
+    let map = new Map<int64, string>();
+    map.insert(1, "one");
+    let val1 = map.get(1);
+    print("Key 1 maps to value: ");
+    if val1.has_value() {
+        println(*(val1.value()));
+    } else {
+        println("None");
+    }
+    map.insert(2, "two");
+    map.insert(3, "three");
+
+    let map_iter = map.into_iter();
+    while map_iter.has_next() {
+        let pair_opt = map_iter.next();
+        if pair_opt.has_value() {
+            let pair = pair_opt.value();
+            print("Key: ");
+            print(pair.get_first());
+            print(", Value: ");
+            println(pair.get_second());
+        }        
+    }
+
+}

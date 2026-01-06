@@ -1310,32 +1310,50 @@ impl<'hir> OwnershipPass<'hir> {
             }
             // Unary expressions (e.g., negation, None-wrapping) - recurse into inner
             HirExpr::Unary(unary) => {
-                // Special case: AsRef (&) doesn't consume ownership
+                // Special case: AsRef (&) and Deref (*) don't consume ownership of the inner expression
                 // We need to process the inner expression with is_ownership_consuming = false
+                let inner_consumes = match unary.op {
+                    Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::AsRef) => false,
+                    Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::Deref) => false,
+                    // For other unary ops in return context, propagate the ownership-consuming behavior
+                    _ => true,
+                };
+
+                let transformed_inner = if inner_consumes {
+                    self.transform_expr_for_return(&unary.expr)?
+                } else {
+                    self.transform_expr_ownership(&unary.expr, false)?
+                };
+
+                let unary_expr = HirExpr::Unary(
+                    crate::atlas_c::atlas_hir::expr::UnaryOpExpr {
+                        span: unary.span,
+                        op: unary.op.clone(),
+                        expr: Box::new(transformed_inner),
+                        ty: unary.ty,
+                    },
+                );
+
+                // Special case: Deref in a return context with a copyable result type
+                // needs to produce a copy of the dereferenced object.
+                // This handles cases like `*this.field` in methods that return owned values.
                 if matches!(
                     unary.op,
-                    Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::AsRef)
+                    Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::Deref)
                 ) {
-                    let transformed_inner = self.transform_expr_ownership(&unary.expr, false)?;
-                    Ok(HirExpr::Unary(
-                        crate::atlas_c::atlas_hir::expr::UnaryOpExpr {
+                    let is_copyable = self.is_type_copyable(unary.ty);
+                    if is_copyable && !Self::is_primitive_type(unary.ty) {
+                        // Wrap in Copy to ensure proper deep copy semantics
+                        return Ok(HirExpr::Copy(HirCopyExpr {
                             span: unary.span,
-                            op: unary.op.clone(),
-                            expr: Box::new(transformed_inner),
+                            source_name: "", // No specific source name for deref expression
+                            expr: Box::new(unary_expr),
                             ty: unary.ty,
-                        },
-                    ))
-                } else {
-                    let transformed_inner = self.transform_expr_for_return(&unary.expr)?;
-                    Ok(HirExpr::Unary(
-                        crate::atlas_c::atlas_hir::expr::UnaryOpExpr {
-                            span: unary.span,
-                            op: unary.op.clone(),
-                            expr: Box::new(transformed_inner),
-                            ty: unary.ty,
-                        },
-                    ))
+                        }));
+                    }
                 }
+
+                Ok(unary_expr)
             }
             // For complex expressions, transform recursively
             _ => self.transform_expr_ownership(expr, true),

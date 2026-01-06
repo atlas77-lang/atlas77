@@ -145,7 +145,7 @@ impl HirPrettyPrinter {
     }
 
     fn print_field(&mut self, field: &HirStructFieldSignature) {
-        self.writeln(&format!("{}: {}", field.name, self.type_str(field.ty)));
+        self.writeln(&format!("{}: {};", field.name, self.type_str(field.ty)));
     }
 
     fn print_constructor(&mut self, name: &str, constructor: &HirStructConstructor) {
@@ -432,7 +432,13 @@ impl HirPrettyPrinter {
                 self.write("]");
             }
             HirExpr::NewArray(new_array) => {
-                self.write(&format!("new {}[", self.type_str(new_array.ty)));
+                let ty = match new_array.ty {
+                    HirTy::List(l) => {
+                        l.inner
+                    }
+                    _ => panic!("NewArray must have List type"),
+                };
+                self.write(&format!("new [{}; ", self.type_str(ty)));
                 self.print_expr(&new_array.size);
                 self.write("]");
             }
@@ -483,18 +489,23 @@ impl HirPrettyPrinter {
 
     fn type_str(&self, ty: &HirTy) -> String {
         match ty {
-            HirTy::Int64(_) => "i64".to_string(),
-            HirTy::Float64(_) => "f64".to_string(),
-            HirTy::UInt64(_) => "u64".to_string(),
+            HirTy::Int64(_) => "int64".to_string(),
+            HirTy::Float64(_) => "float64".to_string(),
+            HirTy::UInt64(_) => "uint64".to_string(),
             HirTy::Boolean(_) => "bool".to_string(),
             HirTy::Char(_) => "char".to_string(),
             HirTy::String(_) => "string".to_string(),
-            HirTy::Unit(_) => "()".to_string(),
+            HirTy::Unit(_) => "unit".to_string(),
             HirTy::Named(n) => n.name.to_string(),
             HirTy::List(l) => format!("[{}]", self.type_str(l.inner)),
             HirTy::ReadOnlyReference(r) => format!("&const {}", self.type_str(r.inner)),
             HirTy::MutableReference(r) => format!("&mut {}", self.type_str(r.inner)),
-            HirTy::Generic(g) => g.name.to_string(),
+            HirTy::Generic(g) => format!("{}<{}>", g.name.to_string(), 
+                g.inner.iter()
+                    .map(|arg| self.type_str(arg))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
             HirTy::Uninitialized(_) => "<uninit>".to_string(),
             HirTy::Nullable(n) => format!("{}?", self.type_str(n.inner)),
             HirTy::ExternTy(e) => format!("extern {:?}", e.type_hint),
