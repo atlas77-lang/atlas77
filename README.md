@@ -111,6 +111,10 @@ fun main() {
 
 _For more examples, see the [examples folder](./examples/README.MD)_
 
+<!-- FEATURES -->
+## Features
+
+
 <!-- ROADMAP -->
 
 ## Roadmap
@@ -130,7 +134,8 @@ There never was any official v0.1 or v0.2 releases, they were just internal mile
 
 > Deprecated, if you want to know more about the v0.4, check the releases page.
 
-> [!Warning] This version no longer compiles for some reason, so the source code is still accessible, but you can't build it.
+> [!Warning] 
+> This version no longer compiles for some reason, so the source code is still accessible, but you can't build it.
 
 - [v0.4 "Keystone"](https://github.com/atlas77-lang/Atlas77/tag/v0.4)
 
@@ -147,41 +152,50 @@ management, compiler and everything it didn't get any more updates after the v0.
 
 ### v0.6.x "Bastion"
 
-This version will take the v0.5's good parts, but reimplement the VM,
-codegen & memory management from scratch, while still adding new features.
+The v0.6.x series was a redesign of Atlas77 using everything that worked in the v0.5, but making it better and more consistent.
+It introduced a lot of new features and improvements, including, but not limited to:
+- **Generics** for functions and structs (not for struct methods yet)
+- Multi file projects that works similarly to this semantically (yes it's bad, but it will be fixed in later versions):
+> ```c
+> #ifndef MYMODULE_ATLAS77
+> #define MYMODULE_ATLAS77
+> #endif
+> ```
+- **Unions** to allow for more flexible data structures
+- **Enums**, only the C-like enums are supported for now
+- Static access to struct methods (no static fields yet)
+- **References** with `&` and dereferencing with `*`
+> NB: They are kinda broken in this version, it's fixed in v0.7.x
+- Improved standard library with more modules and functions
+- Many bug fixes and performance improvements
+- Introducing of `std::copyable` constraints for generics to allow only copyable types
+> It's only there for the groundwork of move/copy semantics in v0.7.x
 
-The runtime focuses on a simple GC (refcount + cycle breaking) and Rust-backed interop.
+> Deprecated, if you want to know more about the v0.6.x, check the releases page.
 
-| Feature              | Status | Notes                                                 |
-|----------------------|:------:|-------------------------------------------------------|
-| Functions            |   ✅    | Self descriptive I would say                          |
-| Variables            |   ✅    | Immutable (`const`) and mutable (`let`)               |
-| Control Flow         |   ✅    | `if/else`, `while`                                    |
-| Imports              |   ✅    | Multi module projects                                 |
-| Packages             |   ❌    | Package manager + ecosystem                           |
-| Basic Types          |   ✅    | `int64`, `float64`, `bool`, `char`, `string`          |
-| Basic `std`          |   ✅    | I/O, string, math, time, vector, file                 |
-| Structs              |   ✅    | User-defined data types                               |
-| Enums                |   🔧    | C-like enumerator                                     |
-| Algebraic Data Types |   ❌    | Sum types with pattern matching                       |
-| Generics             |   ✅    | Type parameters for reusable code                     |
-| GC                   |   🔧    | Reference counting + cycle detection                  |
-| Type System          |   🔧    | Static, strong                                        |
-| Rust FFI             |   🔧    | Core of the "everything else in libraries" philosophy |
+- [v0.6.0-dev](https://github.com/atlas77-lang/Atlas77/releases/tag/v0.6.0-dev)
+- [v0.6.0-dev2](https://github.com/atlas77-lang/Atlas77/releases/tag/v0.6.0-dev2)
+- [v0.6.0 "Bastion"](https://github.com/atlas77-lang/Atlas77/releases/tag/v0.6.0)
+- [v0.6.1](https://github.com/atlas77-lang/Atlas77/releases/tag/v0.6.1)
+- [v0.6.2](https://github.com/atlas77-lang/Atlas77/releases/tag/v0.6.2)
+- [v0.6.3](https://github.com/atlas77-lang/Atlas77/releases/tag/v0.6.3)
+- [v0.6.4](https://github.com/atlas77-lang/Atlas77/releases/tag/v0.6.4)
 
-> NB: This is not really up to date as the rewrite is still taking place
+### v0.7.x "Covenant"
 
-### Later (post v0.6 release)
+This version will focus on correctness, fix
 
-- Making a Brainfuck interpreter in Atlas77
-> Currently in the works. Go check the `self/src/` folder.
-- Bootstrapping the compiler in Atlas77 itself
+- Introduction of **move/copy semantics** to enable safer code and automatic scope cleanup
+- Rework of the `_copy` constructor semantics
+- Expansion and stabilization of parts of the standard library
+- Introduction of `memcpy<T>(&T) -> T` for explicit shallow copies
+- Addition of a **HIR pretty printer** to inspect the output of the compiler after the last HIR pass.
 
 #### Stability and Refinement
 
 > As the language is still in alpha (not 1.0 yet), I won't make "alpha"/"beta" build, it doesn't really make sense.
 
-The beta phase (aka after 0.6.x and beyond) will focus on stabilizing the language. All features will be finalized,
+The beta phase (before v1.0.0) will focus on stabilizing the language. All features will be finalized,
 tested extensively, and optimized for real-world use. This phase will serve as a release candidate.
 
 See the [open issues](https://github.com/atlas77-lang/Atlas77/issues) for a full list of proposed features (and known
@@ -197,10 +211,9 @@ I'll try to make it easy to use, but still a bit "cringey". I hope I can at leas
 
 - Bootstrapping the compiler in Atlas77 itself
 - Building a minimal ECS in pure Atlas77
-- Building a simple game engine with Vulkan bindings
+- Building a simple game engine with OpenGL bindings
 - Providing a package manager written in Atlas77
 - LSP support for editors
-- Ahead-of-time compilation with Cranelift
 
 <!-- CONTRIBUTING -->
 
