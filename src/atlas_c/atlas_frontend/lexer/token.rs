@@ -235,8 +235,6 @@ pub enum TokenKind {
     KwPublic,
     #[token("private")]
     KwPrivate,
-    #[token("protected")]
-    KwProtected,
     //Control Flow
     #[token("if")]
     KwIf,
