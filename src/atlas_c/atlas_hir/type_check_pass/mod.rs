@@ -470,10 +470,10 @@ impl<'hir> TypeChecker<'hir> {
                     expr_ty
                 } else {
                     self.is_equivalent_ty(
-                        expr_ty,
-                        l.value.span(),
                         l.ty,
                         l.ty_span.unwrap_or(l.name_span),
+                        expr_ty,
+                        l.value.span(),
                     )?;
                     l.ty
                 };
@@ -500,10 +500,10 @@ impl<'hir> TypeChecker<'hir> {
                         },
                     );
                 self.is_equivalent_ty(
-                    expr_ty,
-                    l.value.span(),
                     var_ty,
                     l.ty_span.unwrap_or(l.name_span),
+                    expr_ty,
+                    l.value.span(),
                 )
             }
             _ => Err(HirError::UnsupportedExpr(UnsupportedExpr {
@@ -1535,12 +1535,23 @@ impl<'hir> TypeChecker<'hir> {
                 }
             }
             // Still need to create params even with explicit generics
-            for (param, arg) in signature.params.iter().zip(args_ty.iter()) {
+            for (param, _arg) in signature.params.iter().zip(args_ty.iter()) {
+                // Substitute the generic with the concrete type while preserving type constructors
+                let param_ty = if let Some(generic_name) = Self::get_generic_name(param.ty) {
+                    if let Some((_, concrete_ty)) = generics.iter().find(|(name, _)| *name == generic_name) {
+                        self.get_generic_ret_ty(param.ty, concrete_ty)
+                    } else {
+                        param.ty
+                    }
+                } else {
+                    param.ty
+                };
+                
                 let param_sign: HirFunctionParameterSignature = HirFunctionParameterSignature {
                     name: param.name,
                     name_span: param.name_span,
                     span: param.span,
-                    ty: arg,
+                    ty: param_ty,
                     ty_span: param.ty_span,
                 };
                 params.push(param_sign);
@@ -1564,11 +1575,26 @@ impl<'hir> TypeChecker<'hir> {
                     };
                     generics.push((name, ty));
                 }
+            }
+            // Now substitute the inferred generics into parameter types
+            for (param, _arg) in signature.params.iter().zip(args_ty.iter()) {
+                // Find the concrete type for this parameter's generic
+                let param_ty = if let Some(generic_name) = Self::get_generic_name(param.ty) {
+                    if let Some((_, concrete_ty)) = generics.iter().find(|(name, _)| *name == generic_name) {
+                        // Substitute the generic with the concrete type while preserving type constructors
+                        self.get_generic_ret_ty(param.ty, concrete_ty)
+                    } else {
+                        param.ty
+                    }
+                } else {
+                    param.ty
+                };
+                
                 let param_sign: HirFunctionParameterSignature = HirFunctionParameterSignature {
                     name: param.name,
                     name_span: param.name_span,
                     span: param.span,
-                    ty: arg,
+                    ty: param_ty,
                     ty_span: param.ty_span,
                 };
                 params.push(param_sign);
@@ -1660,6 +1686,10 @@ impl<'hir> TypeChecker<'hir> {
             (HirTy::ReadOnlyReference(r1), HirTy::ReadOnlyReference(r2)) => {
                 Self::get_generic_ty(r1.inner, r2.inner)
             }
+            // A mutable reference can be used where a read-only reference is expected
+            (HirTy::ReadOnlyReference(r1), HirTy::MutableReference(m2)) => {
+                Self::get_generic_ty(r1.inner, m2.inner)
+            }
             (HirTy::MutableReference(m1), HirTy::MutableReference(m2)) => {
                 Self::get_generic_ty(m1.inner, m2.inner)
             }
@@ -1740,7 +1770,8 @@ impl<'hir> TypeChecker<'hir> {
                 self.is_equivalent_ty(read_only1.inner, ty1_span, read_only2.inner, ty2_span)
             }
             (HirTy::ReadOnlyReference(r1), HirTy::MutableReference(m2)) => {
-                //Only works one way. A mutable reference can be used where a read-only reference is expected, but not vice versa
+                // A mutable reference (&T) can be coerced to a read-only reference (&const T)
+                // ty1 = &const T (expected), ty2 = &T (actual) - this is valid
                 self.is_equivalent_ty(r1.inner, ty1_span, m2.inner, ty2_span)
             }
             (HirTy::MutableReference(mutable1), HirTy::MutableReference(mutable2)) => {
