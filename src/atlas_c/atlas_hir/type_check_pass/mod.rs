@@ -353,9 +353,9 @@ impl<'hir> TypeChecker<'hir> {
             HirStatement::While(w) => {
                 let cond_ty = self.check_expr(&mut w.condition)?;
                 self.is_equivalent_ty(
-                    cond_ty,
-                    w.condition.span(),
                     self.arena.types().get_boolean_ty(),
+                    w.condition.span(),
+                    cond_ty,
                     w.condition.span(),
                 )?;
                 //there should be just "self.context.new_scope()" and "self.context.end_scope()"
@@ -380,9 +380,9 @@ impl<'hir> TypeChecker<'hir> {
             HirStatement::IfElse(i) => {
                 let cond_ty = self.check_expr(&mut i.condition)?;
                 self.is_equivalent_ty(
-                    cond_ty,
-                    i.condition.span(),
                     self.arena.types().get_boolean_ty(),
+                    i.condition.span(),
+                    cond_ty,
                     i.condition.span(),
                 )?;
 
@@ -427,10 +427,10 @@ impl<'hir> TypeChecker<'hir> {
                     expr_ty
                 } else {
                     self.is_equivalent_ty(
-                        expr_ty,
-                        c.value.span(),
                         c.ty,
                         c.ty_span.unwrap_or(c.name_span),
+                        expr_ty,
+                        c.value.span(),
                     )?;
                     c.ty
                 };
@@ -457,10 +457,10 @@ impl<'hir> TypeChecker<'hir> {
                     );
 
                 self.is_equivalent_ty(
-                    expr_ty,
-                    c.value.span(),
                     const_ty,
                     c.ty_span.unwrap_or(c.name_span),
+                    expr_ty,
+                    c.value.span(),
                 )
             }
             HirStatement::Let(l) => {
@@ -689,9 +689,9 @@ impl<'hir> TypeChecker<'hir> {
                 let target = self.check_expr(&mut indexing_expr.target)?;
                 let index = self.check_expr(&mut indexing_expr.index)?;
                 self.is_equivalent_ty(
-                    index,
-                    indexing_expr.index.span(),
                     self.arena.types().get_uint64_ty(),
+                    indexing_expr.index.span(),
+                    index,
                     indexing_expr.index.span(),
                 )?;
 
@@ -909,10 +909,10 @@ impl<'hir> TypeChecker<'hir> {
                     };
                     let field_ty = self.check_expr(&mut field.value)?;
                     let is_equivalent = self.is_equivalent_ty(
-                        field_ty,
-                        field.value.span(),
                         field_signature.ty,
                         field_signature.span,
+                        field_ty,
+                        field.value.span(),
                     );
                     if is_equivalent.is_err() {
                         return Err(Self::type_mismatch_err(
@@ -1006,16 +1006,7 @@ impl<'hir> TypeChecker<'hir> {
                     .zip(obj.args.iter_mut())
                 {
                     let arg_ty = self.check_expr(arg)?;
-                    let is_equivalent =
-                        self.is_equivalent_ty(arg_ty, arg.span(), param.ty, param.span);
-                    if is_equivalent.is_err() {
-                        return Err(Self::type_mismatch_err(
-                            &format!("{}", arg_ty),
-                            &arg.span(),
-                            &format!("{}", param.ty),
-                            &param.span,
-                        ));
-                    }
+                    self.is_equivalent_ty(param.ty, param.span, arg_ty, arg.span())?;
                 }
                 obj.ty = self
                     .arena
@@ -1258,7 +1249,7 @@ impl<'hir> TypeChecker<'hir> {
                                 .zip(func_expr.args.iter_mut())
                             {
                                 let arg_ty = self.check_expr(arg)?;
-                                self.is_equivalent_ty(arg_ty, arg.span(), param.ty, param.span)?;
+                                self.is_equivalent_ty(param.ty, param.span, arg_ty, arg.span())?;
                             }
 
                             static_access.ty =
