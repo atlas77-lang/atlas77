@@ -834,8 +834,7 @@ impl<'hir> TypeChecker<'hir> {
                     };
                     *tmp
                 } else if let HirTy::Generic(g) = obj_lit.ty {
-                    let name =
-                        MonomorphizationPass::mangle_generic_object_name(self.arena, g, "union");
+                    let name = MonomorphizationPass::generate_mangled_name(self.arena, g, "union");
                     union_ty = self.arena.intern(HirNamedTy { name, span: g.span })
                         as &'hir HirNamedTy<'hir>;
                     let tmp = match self.signature.unions.get(name) {
@@ -930,8 +929,7 @@ impl<'hir> TypeChecker<'hir> {
                     };
                     *tmp
                 } else if let HirTy::Generic(g) = obj.ty {
-                    let name =
-                        MonomorphizationPass::mangle_generic_object_name(self.arena, g, "struct");
+                    let name = MonomorphizationPass::generate_mangled_name(self.arena, g, "struct");
                     struct_ty = self.arena.intern(HirNamedTy { name, span: g.span })
                         as &'hir HirNamedTy<'hir>;
                     let tmp = match self.signature.structs.get(name) {
@@ -1015,7 +1013,7 @@ impl<'hir> TypeChecker<'hir> {
                         let name = if func_expr.generics.is_empty() {
                             i.name
                         } else {
-                            MonomorphizationPass::mangle_generic_object_name(
+                            MonomorphizationPass::generate_mangled_name(
                                 self.arena,
                                 &HirGenericTy {
                                     name: i.name,
@@ -1191,9 +1189,9 @@ impl<'hir> TypeChecker<'hir> {
                     HirExpr::StaticAccess(static_access) => {
                         let name = match static_access.target {
                             HirTy::Named(n) => n.name,
-                            HirTy::Generic(g) => MonomorphizationPass::mangle_generic_object_name(
-                                self.arena, g, "struct",
-                            ),
+                            HirTy::Generic(g) => {
+                                MonomorphizationPass::generate_mangled_name(self.arena, g, "struct")
+                            }
                             _ => {
                                 let path = static_access.span.path;
                                 let src = utils::get_file_content(path).unwrap();
@@ -1284,23 +1282,22 @@ impl<'hir> TypeChecker<'hir> {
                     }
                 }
                 //Let's check if we are dereferencing a const reference
-                if let HirExpr::Unary(unary_expr) = &*a.lhs {
-                    if let Some(HirUnaryOp::Deref) = &unary_expr.op {
-                        let deref_target_ty = self.check_expr(&mut unary_expr.expr.clone())?;
-                        if deref_target_ty.is_const() {
+                if let HirExpr::Unary(unary_expr) = &*a.lhs
+                    && let Some(HirUnaryOp::Deref) = &unary_expr.op
+                {
+                    let deref_target_ty = self.check_expr(&mut unary_expr.expr.clone())?;
+                    if deref_target_ty.is_const()
                             //Check if we're in a constructor
-                            if self.current_func_name == Some("constructor")
+                            && self.current_func_name == Some("constructor")
                                 && self.current_class_name.is_some()
-                            {
-                                self.is_equivalent_ty(lhs, a.lhs.span(), rhs, a.rhs.span())?;
-                                return Ok(lhs);
-                            } else {
-                                return Err(Self::trying_to_mutate_const_reference(
-                                    &a.lhs.span(),
-                                    deref_target_ty,
-                                ));
-                            }
-                        }
+                    {
+                        self.is_equivalent_ty(lhs, a.lhs.span(), rhs, a.rhs.span())?;
+                        return Ok(lhs);
+                    } else {
+                        return Err(Self::trying_to_mutate_const_reference(
+                            &a.lhs.span(),
+                            deref_target_ty,
+                        ));
                     }
                 }
                 self.is_equivalent_ty(lhs, a.lhs.span(), rhs, a.rhs.span())?;
@@ -1727,9 +1724,7 @@ impl<'hir> TypeChecker<'hir> {
 
             //(HirTy::Int64(_), HirTy::UInt64(_)) | (HirTy::UInt64(_), HirTy::Int64(_)) => Ok(()),
             (HirTy::Generic(g), HirTy::Named(n)) | (HirTy::Named(n), HirTy::Generic(g)) => {
-                if MonomorphizationPass::mangle_generic_object_name(self.arena, g, "struct")
-                    == n.name
-                {
+                if MonomorphizationPass::generate_mangled_name(self.arena, g, "struct") == n.name {
                     Ok(())
                 } else {
                     Err(Self::type_mismatch_err(
@@ -1794,14 +1789,17 @@ impl<'hir> TypeChecker<'hir> {
             HirTy::Generic(g) => {
                 // Need to handle union and struct generics
                 let name;
-                if self.signature.structs.contains_key(
-                    MonomorphizationPass::mangle_generic_object_name(self.arena, g, "struct"),
-                ) {
-                    name =
-                        MonomorphizationPass::mangle_generic_object_name(self.arena, g, "struct");
+                if self
+                    .signature
+                    .structs
+                    .contains_key(MonomorphizationPass::generate_mangled_name(
+                        self.arena, g, "struct",
+                    ))
+                {
+                    name = MonomorphizationPass::generate_mangled_name(self.arena, g, "struct");
                     return Some(name);
                 } else {
-                    name = MonomorphizationPass::mangle_generic_object_name(self.arena, g, "union");
+                    name = MonomorphizationPass::generate_mangled_name(self.arena, g, "union");
                     if self.signature.unions.contains_key(name) {
                         return Some(name);
                     }
@@ -2020,10 +2018,10 @@ impl<'hir> TypeChecker<'hir> {
                         }
                         HirExpr::FieldAccess(fa) => {
                             // Check if the base object is a local variable
-                            if let HirExpr::Ident(ident) = fa.target.as_ref() {
-                                if self.is_local_variable(ident.name) {
-                                    return vec![ident.name];
-                                }
+                            if let HirExpr::Ident(ident) = fa.target.as_ref()
+                                && self.is_local_variable(ident.name)
+                            {
+                                return vec![ident.name];
                             }
                         }
                         _ => {}
@@ -2054,14 +2052,12 @@ impl<'hir> TypeChecker<'hir> {
 
     /// Get the local variables that a variable references (if any)
     fn get_refs_locals(&self, name: &str) -> Vec<&'hir str> {
-        if let Some(context_map) = self.context_functions.last() {
-            if let Some(func_name) = self.current_func_name {
-                if let Some(context_func) = context_map.get(func_name) {
-                    if let Some(var) = context_func.get_variable(name) {
-                        return var.refs_locals.clone();
-                    }
-                }
-            }
+        if let Some(context_map) = self.context_functions.last()
+            && let Some(func_name) = self.current_func_name
+            && let Some(context_func) = context_map.get(func_name)
+            && let Some(var) = context_func.get_variable(name)
+        {
+            return var.refs_locals.clone();
         }
         vec![]
     }
@@ -2069,17 +2065,16 @@ impl<'hir> TypeChecker<'hir> {
     /// Check if a variable name refers to a local variable (not a function parameter)
     fn is_local_variable(&self, name: &str) -> bool {
         // Get the current function's context
-        if let Some(context_map) = self.context_functions.last() {
-            if let Some(func_name) = self.current_func_name {
-                if let Some(context_func) = context_map.get(func_name) {
-                    // Check if the variable is in the local scope
-                    if let Some(var) = context_func.get_variable(name) {
-                        // If it's a parameter, it's not local
-                        return !var.is_param;
-                    }
-                }
-            }
+        if let Some(context_map) = self.context_functions.last()
+            && let Some(func_name) = self.current_func_name
+            && let Some(context_func) = context_map.get(func_name)
+            // Check if the variable is in the local scope
+            && let Some(var) = context_func.get_variable(name)
+        {
+            // If it's a parameter, it's not local
+            return !var.is_param;
         }
+
         // If we can't determine, assume it's local (conservative)
         true
     }

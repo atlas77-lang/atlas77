@@ -81,7 +81,7 @@ impl Heap {
         // If slot is already free, do nothing — avoid corrupting the free list.
         let slot = self.memory.get_mut(usize::from(index)).unwrap();
         match &slot.kind {
-            ObjectKind::Free { .. } => return Ok(()),
+            ObjectKind::Free { .. } => Ok(()),
             _ => {
                 let next = self.free;
                 *slot = Object {

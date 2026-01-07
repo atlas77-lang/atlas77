@@ -31,7 +31,7 @@ pub fn memcpy(state: VMState) -> Result<VMData, RuntimeError> {
     // If it's a primitive type or a reference, just return a copy
     let src_data = unsafe { &*src_ptr };
     if src_data.is_primitive() || src_data.is_ref() {
-        return Ok(src_data.clone());
+        return Ok(*src_data);
     }
     // Otherwise, we need to do a shallow copy of the object
     let obj_idx = src_data.as_object();
@@ -66,7 +66,7 @@ pub fn replace(state: VMState) -> Result<VMData, RuntimeError> {
 
     let dest_data = unsafe { &mut *(dest_ptr as *const VMData as *mut VMData) };
 
-    let old_value = dest_data.clone();
+    let old_value = *dest_data;
     *dest_data = src_data;
 
     Ok(old_value)

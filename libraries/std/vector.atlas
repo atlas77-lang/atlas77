@@ -25,9 +25,9 @@ public:
             delete this.data[i];
             i = i + 1u;
         }
-        // deleting an array doesn't call destructors on its elements, 
-        // so we do it manually
-        delete this.data;
+        // We delete only the allocated array
+        // This doesn't delete the elements again
+        delete_from_ref(&this.data);
     }
     fun _copy(&const this) -> Vector<T> {
         return new Vector<T>(*this.data);

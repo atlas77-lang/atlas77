@@ -313,7 +313,7 @@ impl<'hir> ScopeMap<'hir> {
 
         // Check all scopes for variables that are moved in one branch but not the other
         for scope in &self.scopes {
-            for (name, _var_data) in &scope.var_status {
+            for name in scope.var_status.keys() {
                 let then_var = then_state.get(name);
                 let else_var = else_state.get(name);
 
@@ -408,7 +408,7 @@ impl<'hir> VarData<'hir> {
         self.uses
             .iter()
             .filter(|u| u.kind == UseKind::OwnershipConsuming)
-            .last()
+            .next_back()
     }
 
     /// Check if a given use is the last ownership-consuming use
@@ -480,14 +480,17 @@ impl VarStatus {
 
 impl PartialEq for VarStatus {
     fn eq(&self, other: &VarStatus) -> bool {
-        match (self, other) {
-            (VarStatus::Owned, VarStatus::Owned) => true,
-            (VarStatus::Moved { .. }, VarStatus::Moved { .. }) => true,
-            (VarStatus::Deleted { .. }, VarStatus::Deleted { .. }) => true,
-            (VarStatus::Borrowed, VarStatus::Borrowed) => true,
-            (VarStatus::ConditionallyMoved { .. }, VarStatus::ConditionallyMoved { .. }) => true,
-            _ => false,
-        }
+        matches!(
+            (self, other),
+            (VarStatus::Owned, VarStatus::Owned)
+                | (VarStatus::Moved { .. }, VarStatus::Moved { .. })
+                | (VarStatus::Deleted { .. }, VarStatus::Deleted { .. })
+                | (VarStatus::Borrowed, VarStatus::Borrowed)
+                | (
+                    VarStatus::ConditionallyMoved { .. },
+                    VarStatus::ConditionallyMoved { .. }
+                )
+        )
     }
 }
 

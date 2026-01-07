@@ -749,7 +749,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         let name = if func_expr.generics.is_empty() {
                             i.name
                         } else {
-                            MonomorphizationPass::mangle_generic_object_name(
+                            MonomorphizationPass::generate_mangled_name(
                                 self.hir_arena,
                                 &HirGenericTy {
                                     name: i.name,
@@ -823,7 +823,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     HirExpr::StaticAccess(static_access) => {
                         let name = match static_access.target {
                             HirTy::Named(n) => n.name,
-                            HirTy::Generic(g) => MonomorphizationPass::mangle_generic_object_name(
+                            HirTy::Generic(g) => MonomorphizationPass::generate_mangled_name(
                                 self.hir_arena,
                                 g,
                                 "struct",
@@ -959,11 +959,9 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             HirExpr::StaticAccess(static_access) => {
                 let struct_name = match static_access.target {
                     HirTy::Named(n) => n.name,
-                    HirTy::Generic(g) => MonomorphizationPass::mangle_generic_object_name(
-                        self.hir_arena,
-                        g,
-                        "struct",
-                    ),
+                    HirTy::Generic(g) => {
+                        MonomorphizationPass::generate_mangled_name(self.hir_arena, g, "struct")
+                    }
                     _ => {
                         return Err(Self::unsupported_expr_err(
                             expr,
@@ -1084,11 +1082,9 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             HirExpr::NewObj(new_obj) => {
                 let name = match &new_obj.ty {
                     HirTy::Named(n) => n.name,
-                    HirTy::Generic(g) => MonomorphizationPass::mangle_generic_object_name(
-                        self.hir_arena,
-                        g,
-                        "struct",
-                    ),
+                    HirTy::Generic(g) => {
+                        MonomorphizationPass::generate_mangled_name(self.hir_arena, g, "struct")
+                    }
                     _ => {
                         return Err(Self::unsupported_expr_err(
                             expr,
@@ -1179,7 +1175,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     HirTy::Generic(g) => {
                         // _copy takes &const this, so we need to pass a reference to the object
                         // For generic types, use the mangled name to find the monomorphized _copy method
-                        let mangled_name = MonomorphizationPass::mangle_generic_object_name(
+                        let mangled_name = MonomorphizationPass::generate_mangled_name(
                             self.hir_arena,
                             g,
                             "struct",
@@ -1230,16 +1226,13 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
             HirExpr::FieldAccess(field_access) => {
                 // Check if this is a union field access by looking up the type
-                let obj_name_for_check = match self.get_class_name_of_type(field_access.target.ty())
-                {
-                    Some(n) => n,
-                    None => "",
-                };
-                let is_union_access = self
+                let obj_name_for_check = self
+                    .get_class_name_of_type(field_access.target.ty())
+                    .unwrap_or_default();
+                let is_union_access = !self
                     .struct_pool
                     .iter()
-                    .find(|s| s.name == obj_name_for_check)
-                    .is_none()
+                    .any(|s| s.name == obj_name_for_check)
                     && !obj_name_for_check.is_empty();
 
                 // For union field access, get the address of the union itself (all fields same location)
@@ -1323,7 +1316,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 ));
             }
         }
-        return Ok(());
+        Ok(())
     }
 
     fn unsupported_expr_err(expr: &HirExpr, message: String) -> HirError {
@@ -1471,7 +1464,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
     fn get_class_name_of_type(&self, ty: &HirTy<'hir>) -> Option<&'hir str> {
         match ty {
             HirTy::Named(n) => Some(n.name),
-            HirTy::Generic(g) => Some(MonomorphizationPass::mangle_generic_object_name(
+            HirTy::Generic(g) => Some(MonomorphizationPass::generate_mangled_name(
                 self.hir_arena,
                 g,
                 "struct",

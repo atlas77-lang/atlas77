@@ -54,7 +54,7 @@ impl<T> Table<T> {
     }
 }
 
-impl<'a> Table<&'a str> {
+impl Table<&str> {
     /// Insert an anonymous entry that won't be looked up by name.
     /// Uses a reserved prefix that won't conflict with user-defined names.
     pub fn insert_anonymous(&mut self) -> usize {

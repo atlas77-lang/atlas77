@@ -1,4 +1,5 @@
 #![allow(clippy::result_large_err)]
+#![allow(clippy::single_match)]
 
 pub mod atlas_c;
 pub mod atlas_lib;
@@ -6,7 +7,10 @@ pub mod atlas_vm;
 
 use crate::{
     atlas_c::{
-        atlas_asm::AsmProgram, atlas_hir::dead_code_elimination_pass::DeadCodeEliminationPass,
+        atlas_asm::AsmProgram,
+        atlas_hir::{
+            dead_code_elimination_pass::DeadCodeEliminationPass, pretty_print::HirPrettyPrinter,
+        },
     },
     atlas_vm::runtime::AtlasRuntime,
 };
@@ -43,7 +47,12 @@ fn get_path(path: &str) -> PathBuf {
     path_buf
 }
 
-pub fn build(path: String, flag: CompilationFlag, using_std: bool) -> miette::Result<AsmProgram> {
+pub fn build(
+    path: String,
+    flag: CompilationFlag,
+    using_std: bool,
+    produces_output: bool,
+) -> miette::Result<AsmProgram> {
     let start = Instant::now();
     println!("Building project at path: {}", path);
     let path_buf = get_path(&path);
@@ -82,7 +91,7 @@ pub fn build(path: String, flag: CompilationFlag, using_std: bool) -> miette::Re
             // Write HIR output (even if there are ownership errors)
             use crate::atlas_c::atlas_hir::pretty_print::HirPrettyPrinter;
             let mut hir_printer = HirPrettyPrinter::new();
-            let hir_output = hir_printer.print_module(&hir);
+            let hir_output = hir_printer.print_module(hir);
             let mut file_hir = std::fs::File::create("output.atlas").unwrap();
             file_hir.write_all(hir_output.as_bytes()).unwrap();
             return Err((err).into());
@@ -96,23 +105,26 @@ pub fn build(path: String, flag: CompilationFlag, using_std: bool) -> miette::Re
     }
 
     // Write HIR output
-    use crate::atlas_c::atlas_hir::pretty_print::HirPrettyPrinter;
-    let mut hir_printer = HirPrettyPrinter::new();
-    let hir_output = hir_printer.print_module(&hir);
-    let mut file_hir = std::fs::File::create("output.atlas").unwrap();
-    file_hir.write_all(hir_output.as_bytes()).unwrap();
+    if produces_output {
+        let mut hir_printer = HirPrettyPrinter::new();
+        let hir_output = hir_printer.print_module(hir);
+        let mut file_hir = std::fs::File::create("output.atlas").unwrap();
+        file_hir.write_all(hir_output.as_bytes()).unwrap();
+    }
 
     //codegen
     let bump = Bump::new();
     let arena = CodeGenArena::new(&bump);
     let mut codegen = CodeGenUnit::new(hir, arena, &hir_arena);
     let program = codegen.compile()?;
-    let mut file = std::fs::File::create("output.atlasc").unwrap();
-    let mut content = String::new();
-    for label in program.labels.iter() {
-        content.push_str(&format!("{}", label));
+    if produces_output {
+        let mut file = std::fs::File::create("output.atlasc").unwrap();
+        let mut content = String::new();
+        for label in program.labels.iter() {
+            content.push_str(&format!("{}", label));
+        }
+        file.write_all(content.as_bytes()).unwrap();
     }
-    file.write_all(content.as_bytes()).unwrap();
 
     let mut file2 = std::fs::File::create("output.atlas_asm").unwrap();
     let mut assembler = atlas_asm::Assembler::new();
@@ -127,7 +139,7 @@ pub fn build(path: String, flag: CompilationFlag, using_std: bool) -> miette::Re
 
 //The "run" function needs a bit of refactoring
 pub fn run(path: String, _flag: CompilationFlag, using_std: bool) -> miette::Result<()> {
-    let res = build(path.clone(), _flag, using_std)?;
+    let res = build(path.clone(), _flag, using_std, false)?;
 
     let extern_fn = BTreeMap::new();
     let mut vm = AtlasRuntime::new(res, extern_fn);

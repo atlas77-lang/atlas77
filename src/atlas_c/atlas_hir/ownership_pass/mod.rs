@@ -209,7 +209,7 @@ impl<'hir> OwnershipPass<'hir> {
                     if !has_delete_this && !transfers_this_ownership {
                         Self::emit_consuming_method_warning(
                             method.name,
-                            &method.signature,
+                            method.signature,
                             method.signature.span,
                         );
                     }
@@ -273,9 +273,9 @@ impl<'hir> OwnershipPass<'hir> {
             while let Some(err) = self.errors.pop() {
                 eprintln!("{:?}", Into::<miette::Report>::into(err));
             }
-            return Err((hir, err));
+            Err((hir, err))
         } else {
-            return Ok(hir);
+            Ok(hir)
         }
     }
 
@@ -415,11 +415,10 @@ impl<'hir> OwnershipPass<'hir> {
         is_ownership_consuming: bool,
     ) -> HirResult<()> {
         // Check for ownership transfer in borrowing methods
-        if is_ownership_consuming {
-            if let Some(err) = self.check_ownership_transfer_in_borrowing_method(expr, expr.span())
-            {
-                return Err(err);
-            }
+        if is_ownership_consuming
+            && let Some(err) = self.check_ownership_transfer_in_borrowing_method(expr, expr.span())
+        {
+            return Err(err);
         }
 
         match expr {
@@ -711,7 +710,7 @@ impl<'hir> OwnershipPass<'hir> {
                 // Collect ALL variables used in the return expression
                 // These should NOT be deleted because the return expression needs them
                 let mut vars_used_in_return = Vec::new();
-                self.collect_vars_used_in_expr(&ret.value, &mut vars_used_in_return);
+                Self::collect_vars_used_in_expr(&ret.value, &mut vars_used_in_return);
 
                 // Special case: In methods that consume `this` (modifier == None), we need to
                 // delete `this` even if it's "used" in the return expression (e.g., returning a field).
@@ -741,12 +740,12 @@ impl<'hir> OwnershipPass<'hir> {
                     }
                     // Skip variables used in the return expression
                     // BUT: In consuming methods, don't skip `this` unless we're returning it directly
-                    if vars_used_in_return.contains(&var.name) {
-                        if !(is_consuming_method && var.name == "this" && !returning_this_directly)
-                        {
-                            continue;
-                        }
+                    if vars_used_in_return.contains(&var.name)
+                        && !(is_consuming_method && var.name == "this" && !returning_this_directly)
+                    {
+                        continue;
                     }
+
                     // Skip primitives (no destructor needed)
                     if var.kind == VarKind::Primitive {
                         continue;
@@ -877,10 +876,11 @@ impl<'hir> OwnershipPass<'hir> {
                             let was_owned = matches!(var_data.status, VarStatus::Owned);
                             let is_moved = matches!(post_v.status, VarStatus::Moved { .. });
 
-                            if was_owned && is_moved {
-                                if let VarStatus::Moved { move_span } = &post_v.status {
-                                    moved_in_loop.push((*name, *move_span));
-                                }
+                            if was_owned
+                                && is_moved
+                                && let VarStatus::Moved { move_span } = &post_v.status
+                            {
+                                moved_in_loop.push((*name, *move_span));
                             }
                         }
                     }
@@ -987,28 +987,24 @@ impl<'hir> OwnershipPass<'hir> {
             HirExpr::Call(call) => {
                 // Check if this is an explicit _copy() method call inside a _copy method
                 // This would cause infinite recursion
-                if let Some(method_ctx) = &self.current_method_context {
-                    if method_ctx.method_name == "_copy" {
-                        if let HirExpr::FieldAccess(field_access) = call.callee.as_ref() {
-                            if field_access.field.name == "_copy" {
-                                // Check if the return type of the call matches our return type
-                                if let Some(return_ty) = &method_ctx.return_ty {
-                                    if self.types_match(call.ty, return_ty) {
-                                        let path = call.span.path;
-                                        let src = utils::get_file_content(path).unwrap_or_default();
-                                        return Err(HirError::RecursiveCopyConstructor(
-                                            RecursiveCopyConstructorError {
-                                                copy_span: call.span,
-                                                method_span: method_ctx.method_span,
-                                                type_name: self.get_type_name(call.ty),
-                                                src: NamedSource::new(path, src),
-                                            },
-                                        ));
-                                    }
-                                }
-                            }
-                        }
-                    }
+                if let Some(method_ctx) = &self.current_method_context
+                    && method_ctx.method_name == "_copy"
+                    && let HirExpr::FieldAccess(field_access) = call.callee.as_ref()
+                    && field_access.field.name == "_copy"
+                    // Check if the return type of the call matches our return type
+                    && let Some(return_ty) = &method_ctx.return_ty
+                    && self.types_match(call.ty, return_ty)
+                {
+                    let path = call.span.path;
+                    let src = utils::get_file_content(path).unwrap_or_default();
+                    return Err(HirError::RecursiveCopyConstructor(
+                        RecursiveCopyConstructorError {
+                            copy_span: call.span,
+                            method_span: method_ctx.method_span,
+                            type_name: Self::get_type_name(call.ty),
+                            src: NamedSource::new(path, src),
+                        },
+                    ));
                 }
 
                 // Check if this is a method call that consumes `this` (modifier == None)
@@ -1170,7 +1166,7 @@ impl<'hir> OwnershipPass<'hir> {
             HirExpr::FieldAccess(field) => {
                 // Check if the target expression creates a temporary value that needs to be freed
                 // This catches method chaining like: foo.bar().baz() where bar() returns a temporary
-                if self.should_warn_about_temporary_in_method_chain(&field.target) {
+                if Self::should_warn_about_temporary_in_method_chain(&field.target) {
                     let path = field.span.path;
                     let src = utils::get_file_content(path).unwrap_or_default();
 
@@ -1181,7 +1177,7 @@ impl<'hir> OwnershipPass<'hir> {
                         TemporaryValueCannotBeFreedWarning {
                             src: NamedSource::new(path, src),
                             span: field.target.span(),
-                            expr_kind: format!("{}", target_expr_str),
+                            expr_kind: target_expr_str,
                             var_name: "result".to_string(),
                             target_expr: format!(
                                 ".{} //Rest of your method chain here",
@@ -1272,12 +1268,12 @@ impl<'hir> OwnershipPass<'hir> {
             HirExpr::Casting(cast) => {
                 // Check if the inner expression creates a temporary value that needs to be freed
                 // If so, emit a warning because the ownership pass can't properly free it
-                if self.should_warn_about_temporary_in_cast(&cast.expr) {
+                if Self::should_warn_about_temporary_in_cast(&cast.expr) {
                     let path = cast.span.path;
                     let src = utils::get_file_content(path).unwrap_or_default();
 
                     let expr_kind = Self::get_expr_description(&cast.expr);
-                    let target_type = self.get_type_name(cast.ty);
+                    let target_type = Self::get_type_name(cast.ty);
 
                     let warning: ErrReport = HirWarning::TemporaryValueCannotBeFreed(
                         TemporaryValueCannotBeFreedWarning {
@@ -1311,12 +1307,12 @@ impl<'hir> OwnershipPass<'hir> {
                     other => other,
                 };
 
-                if let HirExpr::Ident(ident) = inner_expr {
-                    if let Some(var_data) = self.scope_map.get_mut(ident.name) {
-                        var_data.status = VarStatus::Deleted {
-                            delete_span: del.span,
-                        };
-                    }
+                if let HirExpr::Ident(ident) = inner_expr
+                    && let Some(var_data) = self.scope_map.get_mut(ident.name)
+                {
+                    var_data.status = VarStatus::Deleted {
+                        delete_span: del.span,
+                    };
                 }
                 // Return the delete expression as-is
                 Ok(expr.clone())
@@ -1329,15 +1325,14 @@ impl<'hir> OwnershipPass<'hir> {
 
                 // If the inner expression is an identifier that we just transformed,
                 // we need to ensure it's marked as moved
-                if let HirExpr::Ident(ident) = move_expr.expr.as_ref() {
-                    if let Some(var_data) = self.scope_map.get(ident.name) {
-                        // Check if it wasn't already marked as moved by transform_expr_ownership
-                        // (it might have been if it's copyable and we decided to copy)
-                        // Force the move since user explicitly wrote move<>()
-                        if matches!(var_data.status, VarStatus::Owned | VarStatus::Borrowed) {
-                            self.scope_map.mark_as_moved(ident.name, ident.span);
-                        }
-                    }
+                if let HirExpr::Ident(ident) = move_expr.expr.as_ref()
+                    && let Some(var_data) = self.scope_map.get(ident.name)
+                    // Check if it wasn't already marked as moved by transform_expr_ownership
+                    // (it might have been if it's copyable and we decided to copy)
+                    // Force the move since user explicitly wrote move<>()
+                    && matches!(var_data.status, VarStatus::Owned | VarStatus::Borrowed)
+                {
+                    self.scope_map.mark_as_moved(ident.name, ident.span);
                 }
 
                 // The transformed inner might already be a Move/Copy,
@@ -1493,25 +1488,24 @@ impl<'hir> OwnershipPass<'hir> {
                 }
 
                 // Check for recursive copy in _copy methods
-                if let Some(method_ctx) = &self.current_method_context {
-                    if method_ctx.method_name == "_copy" {
-                        if let Some(return_ty) = &method_ctx.return_ty {
-                            // Check if we're trying to copy the same type we're returning
-                            if self.types_match(ident.ty, return_ty) {
-                                let path = ident.span.path;
-                                let src = utils::get_file_content(path).unwrap_or_default();
-                                return Err(HirError::RecursiveCopyConstructor(
-                                    RecursiveCopyConstructorError {
-                                        copy_span: ident.span,
-                                        method_span: method_ctx.method_span,
-                                        type_name: self.get_type_name(ident.ty),
-                                        src: NamedSource::new(path, src),
-                                    },
-                                ));
-                            }
-                        }
-                    }
+                if let Some(method_ctx) = &self.current_method_context
+                    && method_ctx.method_name == "_copy"
+                    && let Some(return_ty) = &method_ctx.return_ty
+                    // Check if we're trying to copy the same type we're returning
+                    && self.types_match(ident.ty, return_ty)
+                {
+                    let path = ident.span.path;
+                    let src = utils::get_file_content(path).unwrap_or_default();
+                    return Err(HirError::RecursiveCopyConstructor(
+                        RecursiveCopyConstructorError {
+                            copy_span: ident.span,
+                            method_span: method_ctx.method_span,
+                            type_name: Self::get_type_name(ident.ty),
+                            src: NamedSource::new(path, src),
+                        },
+                    ));
                 }
+
                 return Ok(HirExpr::Copy(HirCopyExpr {
                     span: ident.span,
                     source_name: ident.name,
@@ -1676,10 +1670,10 @@ impl<'hir> OwnershipPass<'hir> {
     /// Find the position to insert delete statements in a block.
     /// This should be before any return statement at the end.
     fn find_delete_insert_position(statements: &[HirStatement]) -> usize {
-        if let Some(last) = statements.last() {
-            if matches!(last, HirStatement::Return(_)) {
-                return statements.len().saturating_sub(1);
-            }
+        if let Some(last) = statements.last()
+            && matches!(last, HirStatement::Return(_))
+        {
+            return statements.len().saturating_sub(1);
         }
         statements.len()
     }
@@ -1729,47 +1723,47 @@ impl<'hir> OwnershipPass<'hir> {
 
     /// Collect all variable names used in an expression
     /// This is used to avoid deleting variables that are used in return expressions
-    fn collect_vars_used_in_expr(&self, expr: &HirExpr<'hir>, vars: &mut Vec<&'hir str>) {
+    fn collect_vars_used_in_expr(expr: &HirExpr<'hir>, vars: &mut Vec<&'hir str>) {
         match expr {
             HirExpr::Ident(ident) => {
                 vars.push(ident.name);
             }
-            HirExpr::Move(mv) => self.collect_vars_used_in_expr(&mv.expr, vars),
-            HirExpr::Copy(cp) => self.collect_vars_used_in_expr(&cp.expr, vars),
-            HirExpr::Unary(unary) => self.collect_vars_used_in_expr(&unary.expr, vars),
+            HirExpr::Move(mv) => Self::collect_vars_used_in_expr(&mv.expr, vars),
+            HirExpr::Copy(cp) => Self::collect_vars_used_in_expr(&cp.expr, vars),
+            HirExpr::Unary(unary) => Self::collect_vars_used_in_expr(&unary.expr, vars),
             HirExpr::HirBinaryOperation(binary) => {
-                self.collect_vars_used_in_expr(&binary.lhs, vars);
-                self.collect_vars_used_in_expr(&binary.rhs, vars);
+                Self::collect_vars_used_in_expr(&binary.lhs, vars);
+                Self::collect_vars_used_in_expr(&binary.rhs, vars);
             }
             HirExpr::FieldAccess(field) => {
-                self.collect_vars_used_in_expr(&field.target, vars);
+                Self::collect_vars_used_in_expr(&field.target, vars);
             }
             HirExpr::Indexing(idx) => {
-                self.collect_vars_used_in_expr(&idx.target, vars);
-                self.collect_vars_used_in_expr(&idx.index, vars);
+                Self::collect_vars_used_in_expr(&idx.target, vars);
+                Self::collect_vars_used_in_expr(&idx.index, vars);
             }
             HirExpr::Call(call) => {
                 for arg in call.args.iter() {
-                    self.collect_vars_used_in_expr(arg, vars);
+                    Self::collect_vars_used_in_expr(arg, vars);
                 }
             }
             HirExpr::NewObj(new_obj) => {
                 for arg in new_obj.args.iter() {
-                    self.collect_vars_used_in_expr(arg, vars);
+                    Self::collect_vars_used_in_expr(arg, vars);
                 }
             }
             HirExpr::ListLiteral(arr) => {
                 for elem in arr.items.iter() {
-                    self.collect_vars_used_in_expr(elem, vars);
+                    Self::collect_vars_used_in_expr(elem, vars);
                 }
             }
             HirExpr::ObjLiteral(obj) => {
                 for field in obj.fields.iter() {
-                    self.collect_vars_used_in_expr(&field.value, vars);
+                    Self::collect_vars_used_in_expr(&field.value, vars);
                 }
             }
             HirExpr::Casting(cast) => {
-                self.collect_vars_used_in_expr(&cast.expr, vars);
+                Self::collect_vars_used_in_expr(&cast.expr, vars);
             }
             // Literals and other expressions don't use variables
             _ => {}
@@ -1828,7 +1822,7 @@ impl<'hir> OwnershipPass<'hir> {
                 HirTy::Named(n) => Some(n.name),
                 HirTy::Generic(g) => {
                     // Generic types are stored under their mangled name
-                    Some(MonomorphizationPass::mangle_generic_object_name(
+                    Some(MonomorphizationPass::generate_mangled_name(
                         self.hir_arena,
                         g,
                         "struct",
@@ -1837,14 +1831,13 @@ impl<'hir> OwnershipPass<'hir> {
                 _ => None,
             };
 
-            if let Some(name) = struct_name {
-                if let Some(struct_sig) = self.hir_signature.structs.get(name) {
-                    if let Some(method_sig) = struct_sig.methods.get(field_access.field.name) {
-                        // Only `fun foo(this)` (modifier == None) consumes ownership
-                        // `fun foo(&this)` (Mutable) and `fun foo(&const this)` (Const) borrow
-                        return method_sig.modifier == HirStructMethodModifier::None;
-                    }
-                }
+            if let Some(name) = struct_name
+                && let Some(struct_sig) = self.hir_signature.structs.get(name)
+                && let Some(method_sig) = struct_sig.methods.get(field_access.field.name)
+            {
+                // Only `fun foo(this)` (modifier == None) consumes ownership
+                // `fun foo(&this)` (Mutable) and `fun foo(&const this)` (Const) borrow
+                return method_sig.modifier == HirStructMethodModifier::None;
             }
         }
         false
@@ -1893,7 +1886,7 @@ impl<'hir> OwnershipPass<'hir> {
                 // Compute the mangled name that the monomorphized struct is stored under
                 // Format: __atlas77__struct__<Name>__<Type1>_<Type2>_...
                 let mangled_name =
-                    MonomorphizationPass::mangle_generic_object_name(self.hir_arena, g, "struct");
+                    MonomorphizationPass::generate_mangled_name(self.hir_arena, g, "struct");
                 self.hir_signature
                     .structs
                     .get(mangled_name)
@@ -1925,9 +1918,9 @@ impl<'hir> OwnershipPass<'hir> {
             (HirTy::Generic(g1), HirTy::Generic(g2)) => {
                 // Compare mangled names for generic types
                 let name1 =
-                    MonomorphizationPass::mangle_generic_object_name(self.hir_arena, g1, "struct");
+                    MonomorphizationPass::generate_mangled_name(self.hir_arena, g1, "struct");
                 let name2 =
-                    MonomorphizationPass::mangle_generic_object_name(self.hir_arena, g2, "struct");
+                    MonomorphizationPass::generate_mangled_name(self.hir_arena, g2, "struct");
                 name1 == name2
             }
             (HirTy::ReadOnlyReference(r1), HirTy::ReadOnlyReference(r2)) => {
@@ -1949,21 +1942,21 @@ impl<'hir> OwnershipPass<'hir> {
     }
 
     /// Get a human-readable name for a type (used in error messages)
-    fn get_type_name(&self, ty: &HirTy<'hir>) -> String {
+    fn get_type_name(ty: &HirTy<'hir>) -> String {
         match ty {
             HirTy::Named(n) => n.name.to_string(),
             HirTy::Generic(g) => {
                 let type_args = g
                     .inner
                     .iter()
-                    .map(|t| self.get_type_name(t))
+                    .map(Self::get_type_name)
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("{}<{}>", g.name, type_args)
             }
-            HirTy::ReadOnlyReference(r) => format!("&const {}", self.get_type_name(r.inner)),
-            HirTy::MutableReference(r) => format!("&{}", self.get_type_name(r.inner)),
-            HirTy::List(l) => format!("[{}]", self.get_type_name(l.inner)),
+            HirTy::ReadOnlyReference(r) => format!("&const {}", Self::get_type_name(r.inner)),
+            HirTy::MutableReference(r) => format!("&{}", Self::get_type_name(r.inner)),
+            HirTy::List(l) => format!("[{}]", Self::get_type_name(l.inner)),
             HirTy::Boolean(_) => "bool".to_string(),
             HirTy::Int64(_) => "int64".to_string(),
             HirTy::Float64(_) => "float64".to_string(),
@@ -2165,13 +2158,12 @@ impl<'hir> OwnershipPass<'hir> {
             HirExpr::ThisLiteral(_) => true,
             HirExpr::FieldAccess(fa) => Self::expr_uses_this(&fa.target),
             HirExpr::Call(call) => {
-                Self::expr_uses_this(&call.callee)
-                    || call.args.iter().any(|arg| Self::expr_uses_this(arg))
+                Self::expr_uses_this(&call.callee) || call.args.iter().any(Self::expr_uses_this)
             }
             HirExpr::Move(m) => Self::expr_uses_this(&m.expr),
             HirExpr::Copy(c) => Self::expr_uses_this(&c.expr),
             HirExpr::Unary(u) => Self::expr_uses_this(&u.expr),
-            HirExpr::NewObj(obj) => obj.args.iter().any(|arg| Self::expr_uses_this(arg)),
+            HirExpr::NewObj(obj) => obj.args.iter().any(Self::expr_uses_this),
             HirExpr::ObjLiteral(s) => s.fields.iter().any(|f| Self::expr_uses_this(&f.value)),
             _ => false,
         }
@@ -2199,18 +2191,18 @@ impl<'hir> OwnershipPass<'hir> {
 
     /// Check if an expression creates a temporary value that needs to be freed
     /// but can't be freed when used inside a cast expression
-    fn should_warn_about_temporary_in_cast(&self, expr: &HirExpr<'hir>) -> bool {
+    fn should_warn_about_temporary_in_cast(expr: &HirExpr<'hir>) -> bool {
         match expr {
             // Unary expressions: check recursively for operator-less (grouping),
             // or check if the result type needs management for operators like * (dereference)
             HirExpr::Unary(unary) => {
                 if unary.op.is_none() {
                     // Just grouping/wrapping - check the inner expression
-                    self.should_warn_about_temporary_in_cast(&unary.expr)
+                    Self::should_warn_about_temporary_in_cast(&unary.expr)
                 } else {
                     // Has an operator (like dereference *) - check if result needs management
                     // Example: *(&my_string) might create a copy that needs freeing
-                    !unary.ty.is_ref() && self.type_needs_memory_management(unary.ty)
+                    !unary.ty.is_ref() && Self::type_needs_memory_management(unary.ty)
                 }
             }
             // Function calls that return owned values (not references) create temporaries
@@ -2218,15 +2210,15 @@ impl<'hir> OwnershipPass<'hir> {
                 let return_type = call.ty;
                 // If the return type is not a reference and needs memory management, warn
                 // This includes strings (which are copyable but still need freeing)
-                !return_type.is_ref() && self.type_needs_memory_management(return_type)
+                !return_type.is_ref() && Self::type_needs_memory_management(return_type)
             }
             // New object expressions create temporaries
             HirExpr::NewObj(new_obj) => {
-                !new_obj.ty.is_ref() && self.type_needs_memory_management(new_obj.ty)
+                !new_obj.ty.is_ref() && Self::type_needs_memory_management(new_obj.ty)
             }
             // Binary operations that create new values (like string concatenation)
             HirExpr::HirBinaryOperation(binop) => {
-                !binop.ty.is_ref() && self.type_needs_memory_management(binop.ty)
+                !binop.ty.is_ref() && Self::type_needs_memory_management(binop.ty)
             }
             // Any other expression that creates a value needing memory management
             _ => false,
@@ -2235,7 +2227,7 @@ impl<'hir> OwnershipPass<'hir> {
 
     /// Check if a type needs memory management (i.e., it's not a primitive that can be trivially copied)
     /// This includes strings, structs, lists, etc. - even if they're copyable, they still need freeing
-    fn type_needs_memory_management(&self, ty: &HirTy<'hir>) -> bool {
+    fn type_needs_memory_management(ty: &HirTy<'hir>) -> bool {
         match ty {
             // Primitives don't need memory management
             HirTy::Int64(_)
@@ -2255,7 +2247,7 @@ impl<'hir> OwnershipPass<'hir> {
             HirTy::List(_) | HirTy::Named(_) | HirTy::Generic(_) => true,
 
             // Nullable types need management if their inner type does
-            HirTy::Nullable(nullable) => self.type_needs_memory_management(nullable.inner),
+            HirTy::Nullable(nullable) => Self::type_needs_memory_management(nullable.inner),
 
             // Other types
             HirTy::Uninitialized(_) | HirTy::ExternTy(_) | HirTy::Function(_) => false,
@@ -2264,20 +2256,20 @@ impl<'hir> OwnershipPass<'hir> {
 
     /// Check if an expression creates a temporary value in a method chain
     /// Example: foo.bar().baz() - bar() creates a temporary that's used for .baz()
-    fn should_warn_about_temporary_in_method_chain(&self, expr: &HirExpr<'hir>) -> bool {
+    fn should_warn_about_temporary_in_method_chain(expr: &HirExpr<'hir>) -> bool {
         match expr {
             // Unwrap unary expressions with no operator
             HirExpr::Unary(unary) if unary.op.is_none() => {
-                self.should_warn_about_temporary_in_method_chain(&unary.expr)
+                Self::should_warn_about_temporary_in_method_chain(&unary.expr)
             }
             // Function/method calls that return owned values create temporaries
             HirExpr::Call(call) => {
                 let return_type = call.ty;
-                !return_type.is_ref() && self.type_needs_memory_management(return_type)
+                !return_type.is_ref() && Self::type_needs_memory_management(return_type)
             }
             // Field access on a temporary: check if the target is a temporary
             HirExpr::FieldAccess(field) => {
-                self.should_warn_about_temporary_in_method_chain(&field.target)
+                Self::should_warn_about_temporary_in_method_chain(&field.target)
             }
             // Other expressions don't create problematic temporaries in method chains
             _ => false,

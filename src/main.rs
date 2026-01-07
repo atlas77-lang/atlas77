@@ -1,5 +1,4 @@
 #![deny(warnings)]
-#![deny(clippy::redundant_clone)]
 #![deny(clippy::unwrap_used)]
 
 use atlas_77::{CompilationFlag, build, run};
@@ -10,7 +9,7 @@ use clap::Parser;
 #[command(
     bin_name = "atlas_77",
     author = "atlas77-lang",
-    version("v0.7.0 Covenant"),
+    version("v0.7.1 Covenant"),
     about = "Programming language made in Rust, a goofy cousin to C++. \nNB: The language is still in early development and is not stable yet, BEWARE.",
     long_about = "Atlas77 is a programming language made in Rust. It is a statically typed language with a focus on being a goofy cousin to C++ and useful for me (Gipson62) at least. \n\nNB: The language is still in early development and is not stable yet, BEWARE."
 )]
@@ -52,6 +51,9 @@ enum AtlasRuntimeCLI {
         ///
         /// BEWARE: It is not stable yet, so using this flag may lead to unexpected behavior
         no_std: bool,
+        #[arg(long)]
+        /// Do not produce output files, only check for errors
+        no_output: bool,
     },
     #[command(
         arg_required_else_help = true,
@@ -59,6 +61,16 @@ enum AtlasRuntimeCLI {
         long_about = "Initialize a new Atlas77 project in the current directory"
     )]
     Init { name: Option<String> },
+    #[command(
+        about = "Check a local package for errors without producing output",
+        long_about = "Check a local package for errors without producing output. This is similar to 'build' but does not produce any output files."
+    )]
+    Check {
+        file_path: Option<String>,
+        #[arg(short = 'r', long)]
+        /// Check in release mode
+        release: bool,
+    },
 }
 
 fn main() -> miette::Result<()> {
@@ -89,6 +101,7 @@ fn main() -> miette::Result<()> {
             release,
             debug,
             no_std: no_standard_lib,
+            no_output,
         } => {
             if release && debug {
                 eprintln!("Cannot build in both release and debug mode");
@@ -103,6 +116,7 @@ fn main() -> miette::Result<()> {
                     CompilationFlag::Debug
                 },
                 no_standard_lib,
+                !no_output,
             )
             .map(|_| ())
         }
@@ -116,6 +130,20 @@ fn main() -> miette::Result<()> {
                 }
             }
             Ok(())
+        }
+        AtlasRuntimeCLI::Check { file_path, release } => {
+            let path = file_path.unwrap_or_else(|| "src/main.atlas".to_string());
+            build(
+                path,
+                if release {
+                    CompilationFlag::Release
+                } else {
+                    CompilationFlag::Debug
+                },
+                true,
+                false,
+            )
+            .map(|_| ())
         }
     }
 }

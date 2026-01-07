@@ -124,7 +124,7 @@ pub fn panic(state: VMState) -> Result<VMData, RuntimeError> {
                 state.object_map.free(val.as_object())?;
                 std::process::exit(1);
             } else {
-                return Err(RuntimeError::InvalidObjectAccess(VMTag::String, obj_kind));
+                Err(RuntimeError::InvalidObjectAccess(VMTag::String, obj_kind))
             }
         }
         VMTag::Object => {

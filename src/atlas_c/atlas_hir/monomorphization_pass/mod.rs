@@ -176,7 +176,7 @@ impl<'hir> MonomorphizationPass<'hir> {
         span: Span,
     ) -> HirResult<&'hir HirTy<'hir>> {
         let mangled_name =
-            MonomorphizationPass::mangle_generic_object_name(self.arena, actual_type, "struct");
+            MonomorphizationPass::generate_mangled_name(self.arena, actual_type, "struct");
         if module.body.structs.contains_key(&mangled_name)
             || module.body.unions.contains_key(mangled_name)
         {
@@ -193,7 +193,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             None => {
                 if let Some(template) = module.body.unions.get(base_name) {
                     let template_clone = template.clone();
-                    let union_mangled_name = MonomorphizationPass::mangle_generic_object_name(
+                    let union_mangled_name = MonomorphizationPass::generate_mangled_name(
                         self.arena,
                         actual_type,
                         "union",
@@ -400,7 +400,7 @@ impl<'hir> MonomorphizationPass<'hir> {
         span: Span,
     ) -> HirResult<()> {
         let mangled_name =
-            MonomorphizationPass::mangle_generic_object_name(self.arena, actual_type, "function");
+            MonomorphizationPass::generate_mangled_name(self.arena, actual_type, "function");
         if module.body.functions.contains_key(mangled_name)
             || module.signature.functions.contains_key(mangled_name)
         {
@@ -800,7 +800,7 @@ impl<'hir> MonomorphizationPass<'hir> {
     ///
     /// Format: __atlas77__<base_name>__<type1>_<type2>_..._<typeN>
     // TODO: It should take an enum for the kind instead of a &str
-    pub fn mangle_generic_object_name(
+    pub fn generate_mangled_name(
         arena: &'hir HirArena<'hir>,
         generic: &HirGenericTy<'_>,
         kind: &str,
@@ -809,7 +809,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             .inner
             .iter()
             .map(|t| match t {
-                HirTy::Generic(g) => Self::mangle_generic_object_name(arena, g, kind).to_string(),
+                HirTy::Generic(g) => Self::generate_mangled_name(arena, g, kind).to_string(),
                 _ => format!("{}", t),
             })
             .collect();

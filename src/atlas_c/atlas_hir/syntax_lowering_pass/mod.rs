@@ -565,7 +565,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         .map(|g| {
                             self.arena
                                 .types()
-                                .get_named_ty(self.arena.names().get(&*g.name.name), g.name.span)
+                                .get_named_ty(self.arena.names().get(g.name.name), g.name.span)
                         })
                         .collect::<Vec<_>>(),
                     struct_name.span,
