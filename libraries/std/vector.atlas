@@ -44,11 +44,11 @@ public:
         return *this.length;
     }
 
-    fun get(&this, index: uint64) -> &const T {
-        if index >= this.length {
+    fun get(&const this, index: uint64) -> &const T {
+        if index >= *this.length {
             panic("Index out of bounds");
         }
-        return &(this.data[index]);
+        return &((*this.data)[index]);
     }
 
     fun get_mut(&this, index: uint64) -> &T {

@@ -45,6 +45,7 @@ declare_error_type! {
         TryingToAccessFieldOnNonObjectType(TryingToAccessFieldOnNonObjectTypeError),
         NullableTypeRequiresStdLibrary(NullableTypeRequiresStdLibraryError),
         TryingToAccessAMovedValue(TryingToAccessAMovedValueError),
+        TryingToAccessAPotentiallyMovedValue(TryingToAccessAPotentiallyMovedValueError),
         TryingToAccessADeletedValue(TryingToAccessADeletedValueError),
         CallingNonConstMethodOnConstReference(CallingNonConstMethodOnConstReferenceError),
         TryingToMutateConstReference(TryingToMutateConstReferenceError),
@@ -247,6 +248,21 @@ pub struct TryingToAccessAMovedValueError {
     #[label = "value was moved here"]
     pub move_span: Span,
     #[label = "trying to access moved value here"]
+    pub access_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::trying_to_access_a_potentially_moved_value),
+    help("consider cloning the value before moving it, or using a reference")
+)]
+#[error("trying to access a potentially moved value")]
+pub struct TryingToAccessAPotentiallyMovedValueError {
+    #[label = "value was potentially moved here"]
+    pub move_span: Span,
+    #[label = "trying to access potentially moved value here"]
     pub access_span: Span,
     #[source_code]
     pub src: NamedSource<String>,

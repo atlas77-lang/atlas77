@@ -908,20 +908,12 @@ impl<'hir> TypeChecker<'hir> {
                         }
                     };
                     let field_ty = self.check_expr(&mut field.value)?;
-                    let is_equivalent = self.is_equivalent_ty(
+                    self.is_equivalent_ty(
                         field_signature.ty,
                         field_signature.span,
                         field_ty,
                         field.value.span(),
-                    );
-                    if is_equivalent.is_err() {
-                        return Err(Self::type_mismatch_err(
-                            &format!("{}", field_ty),
-                            &field.value.span(),
-                            &format!("{}", field_signature.ty),
-                            &field_signature.span,
-                        ));
-                    }
+                    )?;
                 }
 
                 Ok(obj_lit.ty)

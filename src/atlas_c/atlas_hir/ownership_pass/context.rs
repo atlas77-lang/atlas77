@@ -167,6 +167,177 @@ impl<'hir> ScopeMap<'hir> {
         }
         owned_vars
     }
+
+    /// Merge ownership states after an if-else statement.
+    ///
+    /// This handles the case where a variable is moved in one branch but not the other.
+    /// After merging:
+    /// - If moved in both branches → Moved
+    /// - If moved in one branch only → ConditionallyMoved  
+    /// - If owned in both → Owned (unchanged)
+    ///
+    /// `then_state` is the state after the then branch
+    /// `else_state` is the state after the else branch (or the original state if no else)
+    /// The result is applied to the current scope map.
+    pub fn merge_branch_states(
+        &mut self,
+        then_state: &ScopeMap<'hir>,
+        else_state: &ScopeMap<'hir>,
+    ) {
+        // We need to check variables that exist in parent scopes (not the if/else inner scopes)
+        // because those are the ones that could have been moved inside the branches
+        let current_scope = self.scopes.last_mut().unwrap();
+
+        for (name, var_data) in current_scope.var_status.iter_mut() {
+            let then_var = then_state.get(name);
+            let else_var = else_state.get(name);
+
+            match (then_var, else_var) {
+                (Some(then_v), Some(else_v)) => {
+                    let then_moved = matches!(
+                        then_v.status,
+                        VarStatus::Moved { .. } | VarStatus::ConditionallyMoved { .. }
+                    );
+                    let else_moved = matches!(
+                        else_v.status,
+                        VarStatus::Moved { .. } | VarStatus::ConditionallyMoved { .. }
+                    );
+
+                    match (then_moved, else_moved) {
+                        (true, true) => {
+                            // Moved in both branches - definitely moved
+                            if let VarStatus::Moved { move_span } = &then_v.status {
+                                var_data.status = VarStatus::Moved {
+                                    move_span: *move_span,
+                                };
+                            } else if let VarStatus::ConditionallyMoved { move_span } =
+                                &then_v.status
+                            {
+                                var_data.status = VarStatus::Moved {
+                                    move_span: *move_span,
+                                };
+                            }
+                        }
+                        (true, false) => {
+                            // Moved only in then branch - conditionally moved
+                            if let VarStatus::Moved { move_span } = &then_v.status {
+                                var_data.status = VarStatus::ConditionallyMoved {
+                                    move_span: *move_span,
+                                };
+                            }
+                        }
+                        (false, true) => {
+                            // Moved only in else branch - conditionally moved
+                            if let VarStatus::Moved { move_span } = &else_v.status {
+                                var_data.status = VarStatus::ConditionallyMoved {
+                                    move_span: *move_span,
+                                };
+                            }
+                        }
+                        (false, false) => {
+                            // Not moved in either branch - keep as owned
+                        }
+                    }
+                }
+                _ => {
+                    // Variable not found in one of the states - shouldn't happen
+                    // but leave as is
+                }
+            }
+        }
+
+        // Also check parent scopes
+        for scope_idx in (0..self.scopes.len() - 1).rev() {
+            let scope = &mut self.scopes[scope_idx];
+            for (name, var_data) in scope.var_status.iter_mut() {
+                let then_var = then_state.get(name);
+                let else_var = else_state.get(name);
+
+                match (then_var, else_var) {
+                    (Some(then_v), Some(else_v)) => {
+                        let then_moved = matches!(
+                            then_v.status,
+                            VarStatus::Moved { .. } | VarStatus::ConditionallyMoved { .. }
+                        );
+                        let else_moved = matches!(
+                            else_v.status,
+                            VarStatus::Moved { .. } | VarStatus::ConditionallyMoved { .. }
+                        );
+
+                        match (then_moved, else_moved) {
+                            (true, true) => {
+                                if let VarStatus::Moved { move_span } = &then_v.status {
+                                    var_data.status = VarStatus::Moved {
+                                        move_span: *move_span,
+                                    };
+                                } else if let VarStatus::ConditionallyMoved { move_span } =
+                                    &then_v.status
+                                {
+                                    var_data.status = VarStatus::Moved {
+                                        move_span: *move_span,
+                                    };
+                                }
+                            }
+                            (true, false) => {
+                                if let VarStatus::Moved { move_span } = &then_v.status {
+                                    var_data.status = VarStatus::ConditionallyMoved {
+                                        move_span: *move_span,
+                                    };
+                                }
+                            }
+                            (false, true) => {
+                                if let VarStatus::Moved { move_span } = &else_v.status {
+                                    var_data.status = VarStatus::ConditionallyMoved {
+                                        move_span: *move_span,
+                                    };
+                                }
+                            }
+                            (false, false) => {}
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    /// Get variables that were moved in one branch but still owned in another.
+    /// Returns pairs of (variable_name, was_moved_in_then_branch).
+    /// This is used to insert delete statements in the branch that didn't move.
+    pub fn get_conditionally_moved_vars<'a>(
+        &self,
+        then_state: &'a ScopeMap<'hir>,
+        else_state: &'a ScopeMap<'hir>,
+    ) -> Vec<(&'hir str, bool, &'a VarData<'hir>)> {
+        let mut result = Vec::new();
+
+        // Check all scopes for variables that are moved in one branch but not the other
+        for scope in &self.scopes {
+            for (name, _var_data) in &scope.var_status {
+                let then_var = then_state.get(name);
+                let else_var = else_state.get(name);
+
+                if let (Some(then_v), Some(else_v)) = (then_var, else_var) {
+                    let then_moved = matches!(then_v.status, VarStatus::Moved { .. });
+                    let else_moved = matches!(else_v.status, VarStatus::Moved { .. });
+
+                    match (then_moved, else_moved) {
+                        (true, false) => {
+                            // Moved in then, still owned in else - need delete in else
+                            result.push((*name, true, else_v));
+                        }
+                        (false, true) => {
+                            // Moved in else, still owned in then - need delete in then
+                            result.push((*name, false, then_v));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        result
+    }
 }
 
 /// Contains all variable information for a given scope
@@ -294,6 +465,10 @@ pub enum VarStatus {
     Deleted { delete_span: Span },
     /// The variable is borrowed (references only)
     Borrowed,
+    /// The variable was moved in one branch of a conditional but not the other.
+    /// This means the outer scope should NOT generate a delete for it - each branch
+    /// is responsible for handling its own cleanup.
+    ConditionallyMoved { move_span: Span },
 }
 
 // For backwards compatibility with existing code
@@ -310,6 +485,7 @@ impl PartialEq for VarStatus {
             (VarStatus::Moved { .. }, VarStatus::Moved { .. }) => true,
             (VarStatus::Deleted { .. }, VarStatus::Deleted { .. }) => true,
             (VarStatus::Borrowed, VarStatus::Borrowed) => true,
+            (VarStatus::ConditionallyMoved { .. }, VarStatus::ConditionallyMoved { .. }) => true,
             _ => false,
         }
     }

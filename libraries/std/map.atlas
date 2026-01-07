@@ -57,8 +57,8 @@ public:
         let new_map = new Map<K, V>();
         let i: uint64 = 0u;
         while i < *this.keys.length {
-            let key = *((*this.keys).get(i));
-            let value = *((*this.values).get(i));
+            let key = *(this.keys.get(i));
+            let value = *(this.values.get(i));
             new_map.keys.push(key);
             new_map.values.push(value);
             i = i + 1u;
@@ -67,9 +67,9 @@ public:
     }
     /// Retrieves the value associated with the given key.
     /// Returns None if the key does not exist.
-    fun get(&this, key: K) -> optional<&const V> {
+    fun get(&const this, key: K) -> optional<&const V> {
         let i: uint64 = 0u;
-        while i < this.keys.length {
+        while i < *this.keys.length {
             if this.keys.get(i) == &key {
                 let value = this.values.get(i);
                 return optional<&const V>::of(value);
@@ -84,7 +84,7 @@ public:
         let i: uint64 = 0u;
         while i < this.keys.length {
             if this.keys.get(i) == &key {
-                let value = this.values.get(i);
+                let value = this.values.get_mut(i);
                 return optional<&V>::of(value);
             }
             i = i + 1u;

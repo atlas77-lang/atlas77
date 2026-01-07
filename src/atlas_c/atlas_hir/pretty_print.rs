@@ -398,9 +398,12 @@ impl HirPrettyPrinter {
             }
             HirExpr::Unary(unary) => {
                 if let Some(op) = &unary.op {
-                    self.write(&format!("{}", op));
+                    self.write(&format!("{}(", op));
                 }
                 self.print_expr(&unary.expr);
+                if unary.op.is_some() {
+                    self.write(")");
+                }
             }
             HirExpr::Casting(cast) => {
                 self.print_expr(&cast.expr);

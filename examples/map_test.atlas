@@ -5,7 +5,7 @@ fun main() {
     // Testing maps
     let map = new Map<int64, string>();
     map.insert(1, "one");
-    let val1 = map.get(1);
+    let val1: optional<&const string> = map.get(1);
     print("Key 1 maps to value: ");
     if val1.has_value() {
         println(*(val1.value()));
@@ -29,7 +29,7 @@ fun main() {
             print(", Value: ");
             println(pair.get_second());
             delete pair;
-        }        
+        }
     }
     println("Done");
     delete map_iter;

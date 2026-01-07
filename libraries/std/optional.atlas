@@ -40,6 +40,7 @@ public:
     /// If `has_value` is true, `this.data.value` is deleted. Otherwise,
     /// nothing is performed.
     ~optional() {
+        println("Destroying optional");
         if (this.has_value) {
             delete this.data.value;
         }
@@ -78,7 +79,7 @@ public:
         );
     }
     fun is_empty(&const this) -> bool {
-        return !(*this).has_value;
+        return !(*this.has_value);
     }
     /// Returns true if a value is present.
     ///
@@ -99,10 +100,11 @@ public:
             panic("Called value on a empty optional");
         }
         // Move the value out before marking as empty
-        let value = memcpy(&(this.data.value));
+        let value = memcpy(&this.data.value);
         // Mark as empty before returning to prevent destructor from double-freeing
         this.has_value = false;
         // Delete the container structure itself (but not the value we already moved)
+        delete this;
         return value;
     }
     /// Consume the optional and return the contained value or `default` if empty.
@@ -113,9 +115,12 @@ public:
     /// Known Issue: Same as optional<T>.value()
     fun value_or(this, default: T) -> T {
         if (this.has_value) {
-            let value = this.data.value;
+            // Move the value out before marking as empty
+            let value = memcpy(&this.data.value);
             // Mark as empty before returning
             this.has_value = false;
+            // Delete the container structure itself
+            delete this;
             return value;
         } else {
             delete this;

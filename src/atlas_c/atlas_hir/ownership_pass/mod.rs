@@ -47,7 +47,8 @@ use crate::atlas_c::{
         arena::HirArena,
         error::{
             CannotMoveOutOfContainerError, CannotTransferOwnershipInBorrowingMethodError, HirError,
-            HirResult, RecursiveCopyConstructorError, TryingToAccessAMovedValueError,
+            HirResult, RecursiveCopyConstructorError, TryingToAccessADeletedValueError,
+            TryingToAccessAMovedValueError, TryingToAccessAPotentiallyMovedValueError,
         },
         expr::{HirCopyExpr, HirDeleteExpr, HirExpr, HirIdentExpr, HirMoveExpr},
         item::HirFunction,
@@ -770,29 +771,80 @@ impl<'hir> OwnershipPass<'hir> {
                 let transformed_condition =
                     self.transform_expr_ownership(&if_else.condition, false)?;
 
-                // Save state for else branch
-                let snapshot = self.scope_map.clone();
+                // Save state before if-else for comparison and else branch
+                let pre_if_state = self.scope_map.clone();
 
                 // Transform then branch
                 self.scope_map.new_scope();
                 self.transform_block(&mut if_else.then_branch)?;
                 self.scope_map.end_scope();
 
-                // Restore state for else branch
-                self.scope_map = snapshot;
+                // Save state after then branch
+                let post_then_state = self.scope_map.clone();
 
-                if let Some(else_branch) = &mut if_else.else_branch {
+                // Restore state for else branch
+                self.scope_map = pre_if_state.clone();
+
+                // Transform else branch (if present)
+                let mut transformed_else_branch = if_else.else_branch.clone();
+                if let Some(else_branch) = &mut transformed_else_branch {
                     self.scope_map.new_scope();
                     self.transform_block(else_branch)?;
                     self.scope_map.end_scope();
                 }
 
+                // Save state after else branch (or pre_if_state if no else)
+                let post_else_state = self.scope_map.clone();
+
+                // Find variables that are conditionally moved (moved in one branch but not other)
+                // and insert delete statements in the branch that didn't move them
+                let conditionally_moved =
+                    pre_if_state.get_conditionally_moved_vars(&post_then_state, &post_else_state);
+
+                let mut final_then_branch = if_else.then_branch.clone();
+                let mut final_else_branch = transformed_else_branch;
+
+                for (var_name, moved_in_then, var_data) in conditionally_moved {
+                    // Skip primitives and references
+                    if var_data.kind == VarKind::Primitive || var_data.kind == VarKind::Reference {
+                        continue;
+                    }
+
+                    let delete_stmt = Self::create_delete_stmt(var_name, var_data.ty, if_else.span);
+
+                    if moved_in_then {
+                        // Moved in then branch, so insert delete at end of else branch
+                        if let Some(else_branch) = &mut final_else_branch {
+                            // Insert before any return statement at the end
+                            let insert_pos =
+                                Self::find_delete_insert_position(&else_branch.statements);
+                            else_branch.statements.insert(insert_pos, delete_stmt);
+                        } else {
+                            // No else branch exists - we need to create one with just the delete
+                            final_else_branch = Some(HirBlock {
+                                span: if_else.span,
+                                statements: vec![delete_stmt],
+                            });
+                        }
+                    } else {
+                        // Moved in else branch, so insert delete at end of then branch
+                        let insert_pos =
+                            Self::find_delete_insert_position(&final_then_branch.statements);
+                        final_then_branch.statements.insert(insert_pos, delete_stmt);
+                    }
+                }
+
+                // Merge the branch states to update the current scope map
+                self.scope_map = pre_if_state;
+                self.scope_map
+                    .merge_branch_states(&post_then_state, &post_else_state);
+
                 Ok(vec![HirStatement::IfElse(
                     crate::atlas_c::atlas_hir::stmt::HirIfElseStmt {
                         span: if_else.span,
                         condition: transformed_condition,
-                        then_branch: if_else.then_branch.clone(),
-                        else_branch: if_else.else_branch.clone(),
+                        then_branch: final_then_branch,
+                        else_branch: final_else_branch,
                     },
                 )])
             }
@@ -1211,6 +1263,71 @@ impl<'hir> OwnershipPass<'hir> {
                 // Return the delete expression as-is
                 Ok(expr.clone())
             }
+            // Explicit move expression from user code: move<>(x)
+            // This forces a move regardless of later uses
+            HirExpr::Move(move_expr) => {
+                // Transform the inner expression as ownership-consuming (will mark as moved)
+                let transformed_inner = self.transform_expr_ownership(&move_expr.expr, true)?;
+
+                // If the inner expression is an identifier that we just transformed,
+                // we need to ensure it's marked as moved
+                if let HirExpr::Ident(ident) = move_expr.expr.as_ref() {
+                    if let Some(var_data) = self.scope_map.get(ident.name) {
+                        // Check if it wasn't already marked as moved by transform_expr_ownership
+                        // (it might have been if it's copyable and we decided to copy)
+                        // Force the move since user explicitly wrote move<>()
+                        if matches!(var_data.status, VarStatus::Owned | VarStatus::Borrowed) {
+                            self.scope_map.mark_as_moved(ident.name, ident.span);
+                        }
+                    }
+                }
+
+                // The transformed inner might already be a Move/Copy,
+                // so we may end up with nested Move(Move(...)) - that's OK,
+                // or we can unwrap it
+                match transformed_inner {
+                    // If transform already produced a Move, use it as-is
+                    HirExpr::Move(inner_move) => Ok(HirExpr::Move(inner_move)),
+                    // If transform produced a Copy (because it thought there were later uses),
+                    // but user explicitly asked for move, convert to Move
+                    HirExpr::Copy(copy_expr) => {
+                        // Mark as moved since user explicitly requested move
+                        if let HirExpr::Ident(ident) = copy_expr.expr.as_ref() {
+                            self.scope_map.mark_as_moved(ident.name, ident.span);
+                        }
+                        Ok(HirExpr::Move(HirMoveExpr {
+                            span: move_expr.span,
+                            source_name: copy_expr.source_name,
+                            expr: copy_expr.expr,
+                            ty: move_expr.ty,
+                        }))
+                    }
+                    // Otherwise, wrap in a Move
+                    other => Ok(HirExpr::Move(HirMoveExpr {
+                        span: move_expr.span,
+                        source_name: move_expr.source_name,
+                        expr: Box::new(other),
+                        ty: move_expr.ty,
+                    })),
+                }
+            }
+            // Explicit copy expression from user code: copy<>(x)
+            HirExpr::Copy(copy_expr) => {
+                // Transform the inner expression (not ownership-consuming since we're copying)
+                let transformed_inner = self.transform_expr_ownership(&copy_expr.expr, false)?;
+
+                // Check that the value is still valid to copy from
+                if let HirExpr::Ident(ident) = copy_expr.expr.as_ref() {
+                    self.check_variable_valid(ident)?;
+                }
+
+                Ok(HirExpr::Copy(HirCopyExpr {
+                    span: copy_expr.span,
+                    source_name: copy_expr.source_name,
+                    expr: Box::new(transformed_inner),
+                    ty: copy_expr.ty,
+                }))
+            }
             // Literals are always owned by the expression creating them
             _ => Ok(expr.clone()),
         }
@@ -1241,6 +1358,19 @@ impl<'hir> OwnershipPass<'hir> {
             let src = utils::get_file_content(path).unwrap_or_default();
             return Err(HirError::TryingToAccessAMovedValue(
                 TryingToAccessAMovedValueError {
+                    move_span: *move_span,
+                    access_span: ident.span,
+                    src: NamedSource::new(path, src),
+                },
+            ));
+        }
+
+        // Check for use-after-conditional-move (moved in one branch of an if/else)
+        if let VarStatus::ConditionallyMoved { move_span } = &var_data.status {
+            let path = ident.span.path;
+            let src = utils::get_file_content(path).unwrap_or_default();
+            return Err(HirError::TryingToAccessAPotentiallyMovedValue(
+                TryingToAccessAPotentiallyMovedValueError {
                     move_span: *move_span,
                     access_span: ident.span,
                     src: NamedSource::new(path, src),
@@ -1485,6 +1615,17 @@ impl<'hir> OwnershipPass<'hir> {
         })
     }
 
+    /// Find the position to insert delete statements in a block.
+    /// This should be before any return statement at the end.
+    fn find_delete_insert_position(statements: &[HirStatement]) -> usize {
+        if let Some(last) = statements.last() {
+            if matches!(last, HirStatement::Return(_)) {
+                return statements.len().saturating_sub(1);
+            }
+        }
+        statements.len()
+    }
+
     // =========================================================================
     // Phase 5: Validation Helpers
     // =========================================================================
@@ -1504,9 +1645,18 @@ impl<'hir> OwnershipPass<'hir> {
                         },
                     ));
                 }
+                VarStatus::ConditionallyMoved { move_span } => {
+                    return Err(HirError::TryingToAccessAPotentiallyMovedValue(
+                        TryingToAccessAPotentiallyMovedValueError {
+                            move_span: *move_span,
+                            access_span: ident.span,
+                            src: NamedSource::new(path, src),
+                        },
+                    ));
+                }
                 VarStatus::Deleted { delete_span } => {
                     return Err(HirError::TryingToAccessADeletedValue(
-                        crate::atlas_c::atlas_hir::error::TryingToAccessADeletedValueError {
+                        TryingToAccessADeletedValueError {
                             delete_span: *delete_span,
                             access_span: ident.span,
                             src: NamedSource::new(path, src),
