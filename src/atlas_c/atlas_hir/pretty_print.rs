@@ -223,8 +223,9 @@ impl HirPrettyPrinter {
         ));
         self.indent();
 
-        for field in &union_def.variants {
-            self.writeln(&format!("{}: {};", field.name, self.type_str(field.ty)));
+        for (name, variant) in &union_def.signature.variants {
+            println!("{:?}", variant);
+            self.writeln(&format!("{}: {};", name, self.type_str(variant.ty)));
         }
 
         self.dedent();

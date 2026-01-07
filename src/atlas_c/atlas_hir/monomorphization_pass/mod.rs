@@ -33,6 +33,7 @@ impl<'hir> MonomorphizationPass<'hir> {
     }
     /// Clears all the generic structs & functions from the module body and signature.
     pub fn clear_generic(&mut self, module: &mut HirModule<'hir>) {
+        // Clear generic structs
         for (_, instance) in self.generic_pool.structs.iter() {
             module.body.structs.remove(instance.name);
             module.signature.structs.remove(instance.name);
@@ -44,6 +45,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             }
         }
 
+        // Clear generic functions
         for (_, instance) in self.generic_pool.functions.iter() {
             // Remove the ORIGINAL generic function definition, not the monomorphized version
             module.body.functions.remove(instance.name);
@@ -53,6 +55,18 @@ impl<'hir> MonomorphizationPass<'hir> {
             if !signature.generics.is_empty() && !signature.is_external {
                 module.signature.functions.remove(name);
                 module.body.functions.remove(name);
+            }
+        }
+
+        // Clear generic unions
+        for (_, instance) in self.generic_pool.unions.iter() {
+            module.body.unions.remove(instance.name);
+            module.signature.unions.remove(instance.name);
+        }
+        for (name, signature) in module.signature.unions.clone().iter() {
+            if !signature.generics.is_empty() {
+                module.signature.unions.remove(name);
+                module.body.unions.remove(name);
             }
         }
     }
