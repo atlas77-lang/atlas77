@@ -47,6 +47,7 @@ declare_error_type! {
         TryingToAccessAMovedValue(TryingToAccessAMovedValueError),
         TryingToAccessAPotentiallyMovedValue(TryingToAccessAPotentiallyMovedValueError),
         TryingToAccessADeletedValue(TryingToAccessADeletedValueError),
+        CannotMoveOutOfLoop(CannotMoveOutOfLoopError),
         CallingNonConstMethodOnConstReference(CallingNonConstMethodOnConstReferenceError),
         TryingToMutateConstReference(TryingToMutateConstReferenceError),
         TryingToCreateAnUnionWithMoreThanOneActiveField(TryingToCreateAnUnionWithMoreThanOneActiveFieldError),
@@ -829,6 +830,24 @@ pub struct CannotMoveOutOfContainerError {
     #[label = "attempting to move `{ty_name}` out of array/container here"]
     pub span: Span,
     pub ty_name: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::cannot_move_out_of_loop),
+    help(
+        "variables cannot be moved inside loops because the loop could iterate multiple times, causing use-after-move. Consider moving the variable before the loop, or restructuring your code"
+    )
+)]
+#[error("cannot move variable `{var_name}` inside loop")]
+pub struct CannotMoveOutOfLoopError {
+    #[label = "loop starts here"]
+    pub loop_span: Span,
+    #[label = "variable `{var_name}` is moved here"]
+    pub move_span: Span,
+    pub var_name: String,
     #[source_code]
     pub src: NamedSource<String>,
 }

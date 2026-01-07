@@ -224,7 +224,6 @@ impl HirPrettyPrinter {
         self.indent();
 
         for (name, variant) in &union_def.signature.variants {
-            println!("{:?}", variant);
             self.writeln(&format!("{}: {};", name, self.type_str(variant.ty)));
         }
 

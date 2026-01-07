@@ -42,12 +42,14 @@ mod context;
 pub use context::{ScopeMap, UseKind, VarData, VarKind, VarMap, VarStatus, VarUse};
 
 use crate::atlas_c::{
+    atlas_frontend::lexer::Spanned,
     atlas_hir::{
         HirModule,
         arena::HirArena,
         error::{
-            CannotMoveOutOfContainerError, CannotTransferOwnershipInBorrowingMethodError, HirError,
-            HirResult, RecursiveCopyConstructorError, TryingToAccessADeletedValueError,
+            CannotMoveOutOfContainerError, CannotMoveOutOfLoopError,
+            CannotTransferOwnershipInBorrowingMethodError, HirError, HirResult,
+            RecursiveCopyConstructorError, TryingToAccessADeletedValueError,
             TryingToAccessAMovedValueError, TryingToAccessAPotentiallyMovedValueError,
         },
         expr::{HirCopyExpr, HirDeleteExpr, HirExpr, HirIdentExpr, HirMoveExpr},
@@ -852,11 +854,67 @@ impl<'hir> OwnershipPass<'hir> {
                 let transformed_condition =
                     self.transform_expr_ownership(&while_stmt.condition, false)?;
 
-                let snapshot = self.scope_map.clone();
+                // Save state before loop
+                let pre_loop_state = self.scope_map.clone();
+
                 self.scope_map.new_scope();
                 self.transform_block(&mut while_stmt.body)?;
                 self.scope_map.end_scope();
-                self.scope_map = snapshot;
+
+                // Save state after loop body
+                let post_loop_state = self.scope_map.clone();
+
+                // Check for variables that were moved inside the loop
+                // Mark them as ConditionallyMoved in the outer scope since:
+                // 1. The loop might not execute at all
+                // 2. The loop might execute once (move is valid)
+                // 3. The loop might execute multiple times (would be use-after-move)
+                let mut moved_in_loop = Vec::new();
+                for scope in &pre_loop_state.scopes {
+                    for (name, var_data) in &scope.var_status {
+                        let post_var = post_loop_state.get(name);
+                        if let Some(post_v) = post_var {
+                            let was_owned = matches!(var_data.status, VarStatus::Owned);
+                            let is_moved = matches!(post_v.status, VarStatus::Moved { .. });
+
+                            if was_owned && is_moved {
+                                if let VarStatus::Moved { move_span } = &post_v.status {
+                                    moved_in_loop.push((*name, *move_span));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Restore to pre-loop state
+                self.scope_map = pre_loop_state;
+
+                // Mark moved variables as ConditionallyMoved and emit error
+                for (var_name, move_span) in &moved_in_loop {
+                    // Mark as conditionally moved in the outer scope
+                    if let Some(var) = self.scope_map.get_mut(var_name) {
+                        var.status = VarStatus::ConditionallyMoved {
+                            move_span: *move_span,
+                        };
+                    }
+                }
+
+                // If any variables were moved inside the loop, that's an error
+                // because the loop could run multiple times, causing use-after-move
+                if let Some((var_name, move_span)) = moved_in_loop.first() {
+                    let path = move_span.path;
+                    let src = utils::get_file_content(path).unwrap_or_default();
+                    return Err(HirError::CannotMoveOutOfLoop(CannotMoveOutOfLoopError {
+                        var_name: var_name.to_string(),
+                        move_span: *move_span,
+                        loop_span: Span {
+                            start: while_stmt.span.start,
+                            end: while_stmt.condition.span().end,
+                            path: while_stmt.span.path,
+                        },
+                        src: NamedSource::new(path, src),
+                    }));
+                }
 
                 Ok(vec![HirStatement::While(
                     crate::atlas_c::atlas_hir::stmt::HirWhileStmt {

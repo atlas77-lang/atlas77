@@ -35,7 +35,9 @@ fun main() {
     let resource = new Resource(1);
     
     // First call - moves resource
-    process(resource);
+    while true {
+        process(resource);
+    }
     
     // Second call - ERROR: resource was already moved!
     process(resource);  // <-- Expected error: use after move
