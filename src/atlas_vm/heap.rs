@@ -1,5 +1,7 @@
 use crate::atlas_vm::error::{RuntimeError, RuntimeResult};
+use crate::atlas_vm::instruction::StructDescriptor;
 use crate::atlas_vm::object::{Object, ObjectIndex, ObjectKind};
+use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 
@@ -132,7 +134,7 @@ impl Heap {
     }
 
     /// Print memory leak report
-    pub fn print_memory_report(&self) {
+    pub fn print_memory_report(&self, all_structs: &[StructDescriptor]) {
         let stats = self.get_stats();
         let (strings, structures, lists) = self.count_objects_by_type();
 
@@ -150,6 +152,19 @@ impl Heap {
         let real_leaks = structures + lists;
         if real_leaks > 0 {
             println!("⚠️  MEMORY LEAK: {} object(s) not freed!", real_leaks);
+            println!("=====================");
+            println!("Leaked structures:");
+            // Let's list leaked structure names once each
+            let mut leaked_structs = HashMap::new();
+            for obj in &self.memory {
+                if let ObjectKind::Structure(s) = &obj.kind {
+                    let name = all_structs[s.struct_descriptor].name.clone();
+                    *leaked_structs.entry(name).or_insert(0) += 1;
+                }
+            }
+            for (name, count) in leaked_structs {
+                println!("  - {} ({} instances)", name, count);
+            }
         } else if strings > 0 {
             println!(
                 "✓ No object memory leaks! ({} string constants remain)",

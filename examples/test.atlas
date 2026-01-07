@@ -117,9 +117,11 @@ fun main() {
     // Testing generics with Pair from Map
     let p: Pair<int64, String> = new Pair<int64, String>(42, new String("The answer"));
     println(p.get_first());
-    println(p.get_second().s);
+    let normal_second = p.get_second();
+    println(normal_second.s);
     let swapped: Pair<String, int64> = p.swap();
-    println(swapped.get_first().s);
+    let swapped_first = swapped.get_first();
+    println(swapped_first.s);
     println(swapped.get_second());
     println("");
     

@@ -33,7 +33,10 @@ public:
     }
     /// Consumes this pair and returns a new pair with swapped key and value
     fun swap(this) -> Pair<V, K> {
-        return new Pair<V, K>(this.value, this.key);
+        let value = this.value;
+        let key = this.key;
+        delete_from_ref(&this);
+        return new Pair<V, K>(value, key);
     }
 }
 /// A simple map implementation using two parallel arrays.

@@ -40,7 +40,6 @@ public:
     /// If `has_value` is true, `this.data.value` is deleted. Otherwise,
     /// nothing is performed.
     ~optional() {
-        println("Destroying optional");
         if (this.has_value) {
             delete this.data.value;
         }

@@ -49,7 +49,7 @@ public:
     }
     fun tokenize(&this) -> Vector<Token> {
         let tokens = Vector<Token>::with_capacity(this.source.len());
-        let src_clone = new String (this.source.s);
+        let src_clone = new String(this.source.s);
         let src_iter = src_clone.into_iter();
         while src_iter.has_next() {
             let c_next = src_iter.next();

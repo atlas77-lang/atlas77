@@ -148,7 +148,8 @@ pub fn run(path: String, _flag: CompilationFlag, using_std: bool) -> miette::Res
 
     // Print memory report if ATLAS_MEMORY_REPORT env var is set
     if std::env::var("ATLAS_MEMORY_REPORT").is_ok() {
-        vm.heap.print_memory_report();
+        vm.heap
+            .print_memory_report(&vm.asm_program.struct_descriptors);
     }
 
     Ok(())

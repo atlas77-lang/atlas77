@@ -49,7 +49,8 @@ public:
                 let char_value = this.cells[this.pointer] as char;
                 print(char_value);
             } else if token.kind == TokenKind::INPUT {
-                let input_char = input() as char;
+                let input = input();
+                let input_char = input as char;
                 this.cells[this.pointer] = input_char as uint64;
             } else if token.kind == TokenKind::LOOP_START {
                 // Loop handling not implemented yet
