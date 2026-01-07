@@ -279,13 +279,13 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
         labels.push(Label {
             name: self
                 .codegen_arena
-                .alloc(format!("{}.{}", struct_name, "new")),
+                .alloc(format!("{}_ctor", struct_name)),
             position: self.current_pos,
             body: self.codegen_arena.alloc(bytecode),
         });
         self.program.functions.insert(
             self.codegen_arena
-                .alloc(format!("{}.{}", struct_name, "new")),
+                .alloc(format!("{}_ctor", struct_name)),
             self.current_pos,
         );
         self.current_pos += len;
@@ -331,13 +331,13 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
         labels.push(Label {
             name: self
                 .codegen_arena
-                .alloc(format!("{}.{}", struct_name, "destroy")),
+                .alloc(format!("{}_dtor", struct_name)),
             position: self.current_pos,
             body: self.codegen_arena.alloc(bytecode),
         });
         self.program.functions.insert(
             self.codegen_arena
-                .alloc(format!("{}.{}", struct_name, "destroy")),
+                .alloc(format!("{}_dtor", struct_name)),
             self.current_pos,
         );
         self.current_pos += len;
@@ -1102,7 +1102,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     self.generate_bytecode_expr(arg, bytecode)?;
                 }
                 bytecode.push(Instruction::Call {
-                    func_name: format!("{}.new", name),
+                    func_name: format!("{}_ctor", name),
                     nb_args: (new_obj.args.len() + 1) as u8, // +1 for the this pointer
                 });
             }
@@ -1145,7 +1145,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 bytecode.push(Instruction::Dup); // Stack: [obj_ptr, obj_ptr]
                 // Call the destructor (consumes one copy)
                 bytecode.push(Instruction::Call {
-                    func_name: format!("{}.destroy", name),
+                    func_name: format!("{}_dtor", name),
                     nb_args: 1,
                 }); // Stack: [obj_ptr, unit]
                 // Pop the Unit return value from destroy
