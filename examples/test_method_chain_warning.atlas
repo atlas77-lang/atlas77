@@ -1,0 +1,35 @@
+import "std/string";
+
+struct Builder {
+public:
+    value: String;
+
+    Builder(value: String) {
+        this.value = value;
+    }
+
+    fun with_prefix(&this, prefix: String) -> Builder {
+        let new_value = new String("temp");
+        return new Builder(new_value);
+    }
+
+    fun with_suffix(&this, suffix: String) -> Builder {
+        return new Builder(this.value);
+    }
+
+    fun build(&this) -> String {
+        return this.value;
+    }
+}
+
+fun main() {
+    let b = new Builder(new String("hello"));
+    
+    // Test 1: Simple chain - with_prefix() returns a temporary
+    let result1 = b.with_prefix(new String("pre")).build();
+    println(result1);
+    
+    // Test 2: Longer chain - both with_prefix() and with_suffix() create temporaries
+    let result2 = b.with_prefix(new String("pre")).with_suffix(new String("post")).build();
+    println(result2);
+}

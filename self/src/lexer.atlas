@@ -26,9 +26,9 @@ public:
         this.value = value;
     }
     ~Token() {
-        //delete this.value;
+        delete this.value;
     }
-    fun is_equal(this, other: Token) -> bool {
+    fun is_equal(&this, other: Token) -> bool {
         return this.kind == other.kind;
     }
 }
@@ -41,20 +41,19 @@ public:
         this.source = source;
     }
     ~Lexer() {
-        // Weirdly enough, "Destroying Lexer..." should also get deleted, so the compiler should rewrite this as:
-        // let __temp = this.source;
-        // println("Destroying Lexer...");
-        // delete __temp;
-        // delete this.source;
-        // Or, `println` moves the ownership of "Destroying Lexer..." string literal, and we assume println will delete it?
         println("Destroying Lexer...");
         delete this.source;
     }
-    fun tokenize(this) -> Vector<Token> {
+    fun _copy(&const this) -> Lexer {
+        return new Lexer(new String (*this.source.s));
+    }
+    fun tokenize(&this) -> Vector<Token> {
         let tokens = Vector<Token>::with_capacity(this.source.len());
-        let src_iter = this.source.into_iter();
+        let src_clone = new String (this.source.s);
+        let src_iter = src_clone.into_iter();
         while src_iter.has_next() {
-            const c: char = src_iter.next().unwrap();
+            let c_next = src_iter.next();
+            const c: char = c_next.value();
             if c == '>' {
                 tokens.push(new Token(TokenKind::SHIFT_RIGHT, new String(">")));
             } else if c == '<' {

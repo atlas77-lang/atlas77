@@ -54,6 +54,10 @@ impl<'run> AtlasRuntime<'run> {
             for (name, func) in atlas_vm::libraries::vector::VECTOR_FUNCTIONS.iter() {
                 extern_fn.insert(name, *func as CallBack);
             }
+            //std/mem
+            for (name, func) in atlas_vm::libraries::mem::MEM_FUNCTIONS.iter() {
+                extern_fn.insert(name, *func as CallBack);
+            }
         }
         Self {
             stack: Stack::new(),
@@ -82,9 +86,14 @@ impl<'run> AtlasRuntime<'run> {
             //eprintln!("Instr @ {}: {:?}", self.pc, instr.opcode); //--- IGNORE ---
             self.pc += 1;
             match self.execute_instruction(instr) {
-                Ok(_) => {}
+                Ok(_) => {
+                    //eprint!("{}, ", self.pc)
+                }
                 Err(RuntimeError::HaltEncountered) => break,
-                Err(e) => return Err(e),
+                Err(e) => {
+                    eprintln!("Runtime Error at instruction {}: {:?}", self.pc - 1, e); //--- IGNORE ---
+                    return Err(e);
+                }
             }
             instr_count += 1;
         }
@@ -183,8 +192,12 @@ impl<'run> AtlasRuntime<'run> {
             OpCode::STRING_LOAD => {
                 let ptr = self.stack.pop()?.as_object();
                 let index = self.stack.pop()?.as_u64() as usize;
-                let raw_string = self.heap.get(ptr)?;
-                let string = raw_string.string();
+                let obj_kind = self.heap.get(ptr)?;
+                let string = if let Some(s) = obj_kind.string() {
+                    s
+                } else {
+                    return Err(RuntimeError::InvalidObjectAccess(VMTag::String, obj_kind));
+                };
                 let ch = string.chars().nth(index).unwrap();
                 self.stack.push(VMData::new_char(ch))?;
                 Ok(())
@@ -193,8 +206,15 @@ impl<'run> AtlasRuntime<'run> {
                 let ch = self.stack.pop()?.as_char();
                 let ptr = self.stack.pop()?.as_object();
                 let index = self.stack.pop()?.as_u64() as usize;
-                let raw_string = self.heap.get_mut(ptr)?;
-                let string = raw_string.string_mut();
+                let obj_kind = self.heap.get_mut(ptr)?;
+                let string = if let Some(s) = obj_kind.string_mut() {
+                    s
+                } else {
+                    return Err(RuntimeError::InvalidObjectAccess(
+                        VMTag::String,
+                        obj_kind.clone(),
+                    ));
+                };
                 let mut chars: Vec<char> = string.chars().collect();
                 chars[index] = ch;
                 *string = chars.into_iter().collect();
@@ -558,7 +578,35 @@ impl<'run> AtlasRuntime<'run> {
             }
             OpCode::GET_FIELD => {
                 let field_idx = instr.arg.as_u24() as usize;
-                let obj_ptr = self.stack.pop()?.as_object();
+                let stack_top = self.stack.pop()?;
+
+                let obj_ptr = match stack_top {
+                    VMData {
+                        tag: VMTag::Object | VMTag::List | VMTag::String,
+                        ..
+                    } => stack_top.as_object(),
+                    VMData {
+                        tag: VMTag::Ref, ..
+                    } => {
+                        let ref_ptr = stack_top.as_ref();
+                        // Safety: The pointer should be valid as long as the referenced variable
+                        // is still in scope. The type system should ensure this.
+                        let deref_data = unsafe { *ref_ptr };
+                        if !deref_data.is_object() {
+                            return Err(RuntimeError::InvalidObjectAccess(
+                                deref_data.tag,
+                                ObjectKind::Primitive,
+                            ));
+                        }
+                        deref_data.as_object()
+                    }
+                    _ => {
+                        return Err(RuntimeError::InvalidObjectAccess(
+                            stack_top.tag,
+                            ObjectKind::Primitive,
+                        ));
+                    }
+                };
                 let raw_obj = self.heap.get(obj_ptr)?;
                 let structure = raw_obj.structure();
                 let field_value = structure.fields.ptr[field_idx];
@@ -582,6 +630,50 @@ impl<'run> AtlasRuntime<'run> {
                 };
                 self.heap.free(obj_ptr)
             }
+            // === Reference operations ===
+            OpCode::LOAD_VAR_ADDR => {
+                // Get the address of a local variable and push it as a reference
+                let local_slot_idx = instr.arg.as_u24() as usize;
+                let var_ptr = self.stack.get_var_ptr(local_slot_idx);
+                self.stack.push(VMData::new_ref(var_ptr))
+            }
+            OpCode::LOAD_INDIRECT => {
+                // Dereference: load the value at the address on top of the stack
+                let ref_data = self.stack.pop()?;
+                let ptr = ref_data.as_ref();
+                // Safety: The pointer should be valid as long as the referenced variable
+                // is still in scope. The type system should ensure this.
+                let value = unsafe { *ptr };
+                self.stack.push(value)
+            }
+            OpCode::STORE_INDIRECT => {
+                // Store a value to the address (dereference and assign)
+                let value = self.stack.pop()?;
+                let ref_data = self.stack.pop()?;
+                let ptr = ref_data.as_ref();
+                // Safety: The pointer should be valid as long as the referenced variable
+                // is still in scope. The type system should ensure this.
+                unsafe { *ptr = value };
+                Ok(())
+            }
+            OpCode::GET_FIELD_ADDR => {
+                // Get the address of a field in an object
+                let field_idx = instr.arg.as_u24() as usize;
+                let obj_ptr = self.stack.pop()?.as_object();
+                let raw_obj = self.heap.get_mut(obj_ptr)?;
+                let structure = raw_obj.structure_mut();
+                let field_ptr = &mut structure.fields.ptr[field_idx] as *mut VMData;
+                self.stack.push(VMData::new_ref(field_ptr))
+            }
+            OpCode::INDEX_GET_ADDR => {
+                // Get the address of an element in a list/array
+                let list_ptr = self.stack.pop()?.as_object();
+                let index = self.stack.pop()?.as_u64() as usize;
+                let raw_list = self.heap.get_mut(list_ptr)?;
+                let list = raw_list.list_mut();
+                let elem_ptr = &mut list[index] as *mut VMData;
+                self.stack.push(VMData::new_ref(elem_ptr))
+            }
             //CAST_TO should really be reworked, it's shitty right now
             OpCode::CAST_TO => {
                 let target_type = VMTag::from(instr.arg.as_u24() as u8);
@@ -590,7 +682,14 @@ impl<'run> AtlasRuntime<'run> {
                     VMTag::Int64 => match value.tag {
                         VMTag::String => {
                             let str_ptr = self.heap.get(value.as_object())?;
-                            let string = str_ptr.string();
+                            let string = if let Some(s) = str_ptr.string() {
+                                s
+                            } else {
+                                return Err(RuntimeError::InvalidObjectAccess(
+                                    VMTag::String,
+                                    str_ptr,
+                                ));
+                            };
                             let parsed = string
                                 .parse::<i64>()
                                 .map_err(|_| RuntimeError::InvalidCast(value.tag, target_type))?;
@@ -606,7 +705,14 @@ impl<'run> AtlasRuntime<'run> {
                     VMTag::UInt64 => match value.tag {
                         VMTag::String => {
                             let str_ptr = self.heap.get(value.as_object())?;
-                            let string = str_ptr.string();
+                            let string = if let Some(s) = str_ptr.string() {
+                                s
+                            } else {
+                                return Err(RuntimeError::InvalidObjectAccess(
+                                    VMTag::String,
+                                    str_ptr,
+                                ));
+                            };
                             let parsed = string
                                 .parse::<u64>()
                                 .map_err(|_| RuntimeError::InvalidCast(value.tag, target_type))?;
@@ -622,7 +728,14 @@ impl<'run> AtlasRuntime<'run> {
                     VMTag::Float64 => match value.tag {
                         VMTag::String => {
                             let str_ptr = self.heap.get(value.as_object())?;
-                            let string = str_ptr.string();
+                            let string = if let Some(s) = str_ptr.string() {
+                                s
+                            } else {
+                                return Err(RuntimeError::InvalidObjectAccess(
+                                    VMTag::String,
+                                    str_ptr,
+                                ));
+                            };
                             let parsed = string
                                 .parse::<f64>()
                                 .map_err(|_| RuntimeError::InvalidCast(value.tag, target_type))?;
@@ -640,7 +753,14 @@ impl<'run> AtlasRuntime<'run> {
                     VMTag::Boolean => match value.tag {
                         VMTag::String => {
                             let str_ptr = self.heap.get(value.as_object())?;
-                            let string = str_ptr.string().to_lowercase();
+                            let string = if let Some(s) = str_ptr.string() {
+                                s.to_lowercase()
+                            } else {
+                                return Err(RuntimeError::InvalidObjectAccess(
+                                    VMTag::String,
+                                    str_ptr,
+                                ));
+                            };
                             let parsed = match string.as_str() {
                                 "true" => true,
                                 "false" => false,
@@ -658,7 +778,14 @@ impl<'run> AtlasRuntime<'run> {
                     VMTag::Char => match value.tag {
                         VMTag::String => {
                             let str_ptr = self.heap.get(value.as_object())?;
-                            let string = str_ptr.string();
+                            let string = if let Some(s) = str_ptr.string() {
+                                s
+                            } else {
+                                return Err(RuntimeError::InvalidObjectAccess(
+                                    VMTag::String,
+                                    str_ptr,
+                                ));
+                            };
                             let mut chars = string.chars();
                             let ch = chars
                                 .next()
@@ -686,7 +813,11 @@ impl<'run> AtlasRuntime<'run> {
                     },
                     VMTag::String => {
                         let str_ptr = self.heap.get(value.as_object())?;
-                        let string = str_ptr.string();
+                        let string = if let Some(s) = str_ptr.string() {
+                            s
+                        } else {
+                            return Err(RuntimeError::InvalidObjectAccess(VMTag::String, str_ptr));
+                        };
                         let ptr = match self.heap.put(ObjectKind::String(string.to_string())) {
                             Ok(idx) => idx,
                             Err(_) => return Err(RuntimeError::OutOfMemory),
@@ -697,7 +828,29 @@ impl<'run> AtlasRuntime<'run> {
                 };
                 self.stack.push(casted_value)
             }
-            OpCode::Halt => Err(RuntimeError::HaltEncountered),
+            OpCode::CLONE_STRING => {
+                // Deep clone a string: pop string ptr, clone the string data, push new ptr
+                let val = self.stack.pop()?;
+                if val.tag != VMTag::String {
+                    return Err(RuntimeError::NullReference(format!(
+                        "Expected String for CLONE_STRING, got {:?}",
+                        val.tag
+                    )));
+                }
+                let original_ptr = val.as_object();
+                let obj_kind = self.heap.get(original_ptr)?;
+                let original_string = if let Some(s) = obj_kind.string() {
+                    s.clone()
+                } else {
+                    return Err(RuntimeError::InvalidObjectAccess(VMTag::String, obj_kind));
+                };
+                let new_ptr = match self.heap.put(ObjectKind::String(original_string)) {
+                    Ok(ptr) => ptr,
+                    Err(_) => return Err(RuntimeError::OutOfMemory),
+                };
+                self.stack.push(VMData::new_string(new_ptr))
+            }
+            OpCode::HALT => Err(RuntimeError::HaltEncountered),
             _ => unimplemented!("{:?}", instr),
         }
     }

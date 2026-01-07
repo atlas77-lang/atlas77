@@ -1,4 +1,4 @@
-use crate::atlas_vm::vm_data::VMTag;
+use crate::atlas_vm::{object::ObjectKind, vm_data::VMTag};
 
 pub type RuntimeResult<T> = Result<T, RuntimeError>;
 
@@ -7,7 +7,7 @@ pub enum RuntimeError {
     OutOfMemory,
     StackOverflow,
     StackUnderflow,
-    NullReference,
+    NullReference(String),
     DivisionByZero,
     InvalidCast(VMTag, VMTag),
     IndexOutOfBounds,
@@ -19,6 +19,9 @@ pub enum RuntimeError {
     InvalidConstantPoolPointer(usize),
     HaltEncountered,
     OutOfBoundProgram(usize),
+    InvalidObjectAccess(VMTag, ObjectKind),
+    InvalidMemCpySource,
+    CannotDeleteReferenceDirectly,
 }
 
 impl std::fmt::Display for RuntimeError {
@@ -28,7 +31,7 @@ impl std::fmt::Display for RuntimeError {
             OutOfMemory => writeln!(f, "No more memory bozo"),
             StackOverflow => writeln!(f, "No more stack bozo"),
             StackUnderflow => writeln!(f, "Too little stack bozo"),
-            NullReference => writeln!(f, "Null Reference error"),
+            NullReference(msg) => writeln!(f, "Null Reference error: {}", msg),
             DivisionByZero => writeln!(f, "There are no infinity, you can't divide by zero"),
             InvalidCast(from, to) => writeln!(f, "Invalid cast from {} to {:?}", from, to),
             IndexOutOfBounds => writeln!(f, "Index out of bounds"),
@@ -46,8 +49,13 @@ impl std::fmt::Display for RuntimeError {
             InvalidConstantPoolPointer(ptr) => {
                 writeln!(f, "Invalid constant pool pointer: {}", ptr)
             }
+            InvalidObjectAccess(tag, obj) => {
+                writeln!(f, "Invalid object access: {} {:?}", tag, obj)
+            }
             HaltEncountered => writeln!(f, "Halt instruction encountered"),
             OutOfBoundProgram(pos) => writeln!(f, "Program counter out of bounds: {}", pos),
+            InvalidMemCpySource => writeln!(f, "Invalid source for memcpy; must be an object"),
+            CannotDeleteReferenceDirectly => writeln!(f, "Cannot delete a reference directly"),
         }
     }
 }

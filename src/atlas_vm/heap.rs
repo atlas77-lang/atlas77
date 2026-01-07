@@ -5,10 +5,24 @@ use std::fmt::{Display, Formatter};
 
 pub const HEAP_DEFAULT_SIZE: usize = 8192; //In number of objects
 
+/// Memory statistics for the heap
+#[derive(Debug, Clone)]
+pub struct HeapStats {
+    pub total_allocations: usize,
+    pub total_deallocations: usize,
+    pub current_usage: usize,
+    pub peak_usage: usize,
+    pub heap_size: usize,
+}
+
 pub struct Heap {
     memory: Vec<Object>,
     pub free: ObjectIndex,
     pub used_space: usize,
+    // Memory tracking
+    allocations: usize,
+    deallocations: usize,
+    peak_usage: usize,
 }
 
 impl Heap {
@@ -23,6 +37,9 @@ impl Heap {
                 })
                 .collect(),
             used_space: 0,
+            allocations: 0,
+            deallocations: 0,
+            peak_usage: 0,
         }
     }
     pub fn clear(&mut self) {
@@ -30,20 +47,28 @@ impl Heap {
             obj.kind = ObjectKind::Free { next: self.free };
             self.free = ObjectIndex::new(idx);
         }
+        self.used_space = 0;
+        self.allocations = 0;
+        self.deallocations = 0;
+        self.peak_usage = 0;
     }
 
     pub fn put(&mut self, object: ObjectKind) -> Result<ObjectIndex, RuntimeError> {
         //println!("Allocating object: {:?}", object);
         let idx = self.free;
-        let v = self.memory.get_mut(usize::from(self.free)).unwrap();
-        let repl = std::mem::replace(v, Object { kind: object });
-
-        match repl {
-            Object {
-                kind: ObjectKind::Free { next },
-                ..
-            } => {
-                self.free = next;
+        // Look at the slot first. Only replace it if it's actually free.
+        let slot = self.memory.get_mut(usize::from(self.free)).unwrap();
+        match &slot.kind {
+            ObjectKind::Free { next } => {
+                let next_index = *next;
+                // Now safely replace the free slot with the new object
+                *slot = Object { kind: object };
+                self.free = next_index;
+                self.used_space += 1;
+                self.allocations += 1;
+                if self.used_space > self.peak_usage {
+                    self.peak_usage = self.used_space;
+                }
                 Ok(idx)
             }
             _ => Err(RuntimeError::OutOfMemory),
@@ -51,24 +76,89 @@ impl Heap {
     }
 
     pub fn free(&mut self, index: ObjectIndex) -> RuntimeResult<()> {
-        let next = self.free;
-        let v = self.memory.get_mut(usize::from(index)).unwrap();
+        // If slot is already free, do nothing — avoid corrupting the free list.
+        let slot = self.memory.get_mut(usize::from(index)).unwrap();
+        match &slot.kind {
+            ObjectKind::Free { .. } => return Ok(()),
+            _ => {
+                let next = self.free;
+                *slot = Object {
+                    kind: ObjectKind::Free { next },
+                };
+                self.free = index;
+                self.used_space = self.used_space.saturating_sub(1);
+                self.deallocations += 1;
+                Ok(())
+            }
+        }
+    }
 
-        let repl = std::mem::replace(
-            v,
-            Object {
-                kind: ObjectKind::Free { next },
-            },
-        );
-        let res = match repl {
-            Object {
-                kind: ObjectKind::Free { .. },
-                ..
-            } => Err(RuntimeError::NullReference),
-            _ => Ok(()),
-        };
-        self.free = index;
-        res
+    /// Get memory statistics
+    pub fn get_stats(&self) -> HeapStats {
+        HeapStats {
+            total_allocations: self.allocations,
+            total_deallocations: self.deallocations,
+            current_usage: self.used_space,
+            peak_usage: self.peak_usage,
+            heap_size: self.memory.len(),
+        }
+    }
+
+    /// Count currently allocated (non-free) objects
+    pub fn count_allocated_objects(&self) -> usize {
+        self.memory
+            .iter()
+            .filter(|obj| !matches!(obj.kind, ObjectKind::Free { .. }))
+            .count()
+    }
+
+    /// Count objects by type
+    pub fn count_objects_by_type(&self) -> (usize, usize, usize) {
+        let mut strings = 0;
+        let mut structures = 0;
+        let mut lists = 0;
+
+        for obj in &self.memory {
+            match &obj.kind {
+                ObjectKind::Free { .. } => {}
+                ObjectKind::String(_) => strings += 1,
+                ObjectKind::Structure(_) => structures += 1,
+                ObjectKind::List(_) => lists += 1,
+                _ => {}
+            }
+        }
+
+        (strings, structures, lists)
+    }
+
+    /// Print memory leak report
+    pub fn print_memory_report(&self) {
+        let stats = self.get_stats();
+        let (strings, structures, lists) = self.count_objects_by_type();
+
+        println!("\n=== MEMORY REPORT ===");
+        println!("Total allocations:   {}", stats.total_allocations);
+        println!("Total deallocations: {}", stats.total_deallocations);
+        println!("Peak usage:          {} objects", stats.peak_usage);
+        println!("Current usage:       {} objects", stats.current_usage);
+        println!("  - Strings:         {}", strings);
+        println!("  - Structures:      {}", structures);
+        println!("  - Lists:           {}", lists);
+
+        // String constants are expected to remain (they're literals)
+        // Real leaks are structures/lists that weren't freed
+        let real_leaks = structures + lists;
+        if real_leaks > 0 {
+            println!("⚠️  MEMORY LEAK: {} object(s) not freed!", real_leaks);
+        } else if strings > 0 {
+            println!(
+                "✓ No object memory leaks! ({} string constants remain)",
+                strings
+            );
+        } else {
+            println!("✓ No memory leaks detected!");
+        }
+        println!("=====================\n");
     }
 
     #[inline(always)]

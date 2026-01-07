@@ -16,11 +16,11 @@ public:
         delete this.data;
     }
     /// Returns the value of the box.
-    fun get(this) -> T {
+    fun get(&this) -> T {
         return this.data;
     }
     /// Sets the value of the box.
-    fun set(this, data: T) {
+    fun set(&this, data: T) {
         this.data = data;
         return;
     }

@@ -199,8 +199,13 @@ pub struct HirStructMethodSignature<'hir> {
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub enum HirStructMethodModifier {
+    /// Static method - no `this` parameter
     Static,
+    /// Method that takes immutable reference to `this` (&const this)
     Const,
+    /// Method that takes mutable reference to `this` (&this)
+    Mutable,
+    /// Method that consumes ownership of `this` (this)
     #[default]
     None,
 }

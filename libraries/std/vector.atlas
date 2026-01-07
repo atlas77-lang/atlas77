@@ -1,39 +1,59 @@
 import "std/io";
 import "std/iter";
+// We need to import std/mem to use memcpy for the try_take function
+import "std/mem";
 
-public extern len<T>(data: [T]) -> uint64;
-public extern slice<T>(data: [T], start: uint64, end: uint64) -> [T];
+public extern len<T>(data: &const [T]) -> uint64;
+public extern slice<T>(data: &const [T], start: uint64, end: uint64) -> [T];
 
 public struct Vector<T> {
-private:
-    data: [T];
 public:
+    data: [T];
     length: uint64;
     capacity: uint64;
 
     Vector(data: [T]) {
-        this.length = len(data);
+        this.length = len(&data);
         this.capacity = this.length;
         this.data = data;
     }
-    ~Vector() {}
+    ~Vector() {
+        // We shouldn't delete anything outside of data[0..length]
+        let i: uint64 = 0u;
+        while i < this.length {
+            delete this.data[i];
+            i = i + 1u;
+        }
+        // deleting an array doesn't call destructors on its elements, 
+        // so we do it manually
+        delete this.data;
+    }
+    fun _copy(&const this) -> Vector<T> {
+        return new Vector<T>(*this.data);
+    }
+    /// Creates a new Vector with the specified capacity.
 
-    /// A function that doesn't have a "self" parameter is a static function
-    /// static functions are called like this: "Vector::<T>::function_name()"
-    fun with_capacity(capacity: uint64) -> Vector<T> { //Still unstable feature
+    fun with_capacity(capacity: uint64) -> Vector<T> {
         let vec = new Vector<T>(new [T; capacity]);
         vec.length = 0u;
         return vec;
     }
 
-    fun get(this, index: uint64) -> T {
+    fun get(&this, index: uint64) -> &const T {
         if index >= this.length {
             panic("Index out of bounds");
         }
-        return this.data[index];
+        return &(this.data[index]);
     }
 
-    fun set(this, index: uint64, val: T) {
+    fun get_mut(&this, index: uint64) -> &T {
+        if index >= this.length {
+            panic("Index out of bounds");
+        }
+        return &(this.data[index]);
+    }
+
+    fun set(&this, index: uint64, val: T) {
         if index >= this.length {
             panic("Index out of bounds");
         }
@@ -42,7 +62,7 @@ public:
 
     /// A function that has a "self" parameter is a method of the struct
     /// and is called like this: "vector_instance.function_name()"
-    fun push(this, val: T) {
+    fun push(&this, val: T) {
         if this.length >= this.capacity {
             // Resize
             let new_capacity: uint64 = 0u;
@@ -64,15 +84,43 @@ public:
         this.length = this.length + 1u;
     }
     
-    fun pop(this) -> T {
+    fun pop(&this) -> T {
         if this.length == 0u {
             panic("Cannot pop from an empty vector");
         }
+        let popped = memcpy(this.get(this.length - 1u));
         this.length = this.length - 1u;
-        return this.data[this.length];
+        return popped;
     }
 
+    /// Consumes the vector and returns an iterator over its elements.
+    /// The vector cannot be used after calling this method.
     fun into_iter(this) -> Iter<T> {
         return new Iter<T>(this);
+    }
+    /// Takes an element out of the vector at the specified index,
+    /// shifting subsequent elements to the left.
+    fun take(&this, index: uint64) -> T {
+        // Public method to take an element out of the vector
+        return this.try_take(index);
+    }
+
+private:
+    fun try_take(&this, index: uint64) -> T {
+        if index >= this.length {
+            panic("Index out of bounds");
+        }
+        // We do memcpy and not a call to a copy constructor, because we only
+        // need a shallow copy here to move the value out of the container.
+        // The underlying data of T doesn't need to itself be copied.
+        let item: T = memcpy(this.get(index));
+        // Shift elements to fill the gap
+        let i: uint64 = index;
+        while i + 1u < this.length {
+            this.data[i] = this.data[i + 1u];
+            i = i + 1u;
+        }
+        this.length = this.length - 1u;
+        return item;
     }
 }

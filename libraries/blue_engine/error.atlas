@@ -21,13 +21,13 @@ public struct BlueEngineError {
         ~BlueEngineError() {
             //delete this.message;
         }
-        fun code(this) -> BlueEngineErrorCode {
+        fun code(&this) -> BlueEngineErrorCode {
             return this.code;
         }
-        fun message(this) -> string {
-            return this.message;
+        fun message(&const this) -> string {
+            return *this.message;
         }
-        fun display(this) {
+        fun display(&this) {
             if this.code == BlueEngineErrorCode::Custom {
                 print("BlueEngineError: ");
                 println(this.message);

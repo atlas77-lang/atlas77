@@ -29,13 +29,13 @@ public:
         return new rc_ptr<T>(&block); //it should be return rc_ptr::<T>( &block );
     }
 
-    fun clone(this) -> rc_ptr<T> {
+    fun clone(&this) -> rc_ptr<T> {
         let strong = this.block.strong;
         this.block.strong = strong + 1u;
         return new rc_ptr<T>(this.block);
     }
 
-    fun release(this) {
+    fun release(&this) {
         let old = this.block.strong;
         if old == 0u {
             panic("double release");
@@ -48,11 +48,11 @@ public:
         }
     }
 
-    fun get(this) -> &const T {
+    fun get(&this) -> &const T {
         return &const this.block.value;
     }
 
-    fun get_mut(this) -> &T {
+    fun get_mut(&this) -> &T {
         return &this.block.value;
     }
 }

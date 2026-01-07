@@ -1,0 +1,14 @@
+import "std/io";
+
+fun test(s: &string) -> &string {
+    return s;
+}
+
+fun main() {
+    let my_arr = [1, 2, 3, 4, 5];
+    let ref_to_first = &my_arr[0u];
+    println(*ref_to_first);
+    let my_string = "Hello, Atlas!";
+    let message = *test(&my_string);
+    println(message);
+}

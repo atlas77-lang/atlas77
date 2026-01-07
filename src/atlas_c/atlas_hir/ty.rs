@@ -181,6 +181,19 @@ impl HirTy<'_> {
     pub fn is_const(&self) -> bool {
         matches!(self, HirTy::ReadOnlyReference(_))
     }
+    pub fn is_ref(&self) -> bool {
+        matches!(
+            self,
+            HirTy::ReadOnlyReference(_) | HirTy::MutableReference(_)
+        )
+    }
+    pub fn get_inner_ref_ty(&self) -> Option<&HirTy<'_>> {
+        match self {
+            HirTy::ReadOnlyReference(ty) => Some(ty.inner),
+            HirTy::MutableReference(ty) => Some(ty.inner),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for HirTy<'_> {
