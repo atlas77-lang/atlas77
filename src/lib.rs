@@ -11,6 +11,7 @@ use crate::{
         atlas_hir::{
             dead_code_elimination_pass::DeadCodeEliminationPass, pretty_print::HirPrettyPrinter,
         },
+        atlas_lir::hir_lowering_pass::HirLoweringPass,
     },
     atlas_vm::runtime::AtlasRuntime,
 };
@@ -110,6 +111,18 @@ pub fn build(
         let hir_output = hir_printer.print_module(hir);
         let mut file_hir = std::fs::File::create("output.atlas").unwrap();
         file_hir.write_all(hir_output.as_bytes()).unwrap();
+    }
+
+    let mut lir_lower = HirLoweringPass::new(hir);
+    match lir_lower.lower() {
+        Ok(lir) => {
+            let mut file_lir = std::fs::File::create("output.atlas_lir").unwrap();
+            let lir_output = format!("{}", lir);
+            file_lir.write_all(lir_output.as_bytes()).unwrap();
+        }
+        Err(e) => {
+            eprintln!("{:?}", Into::<miette::Report>::into(*e));
+        }
     }
 
     //codegen

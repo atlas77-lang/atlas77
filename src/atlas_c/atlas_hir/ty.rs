@@ -194,6 +194,9 @@ impl HirTy<'_> {
             _ => None,
         }
     }
+    pub fn is_unit(&self) -> bool {
+        matches!(self, HirTy::Unit(_))
+    }
 }
 
 impl fmt::Display for HirTy<'_> {

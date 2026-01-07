@@ -8,6 +8,7 @@ declare_error_type! {
     pub enum LIRLoweringError {
         UnsupportedHirExpr(UnsupportedHirExprError),
         CurrentFunctionDoesntExist(CurrentFunctionDoesntExistError),
+        NoReturnInFunction(NoReturnInFunctionError),
     }
 }
 
@@ -33,3 +34,13 @@ pub struct UnsupportedHirExprError {
 )]
 #[error("Current function does not exist when trying to create a new block")]
 pub struct CurrentFunctionDoesntExistError;
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(lir_lowering::no_return_in_function),
+    help("All non-unit functions must have a return statement on all paths")
+)]
+#[error("No return statement in function `{name}`")]
+pub struct NoReturnInFunctionError {
+    pub name: String,
+}

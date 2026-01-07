@@ -277,15 +277,12 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
 
         let len = bytecode.len();
         labels.push(Label {
-            name: self
-                .codegen_arena
-                .alloc(format!("{}_ctor", struct_name)),
+            name: self.codegen_arena.alloc(format!("{}_ctor", struct_name)),
             position: self.current_pos,
             body: self.codegen_arena.alloc(bytecode),
         });
         self.program.functions.insert(
-            self.codegen_arena
-                .alloc(format!("{}_ctor", struct_name)),
+            self.codegen_arena.alloc(format!("{}_ctor", struct_name)),
             self.current_pos,
         );
         self.current_pos += len;
@@ -329,15 +326,12 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
 
         let len = bytecode.len();
         labels.push(Label {
-            name: self
-                .codegen_arena
-                .alloc(format!("{}_dtor", struct_name)),
+            name: self.codegen_arena.alloc(format!("{}_dtor", struct_name)),
             position: self.current_pos,
             body: self.codegen_arena.alloc(bytecode),
         });
         self.program.functions.insert(
-            self.codegen_arena
-                .alloc(format!("{}_dtor", struct_name)),
+            self.codegen_arena.alloc(format!("{}_dtor", struct_name)),
             self.current_pos,
         );
         self.current_pos += len;
