@@ -1,0 +1,60 @@
+import "std/io";
+import "std/mem";
+
+private extern len<T>(arr: &[T]) -> uint64;
+
+/// A simple FIFO queue data structure.
+public struct Queue<T> {
+private:
+    items: [T];
+public:
+    /// The index of the head of the queue.
+    head: uint64;
+    /// The index of the tail of the queue.
+    tail: uint64;
+    /// The size of the queue.
+    size: uint64;
+    /// The number of items in the queue.
+    count: uint64;
+    /// Creates a new empty queue.
+    Queue(items: [T]) {
+        this.head = 0u;
+        this.tail = 0u;
+        this.count = 0u;
+        this.size = len(&items);
+        this.items = items;
+    }
+    /// Instantiates a queue with a predefined size.
+    fun with_size(size: uint64) -> Queue<T> {
+        return new Queue<T>(new [T; size]);
+    }
+    /// Enqueues an item to the back of the queue.
+    fun enqueue(&this, item: T) {
+        if this.is_full() {
+            panic("Queue is full");
+        }
+        this.items[this.tail] = item;
+        this.tail = (this.tail + 1u) % this.size;
+        this.count = this.count + 1u;
+        return;
+    }
+    /// Dequeues an item from the front of the queue.
+    fun dequeue(&this) -> T {
+        if this.is_empty() {
+            panic("Queue is empty");
+        }
+        // We do memcpy and not a call to a copy constructor, because we only
+        // need a shallow copy here to move the value out of the container.
+        // The underlying data of T doesn't need to itself be copied.
+        let item: T = memcpy(&(this.items[this.head]));
+        this.head = (this.head + 1u) % this.size;
+        this.count = this.count - 1u;
+        return item;
+    }
+    fun is_full(&this) -> bool {
+        return this.count >= this.size;
+    }
+    fun is_empty(&this) -> bool {
+        return this.count == 0u;
+    }
+}

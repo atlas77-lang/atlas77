@@ -66,8 +66,33 @@ impl From<ParseBoolError> for LexingError {
 //Skip whitespace regex
 #[logos(skip r"[ \t\n\f\r]+")]
 pub enum TokenKind {
-    //Need to also drop the quotes
-    #[regex("\"[^\"]*\"", |lex| lex.slice()[1..lex.slice().len()-1].to_string())]
+    //We need to be able to capture '\t', '\n', '\\', '\'', '\"', etc.
+    #[regex("\"[^\"]*\"", |lex| {
+        let raw = &lex.slice()[1..lex.slice().len()-1];
+        let mut result = String::new();
+        let mut chars = raw.chars();
+        while let Some(ch) = chars.next() {
+            if ch == '\\' {
+                match chars.next() {
+                    Some('n') => result.push('\n'),
+                    Some('t') => result.push('\t'),
+                    Some('r') => result.push('\r'),
+                    Some('\\') => result.push('\\'),
+                    Some('\'') => result.push('\''),
+                    Some('\"') => result.push('\"'),
+                    Some('0') => result.push('\0'),
+                    Some(c) => {
+                        result.push('\\');
+                        result.push(c);
+                    }
+                    None => result.push('\\'),
+                }
+            } else {
+                result.push(ch);
+            }
+        }
+        result
+    })]
     StringLiteral(String),
     #[regex("'.'", |lex| lex.slice().chars().nth(1).unwrap())]
     Char(char),
@@ -209,8 +234,6 @@ pub enum TokenKind {
     KwPublic,
     #[token("private")]
     KwPrivate,
-    #[token("protected")]
-    KwProtected,
     //Control Flow
     #[token("if")]
     KwIf,

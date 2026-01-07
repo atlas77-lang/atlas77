@@ -1,0 +1,55 @@
+import "std/io";
+
+/// Example showing recursive copy detection in the ownership pass.
+/// The compiler will detect when a `_copy` method tries to copy 
+/// the same type it's constructing, preventing infinite recursion.
+/// 
+/// This detects both:
+/// 1. Implicit copies (via Copy expressions inserted by ownership pass)
+/// 2. Explicit ._copy() method calls
+
+public struct Box {
+public:
+    value: int64;
+    
+    Box(value: int64) {
+        this.value = value;
+    }
+    
+    ~Box() {
+        // Nothing to delete for primitive
+    }
+    
+    /// INCORRECT VERSION 1: Implicit copy via ownership transfer
+    /// This triggers a Copy expression which is detected
+    // fun _copy(&const this) -> Box {
+    //     let other_box = new Box(*(this.value));
+    //     let another_copy = other_box;  // ERROR: Implicit recursive copy!
+    //     delete other_box;
+    //     return another_copy;
+    // }
+    
+    /// INCORRECT VERSION 2: Explicit _copy() call
+    /// This directly calls _copy() which is also detected
+    fun _copy(&const this) -> Box {
+        let other_box = new Box(*(this.value));
+        // Explicitly calling _copy() on a Box inside Box._copy()
+        let another_copy = other_box._copy();  // ERROR: Explicit recursive copy!
+        delete other_box;
+        return another_copy;
+    }
+    
+    /// CORRECT: A proper _copy implementation that doesn't recursively copy
+    // fun _copy(&const this) -> Box {
+    //     // Just create a new Box with the same value (no recursive copy)
+    //     return new Box(*(this.value));
+    // }
+}
+
+fun main() {
+    let b1 = new Box(42);
+    let b2 = b1;  // This will trigger the copy, which will error
+    delete b1;
+    delete b2;
+    println("Test completed");
+}

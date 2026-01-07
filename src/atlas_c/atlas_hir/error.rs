@@ -51,6 +51,15 @@ declare_error_type! {
         TryingToCreateAnUnionWithMoreThanOneActiveField(TryingToCreateAnUnionWithMoreThanOneActiveFieldError),
         TypeDoesNotImplementRequiredConstraint(TypeDoesNotImplementRequiredConstraintError),
         InvalidSpecialMethodSignature(InvalidSpecialMethodSignatureError),
+        ReturningReferenceToLocalVariable(ReturningReferenceToLocalVariableError),
+        TryingToCopyNonCopyableType(TryingToCopyNonCopyableTypeError),
+        DoubleMoveError(DoubleMoveError),
+        UnknownIdentifier(UnknownIdentifierError),
+        UnknownField(UnknownFieldError),
+        UnknownMethod(UnknownMethodError),
+        CannotTransferOwnershipInBorrowingMethod(CannotTransferOwnershipInBorrowingMethodError),
+        CannotMoveOutOfContainer(CannotMoveOutOfContainerError),
+        RecursiveCopyConstructor(RecursiveCopyConstructorError),
     }
 }
 
@@ -90,10 +99,28 @@ impl HirError {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
+    code(sema::returning_reference_to_local_variable),
+    help(
+        "references to local variables cannot be returned because the variable will be dropped when the function returns"
+    )
+)]
+#[error("cannot return reference to local variable `{var_name}`")]
+pub struct ReturningReferenceToLocalVariableError {
+    #[label = "returns a reference to local variable `{var_name}`"]
+    pub span: Span,
+    pub var_name: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
     code(sema::invalid_special_method_signature),
     help("Ensure special methods have the correct signature, try {expected}")
 )]
-#[error("Invalid special method signature for method '{method_name}': expected {expected}")]
+#[error(
+    "Invalid special method signature for method '{method_name}': expected {expected} but found {actual}"
+)]
 pub struct InvalidSpecialMethodSignatureError {
     #[label = "invalid special method signature"]
     pub span: Span,
@@ -675,6 +702,135 @@ pub struct TypeMismatchActual {
     pub actual_ty: String,
     #[label = "found {actual_ty}"]
     pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::trying_to_copy_non_copyable_type),
+    help(
+        "type `{ty}` does not implement a copy constructor (`_copy` method). Consider moving the value instead, or implement a `_copy` method for the type."
+    )
+)]
+#[error("cannot copy value of type `{ty}` because it does not implement a copy constructor")]
+pub struct TryingToCopyNonCopyableTypeError {
+    #[label = "trying to copy this value"]
+    pub span: Span,
+    pub ty: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::double_move),
+    help(
+        "a value can only be moved once. Consider cloning the value before the first move if you need to use it multiple times."
+    )
+)]
+#[error("value has already been moved")]
+pub struct DoubleMoveError {
+    #[label = "value was first moved here"]
+    pub first_move_span: Span,
+    #[label = "trying to move again here"]
+    pub second_move_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::unknown_identifier),
+    help("check the variable name for typos, or ensure it is declared before use")
+)]
+#[error("cannot find value `{name}` in this scope")]
+pub struct UnknownIdentifierError {
+    pub name: String,
+    #[label = "not found in this scope"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::unknown_field),
+    help("check the field name for typos, or ensure the struct has this field")
+)]
+#[error("no field `{field_name}` on type `{ty_name}`")]
+pub struct UnknownFieldError {
+    pub field_name: String,
+    pub ty_name: String,
+    #[label = "unknown field"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::unknown_method),
+    help("check the method name for typos, or ensure the type has this method")
+)]
+#[error("no method `{method_name}` found for type `{ty_name}`")]
+pub struct UnknownMethodError {
+    pub method_name: String,
+    pub ty_name: String,
+    #[label = "method not found"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::cannot_transfer_ownership_in_borrowing_method),
+    help(
+        "change the method to use `this` instead of `&this` if it needs to transfer ownership, or copy the value if the type is copyable"
+    )
+)]
+#[error("cannot transfer ownership of `{value_name}` in a borrowing method")]
+pub struct CannotTransferOwnershipInBorrowingMethodError {
+    #[label = "this method borrows `this` (uses `&this`), it does not own it"]
+    pub method_span: Span,
+    #[label = "trying to transfer ownership here"]
+    pub transfer_span: Span,
+    pub value_name: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::cannot_move_out_of_container),
+    help(
+        "consider returning a reference (`&T` or `&const T`) instead, or implement `_copy` for this type to make it copyable"
+    )
+)]
+#[error("cannot move non-copyable type `{ty_name}` out of container")]
+pub struct CannotMoveOutOfContainerError {
+    #[label = "attempting to move `{ty_name}` out of array/container here"]
+    pub span: Span,
+    pub ty_name: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::recursive_copy_constructor),
+    help(
+        "a copy constructor cannot copy the same type it's constructing, as this would cause infinite recursion. Check if you're dereferencing fields of `&const this` - use direct field access instead of `*this.field`"
+    )
+)]
+#[error("recursive copy detected in `_copy` method for type `{type_name}`")]
+pub struct RecursiveCopyConstructorError {
+    #[label = "copy constructor defined here"]
+    pub method_span: Span,
+    #[label = "attempting to copy `{type_name}` inside its own copy constructor"]
+    pub copy_span: Span,
+    pub type_name: String,
     #[source_code]
     pub src: NamedSource<String>,
 }

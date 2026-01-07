@@ -6,13 +6,13 @@ public:
         this.start = start;
         this.end = end;
     }
-    fun length(this) -> T {
+    fun length(&this) -> T {
         return this.end - this.start;
     }
-    fun contains(this, value: T) -> bool {
+    fun contains(&this, value: T) -> bool {
         return value >= this.start && value < this.end;
     }
-    fun is_empty(this) -> bool {
+    fun is_empty(&this) -> bool {
         return this.start >= this.end;
     }
 }

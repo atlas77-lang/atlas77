@@ -1,34 +1,45 @@
 import "std/vector";
 import "std/optional";
 import "std/string";
+import "std/mem";
 
 //TODO: Add Iter<T>::from_map(Map<K, V>)
 public struct Iter<T> {
-private:
+public:
     data: Vector<T>;
     index: uint64;
-public:
+
     Iter(data: Vector<T>) {
         this.data = data;
         this.index = 0u;
     }
-    ~Iter() {}
-    /// Returns the next item in the iterator, or None if the end is reached
-    fun next(this) -> optional<T> {
+    ~Iter() {
+        delete this.data;
+    }
+    fun _copy(&const this) -> Iter<T> {
+        let iter = new Iter<T>(*this.data);
+        iter.index = *this.index;
+        return iter;
+    }
+    /// Returns the next item in the iterator, or None if the end is reached.
+    /// Note: For non-copyable types, this will copy the element.
+    fun next(&this) -> optional<T> {
         if this.index >= this.data.length {
             return optional<T>::empty();
         }
-        let item = this.data.get(this.index);
+        
+        // Use dereference to trigger proper copy constructor for object types
+        let item: T = *(this.data.get(this.index));
         this.index = this.index + 1u;
         return optional<T>::of(item);
     }
     /// Peeks at the next item without advancing the iterator
-    fun peek(this) -> optional<&const T> {
+    fun peek(&this) -> optional<&const T> {
         if this.index >= this.data.length {
             return optional<&const T>::empty();
         }
         let item = this.data.get(this.index);
-        return optional<&const T>::of(&item);
+        return optional<&const T>::of(item);
     }
 
     fun from_array(data: [T]) -> Iter<T> {
@@ -36,11 +47,17 @@ public:
         return new Iter<T>(vector);
     }
 
-    fun has_next(this) -> bool {
+    fun has_next(&this) -> bool {
         return this.index < this.data.length;
     }
     
-    fun from_string(data: string) -> Iter<char> {
+    fun from_string(data: String) -> Iter<char> {
+        let chars: [char] = to_chars(&data.s);
+        let vector = new Vector<char>(chars);
+        return new Iter<char>(vector);
+    }
+
+    fun from_str(data: &const string) -> Iter<char> {
         let chars: [char] = to_chars(data);
         let vector = new Vector<char>(chars);
         return new Iter<char>(vector);

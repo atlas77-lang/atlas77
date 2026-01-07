@@ -115,6 +115,24 @@ pub enum OpCode {
     SET_FIELD,
     /// No Args
     DELETE_OBJ,
+
+    // === Reference operations ===
+    /// Load the address of a local variable onto the stack
+    /// Args: [local_slot_idx: 24bits]
+    LOAD_VAR_ADDR,
+    /// Load the value at the address on top of stack (dereference)
+    /// No Args: [Ref] -> [Value]
+    LOAD_INDIRECT,
+    /// Store a value to the address on top of stack
+    /// No Args: [Ref, Value] -> []
+    STORE_INDIRECT,
+    /// Get the address of a field in an object
+    /// Args: [obj_field_idx: 24bits]: [ObjPtr] -> [Ref]
+    GET_FIELD_ADDR,
+    /// Get the address of an indexed element in a collection
+    /// No Args: [Index, Ptr] -> [Ref]
+    INDEX_GET_ADDR,
+
     // === Type ops ===
     //Similar than the arithmetic operation,
     // this is reserved for the primitive types
@@ -122,10 +140,13 @@ pub enum OpCode {
     CAST_TO,
 
     // === Misc ===
+    /// Deep clone the string on top of stack
+    /// No Args: [String] -> [ClonedString]
+    CLONE_STRING,
     /// No Args
     NoOp = 254,
     /// No Args
-    Halt = 255,
+    HALT = 255,
 }
 
 #[repr(C)]
@@ -219,4 +240,5 @@ pub struct StructDescriptor {
     pub name: String,
     pub nb_fields: usize,
     pub fields: Vec<String>,
+    pub is_union: bool,
 }

@@ -80,10 +80,25 @@ pub enum Instruction {
     //Works for List/String/Object
     DeleteObj, // [ObjPtr] -> []
 
+    // === Reference operations ===
+    /// Load the address of a local variable onto the stack
+    LoadVarAddr(usize), // [local_slot_idx] -> [Ref]
+    /// Load the value at the address on top of stack (dereference)
+    LoadIndirect, // [Ref] -> [Value]
+    /// Store a value to the address on top of stack
+    StoreIndirect, // [Ref, Value] -> []
+    /// Get the address of a field in an object
+    GetFieldAddr {
+        field: usize,
+    }, // [ObjPtr] -> [Ref]
+    IndexGetAddr, // [Index, Ptr] -> [Ref]
+
     // === Type ops ===
     CastTo(Type), // Explicit type coercion (if kept)
 
     // === Misc ===
+    /// Deep clone the string on top of stack (for passing to extern functions)
+    CloneString, // [String] -> [ClonedString]
     Halt, // Stop execution
 }
 
@@ -133,7 +148,13 @@ impl Display for Instruction {
             Instruction::GetField { field } => write!(f, "GetField {}", field),
             Instruction::SetField { field } => write!(f, "SetField {}", field),
             Instruction::DeleteObj => write!(f, "DeleteObj"),
+            Instruction::LoadVarAddr(i) => write!(f, "LoadVarAddr {}", i),
+            Instruction::LoadIndirect => write!(f, "LoadIndirect"),
+            Instruction::StoreIndirect => write!(f, "StoreIndirect"),
+            Instruction::GetFieldAddr { field } => write!(f, "GetFieldAddr {}", field),
+            Instruction::IndexGetAddr => write!(f, "IndexGetAddr"),
             Instruction::CastTo(t) => write!(f, "CastTo {:?}", t),
+            Instruction::CloneString => write!(f, "CloneString"),
             Instruction::Halt => write!(f, "Halt"),
         }
     }
@@ -151,6 +172,7 @@ pub enum Type {
     Char,
     Unit,
     Object,
+    //Ref,
 }
 
 impl From<Type> for VMTag {
@@ -165,6 +187,7 @@ impl From<Type> for VMTag {
             Type::Unit => VMTag::Unit,
             Type::List => VMTag::List,
             Type::Object => VMTag::Object,
+            //Type::Ref => VMTag::Ref,
         }
     }
 }
@@ -181,6 +204,7 @@ impl From<&HirTy<'_>> for Type {
             HirTy::Unit(_) => Type::Unit,
             HirTy::List(_) => Type::List,
             HirTy::Named(_) | HirTy::Generic(_) => Type::Object,
+            //HirTy::ReadOnlyReference(_) | HirTy::MutableReference(_) => Type::Ref,
             _ => {
                 panic!(
                     "Unsupported type for conversion to Instruction::Type {:?}",
@@ -264,6 +288,7 @@ pub struct StructDescriptor<'run> {
     pub name: &'run str,
     pub fields: Vec<&'run str>,
     pub constants: BTreeMap<&'run str, ConstantValue>,
+    pub is_union: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]

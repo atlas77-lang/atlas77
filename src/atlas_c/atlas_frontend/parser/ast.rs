@@ -128,11 +128,19 @@ pub struct AstStruct<'ast> {
 
 #[derive(Debug, Clone, Default, Copy)]
 pub enum AstMethodModifier {
+    /// Static method - no `this` parameter
     Static,
-    /// Method that can be called on a constant reference to the object
+    /// Method that takes immutable reference to `this`
     ///
-    /// e.g.: `fun print(&const this) { ... }`
+    /// e.g.: `fun get(&const this) -> T { ... }`
     Const,
+    /// Method that takes mutable reference to `this`
+    ///
+    /// e.g.: `fun push(&this, val: T) { ... }`
+    Mutable,
+    /// Method that consumes ownership of `this`
+    ///
+    /// e.g.: `fun into_iter(this) -> Iter<T> { ... }`
     #[default]
     None,
 }

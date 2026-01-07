@@ -1,64 +1,40 @@
 mod context;
 
 use super::{
-    HirFunction, HirModule, HirModuleSignature,
-    arena::HirArena,
-    error::{HirError, HirResult, TypeMismatchError, UnknownTypeError},
-    expr,
-    expr::{HirBinaryOperator, HirExpr},
-    stmt::HirStatement,
-    ty::{HirTy, HirTyId},
+    HirFunction, HirModule, HirModuleSignature, arena::HirArena, expr, stmt::HirStatement,
 };
-use crate::atlas_c::atlas_hir::{
-    error::IllegalUnaryOperationError,
-    signature::{
-        HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier, HirVisibility,
-    },
-    ty::HirGenericTy,
-};
-use crate::atlas_c::atlas_hir::{
-    error::InvalidSpecialMethodSignatureError,
-    warning::{DeletingReferenceMightLeadToUB, HirWarning},
-};
-use crate::atlas_c::atlas_hir::{
-    error::TryingToAccessFieldOnNonObjectTypeError,
-    expr::{HirUnaryOp, HirUnsignedIntegerLiteralExpr},
-    monomorphization_pass::MonomorphizationPass,
-    warning::TryingToCastToTheSameTypeWarning,
+use crate::atlas_c::atlas_hir::item::HirStructConstructor;
+use crate::atlas_c::atlas_hir::signature::{
+    HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier, HirVisibility,
 };
 use crate::atlas_c::atlas_hir::{
     error::{
-        CallingNonConstMethodOnConstReferenceError, CallingNonConstMethodOnConstReferenceOrigin,
-        TryingToMutateConstReferenceError,
-    },
-    ty::HirNamedTy,
-};
-use crate::atlas_c::atlas_hir::{
-    error::{NotEnoughArgumentsError, NotEnoughArgumentsOrigin},
-    item::{HirStruct, HirStructMethod},
-};
-use crate::atlas_c::atlas_hir::{
-    error::{
-        TryingToCreateAnUnionWithMoreThanOneActiveFieldError,
-        TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin,
-    },
-    type_check_pass::context::{ContextFunction, ContextVariable},
-};
-use crate::atlas_c::atlas_hir::{
-    expr::{HirFunctionCallExpr, HirIdentExpr},
-    item::HirStructConstructor,
-};
-use crate::atlas_c::utils::Span;
-use crate::atlas_c::{
-    atlas_hir::error::{
         AccessingClassFieldOutsideClassError, AccessingPrivateConstructorError,
         AccessingPrivateFieldError, AccessingPrivateFunctionError, AccessingPrivateFunctionOrigin,
-        AccessingPrivateStructError, AccessingPrivateStructOrigin, CanOnlyConstructStructsError,
-        EmptyListLiteralError, FieldKind, IllegalOperationError,
-        TryingToIndexNonIndexableTypeError, TypeMismatchActual, UnsupportedExpr,
+        AccessingPrivateStructError, AccessingPrivateStructOrigin,
+        CallingNonConstMethodOnConstReferenceError, CallingNonConstMethodOnConstReferenceOrigin,
+        CanOnlyConstructStructsError, EmptyListLiteralError, FieldKind, HirError, HirResult,
+        IllegalOperationError, IllegalUnaryOperationError, InvalidSpecialMethodSignatureError,
+        NotEnoughArgumentsError, NotEnoughArgumentsOrigin, ReturningReferenceToLocalVariableError,
+        TryingToAccessFieldOnNonObjectTypeError,
+        TryingToCreateAnUnionWithMoreThanOneActiveFieldError,
+        TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin, TryingToIndexNonIndexableTypeError,
+        TryingToMutateConstReferenceError, TypeMismatchActual, TypeMismatchError,
+        UnknownFieldError, UnknownIdentifierError, UnknownMethodError, UnknownTypeError,
+        UnsupportedExpr,
     },
-    utils,
+    expr::{
+        HirBinaryOperator, HirExpr, HirFunctionCallExpr, HirIdentExpr, HirUnaryOp,
+        HirUnsignedIntegerLiteralExpr,
+    },
+    item::{HirStruct, HirStructMethod},
+    monomorphization_pass::MonomorphizationPass,
+    ty::{HirGenericTy, HirNamedTy, HirTy, HirTyId},
+    type_check_pass::context::{ContextFunction, ContextVariable},
+    warning::{HirWarning, TryingToCastToTheSameTypeWarning},
 };
+use crate::atlas_c::utils;
+use crate::atlas_c::utils::Span;
 use miette::{ErrReport, NamedSource};
 use std::collections::HashMap;
 
@@ -141,6 +117,8 @@ impl<'hir> TypeChecker<'hir> {
                         ty: param.ty,
                         _ty_span: param.ty_span,
                         _is_mut: false,
+                        is_param: true,
+                        refs_locals: vec![],
                     },
                 );
         }
@@ -172,6 +150,8 @@ impl<'hir> TypeChecker<'hir> {
                         ty: param.ty,
                         _ty_span: param.ty_span,
                         _is_mut: false,
+                        is_param: true,
+                        refs_locals: vec![],
                     },
                 );
         }
@@ -204,6 +184,8 @@ impl<'hir> TypeChecker<'hir> {
                         ty: param.ty,
                         _ty_span: param.ty_span,
                         _is_mut: false,
+                        is_param: true,
+                        refs_locals: vec![],
                     },
                 );
         }
@@ -245,7 +227,7 @@ impl<'hir> TypeChecker<'hir> {
                             span: method.signature.span,
                             method_name: name.to_string(),
                             expected: "1 parameter (&const this)".to_string(),
-                            actual: format!("{} parameters", method.signature.params.len()),
+                            actual: format!("{} parameters", method.signature.params.len() + 1), // + 1 for implicit this
                             src: NamedSource::new(
                                 method.signature.span.path,
                                 utils::get_file_content(method.signature.span.path).unwrap(),
@@ -309,6 +291,8 @@ impl<'hir> TypeChecker<'hir> {
                         ty: param.ty,
                         _ty_span: param.ty_span,
                         _is_mut: false,
+                        is_param: true,
+                        refs_locals: vec![],
                     },
                 );
         }
@@ -327,6 +311,21 @@ impl<'hir> TypeChecker<'hir> {
             }
             HirStatement::Return(r) => {
                 let actual_ret_ty = self.check_expr(&mut r.value)?;
+
+                // Check for returning a reference to a local variable (directly or through a struct)
+                let local_refs = self.get_local_ref_targets(&r.value);
+                if let Some(local_var_name) = local_refs.first() {
+                    let path = r.span.path;
+                    let src = utils::get_file_content(path).unwrap();
+                    return Err(HirError::ReturningReferenceToLocalVariable(
+                        ReturningReferenceToLocalVariableError {
+                            span: r.value.span(),
+                            var_name: local_var_name.to_string(),
+                            src: NamedSource::new(path, src),
+                        },
+                    ));
+                }
+
                 let mut expected_ret_ty = self.arena.types().get_uninitialized_ty();
                 let mut span = Span::default();
                 if self.current_class_name.is_some() {
@@ -349,7 +348,7 @@ impl<'hir> TypeChecker<'hir> {
                     expected_ret_ty = self.arena.intern(func_ret_from.return_ty.clone());
                     span = func_ret_from.return_ty_span.unwrap_or(r.span);
                 }
-                self.is_equivalent_ty(actual_ret_ty, r.value.span(), expected_ret_ty, span)
+                self.is_equivalent_ty(expected_ret_ty, span, actual_ret_ty, r.value.span())
             }
             HirStatement::While(w) => {
                 let cond_ty = self.check_expr(&mut w.condition)?;
@@ -423,8 +422,22 @@ impl<'hir> TypeChecker<'hir> {
             }
             HirStatement::Const(c) => {
                 let expr_ty = self.check_expr(&mut c.value)?;
-                let const_ty = c.ty.unwrap_or(expr_ty);
-                c.ty = Some(const_ty);
+                let const_ty = if c.ty == self.arena.types().get_uninitialized_ty() {
+                    //Need inference
+                    expr_ty
+                } else {
+                    self.is_equivalent_ty(
+                        expr_ty,
+                        c.value.span(),
+                        c.ty,
+                        c.ty_span.unwrap_or(c.name_span),
+                    )?;
+                    c.ty
+                };
+
+                // Check if the const is being assigned a reference to a local variable
+                let refs_locals = self.get_local_ref_targets(&c.value);
+
                 self.context_functions
                     .last_mut()
                     .unwrap()
@@ -438,6 +451,8 @@ impl<'hir> TypeChecker<'hir> {
                             ty: const_ty,
                             _ty_span: c.ty_span.unwrap_or(c.name_span),
                             _is_mut: false,
+                            is_param: false,
+                            refs_locals,
                         },
                     );
 
@@ -450,8 +465,23 @@ impl<'hir> TypeChecker<'hir> {
             }
             HirStatement::Let(l) => {
                 let expr_ty = self.check_expr(&mut l.value)?;
-                let var_ty = l.ty.unwrap_or(expr_ty);
-                l.ty = Some(var_ty);
+                let var_ty = if l.ty == self.arena.types().get_uninitialized_ty() {
+                    //Need inference
+                    expr_ty
+                } else {
+                    self.is_equivalent_ty(
+                        l.ty,
+                        l.ty_span.unwrap_or(l.name_span),
+                        expr_ty,
+                        l.value.span(),
+                    )?;
+                    l.ty
+                };
+                l.ty = var_ty;
+
+                // Check if the let is being assigned a reference to a local variable
+                let refs_locals = self.get_local_ref_targets(&l.value);
+
                 self.context_functions
                     .last_mut()
                     .unwrap()
@@ -465,13 +495,15 @@ impl<'hir> TypeChecker<'hir> {
                             ty: var_ty,
                             _ty_span: l.ty_span.unwrap_or(l.name_span),
                             _is_mut: true,
+                            is_param: false,
+                            refs_locals,
                         },
                     );
                 self.is_equivalent_ty(
-                    expr_ty,
-                    l.value.span(),
                     var_ty,
                     l.ty_span.unwrap_or(l.name_span),
+                    expr_ty,
+                    l.value.span(),
                 )
             }
             _ => Err(HirError::UnsupportedExpr(UnsupportedExpr {
@@ -485,7 +517,6 @@ impl<'hir> TypeChecker<'hir> {
         }
     }
     pub fn check_expr(&mut self, expr: &mut HirExpr<'hir>) -> HirResult<&'hir HirTy<'hir>> {
-        //eprintln!("Type checking expression: {}", expr.kind());
         match expr {
             HirExpr::IntegerLiteral(_) => Ok(self.arena.types().get_integer64_ty()),
             HirExpr::FloatLiteral(_) => Ok(self.arena.types().get_float64_ty()),
@@ -502,12 +533,6 @@ impl<'hir> TypeChecker<'hir> {
                         return Ok(self.arena.types().get_unit_ty());
                     }
                 };
-                match ty {
-                    HirTy::MutableReference(_) | HirTy::ReadOnlyReference(_) => {
-                        Self::deleting_ref_is_not_safe_warning(&del_expr.span);
-                    }
-                    _ => {}
-                }
                 let class = match self.signature.structs.get(name) {
                     Some(c) => *c,
                     None => {
@@ -568,7 +593,10 @@ impl<'hir> TypeChecker<'hir> {
                         s.ty = readonly_self_ty;
                         Ok(readonly_self_ty)
                     }
-                    HirStructMethodModifier::None => {
+                    HirStructMethodModifier::Mutable | HirStructMethodModifier::None => {
+                        // Both &this (mutable reference) and this (ownership) use the same
+                        // object type inside the method body - the difference is only in
+                        // ownership semantics at the call site
                         s.ty = self_ty;
                         Ok(self_ty)
                     }
@@ -872,7 +900,11 @@ impl<'hir> TypeChecker<'hir> {
                     let field_signature = match union_signature.variants.get(field.name) {
                         Some(f) => f,
                         None => {
-                            return Err(Self::unknown_type_err(field.name, &field.span));
+                            return Err(Self::unknown_field_err(
+                                field.name,
+                                union_ty.name,
+                                &field.span,
+                            ));
                         }
                     };
                     let field_ty = self.check_expr(&mut field.value)?;
@@ -1166,8 +1198,9 @@ impl<'hir> TypeChecker<'hir> {
 
                             Ok(func_expr.ty)
                         } else {
-                            Err(Self::unknown_type_err(
+                            Err(Self::unknown_method_err(
                                 field_access.field.name,
+                                name,
                                 &field_access.span,
                             ))
                         }
@@ -1225,7 +1258,7 @@ impl<'hir> TypeChecker<'hir> {
                                 .zip(func_expr.args.iter_mut())
                             {
                                 let arg_ty = self.check_expr(arg)?;
-                                self.is_equivalent_ty(param.ty, param.span, arg_ty, arg.span())?;
+                                self.is_equivalent_ty(arg_ty, arg.span(), param.ty, param.span)?;
                             }
 
                             static_access.ty =
@@ -1236,8 +1269,9 @@ impl<'hir> TypeChecker<'hir> {
 
                             Ok(func_expr.ty)
                         } else {
-                            Err(Self::unknown_type_err(
+                            Err(Self::unknown_method_err(
                                 static_access.field.name,
+                                name,
                                 &static_access.span,
                             ))
                         }
@@ -1252,10 +1286,11 @@ impl<'hir> TypeChecker<'hir> {
             HirExpr::Assign(a) => {
                 let rhs = self.check_expr(&mut a.rhs)?;
                 let lhs = self.check_expr(&mut a.lhs)?;
-                //Todo needs a special rule for `self.field = value`, because you can assign once to a const field
+                //Todo needs a special rule for `this.field = value`, because you can assign once to a const field
 
+                //Check if lhs is a const reference
                 if lhs.is_const() {
-                    //TODO: Add assignement in copy constructor
+                    //Check if we're in a constructor
                     if self.current_func_name == Some("constructor")
                         && self.current_class_name.is_some()
                     {
@@ -1263,6 +1298,26 @@ impl<'hir> TypeChecker<'hir> {
                         return Ok(lhs);
                     } else {
                         return Err(Self::trying_to_mutate_const_reference(&a.lhs.span(), lhs));
+                    }
+                }
+                //Let's check if we are dereferencing a const reference
+                if let HirExpr::Unary(unary_expr) = &*a.lhs {
+                    if let Some(HirUnaryOp::Deref) = &unary_expr.op {
+                        let deref_target_ty = self.check_expr(&mut unary_expr.expr.clone())?;
+                        if deref_target_ty.is_const() {
+                            //Check if we're in a constructor
+                            if self.current_func_name == Some("constructor")
+                                && self.current_class_name.is_some()
+                            {
+                                self.is_equivalent_ty(lhs, a.lhs.span(), rhs, a.rhs.span())?;
+                                return Ok(lhs);
+                            } else {
+                                return Err(Self::trying_to_mutate_const_reference(
+                                    &a.lhs.span(),
+                                    deref_target_ty,
+                                ));
+                            }
+                        }
                     }
                 }
                 self.is_equivalent_ty(lhs, a.lhs.span(), rhs, a.rhs.span())?;
@@ -1304,8 +1359,9 @@ impl<'hir> TypeChecker<'hir> {
                                     return Ok(var.ty);
                                 }
                                 None => {
-                                    return Err(Self::unknown_type_err(
-                                        &format!("{}::{}", name, field_access.field.name),
+                                    return Err(Self::unknown_field_err(
+                                        field_access.field.name,
+                                        name,
                                         &field_access.span,
                                     ));
                                 }
@@ -1357,8 +1413,9 @@ impl<'hir> TypeChecker<'hir> {
                         _ => Ok(field_access.field.ty),
                     }
                 } else {
-                    Err(Self::unknown_type_err(
+                    Err(Self::unknown_field_err(
                         field_access.field.name,
+                        name,
                         &field_access.span,
                     ))
                 }
@@ -1401,8 +1458,9 @@ impl<'hir> TypeChecker<'hir> {
                                     return Ok(self.arena.types().get_uint64_ty());
                                 }
                                 None => {
-                                    return Err(Self::unknown_type_err(
-                                        &format!("{}::{}", name, static_access.field.name),
+                                    return Err(Self::unknown_field_err(
+                                        static_access.field.name,
+                                        name,
                                         &static_access.span,
                                     ));
                                 }
@@ -1420,11 +1478,24 @@ impl<'hir> TypeChecker<'hir> {
                     static_access.ty = const_signature.ty;
                     Ok(const_signature.ty)
                 } else {
-                    Err(Self::unknown_type_err(
+                    Err(Self::unknown_field_err(
                         static_access.field.name,
+                        name,
                         &static_access.span,
                     ))
                 }
+            }
+            // Move expressions: type-check the inner expression
+            HirExpr::Move(move_expr) => {
+                let ty = self.check_expr(&mut move_expr.expr)?;
+                move_expr.ty = ty;
+                Ok(ty)
+            }
+            // Copy expressions: type-check the inner expression
+            HirExpr::Copy(copy_expr) => {
+                let ty = self.check_expr(&mut copy_expr.expr)?;
+                copy_expr.ty = ty;
+                Ok(ty)
             }
         }
     }
@@ -1464,12 +1535,25 @@ impl<'hir> TypeChecker<'hir> {
                 }
             }
             // Still need to create params even with explicit generics
-            for (param, arg) in signature.params.iter().zip(args_ty.iter()) {
+            for (param, _arg) in signature.params.iter().zip(args_ty.iter()) {
+                // Substitute the generic with the concrete type while preserving type constructors
+                let param_ty = if let Some(generic_name) = Self::get_generic_name(param.ty) {
+                    if let Some((_, concrete_ty)) =
+                        generics.iter().find(|(name, _)| *name == generic_name)
+                    {
+                        self.get_generic_ret_ty(param.ty, concrete_ty)
+                    } else {
+                        param.ty
+                    }
+                } else {
+                    param.ty
+                };
+
                 let param_sign: HirFunctionParameterSignature = HirFunctionParameterSignature {
                     name: param.name,
                     name_span: param.name_span,
                     span: param.span,
-                    ty: arg,
+                    ty: param_ty,
                     ty_span: param.ty_span,
                 };
                 params.push(param_sign);
@@ -1493,11 +1577,28 @@ impl<'hir> TypeChecker<'hir> {
                     };
                     generics.push((name, ty));
                 }
+            }
+            // Now substitute the inferred generics into parameter types
+            for (param, _arg) in signature.params.iter().zip(args_ty.iter()) {
+                // Find the concrete type for this parameter's generic
+                let param_ty = if let Some(generic_name) = Self::get_generic_name(param.ty) {
+                    if let Some((_, concrete_ty)) =
+                        generics.iter().find(|(name, _)| *name == generic_name)
+                    {
+                        // Substitute the generic with the concrete type while preserving type constructors
+                        self.get_generic_ret_ty(param.ty, concrete_ty)
+                    } else {
+                        param.ty
+                    }
+                } else {
+                    param.ty
+                };
+
                 let param_sign: HirFunctionParameterSignature = HirFunctionParameterSignature {
                     name: param.name,
                     name_span: param.name_span,
                     span: param.span,
-                    ty: arg,
+                    ty: param_ty,
                     ty_span: param.ty_span,
                 };
                 params.push(param_sign);
@@ -1589,6 +1690,10 @@ impl<'hir> TypeChecker<'hir> {
             (HirTy::ReadOnlyReference(r1), HirTy::ReadOnlyReference(r2)) => {
                 Self::get_generic_ty(r1.inner, r2.inner)
             }
+            // A mutable reference can be used where a read-only reference is expected
+            (HirTy::ReadOnlyReference(r1), HirTy::MutableReference(m2)) => {
+                Self::get_generic_ty(r1.inner, m2.inner)
+            }
             (HirTy::MutableReference(m1), HirTy::MutableReference(m2)) => {
                 Self::get_generic_ty(m1.inner, m2.inner)
             }
@@ -1613,7 +1718,7 @@ impl<'hir> TypeChecker<'hir> {
             i.ty = ctx_var.ty;
             Ok(ctx_var)
         } else {
-            Err(Self::unknown_type_err(i.name, &i.span))
+            Err(Self::unknown_identifier_err(i.name, &i.span))
         }
     }
 
@@ -1669,18 +1774,22 @@ impl<'hir> TypeChecker<'hir> {
                 self.is_equivalent_ty(read_only1.inner, ty1_span, read_only2.inner, ty2_span)
             }
             (HirTy::ReadOnlyReference(r1), HirTy::MutableReference(m2)) => {
-                //Only works one way. A mutable reference can be used where a read-only reference is expected, but not vice versa
+                // A mutable reference (&T) can be coerced to a read-only reference (&const T)
+                // ty1 = &const T (expected), ty2 = &T (actual) - this is valid
                 self.is_equivalent_ty(r1.inner, ty1_span, m2.inner, ty2_span)
             }
             (HirTy::MutableReference(mutable1), HirTy::MutableReference(mutable2)) => {
                 self.is_equivalent_ty(mutable1.inner, ty1_span, mutable2.inner, ty2_span)
             }
-            (HirTy::ReadOnlyReference(read_only), _) => {
-                self.is_equivalent_ty(read_only.inner, ty1_span, ty2, ty2_span)
+            (HirTy::List(list1), HirTy::List(list2)) => {
+                self.is_equivalent_ty(list1.inner, ty1_span, list2.inner, ty2_span)
             }
-            (HirTy::MutableReference(mutable), _) => {
-                self.is_equivalent_ty(mutable.inner, ty1_span, ty2, ty2_span)
-            }
+            // NOTE: Removed implicit value-to-reference coercion.
+            // Previously, `&const T` could match `T` and `&mut T` could match `T`.
+            // This caused issues with ownership: the type checker would accept `len(list)`
+            // when `len` expects `&const [T]`, but the ownership pass didn't know about
+            // the implicit borrow and would try to move/consume the list.
+            // Now users must explicitly write `len(&list)` to borrow.
             _ => {
                 if HirTyId::from(ty1) == HirTyId::from(ty2) {
                     Ok(())
@@ -1791,6 +1900,41 @@ impl<'hir> TypeChecker<'hir> {
         })
     }
 
+    #[inline(always)]
+    fn unknown_identifier_err(name: &str, span: &Span) -> HirError {
+        let path = span.path;
+        let src = utils::get_file_content(path).unwrap();
+        HirError::UnknownIdentifier(UnknownIdentifierError {
+            name: name.to_string(),
+            span: *span,
+            src: NamedSource::new(path, src),
+        })
+    }
+
+    #[inline(always)]
+    fn unknown_field_err(field_name: &str, ty_name: &str, span: &Span) -> HirError {
+        let path = span.path;
+        let src = utils::get_file_content(path).unwrap();
+        HirError::UnknownField(UnknownFieldError {
+            field_name: field_name.to_string(),
+            ty_name: ty_name.to_string(),
+            span: *span,
+            src: NamedSource::new(path, src),
+        })
+    }
+
+    #[inline(always)]
+    fn unknown_method_err(method_name: &str, ty_name: &str, span: &Span) -> HirError {
+        let path = span.path;
+        let src = utils::get_file_content(path).unwrap();
+        HirError::UnknownMethod(UnknownMethodError {
+            method_name: method_name.to_string(),
+            ty_name: ty_name.to_string(),
+            span: *span,
+            src: NamedSource::new(path, src),
+        })
+    }
+
     fn accessing_private_constructor_err(span: &Span, kind: &str) -> HirError {
         let path = span.path;
         let src = utils::get_file_content(path).unwrap();
@@ -1799,19 +1943,6 @@ impl<'hir> TypeChecker<'hir> {
             kind: kind.to_string(),
             src: NamedSource::new(path, src),
         })
-    }
-
-    #[inline(always)]
-    fn deleting_ref_is_not_safe_warning(span: &Span) {
-        let path = span.path;
-        let src = utils::get_file_content(path).unwrap();
-        let warning: ErrReport =
-            HirWarning::DeletingReferenceIsNotSafe(DeletingReferenceMightLeadToUB {
-                span: *span,
-                src: NamedSource::new(path, src),
-            })
-            .into();
-        eprintln!("{:?}", warning);
     }
 
     fn not_enough_arguments_err(
@@ -1881,6 +2012,95 @@ impl<'hir> TypeChecker<'hir> {
         eprintln!("{:?}", warning);
     }
 
+    /// Check if the expression is a reference (`&expr`) to a local variable,
+    /// or an identifier that holds a reference to a local variable.
+    /// Returns the name of the local variable if it is, None otherwise.
+    ///
+    /// This is used to detect when a function is trying to return a reference
+    /// to a local variable, which would be a dangling reference.
+    /// Get all local variables that the expression references (directly or transitively).
+    /// Returns a list of local variable names if any, empty vec otherwise.
+    ///
+    /// This is used to detect when a function is trying to return a reference
+    /// to a local variable, which would be a dangling reference.
+    fn get_local_ref_targets(&self, expr: &HirExpr<'hir>) -> Vec<&'hir str> {
+        match expr {
+            HirExpr::Unary(u) => {
+                if matches!(u.op, Some(HirUnaryOp::AsRef)) {
+                    // Check what we're taking a reference to
+                    match u.expr.as_ref() {
+                        HirExpr::Ident(ident) => {
+                            // Check if this is a local variable (not a function parameter)
+                            if self.is_local_variable(ident.name) {
+                                return vec![ident.name];
+                            }
+                        }
+                        HirExpr::FieldAccess(fa) => {
+                            // Check if the base object is a local variable
+                            if let HirExpr::Ident(ident) = fa.target.as_ref() {
+                                if self.is_local_variable(ident.name) {
+                                    return vec![ident.name];
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                    vec![]
+                } else if u.op.is_none() {
+                    // No op - just unwrap and recurse (parser sometimes wraps in Unary with no op)
+                    self.get_local_ref_targets(u.expr.as_ref())
+                } else {
+                    vec![]
+                }
+            }
+            HirExpr::Ident(ident) => {
+                // Check if this identifier holds references to local variables
+                self.get_refs_locals(ident.name)
+            }
+            HirExpr::NewObj(new_obj) => {
+                // Check if any constructor argument is a reference to a local
+                let mut refs = vec![];
+                for arg in &new_obj.args {
+                    refs.extend(self.get_local_ref_targets(arg));
+                }
+                refs
+            }
+            _ => vec![],
+        }
+    }
+
+    /// Get the local variables that a variable references (if any)
+    fn get_refs_locals(&self, name: &str) -> Vec<&'hir str> {
+        if let Some(context_map) = self.context_functions.last() {
+            if let Some(func_name) = self.current_func_name {
+                if let Some(context_func) = context_map.get(func_name) {
+                    if let Some(var) = context_func.get_variable(name) {
+                        return var.refs_locals.clone();
+                    }
+                }
+            }
+        }
+        vec![]
+    }
+
+    /// Check if a variable name refers to a local variable (not a function parameter)
+    fn is_local_variable(&self, name: &str) -> bool {
+        // Get the current function's context
+        if let Some(context_map) = self.context_functions.last() {
+            if let Some(func_name) = self.current_func_name {
+                if let Some(context_func) = context_map.get(func_name) {
+                    // Check if the variable is in the local scope
+                    if let Some(var) = context_func.get_variable(name) {
+                        // If it's a parameter, it's not local
+                        return !var.is_param;
+                    }
+                }
+            }
+        }
+        // If we can't determine, assume it's local (conservative)
+        true
+    }
+
     /// + - * / %
     fn is_arithmetic_type(ty: &HirTy) -> bool {
         matches!(
@@ -1897,7 +2117,10 @@ impl<'hir> TypeChecker<'hir> {
             | HirTy::Float64(_)
             | HirTy::Char(_)
             | HirTy::Boolean(_)
-            | HirTy::Unit(_) => true,
+            | HirTy::Unit(_)
+            // You can compare references for equality
+            | HirTy::ReadOnlyReference(_)
+            | HirTy::MutableReference(_) => true,
             HirTy::Named(n) => self.signature.enums.contains_key(n.name),
             _ => false,
         }

@@ -4,7 +4,7 @@
 private extern now() -> Time;
 private extern format_time(t: Time, fmt: string) -> string;
 private extern sleep(t: Time);
-
+private extern format_time_iso(t: Time) -> string;
 
 public struct Time {
 public:
@@ -17,11 +17,15 @@ public:
     }
     ~Time() {}
 
-    fun to_iso_string(this) -> string {
+    fun _copy(&const this) -> Time {
+        return new Time(*this.sec, *this.nsec);
+    }
+
+    fun to_iso_string(&this) -> string {
         return format_time(this, "%Y-%m-%dT%H:%M:%S");
     }
 
-    fun format(this, fmt: string) -> string {
+    fun format(&this, fmt: string) -> string {
         return format_time(this, fmt);
     }
 
@@ -29,7 +33,7 @@ public:
         return now();
     }
 
-    fun elapsed(this, since: Time) -> Time {
+    fun elapsed(&this, since: Time) -> Time {
         let sec_diff = this.sec - since.sec;
         let nsec_diff = this.nsec - since.nsec;
         if nsec_diff < 0 {
@@ -38,7 +42,7 @@ public:
         return new Time(sec_diff, nsec_diff);
     }
 
-    fun sleep(this) {
+    fun sleep(&this) {
         sleep(this);
     }
 }
