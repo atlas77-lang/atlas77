@@ -275,7 +275,7 @@ pub struct TryingToAccessFieldOnNonObjectTypeError {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::unsupported_item))]
-#[error("{item} isn't supported yet")]
+#[error("{item} aren't supported yet")]
 pub struct UnsupportedItemError {
     #[label = "unsupported item"]
     pub span: Span,

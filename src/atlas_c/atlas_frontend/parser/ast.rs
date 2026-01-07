@@ -20,6 +20,7 @@ pub enum AstItem<'ast> {
     Function(AstFunction<'ast>),
     Enum(AstEnum<'ast>),
     Union(AstUnion<'ast>),
+    Constant(AstGlobalConst<'ast>),
 }
 
 impl AstItem<'_> {
@@ -31,6 +32,7 @@ impl AstItem<'_> {
             AstItem::Function(v) => v.vis = vis,
             AstItem::Enum(v) => v.vis = vis,
             AstItem::Union(v) => v.vis = vis,
+            AstItem::Constant(v) => v.vis = vis,
         }
     }
     pub fn span(&self) -> Span {
@@ -41,8 +43,18 @@ impl AstItem<'_> {
             AstItem::Function(v) => v.span,
             AstItem::Enum(v) => v.span,
             AstItem::Union(v) => v.span,
+            AstItem::Constant(v) => v.span,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct AstGlobalConst<'ast> {
+    pub span: Span,
+    pub name: &'ast AstIdentifier<'ast>,
+    pub ty: &'ast AstType<'ast>,
+    pub value: &'ast AstExpr<'ast>,
+    pub vis: AstVisibility,
 }
 
 #[derive(Debug, Clone)]

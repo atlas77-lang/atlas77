@@ -125,7 +125,9 @@ pub struct UnnecessaryCopyDueToLaterBorrowsWarning {
         "Store the result in a variable first: \n\t\t- let temp = {expr_kind};\n\t\t- let {var_name} = temp{target_expr};"
     )
 )]
-#[error("Temporary value from `{expr_kind}` cannot be freed in this expression. It will most probably cause a memory leak.")]
+#[error(
+    "Temporary value from `{expr_kind}` cannot be freed in this expression. It will most probably cause a memory leak."
+)]
 pub struct TemporaryValueCannotBeFreedWarning {
     #[source_code]
     pub src: NamedSource<String>,

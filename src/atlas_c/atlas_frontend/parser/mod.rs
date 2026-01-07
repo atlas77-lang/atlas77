@@ -9,8 +9,8 @@ use miette::NamedSource;
 
 use crate::atlas_c::atlas_frontend::parser::{
     ast::{
-        AstEnum, AstEnumVariant, AstExternType, AstObjLiteralExpr, AstObjLiteralField,
-        AstReadOnlyRefType, AstStdGenericConstraint, AstUnion,
+        AstEnum, AstEnumVariant, AstExternType, AstGlobalConst, AstObjLiteralExpr,
+        AstObjLiteralField, AstReadOnlyRefType, AstStdGenericConstraint, AstUnion,
     },
     error::{
         NoFieldInStructError, OnlyOneConstructorAllowedError, ParseResult, SyntaxError,
@@ -204,6 +204,18 @@ impl<'ast> Parser<'ast> {
             TokenKind::KwStruct => Ok(AstItem::Struct(self.parse_struct()?)),
             TokenKind::KwUnion => Ok(AstItem::Union(self.parse_union()?)),
             TokenKind::KwEnum => Ok(AstItem::Enum(self.parse_enum()?)),
+            TokenKind::KwConst => {
+                let c = self.parse_const()?;
+                self.expect(TokenKind::Semicolon)?;
+                let c = AstItem::Constant(AstGlobalConst {
+                    span: c.span,
+                    name: c.name,
+                    ty: c.ty,
+                    value: c.value,
+                    vis: AstVisibility::default(),
+                });
+                Ok(c)
+            }
             TokenKind::KwPublic => {
                 let _ = self.advance();
                 let mut item = self.parse_item()?;

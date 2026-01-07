@@ -7,6 +7,18 @@ use crate::atlas_c::atlas_hir::signature::{
 use crate::atlas_c::utils::Span;
 
 #[derive(Debug, Clone)]
+pub struct HirGlobalConst<'hir> {
+    pub span: Span,
+    pub name: &'hir str,
+    pub name_span: Span,
+    pub ty: &'hir str,
+    pub ty_span: Span,
+    pub value: &'hir str,
+    pub value_span: Span,
+    pub vis: HirVisibility,
+}
+
+#[derive(Debug, Clone)]
 pub struct HirFunction<'hir> {
     pub span: Span,
     pub name: &'hir str,

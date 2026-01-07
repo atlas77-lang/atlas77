@@ -22,8 +22,7 @@ use crate::atlas_c::{
         HirImport, HirModule, HirModuleBody,
         arena::HirArena,
         error::{
-            HirError, HirResult, NonConstantValueError, NullableTypeRequiresStdLibraryError,
-            StructNameCannotBeOneLetterError, UnsupportedExpr, UnsupportedStatement, UselessError,
+            HirError, HirResult, NonConstantValueError, NullableTypeRequiresStdLibraryError, StructNameCannotBeOneLetterError, UnsupportedExpr, UnsupportedItemError, UnsupportedStatement, UselessError
         },
         expr::{
             HirAssignExpr, HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr,
@@ -113,6 +112,15 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     }
     pub fn visit_item(&mut self, ast_item: &'ast AstItem<'ast>) -> HirResult<()> {
         match ast_item {
+            AstItem::Constant(_) => {
+                let path = ast_item.span().path;
+                let src = utils::get_file_content(path).unwrap();
+                return Err(HirError::UnsupportedItem(UnsupportedItemError {
+                    span: ast_item.span(),
+                    item: "Global constants".to_string(),
+                    src: NamedSource::new(path, src),
+                }))
+            }
             AstItem::Function(ast_function) => {
                 let hir_func = self.visit_func(ast_function)?;
                 let name = self.arena.names().get(ast_function.name.name);

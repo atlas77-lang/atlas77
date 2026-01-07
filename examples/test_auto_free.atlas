@@ -1,0 +1,131 @@
+import "std/io";
+
+extern len<T>(arr: &const [T]) -> uint64;
+
+const PI: float64 = 3.14159;
+
+fun main() {
+    println("=== Test 1: Basic local variables ===");
+    test_basic_locals();
+    
+    println("=== Test 2: If/Else branches ===");
+    test_if_else();
+    
+    println("=== Test 3: While loops ===");
+    test_while_loop();
+    
+    println("=== Test 4: Early returns ===");
+    test_early_return(true);
+    test_early_return(false);
+    
+    println("=== Test 5: Multiple variables ===");
+    test_multiple_vars();
+    
+    println("=== All tests completed ===");
+}
+
+// Test 1: Basic local variables should have delete at end of function
+fun test_basic_locals() {
+    let msg = "Test basic locals";
+    let numbers = [1, 2, 3, 4, 5];
+    let value = 42;
+    println(msg);
+    let msg2 = msg;
+    // Expected: delete msg, delete numbers at end of function
+    // Note: primitives like 'value' don't need delete
+}
+
+// Test 2: Variables in if/else should be deleted at branch end
+fun test_if_else() {
+    let condition = true;
+    
+    if condition {
+        let then_msg = "In then branch";
+        let then_arr = [1, 2];
+        println(&then_msg);
+        // Expected: delete then_msg, delete then_arr at end of then block
+    } else {
+        let else_msg = "In else branch";
+        println(&else_msg);
+        // Expected: delete else_msg at end of else block
+    }
+    
+    let after = "After if/else";
+    println(&after);
+    // Expected: delete after at end of function
+}
+
+// Test 3: Variables in while loops should be deleted at end of each iteration
+fun test_while_loop() {
+    let counter = 0u;
+    let limit = 3u;
+    
+    while counter < limit {
+        let loop_msg = "Loop iteration";
+        let loop_arr = [counter];
+        println(&loop_msg);
+        counter = counter + 1u;
+        // Expected: delete loop_msg, delete loop_arr at end of loop body
+    }
+    
+    let final_msg = "Loop completed";
+    println(&final_msg);
+    // Expected: delete final_msg at end of function
+}
+
+// Test 4: Early returns should delete all variables in scope
+fun test_early_return(should_return: bool) {
+    let msg1 = "First message";
+    let arr1 = [1, 2, 3];
+    
+    if should_return {
+        let early_msg = "Returning early";
+        println(&early_msg);
+        // Expected: delete early_msg, delete arr1, delete msg1 before return
+        return;
+    }
+    
+    let msg2 = "Second message";
+    println(msg2);
+    // Expected: delete msg2, delete arr1, delete msg1 at end of function
+}
+
+// Test 5: Multiple variables of same and different types
+fun test_multiple_vars() {
+    let str1 = "String 1";
+    let str2 = "String 2";
+    let str3 = "String 3";
+    let arr1 = [1, 2, 3];
+    let arr2 = [4, 5, 6];
+    let num1 = 100;
+    let num2 = 200;
+    
+    println(str1);
+    println(str2);
+    println(str3);
+    println("");
+    
+    // Expected: delete str1, str2, str3, arr1, arr2 at end
+    // Note: num1, num2 are primitives, no delete needed
+}
+
+// Test 6: Nested if statements
+fun test_nested_if() {
+    let outer_var = "Outer";
+    
+    if true {
+        let level1 = "Level 1";
+        
+        if true {
+            let level2 = "Level 2";
+            println(&level2);
+            // Expected: delete level2 at end of this block
+        }
+        
+        println(&level1);
+        // Expected: delete level1 at end of this block
+    }
+    
+    println(&outer_var);
+    // Expected: delete outer_var at end of function
+}
