@@ -256,13 +256,13 @@ impl HirPrettyPrinter {
 
     fn print_function_signature(&mut self, sig: &HirFunctionSignature) {
         // Type parameters
-        if !sig.type_params.is_empty() {
+        if !sig.generics.is_empty() {
             self.write("<");
-            for (i, param) in sig.type_params.iter().enumerate() {
+            for (i, param) in sig.generics.iter().enumerate() {
                 if i > 0 {
                     self.write(", ");
                 }
-                self.write(param.name);
+                self.write(param.generic_name);
             }
             self.write(">");
         }
