@@ -7,3 +7,4 @@ pub mod runtime;
 pub mod stack;
 pub mod state;
 pub mod vm_data;
+pub mod new_instruction;
