@@ -1054,6 +1054,11 @@ impl<'ast> Parser<'ast> {
 
                 Ok(node)
             }
+            // Handle assignment to unary expressions like `*ref_x = 100`
+            TokenKind::OpAssign => {
+                let node = AstExpr::Assign(self.parse_assign(left)?);
+                Ok(node)
+            }
             _ => Ok(left),
         }
     }
@@ -1083,7 +1088,12 @@ impl<'ast> Parser<'ast> {
         // Unary operators apply to the full postfix expression:
         // &get_string() means &(get_string()), -arr[0] means -(arr[0]),
         // *ptr.field means *(ptr.field), !obj.method() means !(obj.method())
-        let expr = self.parse_primary()?;
+        // When there's a unary operator, don't parse assignment inside - it should apply to the whole unary expr
+        let expr = if op.is_some() {
+            self.parse_primary_no_assign()?
+        } else {
+            self.parse_primary()?
+        };
         let node = AstUnaryOpExpr {
             span: Span::union_span(&start_pos, &self.current().span()),
             op,
@@ -1203,7 +1213,14 @@ impl<'ast> Parser<'ast> {
     fn parse_primary(&mut self) -> ParseResult<AstExpr<'ast>> {
         let node = self.parse_primary_no_postfix()?;
         // Parse postfix operations (method calls, field access, indexing) on all primary expressions
-        self.parse_ident_access(node)
+        self.parse_ident_access(node, true)
+    }
+
+    /// Parse primary expression with postfix operations but WITHOUT assignment handling.
+    /// Used when parsing operand of unary expressions to avoid `*ref_x = 100` being parsed as `*(ref_x = 100)`.
+    fn parse_primary_no_assign(&mut self) -> ParseResult<AstExpr<'ast>> {
+        let node = self.parse_primary_no_postfix()?;
+        self.parse_ident_access(node, false)
     }
 
     fn parse_delete_obj(&mut self) -> ParseResult<AstExpr<'ast>> {
@@ -1217,7 +1234,13 @@ impl<'ast> Parser<'ast> {
     }
 
     /// TODO: We should be able to write `new Foo().bar()` but currently we can't
-    fn parse_ident_access(&mut self, origin: AstExpr<'ast>) -> ParseResult<AstExpr<'ast>> {
+    /// `handle_assign`: if true, handles `= value` as an assignment expression.
+    /// Set to false when parsing operands of unary expressions to avoid `*ref_x = 100` being parsed as `*(ref_x = 100)`.
+    fn parse_ident_access(
+        &mut self,
+        origin: AstExpr<'ast>,
+        handle_assign: bool,
+    ) -> ParseResult<AstExpr<'ast>> {
         let mut node = origin;
         while self.peek().is_some() {
             match self.current().kind() {
@@ -1231,7 +1254,7 @@ impl<'ast> Parser<'ast> {
                 TokenKind::Dot => {
                     node = AstExpr::FieldAccess(self.parse_field_access(node)?);
                 }
-                TokenKind::OpAssign => {
+                TokenKind::OpAssign if handle_assign => {
                     node = AstExpr::Assign(self.parse_assign(node)?);
                     return Ok(node);
                 }
