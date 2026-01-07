@@ -77,12 +77,15 @@ public:
             false
         );
     }
+    fun is_empty(&const this) -> bool {
+        return !(*this).has_value;
+    }
     /// Returns true if a value is present.
     ///
     /// Example:
     ///     if (opt.has_value()) { println("has value"); }
-    fun has_value(&this) -> bool {
-        return this.has_value;
+    fun has_value(&const this) -> bool {
+        return *this.has_value;
     }
     /// Consume the optional and return the contained value.
     ///

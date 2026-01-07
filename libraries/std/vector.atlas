@@ -7,8 +7,9 @@ public extern len<T>(data: &const [T]) -> uint64;
 public extern slice<T>(data: &const [T], start: uint64, end: uint64) -> [T];
 
 public struct Vector<T> {
-public:
+private:
     data: [T];
+public:
     length: uint64;
     capacity: uint64;
 
@@ -37,6 +38,10 @@ public:
         let vec = new Vector<T>(new [T; capacity]);
         vec.length = 0u;
         return vec;
+    }
+
+    fun len(&const this) -> uint64 {
+        return *this.length;
     }
 
     fun get(&this, index: uint64) -> &const T {
@@ -103,6 +108,13 @@ public:
     fun take(&this, index: uint64) -> T {
         // Public method to take an element out of the vector
         return this.try_take(index);
+    }
+
+    fun get_slice(&this, start: uint64, end: uint64) -> [T] {
+        if start > end || end > this.length {
+            panic("Slice indices out of bounds");
+        }
+        return slice(&this.data, start, end);
     }
 
 private:

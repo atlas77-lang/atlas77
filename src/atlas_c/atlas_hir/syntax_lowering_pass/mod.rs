@@ -22,7 +22,9 @@ use crate::atlas_c::{
         HirImport, HirModule, HirModuleBody,
         arena::HirArena,
         error::{
-            HirError, HirResult, NonConstantValueError, NullableTypeRequiresStdLibraryError, StructNameCannotBeOneLetterError, UnsupportedExpr, UnsupportedItemError, UnsupportedStatement, UselessError
+            HirError, HirResult, NonConstantValueError, NullableTypeRequiresStdLibraryError,
+            StructNameCannotBeOneLetterError, UnsupportedExpr, UnsupportedItemError,
+            UnsupportedStatement, UselessError,
         },
         expr::{
             HirAssignExpr, HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr,
@@ -119,7 +121,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     span: ast_item.span(),
                     item: "Global constants".to_string(),
                     src: NamedSource::new(path, src),
-                }))
+                }));
             }
             AstItem::Function(ast_function) => {
                 let hir_func = self.visit_func(ast_function)?;

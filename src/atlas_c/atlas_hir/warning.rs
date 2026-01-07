@@ -88,13 +88,13 @@ pub struct ThisTypeIsStillUnstableWarning {
         "Add `delete this;` before returning, or change to `&this` / `&const this` if you don't need to consume ownership"
     )
 )]
-#[error("Consuming method `{method_name}` does not explicitly delete `this`")]
+#[error("Consuming method `{method_signature}` does not explicitly delete `this`")]
 pub struct ConsumingMethodMayLeakThisWarning {
     #[source_code]
     pub src: NamedSource<String>,
     #[label = "This method takes ownership of `this` but doesn't delete it, which may cause a memory leak"]
     pub span: Span,
-    pub method_name: String,
+    pub method_signature: String,
 }
 
 #[derive(Error, Diagnostic, Debug)]

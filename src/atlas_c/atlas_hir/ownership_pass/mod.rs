@@ -53,7 +53,7 @@ use crate::atlas_c::{
         item::HirFunction,
         monomorphization_pass::MonomorphizationPass,
         pretty_print::HirPrettyPrinter,
-        signature::{HirModuleSignature, HirStructMethodModifier},
+        signature::{HirModuleSignature, HirStructMethodModifier, HirStructMethodSignature},
         stmt::{HirBlock, HirExprStmt, HirStatement, HirVariableStmt},
         ty::HirTy,
         warning::{
@@ -204,7 +204,11 @@ impl<'hir> OwnershipPass<'hir> {
                         Self::block_transfers_this_ownership(&method.body);
 
                     if !has_delete_this && !transfers_this_ownership {
-                        Self::emit_consuming_method_warning(method.name, method.signature.span);
+                        Self::emit_consuming_method_warning(
+                            method.name,
+                            &method.signature,
+                            method.signature.span,
+                        );
                     }
                 }
 
@@ -1966,14 +1970,20 @@ impl<'hir> OwnershipPass<'hir> {
     }
 
     /// Emits a warning for consuming methods that don't delete `this`
-    fn emit_consuming_method_warning(method_name: &str, span: Span) {
+    fn emit_consuming_method_warning(
+        method_name: &str,
+        method_sig: &HirStructMethodSignature,
+        span: Span,
+    ) {
+        let mut pretty_printer = HirPrettyPrinter::new();
+        pretty_printer.print_method_signature(method_name, method_sig);
         let path = span.path;
         let src = utils::get_file_content(path).unwrap_or_default();
         let warning: ErrReport =
             HirWarning::ConsumingMethodMayLeakThis(ConsumingMethodMayLeakThisWarning {
                 src: NamedSource::new(path, src),
                 span,
-                method_name: method_name.to_string(),
+                method_signature: pretty_printer.get_output(),
             })
             .into();
         eprintln!("{:?}", warning);

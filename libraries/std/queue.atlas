@@ -1,13 +1,12 @@
 import "std/io";
 import "std/mem";
-
-private extern len<T>(arr: &[T]) -> uint64;
+import "std/optional";
+import "std/vector";
 
 /// A simple FIFO queue data structure.
 public struct Queue<T> {
 private:
     items: [T];
-public:
     /// The index of the head of the queue.
     head: uint64;
     /// The index of the tail of the queue.
@@ -17,6 +16,7 @@ public:
     /// The number of items in the queue.
     count: uint64;
     /// Creates a new empty queue.
+public:
     Queue(items: [T]) {
         this.head = 0u;
         this.tail = 0u;
@@ -25,23 +25,41 @@ public:
         this.items = items;
     }
     /// Instantiates a queue with a predefined size.
-    fun with_size(size: uint64) -> Queue<T> {
+    fun with_capacity(size: uint64) -> Queue<T> {
         return new Queue<T>(new [T; size]);
     }
+    fun from_vector(vec: Vector<T>) -> Queue<T> {
+        let slice = vec.get_slice(0u, vec.len());
+        return new Queue<T>(slice);
+    }
+    fun to_vector(this) -> Vector<T> {
+        return new Vector<T>(this.items);
+    }
     /// Enqueues an item to the back of the queue.
-    fun enqueue(&this, item: T) {
+    /// Returns `optional<unit>::empty()` if the queue is full.
+    fun enqueue(&this, item: T) -> optional<unit>{
         if this.is_full() {
-            panic("Queue is full");
+            return optional<unit>::empty();
         }
         this.items[this.tail] = item;
         this.tail = (this.tail + 1u) % this.size;
         this.count = this.count + 1u;
-        return;
+        return optional<unit>::of(());
+    }
+    fun enqueue_front(&this, item: T) -> optional<unit> {
+        if this.is_full() {
+            return optional<unit>::empty();
+        }
+        this.head = (this.head + this.size - 1u) % this.size;
+        this.items[this.head] = item;
+        this.count = this.count + 1u;
+        return optional<unit>::of(());
     }
     /// Dequeues an item from the front of the queue.
-    fun dequeue(&this) -> T {
+    /// Returns `optional<T>::empty()` if the queue is empty.
+    fun dequeue(&this) -> optional<T> {
         if this.is_empty() {
-            panic("Queue is empty");
+            return optional<T>::empty();
         }
         // We do memcpy and not a call to a copy constructor, because we only
         // need a shallow copy here to move the value out of the container.
@@ -49,12 +67,37 @@ public:
         let item: T = memcpy(&(this.items[this.head]));
         this.head = (this.head + 1u) % this.size;
         this.count = this.count - 1u;
-        return item;
+        return optional<T>::of(item);
     }
-    fun is_full(&this) -> bool {
-        return this.count >= this.size;
+    fun dequeue_back(&this) -> optional<T> {
+        if this.is_empty() {
+            return optional<T>::empty();
+        }
+        this.tail = (this.tail + this.size - 1u) % this.size;
+        let item: T = memcpy(&(this.items[this.tail]));
+        this.count = this.count - 1u;
+        return optional<T>::of(item);
     }
-    fun is_empty(&this) -> bool {
-        return this.count == 0u;
+    fun is_full(&const this) -> bool {
+        return *this.count >= *this.size;
     }
+    fun is_empty(&const this) -> bool {
+        return *this.count == 0u;
+    }
+    fun len(&const this) -> uint64 {
+        return *this.count;
+    }
+    fun peek(&const this) -> optional<&const T> {
+        if this.is_empty() {
+            return optional<&const T>::empty();
+        }
+        return optional<&const T>::of(&(*this).items[(*this).head]);
+    }
+    fun peek_back(&const this) -> optional<&const T> {
+        if this.is_empty() {
+            return optional<&const T>::empty();
+        }
+        return optional<&const T>::of(&(*this).items[(*this).tail]);
+    }
+
 }
