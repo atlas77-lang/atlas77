@@ -1,5 +1,7 @@
 // Test file for reference implementation
 import "std/io";
+/// Let's test swap/replace from std/mem
+import "std/mem";
 
 fun test_basic_ref() {
     let x = 42;
@@ -84,5 +86,24 @@ fun main() {
     
     println("Testing struct field reference:");
     test_struct_field_ref();
+
+    let x = 5;
+    let y = 10;
+    print("Before swap: x = ");
+    print(x);
+    print(", y = ");
+    println(y);
+    swap(&x, &y);
+    print("After swap: x = ");
+    print(x);
+    print(", y = ");
+    println(y);
+
+    let a = 100;
+    print("Before replace: a = ");
+    println(a);
+    let old_a = replace(&a, 200);
+    print("After replace: a = ");
+    println(a);
 
 }
