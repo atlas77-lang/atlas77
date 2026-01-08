@@ -13,8 +13,7 @@ use crate::atlas_c::atlas_frontend::parser::{
         AstObjLiteralField, AstReadOnlyRefType, AstStdGenericConstraint, AstUnion,
     },
     error::{
-        NoFieldInStructError, OnlyOneConstructorAllowedError, ParseResult, SyntaxError,
-        UnexpectedTokenError,
+        DestructorWithParametersError, NoFieldInStructError, OnlyOneConstructorAllowedError, ParseResult, SyntaxError, UnexpectedTokenError
     },
 };
 use ast::{
@@ -328,6 +327,18 @@ impl<'ast> Parser<'ast> {
             }
         }
         self.expect(TokenKind::RParen)?;
+        if !params.is_empty() {
+            return Err(Box::new(SyntaxError::DestructorWithParameters(
+                DestructorWithParametersError {
+                    span: Span::union_span(&start_span, &self.current().span()),
+                    src: NamedSource::new(
+                        self.current().span.path,
+                        get_file_content(self.current().span.path)
+                            .expect("Failed to get source content for error reporting"),
+                    ),
+                },
+            )));
+        }
         let body = self.parse_block()?;
         let node = AstDestructor {
             span: Span::union_span(&start_span, &body.span),
@@ -411,6 +422,7 @@ impl<'ast> Parser<'ast> {
         self.expect(TokenKind::LBrace)?;
         let mut fields = vec![];
         let mut constructor: Option<&'ast AstConstructor<'ast>> = None;
+        let mut copy_constructor: Option<&'ast AstConstructor<'ast>> = None;
         let mut destructor: Option<&'ast AstDestructor<'ast>> = None;
         let mut methods = vec![];
         let mut operators = vec![];
@@ -445,7 +457,7 @@ impl<'ast> Parser<'ast> {
                             //We still parse it so we can give a better error message and recover later
                             let bad_constructor = self
                                 .parse_constructor(struct_identifier.name.to_owned(), curr_vis)?;
-                            self.only_one_constructor_allowed_error(&bad_constructor.span);
+                            return Err(self.only_one_constructor_allowed_error(&bad_constructor.span));
                         }
                     } else {
                         let mut obj_field = self.parse_obj_field()?;

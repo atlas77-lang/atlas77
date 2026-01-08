@@ -14,10 +14,22 @@ declare_error_type! {
         OnlyOneConstructorAllowed(OnlyOneConstructorAllowedError),
         NoFieldInStruct(NoFieldInStructError),
         InvalidCharacter(InvalidCharacterError),
+        DestructorWithParameters(DestructorWithParametersError),
     }
 }
 
 pub type ParseResult<T> = Result<T, Box<SyntaxError>>;
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(syntax::destructor_with_parameters), help("Remove the parameters from the destructor"))]
+#[error("Destructor cannot have parameters")]
+pub struct DestructorWithParametersError {
+    #[label = "destructor cannot have parameters"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(syntax::no_field_in_class), help("Add fields to the struct"))]
