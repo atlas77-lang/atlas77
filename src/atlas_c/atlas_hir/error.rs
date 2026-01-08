@@ -226,10 +226,10 @@ pub struct CallingNonConstMethodOnConstReferenceOrigin {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
-    code(sema::trying_to_access_a_moved_value),
-    help("consider cloning the value before moving it, or using a reference")
+    code(sema::trying_to_access_a_deleted_value),
+    help("consider cloning the value before deleting it, or using a reference")
 )]
-#[error("trying to access a moved value")]
+#[error("trying to access a deleted value")]
 pub struct TryingToAccessADeletedValueError {
     #[label = "value was deleted here"]
     pub delete_span: Span,
