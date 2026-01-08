@@ -1,109 +1,14 @@
-// Test file for reference implementation
 import "std/io";
-/// Let's test swap/replace from std/mem
-import "std/mem";
+import "std/vector";
 
-fun test_basic_ref() {
-    let x = 42;
-    let ref_x = &x;      // Take a reference
-    let y = *ref_x;      // Dereference to get value
-    println(y);          // Should print 42
+fun test() {
+    let my_vec = new Vector<int64>([1, 2, 3, 4, 5]);
+    let ref_1 = my_vec.get(0u);
+    delete my_vec;
+    println(ref_1); //Should error: use after free
 }
-
-fun test_mutate_through_ref() {
-    let x = 10;
-    let ref_x = &x;
-    *ref_x = 100;        // Mutate through reference
-    println(x);          // Should print 100
-}
-
-struct Point {
-public:
-    x: int64;
-    y: int64;
-    
-    Point(x: int64, y: int64) {
-        this.x = x;
-        this.y = y;
-    }
-}
-
-fun test_struct_field_ref() {
-    let p = new Point(5, 10);
-    // Debug: print p.x directly
-    println(p.x);        // Should print 5
-    
-    // Take a ref to field
-    let ref_x = &p.x;    // Reference to a field
-    println("Took reference");
-    
-    // Test read through ref:
-    let val = *ref_x;
-    println(val);        // Should print 5
-    
-    // Test write through ref:
-    *ref_x = 42;
-    println(p.x);        // Should print 42
-}
-
-struct Stuff {
-public:
-    a: &int64;
-    b: &int64;
-    Stuff(a: &int64, b: &int64) {
-        this.a = a;
-        this.b = b;
-    }
-}
-
-// This function triggers an error - the struct contains refs to locals
-// fun test_ret_struct_field_ref() -> Stuff {
-//     let a = 1;
-//     let b = 2;
-//     let stuff = new Stuff(&a, &b);
-//     return stuff;        // Returning references to local variables - DETECTED!
-// }
-
-// This function intentionally triggers an error - uncomment to test the escape analysis
-// fun test_ret_ref() -> &int64 {
-//     let p = new Point(50, 100);
-//     let ref_p = &p.x;
-//     return ref_p;          // Return reference to local variable - DETECTED!
-// }
-
-// fun test_const_ref(a: &const int64) {
-//     let val = *a;
-//     println(val);
-//     *a = 20;  // Should trigger error - modifying through const ref
-// }
 
 fun main() {
-    println("Testing basic reference:");
-    test_basic_ref();
-    
-    println("Testing mutation through reference:");
-    test_mutate_through_ref();
-    
-    println("Testing struct field reference:");
-    test_struct_field_ref();
-
-    let x = 5;
-    let y = 10;
-    print("Before swap: x = ");
-    print(x);
-    print(", y = ");
-    println(y);
-    swap(&x, &y);
-    print("After swap: x = ");
-    print(x);
-    print(", y = ");
-    println(y);
-
-    let a = 100;
-    print("Before replace: a = ");
-    println(a);
-    let old_a = replace(&a, 200);
-    print("After replace: a = ");
-    println(a);
-
+    println("Starting test for use after free...");
+    test();
 }
