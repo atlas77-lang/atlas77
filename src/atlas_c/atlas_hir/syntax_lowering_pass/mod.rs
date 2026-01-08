@@ -735,6 +735,36 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 vis: HirVisibility::Public,
             };
 
+            let mut statements = vec![];
+            for field in fields.iter() {
+                let init_expr = HirExpr::Assign(HirAssignExpr {
+                    span: field.span,
+                    lhs: Box::new(HirExpr::FieldAccess(HirFieldAccessExpr {
+                        span: field.span,
+                        target: Box::new(HirExpr::ThisLiteral(HirThisLiteral {
+                            span: field.span,
+                            ty: self.arena.types().get_uninitialized_ty(),
+                        })),
+                        field: Box::new(HirIdentExpr {
+                            span: field.span,
+                            name: field.name,
+                            ty: field.ty,
+                        }),
+                        ty: field.ty,
+                    })),
+                    rhs: Box::new(HirExpr::Ident(HirIdentExpr {
+                        span: field.span,
+                        name: field.name,
+                        ty: field.ty,
+                    })),
+                    ty: field.ty,
+                });
+                statements.push(HirStatement::Expr(HirExprStmt {
+                    span: field.span,
+                    expr: init_expr,
+                }));
+            }
+
             let hir = HirStructConstructor {
                 span: Span::default(),
                 signature: self.arena.intern(constructor_signature),
@@ -742,7 +772,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 type_params,
                 body: HirBlock {
                     span: Span::default(),
-                    statements: Vec::new(),
+                    statements,
                 },
                 //Constructor is public by default
                 vis: HirVisibility::Public,
