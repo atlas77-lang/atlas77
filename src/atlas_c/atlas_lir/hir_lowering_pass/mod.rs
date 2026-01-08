@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use miette::NamedSource;
+
 use crate::atlas_c::{
     atlas_hir::{
         HirModule,
@@ -10,13 +12,13 @@ use crate::atlas_c::{
     },
     atlas_lir::{
         error::{
-            CurrentFunctionDoesntExistError, LIRLoweringError, LIRResult, NoReturnInFunctionError,
+            CurrentFunctionDoesntExistError, LIRLoweringError, LIRResult, NoReturnInFunctionError, UnsupportedHirExprError,
         },
         program::{
             LIRBlock, LIRFunction, LIRInstr, LIROperand, LIRPrimitiveType, LIRProgram,
             LIRTerminator,
         },
-    },
+    }, utils,
 };
 
 /// HIR to LIR lowering pass
@@ -391,7 +393,19 @@ impl<'hir> HirLoweringPass<'hir> {
                         a: lhs,
                         b: rhs,
                     },
-                    _ => unimplemented!("Binary operator {:?} not yet supported", binop.op),
+                    _ => {
+                        let path = expr.span().path;
+                        let src = utils::get_file_content(path).unwrap();
+                        return Err(Box::new(
+                            LIRLoweringError::UnsupportedHirExpr(UnsupportedHirExprError {
+                                span: expr.span(),
+                                src: NamedSource::new(
+                                    path,
+                                    src,
+                                ),
+                            },
+                        )));
+                    },
                 };
 
                 self.emit(instr)?;
@@ -409,7 +423,19 @@ impl<'hir> HirLoweringPass<'hir> {
                 // Get function name from callee
                 let func_name = match call.callee.as_ref() {
                     HirExpr::Ident(ident) => ident.name.to_string(),
-                    _ => unimplemented!("Complex callees not yet supported"),
+                    _ => {
+                        let path = expr.span().path;
+                        let src = utils::get_file_content(path).unwrap();
+                        return Err(Box::new(
+                            LIRLoweringError::UnsupportedHirExpr(UnsupportedHirExprError {
+                                span: expr.span(),
+                                src: NamedSource::new(
+                                    path,
+                                    src,
+                                ),
+                            },
+                        )));
+                    },
                 };
 
                 // Check if it's an external function
@@ -458,10 +484,17 @@ impl<'hir> HirLoweringPass<'hir> {
             }
 
             _ => {
-                unimplemented!(
-                    "Expression {:?} not yet supported in LIR lowering",
-                    expr.kind()
-                );
+                let path = expr.span().path;
+                let src = utils::get_file_content(path).unwrap();
+                return Err(Box::new(
+                    LIRLoweringError::UnsupportedHirExpr(UnsupportedHirExprError {
+                        span: expr.span(),
+                        src: NamedSource::new(
+                            path,
+                            src,
+                        ),
+                    },
+                )));
             }
         }
     }
