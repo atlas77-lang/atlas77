@@ -23,13 +23,27 @@ fun test2() {
     println(ref_1); //Should error: use after free
 }
 
-fun test3() -> Foo{
+fun test3() {
     let my_vec = new Vector<int64>([1, 2, 3, 4, 5]);
     let ref_1 = my_vec.get(0u);
     let foo = new Foo(ref_1);
     delete my_vec;
     println(foo.a); //Should error: use after free
+}
+
+fun test4() -> Foo {
+    let my_vec = new Vector<int64>([1, 2, 3, 4, 5]);
+    let ref_1 = my_vec.get(0u);
+    let foo = new Foo(ref_1);
     return foo; // Should error: returning temporary reference
+}
+
+fun test5() -> Foo {
+    let my_vec = new Vector<int64>([1, 2, 3, 4, 5]);
+    let ref_1 = my_vec.get(0u);
+    let foo = new Foo(ref_1);
+    delete my_vec;
+    return foo; // Should error: returning reference to deleted data
 }
 
 fun main() {
