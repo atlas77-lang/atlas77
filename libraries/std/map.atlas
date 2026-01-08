@@ -155,4 +155,28 @@ public:
         delete this;
         return new Iter<Pair<K, V>>(pairs);
     }
+
+    fun keys(&const this) -> Iter<&const K> {
+        let size = *this.keys.length;
+        let keys_vec = Vector<&const K>::with_capacity(size);
+        let i = 0u;
+        while i < size {
+            let key_ref = this.keys.get(i);
+            keys_vec.push(key_ref);
+            i = i + 1u;
+        }
+        return new Iter<&const K>(keys_vec);
+    }
+
+    fun values(&const this) -> Iter<&const V> {
+        let size = *this.values.length;
+        let values_vec = Vector<&const V>::with_capacity(size);
+        let i = 0u;
+        while i < size {
+            let value_ref = this.values.get(i);
+            values_vec.push(value_ref);
+            i = i + 1u;
+        }
+        return new Iter<&const V>(values_vec);
+    }
 }
