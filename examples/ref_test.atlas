@@ -1,14 +1,43 @@
 import "std/io";
 import "std/vector";
 
-fun test() {
+struct Foo {
+public:
+    a: &const int64;
+    Foo(a: &const int64) {
+        this.a = a;
+    }
+}
+
+fun test1() {
     let my_vec = new Vector<int64>([1, 2, 3, 4, 5]);
     let ref_1 = my_vec.get(0u);
     delete my_vec;
     println(ref_1); //Should error: use after free
 }
 
+fun test2() {
+    let my_vec = new Vector<int64>([1, 2, 3, 4, 5]);
+    let ref_1 = my_vec.get(0u);
+    my_vec.into_iter();
+    println(ref_1); //Should error: use after free
+}
+
+fun test3() -> Foo{
+    let my_vec = new Vector<int64>([1, 2, 3, 4, 5]);
+    let ref_1 = my_vec.get(0u);
+    let foo = new Foo(ref_1);
+    delete my_vec;
+    println(foo.a); //Should error: use after free
+    return foo; // Should error: returning temporary reference
+}
+
 fun main() {
     println("Starting test for use after free...");
-    test();
+    test1();
+    println("Test completed.");
+    test2();
+    println("Test completed.");
+    test3();
+    println("All tests done.");
 }

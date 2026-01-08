@@ -2,6 +2,76 @@ use std::collections::HashMap;
 
 use crate::atlas_c::{atlas_hir::ty::HirTy, utils::Span};
 
+/// Tracks where a reference value originates from.
+///
+/// This is used to detect use-after-free bugs: when the origin of a reference
+/// is deleted or moved, all references derived from it become invalid.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum ReferenceOrigin<'hir> {
+    /// No origin tracking (for non-reference types)
+    #[default]
+    None,
+    /// Reference originates from a specific variable
+    Variable(&'hir str),
+    /// Reference originates from multiple possible sources (e.g., from a function
+    /// that takes multiple reference arguments)
+    Union(Vec<ReferenceOrigin<'hir>>),
+}
+
+impl<'hir> ReferenceOrigin<'hir> {
+    /// Check if this origin includes a specific variable name
+    pub fn includes(&self, var_name: &str) -> bool {
+        match self {
+            ReferenceOrigin::None => false,
+            ReferenceOrigin::Variable(name) => *name == var_name,
+            ReferenceOrigin::Union(origins) => origins.iter().any(|o| o.includes(var_name)),
+        }
+    }
+
+    /// Merge two origins into a union
+    pub fn merge(self, other: ReferenceOrigin<'hir>) -> ReferenceOrigin<'hir> {
+        match (self, other) {
+            (ReferenceOrigin::None, other) => other,
+            (this, ReferenceOrigin::None) => this,
+            (ReferenceOrigin::Variable(a), ReferenceOrigin::Variable(b)) if a == b => {
+                ReferenceOrigin::Variable(a)
+            }
+            (ReferenceOrigin::Variable(a), ReferenceOrigin::Variable(b)) => {
+                ReferenceOrigin::Union(vec![
+                    ReferenceOrigin::Variable(a),
+                    ReferenceOrigin::Variable(b),
+                ])
+            }
+            (ReferenceOrigin::Union(mut origins), ReferenceOrigin::Variable(v)) => {
+                if !origins
+                    .iter()
+                    .any(|o| matches!(o, ReferenceOrigin::Variable(x) if *x == v))
+                {
+                    origins.push(ReferenceOrigin::Variable(v));
+                }
+                ReferenceOrigin::Union(origins)
+            }
+            (ReferenceOrigin::Variable(v), ReferenceOrigin::Union(mut origins)) => {
+                if !origins
+                    .iter()
+                    .any(|o| matches!(o, ReferenceOrigin::Variable(x) if *x == v))
+                {
+                    origins.insert(0, ReferenceOrigin::Variable(v));
+                }
+                ReferenceOrigin::Union(origins)
+            }
+            (ReferenceOrigin::Union(mut a), ReferenceOrigin::Union(b)) => {
+                for origin in b {
+                    if !a.contains(&origin) {
+                        a.push(origin);
+                    }
+                }
+                ReferenceOrigin::Union(a)
+            }
+        }
+    }
+}
+
 /// Represents how a variable is used in an expression
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UseKind {
@@ -109,6 +179,36 @@ impl<'hir> ScopeMap<'hir> {
         } else {
             None
         }
+    }
+
+    /// Invalidate all references whose origin includes the given variable name.
+    /// This should be called when a variable is deleted or consumed by a method.
+    ///
+    /// Returns the names of variables that were invalidated.
+    pub fn invalidate_references_with_origin(
+        &mut self,
+        origin_name: &str,
+        invalidation_span: Span,
+    ) -> Vec<&'hir str> {
+        let mut invalidated = Vec::new();
+
+        // Check all scopes for references that depend on this origin
+        for scope in &mut self.scopes {
+            for (var_name, var_data) in scope.var_status.iter_mut() {
+                // Only invalidate reference types that depend on this origin
+                if var_data.kind == VarKind::Reference
+                    && var_data.origin.includes(origin_name)
+                    && var_data.status.is_valid()
+                {
+                    var_data.status = VarStatus::Deleted {
+                        delete_span: invalidation_span,
+                    };
+                    invalidated.push(*var_name);
+                }
+            }
+        }
+
+        invalidated
     }
 
     pub fn mark_as_borrowed(&mut self, name: &str) -> Option<()> {
@@ -379,6 +479,9 @@ pub struct VarData<'hir> {
     pub borrow_count: usize,
     /// Statement index where this variable was declared
     pub declaration_stmt_index: usize,
+    /// For reference types: tracks what variable(s) this reference points into.
+    /// When the origin is deleted/moved, this reference becomes invalid.
+    pub origin: ReferenceOrigin<'hir>,
 }
 
 impl<'hir> VarData<'hir> {
@@ -400,6 +503,31 @@ impl<'hir> VarData<'hir> {
             uses: Vec::new(),
             borrow_count: 0,
             declaration_stmt_index,
+            origin: ReferenceOrigin::None,
+        }
+    }
+
+    /// Create a new VarData with a specific origin (for reference types)
+    pub fn with_origin(
+        name: &'hir str,
+        span: Span,
+        kind: VarKind,
+        ty: &'hir HirTy<'hir>,
+        is_copyable: bool,
+        declaration_stmt_index: usize,
+        origin: ReferenceOrigin<'hir>,
+    ) -> Self {
+        Self {
+            name,
+            status: VarStatus::Owned,
+            span,
+            kind,
+            ty,
+            is_copyable,
+            uses: Vec::new(),
+            borrow_count: 0,
+            declaration_stmt_index,
+            origin,
         }
     }
 

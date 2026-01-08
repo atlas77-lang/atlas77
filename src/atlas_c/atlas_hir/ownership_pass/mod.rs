@@ -39,7 +39,9 @@
 //! 5. **Phase 5: Validation** - Check for illegal programs (use after move, copying non-copyable, etc.)
 
 mod context;
-pub use context::{ScopeMap, UseKind, VarData, VarKind, VarMap, VarStatus, VarUse};
+pub use context::{
+    ReferenceOrigin, ScopeMap, UseKind, VarData, VarKind, VarMap, VarStatus, VarUse,
+};
 
 use crate::atlas_c::{
     atlas_hir::{
@@ -59,8 +61,8 @@ use crate::atlas_c::{
         stmt::{HirBlock, HirExprStmt, HirStatement, HirVariableStmt},
         ty::HirTy,
         warning::{
-            ConsumingMethodMayLeakThisWarning, HirWarning, TemporaryValueCannotBeFreedWarning,
-            UnnecessaryCopyDueToLaterBorrowsWarning,
+            ConsumingMethodMayLeakThisWarning, HirWarning, ReferenceEscapesToConstructorWarning,
+            TemporaryValueCannotBeFreedWarning, UnnecessaryCopyDueToLaterBorrowsWarning,
         },
     },
     utils::{self, Span},
@@ -327,15 +329,23 @@ impl<'hir> OwnershipPass<'hir> {
                 let kind = self.classify_type_kind(ty);
                 let is_copyable = self.is_type_copyable(ty);
 
+                // For reference types, compute the origin so we can track use-after-free
+                let origin = if kind == VarKind::Reference {
+                    self.compute_reference_origin(&var_stmt.value)
+                } else {
+                    ReferenceOrigin::None
+                };
+
                 self.scope_map.insert(
                     var_stmt.name,
-                    VarData::new(
+                    VarData::with_origin(
                         var_stmt.name,
                         var_stmt.span,
                         kind,
                         ty,
                         is_copyable,
                         self.current_stmt_index,
+                        origin,
                     ),
                 );
             }
@@ -346,15 +356,23 @@ impl<'hir> OwnershipPass<'hir> {
                 let kind = self.classify_type_kind(ty);
                 let is_copyable = self.is_type_copyable(ty);
 
+                // For reference types, compute the origin
+                let origin = if kind == VarKind::Reference {
+                    self.compute_reference_origin(&var_stmt.value)
+                } else {
+                    ReferenceOrigin::None
+                };
+
                 self.scope_map.insert(
                     var_stmt.name,
-                    VarData::new(
+                    VarData::with_origin(
                         var_stmt.name,
                         var_stmt.span,
                         kind,
                         ty,
                         is_copyable,
                         self.current_stmt_index,
+                        origin,
                     ),
                 );
             }
@@ -623,20 +641,21 @@ impl<'hir> OwnershipPass<'hir> {
                 let kind = self.classify_type_kind(ty);
                 let is_copyable = self.is_type_copyable(ty);
 
-                // Preserve the uses array from the collection phase
-                let existing_uses = self
+                // Preserve the uses array and origin from the collection phase
+                let (existing_uses, existing_origin) = self
                     .scope_map
                     .get(var_stmt.name)
-                    .map(|v| v.uses.clone())
+                    .map(|v| (v.uses.clone(), v.origin.clone()))
                     .unwrap_or_default();
 
-                let mut new_var_data = VarData::new(
+                let mut new_var_data = VarData::with_origin(
                     var_stmt.name,
                     var_stmt.span,
                     kind,
                     ty,
                     is_copyable,
                     self.current_stmt_index,
+                    existing_origin,
                 );
                 new_var_data.uses = existing_uses;
 
@@ -665,20 +684,21 @@ impl<'hir> OwnershipPass<'hir> {
                 let kind = self.classify_type_kind(ty);
                 let is_copyable = self.is_type_copyable(ty);
 
-                // Preserve the uses array from the collection phase
-                let existing_uses = self
+                // Preserve the uses array and origin from the collection phase
+                let (existing_uses, existing_origin) = self
                     .scope_map
                     .get(var_stmt.name)
-                    .map(|v| v.uses.clone())
+                    .map(|v| (v.uses.clone(), v.origin.clone()))
                     .unwrap_or_default();
 
-                let mut new_var_data = VarData::new(
+                let mut new_var_data = VarData::with_origin(
                     var_stmt.name,
                     var_stmt.span,
                     kind,
                     ty,
                     is_copyable,
                     self.current_stmt_index,
+                    existing_origin,
                 );
                 new_var_data.uses = existing_uses;
 
@@ -1014,6 +1034,19 @@ impl<'hir> OwnershipPass<'hir> {
                     if let HirExpr::FieldAccess(field_access) = call.callee.as_ref() {
                         let transformed_target =
                             self.transform_expr_ownership(&field_access.target, true)?;
+
+                        // Invalidate any references whose origin is the consumed target.
+                        // This prevents use-after-free when a consuming method destroys the object
+                        // that references point into.
+                        // Example:
+                        //   let ref = my_vec.get(0);
+                        //   my_vec.consume();  // consuming method
+                        //   println(*ref);     // ERROR: ref's origin (my_vec) was consumed
+                        if let HirExpr::Ident(ident) = field_access.target.as_ref() {
+                            self.scope_map
+                                .invalidate_references_with_origin(ident.name, call.span);
+                        }
+
                         HirExpr::FieldAccess(crate::atlas_c::atlas_hir::expr::HirFieldAccessExpr {
                             span: field_access.span,
                             target: Box::new(transformed_target),
@@ -1115,6 +1148,10 @@ impl<'hir> OwnershipPass<'hir> {
             HirExpr::NewObj(new_obj) => {
                 let mut transformed_args = Vec::new();
                 for arg in new_obj.args.iter() {
+                    // Check if this argument is a reference with an origin
+                    // If so, emit a warning that it might escape into the constructor
+                    self.check_reference_escapes_to_constructor(arg, new_obj.ty, new_obj.span);
+
                     transformed_args.push(self.transform_expr_ownership(arg, true)?);
                 }
 
@@ -1298,6 +1335,7 @@ impl<'hir> OwnershipPass<'hir> {
                 ))
             }
             // Delete expressions - mark the variable as deleted so it won't be auto-deleted later
+            // Also invalidate any references that point into the deleted variable
             HirExpr::Delete(del) => {
                 // If deleting an identifier, mark it as deleted
                 // The inner expression might be wrapped in a Unary with op=None, so unwrap it
@@ -1306,12 +1344,21 @@ impl<'hir> OwnershipPass<'hir> {
                     other => other,
                 };
 
-                if let HirExpr::Ident(ident) = inner_expr
-                    && let Some(var_data) = self.scope_map.get_mut(ident.name)
-                {
-                    var_data.status = VarStatus::Deleted {
-                        delete_span: del.span,
-                    };
+                if let HirExpr::Ident(ident) = inner_expr {
+                    // Mark the variable itself as deleted
+                    if let Some(var_data) = self.scope_map.get_mut(ident.name) {
+                        var_data.status = VarStatus::Deleted {
+                            delete_span: del.span,
+                        };
+                    }
+
+                    // Invalidate all references whose origin includes this variable
+                    // This prevents use-after-free bugs like:
+                    //   let ref = my_vec.get(0);
+                    //   delete my_vec;
+                    //   println(*ref);  // ERROR: ref's origin (my_vec) was deleted
+                    self.scope_map
+                        .invalidate_references_with_origin(ident.name, del.span);
                 }
                 // Return the delete expression as-is
                 Ok(expr.clone())
@@ -1424,6 +1471,19 @@ impl<'hir> OwnershipPass<'hir> {
             return Err(HirError::TryingToAccessAPotentiallyMovedValue(
                 TryingToAccessAPotentiallyMovedValueError {
                     move_span: *move_span,
+                    access_span: ident.span,
+                    src: NamedSource::new(path, src),
+                },
+            ));
+        }
+
+        // Check for use-after-delete (includes references whose origin was deleted)
+        if let VarStatus::Deleted { delete_span } = &var_data.status {
+            let path = ident.span.path;
+            let src = utils::get_file_content(path).unwrap_or_default();
+            return Err(HirError::TryingToAccessADeletedValue(
+                TryingToAccessADeletedValueError {
+                    delete_span: *delete_span,
                     access_span: ident.span,
                     src: NamedSource::new(path, src),
                 },
@@ -1840,6 +1900,203 @@ impl<'hir> OwnershipPass<'hir> {
             }
         }
         false
+    }
+
+    // =========================================================================
+    // Reference Origin Tracking
+    // =========================================================================
+
+    /// Check if a reference argument escapes into a constructor and emit a warning.
+    ///
+    /// When a reference with a known origin is passed to a constructor, the constructed
+    /// object might store it. If the origin is later deleted, using the stored reference
+    /// would be a use-after-free bug. Since we can't know for sure if the constructor
+    /// stores the reference, we emit a warning.
+    fn check_reference_escapes_to_constructor(
+        &self,
+        arg: &HirExpr<'hir>,
+        constructed_ty: &HirTy<'hir>,
+        constructor_span: Span,
+    ) {
+        // Check if the argument is a reference type
+        if !arg.ty().is_ref() {
+            return;
+        }
+
+        // Unwrap Unary with op=None (which is just a wrapper)
+        let inner = match arg {
+            HirExpr::Unary(u) if u.op.is_none() => u.expr.as_ref(),
+            other => other,
+        };
+
+        // Check if the argument is an identifier with a known origin
+        if let HirExpr::Ident(ident) = inner {
+            if let Some(var_data) = self.scope_map.get(ident.name) {
+                // Only warn if the reference has a trackable origin
+                if let ReferenceOrigin::Variable(origin_name) = &var_data.origin {
+                    // Get the origin variable's span for the label
+                    let origin_span = self
+                        .scope_map
+                        .get(origin_name)
+                        .map(|v| v.span)
+                        .unwrap_or(ident.span);
+
+                    let path = constructor_span.path;
+                    let src = utils::get_file_content(path).unwrap_or_default();
+
+                    let warning: ErrReport = HirWarning::ReferenceEscapesToConstructor(
+                        ReferenceEscapesToConstructorWarning {
+                            src: NamedSource::new(path, src),
+                            span: constructor_span,
+                            origin_span,
+                            ref_var: ident.name.to_string(),
+                            origin_var: origin_name.to_string(),
+                            constructed_type: constructed_ty.to_string(),
+                        },
+                    )
+                    .into();
+
+                    eprintln!("{:?}", warning);
+                }
+            }
+        }
+    }
+
+    /// Compute the origin of a reference expression.
+    ///
+    /// This tracks where a reference "points into" so we can invalidate it
+    /// when the origin is deleted or consumed.
+    ///
+    /// Examples:
+    /// - `&x` → origin is `x`
+    /// - `my_vec.get(0)` → origin is `my_vec` (method returning reference)
+    /// - `foo.bar` where bar is a reference field → origin is `foo`
+    fn compute_reference_origin(&self, expr: &HirExpr<'hir>) -> ReferenceOrigin<'hir> {
+        match expr {
+            // Direct borrow: &x → origin is x
+            HirExpr::Unary(unary) => {
+                match &unary.op {
+                    Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::AsRef) => {
+                        // The reference points into the inner expression
+                        self.get_origin_from_lvalue(&unary.expr)
+                    }
+                    Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::Deref) => {
+                        // Dereferencing a reference - inherit origin from the reference
+                        self.compute_reference_origin(&unary.expr)
+                    }
+                    _ => {
+                        // Other unary ops (Neg, Not, None) - propagate
+                        self.compute_reference_origin(&unary.expr)
+                    }
+                }
+            }
+
+            // Method call: x.get(i) → if returns reference, origin includes x
+            HirExpr::Call(call) => {
+                // Check if the return type is a reference
+                if !matches!(
+                    call.ty,
+                    HirTy::ReadOnlyReference(_) | HirTy::MutableReference(_)
+                ) {
+                    return ReferenceOrigin::None;
+                }
+
+                let mut origin = ReferenceOrigin::None;
+
+                // If it's a method call, the receiver is a possible origin
+                if let HirExpr::FieldAccess(field) = call.callee.as_ref() {
+                    origin = origin.merge(self.get_origin_from_lvalue(&field.target));
+                }
+
+                // Any reference arguments are also possible origins
+                for (i, arg) in call.args.iter().enumerate() {
+                    let is_ref_param = call.args_ty.get(i).is_some_and(|ty| {
+                        matches!(ty, HirTy::ReadOnlyReference(_) | HirTy::MutableReference(_))
+                    });
+                    if is_ref_param {
+                        origin = origin.merge(self.get_origin_from_lvalue(arg));
+                    }
+                }
+
+                origin
+            }
+
+            // Field access: x.field → origin is x (if field is reference type)
+            HirExpr::FieldAccess(field) => self.get_origin_from_lvalue(&field.target),
+
+            // Indexing: arr[i] → origin is arr
+            HirExpr::Indexing(indexing) => self.get_origin_from_lvalue(&indexing.target),
+
+            // Variable: y (where y is a reference) → inherit y's origin
+            HirExpr::Ident(ident) => {
+                if let Some(var) = self.scope_map.get(ident.name) {
+                    if var.kind == VarKind::Reference {
+                        // Inherit the origin from the existing reference variable
+                        var.origin.clone()
+                    } else {
+                        // It's not a reference, so if we're creating a reference to it,
+                        // this variable IS the origin
+                        ReferenceOrigin::Variable(ident.name)
+                    }
+                } else {
+                    ReferenceOrigin::None
+                }
+            }
+
+            // Move/Copy wrappers - look inside
+            HirExpr::Move(mv) => self.compute_reference_origin(&mv.expr),
+            HirExpr::Copy(cp) => self.compute_reference_origin(&cp.expr),
+
+            // Casting - propagate through
+            HirExpr::Casting(cast) => self.compute_reference_origin(&cast.expr),
+
+            // Literals and other expressions have no origin
+            _ => ReferenceOrigin::None,
+        }
+    }
+
+    /// Get the origin from an lvalue expression (something that can be referenced).
+    /// This returns the variable name that "owns" the data being referenced.
+    fn get_origin_from_lvalue(&self, expr: &HirExpr<'hir>) -> ReferenceOrigin<'hir> {
+        match expr {
+            // Direct variable reference: the variable is the origin
+            HirExpr::Ident(ident) => ReferenceOrigin::Variable(ident.name),
+
+            // Field access: origin is the root object
+            HirExpr::FieldAccess(field) => self.get_origin_from_lvalue(&field.target),
+
+            // Indexing: origin is the container
+            HirExpr::Indexing(indexing) => self.get_origin_from_lvalue(&indexing.target),
+
+            // Deref: origin is from the inner reference
+            HirExpr::Unary(unary)
+                if matches!(
+                    unary.op,
+                    Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::Deref)
+                ) =>
+            {
+                // Dereferencing a reference - get the origin from the reference
+                if let HirExpr::Ident(ident) = unary.expr.as_ref()
+                    && let Some(var) = self.scope_map.get(ident.name)
+                {
+                    return var.origin.clone();
+                }
+                self.compute_reference_origin(&unary.expr)
+            }
+
+            // Other unary ops - look through
+            HirExpr::Unary(unary) => self.get_origin_from_lvalue(&unary.expr),
+
+            // ThisLiteral: use "this" as the origin name
+            HirExpr::ThisLiteral(_) => ReferenceOrigin::Variable("this"),
+
+            // Move/Copy wrappers
+            HirExpr::Move(mv) => self.get_origin_from_lvalue(&mv.expr),
+            HirExpr::Copy(cp) => self.get_origin_from_lvalue(&cp.expr),
+
+            // Other expressions don't have a clear origin
+            _ => ReferenceOrigin::None,
+        }
     }
 
     /// A type is copyable if:
