@@ -1269,37 +1269,31 @@ impl<'hir> TypeChecker<'hir> {
                 let lhs = self.check_expr(&mut a.lhs)?;
                 //Todo needs a special rule for `this.field = value`, because you can assign once to a const field
 
-                //Check if lhs is a const reference
-                if lhs.is_const() {
-                    //Check if we're in a constructor
-                    if self.current_func_name == Some("constructor")
-                        && self.current_class_name.is_some()
-                    {
-                        self.is_equivalent_ty(lhs, a.lhs.span(), rhs, a.rhs.span())?;
-                        return Ok(lhs);
-                    } else {
-                        return Err(Self::trying_to_mutate_const_reference(&a.lhs.span(), lhs));
-                    }
-                }
-                //Let's check if we are dereferencing a const reference
+                // Check if we are dereferencing a const reference (mutation through const ref)
+                // This catches: `*const_ref = value`
                 if let HirExpr::Unary(unary_expr) = &*a.lhs
                     && let Some(HirUnaryOp::Deref) = &unary_expr.op
                 {
                     let deref_target_ty = self.check_expr(&mut unary_expr.expr.clone())?;
-                    if deref_target_ty.is_const()
-                            //Check if we're in a constructor
-                            && self.current_func_name == Some("constructor")
-                                && self.current_class_name.is_some()
-                    {
-                        self.is_equivalent_ty(lhs, a.lhs.span(), rhs, a.rhs.span())?;
-                        return Ok(lhs);
-                    } else {
-                        return Err(Self::trying_to_mutate_const_reference(
-                            &a.lhs.span(),
-                            deref_target_ty,
-                        ));
+                    if deref_target_ty.is_const() {
+                        // Allow mutation in constructor for field initialization
+                        if !(self.current_func_name == Some("constructor")
+                            && self.current_class_name.is_some())
+                        {
+                            return Err(Self::trying_to_mutate_const_reference(
+                                &a.lhs.span(),
+                                deref_target_ty,
+                            ));
+                        }
                     }
                 }
+
+                // Note: We intentionally do NOT block assignments where lhs.is_const() is true
+                // but there's no dereference. For example:
+                //   let arr: [&const T] = ...;
+                //   arr[i] = some_const_ref;  // This is OK - storing a const ref value
+                // This is different from *const_ref = value (mutation through const ref)
+
                 self.is_equivalent_ty(lhs, a.lhs.span(), rhs, a.rhs.span())?;
                 Ok(lhs)
             }
