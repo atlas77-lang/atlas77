@@ -54,6 +54,9 @@ pub fn build(
     using_std: bool,
     produces_output: bool,
 ) -> miette::Result<AsmProgram> {
+    if produces_output {
+        std::fs::create_dir_all("./build").unwrap();
+    }
     let start = Instant::now();
     println!("Building project at path: {}", path);
     let path_buf = get_path(&path);
@@ -93,7 +96,7 @@ pub fn build(
             use crate::atlas_c::atlas_hir::pretty_print::HirPrettyPrinter;
             let mut hir_printer = HirPrettyPrinter::new();
             let hir_output = hir_printer.print_module(hir);
-            let mut file_hir = std::fs::File::create("output.atlas").unwrap();
+            let mut file_hir = std::fs::File::create("./build/output.atlas").unwrap();
             file_hir.write_all(hir_output.as_bytes()).unwrap();
             return Err((err).into());
         }
@@ -109,16 +112,18 @@ pub fn build(
     if produces_output {
         let mut hir_printer = HirPrettyPrinter::new();
         let hir_output = hir_printer.print_module(hir);
-        let mut file_hir = std::fs::File::create("output.atlas").unwrap();
+        let mut file_hir = std::fs::File::create("./build/output.atlas").unwrap();
         file_hir.write_all(hir_output.as_bytes()).unwrap();
     }
 
     let mut lir_lower = HirLoweringPass::new(hir);
     match lir_lower.lower() {
         Ok(lir) => {
-            let mut file_lir = std::fs::File::create("output.atlas_lir").unwrap();
-            let lir_output = format!("{}", lir);
-            file_lir.write_all(lir_output.as_bytes()).unwrap();
+            if produces_output {
+                let mut file_lir = std::fs::File::create("./build/output.atlas_lir").unwrap();
+                let lir_output = format!("{}", lir);
+                file_lir.write_all(lir_output.as_bytes()).unwrap();
+            }
         }
         Err(e) => {
             eprintln!("{:?}", Into::<miette::Report>::into(*e));
@@ -131,7 +136,7 @@ pub fn build(
     let mut codegen = CodeGenUnit::new(hir, arena, &hir_arena);
     let program = codegen.compile()?;
     if produces_output {
-        let mut file = std::fs::File::create("output.atlasc").unwrap();
+        let mut file = std::fs::File::create("./build/output.atlasc").unwrap();
         let mut content = String::new();
         for label in program.labels.iter() {
             content.push_str(&format!("{}", label));
@@ -139,11 +144,13 @@ pub fn build(
         file.write_all(content.as_bytes()).unwrap();
     }
 
-    let mut file2 = std::fs::File::create("output.atlas_asm").unwrap();
     let mut assembler = atlas_asm::Assembler::new();
     let asm = assembler.asm_from_instruction(!using_std, program)?;
-    let content2 = format!("{}", asm);
-    file2.write_all(content2.as_bytes()).unwrap();
+    if produces_output {
+        let mut file2 = std::fs::File::create("./build/output.atlas_asm").unwrap();
+        let content2 = format!("{}", asm);
+        file2.write_all(content2.as_bytes()).unwrap();
+    }
 
     let end = Instant::now();
     println!("Build completed in {}µs", (end - start).as_micros());
