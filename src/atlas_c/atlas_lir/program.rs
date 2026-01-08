@@ -1,11 +1,13 @@
+use std::collections::HashSet;
+
+use crate::atlas_c::atlas_hir::signature::ConstantValue;
+// TODO: Add Span info to LIR structures for better error reporting
 pub type Label = String;
 
 #[derive(Debug, Clone)]
 pub struct LIRProgram {
     pub functions: Vec<LIRFunction>,
 }
-
-use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
 pub struct LIRFunction {
@@ -190,8 +192,7 @@ pub enum LIROperand {
     /// e.g., t1, t2, etc.
     Temp(u32),
     Arg(u8),
-    /// Constant pool index
-    Const(usize),
+    Const(ConstantValue),
     /// Immediate values
     ImmInt(i64),
     ImmUInt(u64),

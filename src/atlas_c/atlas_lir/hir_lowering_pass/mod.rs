@@ -7,18 +7,21 @@ use crate::atlas_c::{
         HirModule,
         expr::{HirBinaryOperator, HirExpr},
         item::HirFunction,
+        signature::ConstantValue,
         stmt::HirStatement,
         ty::HirTy,
     },
     atlas_lir::{
         error::{
-            CurrentFunctionDoesntExistError, LIRLoweringError, LIRResult, NoReturnInFunctionError, UnsupportedHirExprError,
+            CurrentFunctionDoesntExistError, LIRLoweringError, LIRResult, NoReturnInFunctionError,
+            UnsupportedHirExprError,
         },
         program::{
             LIRBlock, LIRFunction, LIRInstr, LIROperand, LIRPrimitiveType, LIRProgram,
             LIRTerminator,
         },
-    }, utils,
+    },
+    utils,
 };
 
 /// HIR to LIR lowering pass
@@ -150,7 +153,7 @@ impl<'hir> HirLoweringPass<'hir> {
                 .signature
                 .params
                 .iter()
-                .map(|p| self.hir_ty_to_lir_primitive(&p.ty))
+                .map(|p| self.hir_ty_to_lir_primitive(p.ty))
                 .collect(),
             return_type: {
                 let lir_ty = self.hir_ty_to_lir_primitive(&func.signature.return_ty);
@@ -191,8 +194,10 @@ impl<'hir> HirLoweringPass<'hir> {
                 b.terminator,
                 LIRTerminator::Return { value: Some(_) } | LIRTerminator::Halt
             ) {
-                eprintln!("[BLOCK] {}", b);
                 // It should return something, but doesn't
+                // TODO: Add a ! type so if the last statement is a call to a function returning !, we don't error
+                // TODO: Add CFG analysis to check all paths because right now only the else branch has to return,
+                //  the if branch can just fallthrough
                 return Err(Box::new(LIRLoweringError::NoReturnInFunction(
                     NoReturnInFunctionError {
                         name: func.name.to_string(),
@@ -298,6 +303,15 @@ impl<'hir> HirLoweringPass<'hir> {
                 Ok(dest)
             }
 
+            HirExpr::StringLiteral(lit) => {
+                let dest = self.new_temp();
+                self.emit(LIRInstr::LoadConst {
+                    dst: dest.clone(),
+                    value: LIROperand::Const(ConstantValue::String(String::from(lit.value))),
+                })?;
+                Ok(dest)
+            }
+
             // === Identifiers (variables/parameters) ===
             HirExpr::Ident(ident) => {
                 // Check if it's a parameter
@@ -396,16 +410,13 @@ impl<'hir> HirLoweringPass<'hir> {
                     _ => {
                         let path = expr.span().path;
                         let src = utils::get_file_content(path).unwrap();
-                        return Err(Box::new(
-                            LIRLoweringError::UnsupportedHirExpr(UnsupportedHirExprError {
+                        return Err(Box::new(LIRLoweringError::UnsupportedHirExpr(
+                            UnsupportedHirExprError {
                                 span: expr.span(),
-                                src: NamedSource::new(
-                                    path,
-                                    src,
-                                ),
+                                src: NamedSource::new(path, src),
                             },
                         )));
-                    },
+                    }
                 };
 
                 self.emit(instr)?;
@@ -426,16 +437,13 @@ impl<'hir> HirLoweringPass<'hir> {
                     _ => {
                         let path = expr.span().path;
                         let src = utils::get_file_content(path).unwrap();
-                        return Err(Box::new(
-                            LIRLoweringError::UnsupportedHirExpr(UnsupportedHirExprError {
+                        return Err(Box::new(LIRLoweringError::UnsupportedHirExpr(
+                            UnsupportedHirExprError {
                                 span: expr.span(),
-                                src: NamedSource::new(
-                                    path,
-                                    src,
-                                ),
+                                src: NamedSource::new(path, src),
                             },
                         )));
-                    },
+                    }
                 };
 
                 // Check if it's an external function
@@ -467,7 +475,7 @@ impl<'hir> HirLoweringPass<'hir> {
                 };
 
                 self.emit(instr)?;
-                Ok(dest.unwrap_or(LIROperand::Const(0))) // unit value
+                Ok(dest.unwrap_or(LIROperand::ImmInt(0))) // unit value
             }
 
             // === Move/Copy (ownership pass artifacts) ===
@@ -486,15 +494,12 @@ impl<'hir> HirLoweringPass<'hir> {
             _ => {
                 let path = expr.span().path;
                 let src = utils::get_file_content(path).unwrap();
-                return Err(Box::new(
-                    LIRLoweringError::UnsupportedHirExpr(UnsupportedHirExprError {
+                Err(Box::new(LIRLoweringError::UnsupportedHirExpr(
+                    UnsupportedHirExprError {
                         span: expr.span(),
-                        src: NamedSource::new(
-                            path,
-                            src,
-                        ),
+                        src: NamedSource::new(path, src),
                     },
-                )));
+                )))
             }
         }
     }

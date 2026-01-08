@@ -129,12 +129,12 @@ pub enum ConstantValue {
 impl Display for ConstantValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ConstantValue::Int(i) => write!(f, "int64 : {}", i),
-            ConstantValue::Float(fl) => write!(f, "float64 : {}", fl),
-            ConstantValue::UInt(u) => write!(f, "uint64 : {}", u),
-            ConstantValue::String(s) => write!(f, "string : \"{}\"", s),
-            ConstantValue::Bool(b) => write!(f, "bool : {}", b),
-            ConstantValue::Char(c) => write!(f, "char : '{}'", c),
+            ConstantValue::Int(i) => write!(f, "{}", i),
+            ConstantValue::Float(fl) => write!(f, "{}", fl),
+            ConstantValue::UInt(u) => write!(f, "{}", u),
+            ConstantValue::String(s) => write!(f, "\"{}\"", s),
+            ConstantValue::Bool(b) => write!(f, "{}", b),
+            ConstantValue::Char(c) => write!(f, "'{}'", c),
             ConstantValue::Unit => write!(f, "()"),
             ConstantValue::List(l) => {
                 let elements: Vec<String> = l.iter().map(|elem| format!("{}", elem)).collect();

@@ -42,7 +42,6 @@ mod context;
 pub use context::{ScopeMap, UseKind, VarData, VarKind, VarMap, VarStatus, VarUse};
 
 use crate::atlas_c::{
-    atlas_frontend::lexer::Spanned,
     atlas_hir::{
         HirModule,
         arena::HirArena,
