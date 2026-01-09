@@ -7,21 +7,18 @@ import "std/io";
 struct Copyable<T: std::copyable> {
 public:
     a: int64;
-    b: T;
+    b: [T];
     // Normal constructor
     Copyable(a: int64, b: T) {
         this.a = a;
-        this.b = b;
+        this.b = [b];
     }
     // Destructor
     ~Copyable() {
         delete this.b;
     }
     // Copy constructor
-    Copyable(from: &const Copyable<T>) {
-        this.a = *from.a;
-        this.b = *from.b;
-    }
+    
 }
 
 fun main() {

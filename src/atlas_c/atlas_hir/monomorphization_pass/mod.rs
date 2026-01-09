@@ -18,10 +18,11 @@ use crate::atlas_c::{
         },
         stmt::{HirBlock, HirExprStmt, HirStatement},
         ty::{HirGenericTy, HirListTy, HirMutableReferenceTy, HirReadOnlyReferenceTy, HirTy},
+        warning::{CannotGenerateACopyConstructorForThisTypeWarning, HirWarning},
     },
-    utils::{self, Span},
+    utils::{self, Span, get_file_content},
 };
-use miette::NamedSource;
+use miette::{ErrReport, NamedSource};
 pub(crate) mod generic_pool;
 
 //Maybe all the passes should share a common trait? Or be linked to a common context struct?
@@ -96,20 +97,35 @@ impl<'hir> MonomorphizationPass<'hir> {
             .filter(|(_, s)| s.copy_constructor.is_none() && !s.flag.is_non_copyable())
             .map(|(name, s)| {
                 (
-                    (*name).to_string(),
+                    ((*name).to_string(), s.name_span),
                     self.arena.types().get_named_ty(s.name, s.name_span),
                     s.signature
                         .fields
                         .values()
                         .cloned()
                         .collect::<Vec<HirStructFieldSignature>>(),
+                    s.flag.clone(),
                 )
             })
             .collect();
 
         // Now assign copy constructors using the collected data
-        for (struct_name, ty, fields) in structs_to_process {
+        for ((struct_name, struct_span), ty, fields, flag) in structs_to_process {
             let copy_ctor = self.make_copy_constructor(ty, &fields, module);
+            if copy_ctor.is_none() && flag.is_copyable() {
+                let path = flag.span().unwrap().path;
+                let src = get_file_content(path).unwrap();
+                let report: ErrReport = HirWarning::CannotGenerateACopyConstructorForThisType(
+                    CannotGenerateACopyConstructorForThisTypeWarning {
+                        type_name: struct_name.clone(),
+                        flag_span: flag.span().unwrap(),
+                        name_span: struct_span,
+                        src: NamedSource::new(path, src),
+                    },
+                )
+                .into();
+                eprintln!("{:?}", report);
+            }
             if let Some(current_struct) = module.body.structs.get_mut(struct_name.as_str()) {
                 current_struct.signature.copy_constructor =
                     copy_ctor.as_ref().map(|c| c.signature.clone());

@@ -1640,8 +1640,7 @@ impl<'hir> OwnershipPass<'hir> {
                                 delete_span: *delete_span,
                                 access_span: ident.span,
                                 src: NamedSource::new(path, src),
-                            }, 
-
+                            },
                         ));
                     }
 

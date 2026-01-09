@@ -124,6 +124,9 @@ impl HirFlag {
     pub fn is_non_copyable(&self) -> bool {
         matches!(self, HirFlag::NonCopyable(_))
     }
+    pub fn is_copyable(&self) -> bool {
+        matches!(self, HirFlag::Copyable(_))
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -20,14 +20,20 @@ declare_warning_type!(
 #[diagnostic(
     code(sema::cannot_generate_a_copy_constructor_for_this_type),
     severity(warning),
-    help("Consider implementing a custom copy constructor for this type")
+    help(
+        "Consider implementing a custom copy constructor for this type, or making its fields copyable"
+    )
 )]
-#[error("Cannot generate a copy constructor for type `{type_name}`")]
+#[error(
+    "Type `{type_name}` is marked as std::copyable, but a copy constructor could not be automatically generated"
+)]
 pub struct CannotGenerateACopyConstructorForThisTypeWarning {
     #[source_code]
     pub src: NamedSource<String>,
-    #[label = "Automatic copy constructor generation failed for this type"]
-    pub span: Span,
+    #[label = "Type `{type_name}` is marked as std::copyable here"]
+    pub flag_span: Span,
+    #[label("Type `{type_name}` declared here")]
+    pub name_span: Span,
     pub type_name: String,
 }
 
