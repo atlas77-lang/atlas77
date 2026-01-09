@@ -1822,6 +1822,8 @@ impl<'hir> TypeChecker<'hir> {
         actual_loc: &Span,
         expected_type: &str,
         expected_loc: &Span,
+actual_type: &str,
+        actual_loc: &Span,
     ) -> HirError {
         let actual_path = actual_loc.path;
         let actual_src = utils::get_file_content(actual_path).unwrap();
