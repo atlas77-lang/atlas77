@@ -9,12 +9,12 @@ use miette::NamedSource;
 
 use crate::atlas_c::atlas_frontend::parser::{
     ast::{
-        AstEnum, AstEnumVariant, AstExternType, AstGlobalConst, AstObjLiteralExpr,
+        AstEnum, AstEnumVariant, AstExternType, AstFlag, AstGlobalConst, AstObjLiteralExpr,
         AstObjLiteralField, AstReadOnlyRefType, AstStdGenericConstraint, AstUnion, ConstructorKind,
     },
     error::{
-        DestructorWithParametersError, NoFieldInStructError, OnlyOneConstructorAllowedError,
-        ParseResult, SyntaxError, UnexpectedTokenError,
+        DestructorWithParametersError, FlagDoesntExistError, NoFieldInStructError,
+        OnlyOneConstructorAllowedError, ParseResult, SyntaxError, UnexpectedTokenError,
     },
 };
 use ast::{
@@ -228,12 +228,54 @@ impl<'ast> Parser<'ast> {
                 item.set_vis(AstVisibility::Private);
                 Ok(item)
             }
+            TokenKind::Hash => {
+                let flag = self.parse_flag()?;
+                let mut item = self.parse_item()?;
+                item.set_flag(flag);
+                Ok(item)
+            }
             //Handling comments
             _ => Err(self.unexpected_token_error(
                 TokenVec(vec![TokenKind::Identifier("Item".to_string())]),
                 &self.current().span(),
             )),
         }
+    }
+
+    // TODO: Be a bit more flexible with flag names. e.g. `debug`, `display` or whatever without "std" could be allowed
+    fn parse_flag(&mut self) -> ParseResult<AstFlag> {
+        self.expect(TokenKind::Hash)?;
+        self.expect(TokenKind::LBracket)?;
+        let start_span = self.expect(TokenKind::Identifier("std".to_string()))?.span;
+        self.expect(TokenKind::DoubleColon)?;
+        let flag_token = match self.current().kind() {
+            TokenKind::Identifier(ref s) if s == "copyable" => {
+                let span = self.advance().span;
+                AstFlag::Copyable(Span::union_span(&start_span, &span))
+            }
+            TokenKind::Identifier(ref s) if s == "non_copyable" => {
+                let span = self.advance().span;
+                AstFlag::NonCopyable(Span::union_span(&start_span, &span))
+            }
+            _ => {
+                return Err(Box::new(SyntaxError::FlagDoesntExist(
+                    FlagDoesntExistError {
+                        span: self.current().span,
+                        src: NamedSource::new(
+                            self.current().span.path,
+                            get_file_content(self.current().span.path)
+                                .expect("Failed to get source content for error reporting"),
+                        ),
+                        flag_name: match &self.current().kind() {
+                            TokenKind::Identifier(s) => s.clone(),
+                            _ => format!("{:?}", self.current().kind()),
+                        },
+                    },
+                )));
+            }
+        };
+        self.expect(TokenKind::RBracket)?;
+        Ok(flag_token)
     }
 
     fn parse_enum(&mut self) -> ParseResult<AstEnum<'ast>> {
@@ -539,6 +581,7 @@ impl<'ast> Parser<'ast> {
             operators: self.arena.alloc_vec(operators),
             constants: self.arena.alloc_vec(constants),
             vis: AstVisibility::default(),
+            flag: AstFlag::default(),
         };
         Ok(node)
     }

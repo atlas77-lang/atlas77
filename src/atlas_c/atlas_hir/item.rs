@@ -1,6 +1,6 @@
 use super::{signature::HirFunctionSignature, stmt::HirBlock};
 use crate::atlas_c::atlas_hir::signature::{
-    HirFunctionParameterSignature, HirStructConstructorSignature, HirStructFieldSignature,
+    HirFlag, HirFunctionParameterSignature, HirStructConstructorSignature, HirStructFieldSignature,
     HirStructMethodSignature, HirStructSignature, HirTypeParameterItemSignature, HirUnionSignature,
     HirVisibility,
 };
@@ -61,6 +61,7 @@ pub struct HirStruct<'hir> {
     pub copy_constructor: Option<HirStructConstructor<'hir>>,
     pub destructor: HirStructConstructor<'hir>,
     pub vis: HirVisibility,
+    pub flag: HirFlag,
 }
 
 #[derive(Debug, Clone)]

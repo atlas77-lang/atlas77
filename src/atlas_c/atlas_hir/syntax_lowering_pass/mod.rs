@@ -6,15 +6,14 @@ use std::{collections::BTreeMap, vec};
 
 use crate::atlas_c::{
     atlas_frontend::{
-        lexer::Spanned,
         parse,
         parser::{
             arena::AstArena,
             ast::{
                 AstBinaryOp, AstBlock, AstConstructor, AstDestructor, AstEnum, AstExpr,
-                AstExternFunction, AstFunction, AstGeneric, AstGenericConstraint, AstIdentifier,
-                AstImport, AstItem, AstLiteral, AstMethod, AstMethodModifier, AstObjField,
-                AstProgram, AstStatement, AstStruct, AstType, AstUnaryOp, AstUnion,
+                AstExternFunction, AstFunction, AstGenericConstraint, AstIdentifier, AstImport,
+                AstItem, AstLiteral, AstMethod, AstMethodModifier, AstObjField, AstProgram,
+                AstStatement, AstStruct, AstType, AstUnaryOp, AstUnion,
             },
         },
     },
@@ -38,7 +37,7 @@ use crate::atlas_c::{
             HirEnum, HirEnumVariant, HirFunction, HirStruct, HirStructConstructor, HirStructMethod,
             HirUnion,
         },
-        monomorphization_pass::{MonomorphizationPass, generic_pool::HirGenericPool},
+        monomorphization_pass::generic_pool::HirGenericPool,
         signature::{
             ConstantValue, HirFunctionParameterSignature, HirFunctionSignature,
             HirGenericConstraint, HirGenericConstraintKind, HirModuleSignature,
@@ -51,12 +50,8 @@ use crate::atlas_c::{
             HirWhileStmt,
         },
         syntax_lowering_pass::case::Case,
-        ty::{HirGenericTy, HirMutableReferenceTy, HirNamedTy, HirTy},
-        type_check_pass,
-        warning::{
-            CannotGenerateACopyConstructorForThisTypeWarning, HirWarning,
-            NameShouldBeInDifferentCaseWarning, ThisTypeIsStillUnstableWarning,
-        },
+        ty::{HirGenericTy, HirNamedTy, HirTy},
+        warning::{HirWarning, NameShouldBeInDifferentCaseWarning, ThisTypeIsStillUnstableWarning},
     },
     utils::{self, Span},
 };
@@ -481,6 +476,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             declaration_span: node.span,
             name_span: node.name.span,
             vis: node.vis.into(),
+            flag: node.flag.into(),
             name,
             methods: {
                 let mut map = BTreeMap::new();
@@ -518,6 +514,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             copy_constructor,
             destructor,
             vis: node.vis.into(),
+            flag: node.flag.into(),
         })
     }
 

@@ -3,9 +3,11 @@ mod context;
 use super::{
     HirFunction, HirModule, HirModuleSignature, arena::HirArena, expr, stmt::HirStatement,
 };
+use crate::atlas_c::atlas_hir::error::StdNonCopyableStructCannotHaveCopyConstructorError;
 use crate::atlas_c::atlas_hir::item::HirStructConstructor;
 use crate::atlas_c::atlas_hir::signature::{
-    HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier, HirVisibility,
+    HirFlag, HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier,
+    HirVisibility,
 };
 use crate::atlas_c::atlas_hir::{
     error::{
@@ -93,6 +95,18 @@ impl<'hir> TypeChecker<'hir> {
         self.current_func_name = Some("constructor");
         self.check_constructor(&mut class.constructor)?;
         if let Some(copy_ctor) = &mut class.copy_constructor {
+            if class.flag.is_non_copyable() {
+                let path = class.span.path;
+                let src = utils::get_file_content(path).unwrap();
+                return Err(HirError::StdNonCopyableStructCannotHaveCopyConstructor(
+                    StdNonCopyableStructCannotHaveCopyConstructorError {
+                        struct_name: class.name.to_string(),
+                        copy_ctor_span: copy_ctor.signature.span,
+                        flag_span: class.flag.span().unwrap(),
+                        src: NamedSource::new(path, src),
+                    },
+                ));
+            }
             self.current_func_name = Some("copy_ctor");
             self.check_copy_ctor(copy_ctor)?;
         }

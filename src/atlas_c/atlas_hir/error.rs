@@ -62,6 +62,7 @@ declare_error_type! {
         CannotTransferOwnershipInBorrowingMethod(CannotTransferOwnershipInBorrowingMethodError),
         CannotMoveOutOfContainer(CannotMoveOutOfContainerError),
         RecursiveCopyConstructor(RecursiveCopyConstructorError),
+        StdNonCopyableStructCannotHaveCopyConstructor(StdNonCopyableStructCannotHaveCopyConstructorError),
     }
 }
 
@@ -856,10 +857,10 @@ pub struct CannotMoveOutOfLoopError {
 #[diagnostic(
     code(sema::recursive_copy_constructor),
     help(
-        "a copy constructor cannot copy the same type it's constructing, as this would cause infinite recursion. Check if you're dereferencing fields of `&const this` - use direct field access instead of `*this.field`"
+        "a copy constructor cannot copy the same type it's constructing, as this would cause infinite recursion."
     )
 )]
-#[error("recursive copy detected in `_copy` method for type `{type_name}`")]
+#[error("recursive copy detected in the Copy constructor for type `{type_name}`")]
 pub struct RecursiveCopyConstructorError {
     #[label = "copy constructor defined here"]
     pub method_span: Span,
@@ -868,4 +869,24 @@ pub struct RecursiveCopyConstructorError {
     pub type_name: String,
     #[source_code]
     pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::std_non_copyable_struct_cannot_have_copy_constructor),
+    help(
+        "structs marked as `std::non_copyable` are not allowed to have copy constructors. Remove either the copy constructor or the `std::non_copyable` attribute."
+    )
+)]
+#[error(
+    "struct `{struct_name}` is marked as `std::non_copyable` and cannot have a copy constructor"
+)]
+pub struct StdNonCopyableStructCannotHaveCopyConstructorError {
+    #[label = "copy constructor defined here"]
+    pub copy_ctor_span: Span,
+    #[label = "`std::non_copyable` flag set here"]
+    pub flag_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+    pub struct_name: String,
 }

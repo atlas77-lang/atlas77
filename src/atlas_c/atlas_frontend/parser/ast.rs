@@ -35,6 +35,12 @@ impl AstItem<'_> {
             AstItem::Constant(v) => v.vis = vis,
         }
     }
+    pub fn set_flag(&mut self, flag: AstFlag) {
+        match self {
+            AstItem::Struct(v) => v.flag = flag,
+            _ => {}
+        }
+    }
     pub fn span(&self) -> Span {
         match self {
             AstItem::Import(v) => v.span,
@@ -46,6 +52,30 @@ impl AstItem<'_> {
             AstItem::Constant(v) => v.span,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Flags that can be applied to AST nodes
+/// Currently used for marking structs as copyable or non-copyable
+/// e.g.:
+/// ```
+/// #[std::copyable]
+/// struct Foo {
+///   x: int64;
+/// }
+/// ```
+/// or
+/// ```
+/// #[std::non_copyable]
+/// struct Bar {
+///  x: int64;
+/// }
+/// ```
+pub enum AstFlag {
+    Copyable(Span),
+    NonCopyable(Span),
+    #[default]
+    None,
 }
 
 #[derive(Debug, Clone)]
@@ -137,6 +167,8 @@ pub struct AstStruct<'ast> {
     pub operators: &'ast [&'ast AstOperatorOverload<'ast>],
     pub constants: &'ast [&'ast AstConst<'ast>],
     pub methods: &'ast [&'ast AstMethod<'ast>],
+    // Currently only one flag supported: copyable or non-copyable
+    pub flag: AstFlag,
 }
 
 #[derive(Debug, Clone, Default, Copy)]

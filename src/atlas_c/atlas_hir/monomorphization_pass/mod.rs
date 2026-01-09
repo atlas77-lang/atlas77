@@ -13,8 +13,9 @@ use crate::atlas_c::{
         item::{HirStruct, HirStructConstructor, HirUnion},
         monomorphization_pass::generic_pool::HirGenericPool,
         signature::{
-            HirFunctionParameterSignature, HirGenericConstraint, HirStructConstructorSignature,
-            HirStructFieldSignature, HirTypeParameterItemSignature, HirVisibility,
+            HirFlag, HirFunctionParameterSignature, HirGenericConstraint,
+            HirStructConstructorSignature, HirStructFieldSignature, HirTypeParameterItemSignature,
+            HirVisibility,
         },
         stmt::{HirBlock, HirExprStmt, HirStatement},
         ty::{HirGenericTy, HirListTy, HirMutableReferenceTy, HirReadOnlyReferenceTy, HirTy},
@@ -93,7 +94,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             .body
             .structs
             .iter()
-            .filter(|(_, s)| s.copy_constructor.is_none())
+            .filter(|(_, s)| s.copy_constructor.is_none() && s.flag.is_non_copyable())
             .map(|(name, s)| {
                 (
                     (*name).to_string(),

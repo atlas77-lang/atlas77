@@ -1,5 +1,5 @@
 use super::ty::{HirTy, HirUnitTy};
-use crate::atlas_c::atlas_frontend::parser::ast::AstVisibility;
+use crate::atlas_c::atlas_frontend::parser::ast::{AstFlag, AstVisibility};
 use crate::atlas_c::atlas_hir::expr::HirUnaryOp;
 use crate::atlas_c::atlas_hir::expr::{HirBinaryOperator, HirExpr};
 use crate::atlas_c::atlas_hir::item::HirEnum;
@@ -24,6 +24,7 @@ pub struct HirModuleSignature<'hir> {
 pub struct HirStructSignature<'hir> {
     pub declaration_span: Span,
     pub vis: HirVisibility,
+    pub flag: HirFlag,
     pub name: &'hir str,
     pub name_span: Span,
     pub methods: BTreeMap<&'hir str, HirStructMethodSignature<'hir>>,
@@ -91,6 +92,37 @@ impl From<AstVisibility> for HirVisibility {
             AstVisibility::Public => HirVisibility::Public,
             AstVisibility::Private => HirVisibility::Private,
         }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum HirFlag {
+    Copyable(Span),
+    NonCopyable(Span),
+    #[default]
+    None,
+}
+
+impl From<AstFlag> for HirFlag {
+    fn from(ast_flag: AstFlag) -> Self {
+        match ast_flag {
+            AstFlag::Copyable(span) => HirFlag::Copyable(span),
+            AstFlag::NonCopyable(span) => HirFlag::NonCopyable(span),
+            AstFlag::None => HirFlag::None,
+        }
+    }
+}
+
+impl HirFlag {
+    pub fn span(&self) -> Option<Span> {
+        match self {
+            HirFlag::Copyable(span) => Some(*span),
+            HirFlag::NonCopyable(span) => Some(*span),
+            HirFlag::None => None,
+        }
+    }
+    pub fn is_non_copyable(&self) -> bool {
+        matches!(self, HirFlag::NonCopyable(_))
     }
 }
 

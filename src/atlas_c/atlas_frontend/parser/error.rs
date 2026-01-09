@@ -15,10 +15,25 @@ declare_error_type! {
         NoFieldInStruct(NoFieldInStructError),
         InvalidCharacter(InvalidCharacterError),
         DestructorWithParameters(DestructorWithParametersError),
+        FlagDoesntExist(FlagDoesntExistError),
     }
 }
 
 pub type ParseResult<T> = Result<T, Box<SyntaxError>>;
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(syntax::flag_doesnt_exist),
+    help("Use an existing flag (e.g., 'copyable' or 'non_copyable')")
+)]
+#[error("Flag '{flag_name}' does not exist")]
+pub struct FlagDoesntExistError {
+    #[label = "flag does not exist"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+    pub flag_name: String,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(

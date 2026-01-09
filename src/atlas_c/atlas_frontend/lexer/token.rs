@@ -174,6 +174,8 @@ pub enum TokenKind {
     DoubleDot,
     #[token(".")]
     Dot,
+    #[token("#")]
+    Hash,
     #[token("::")]
     DoubleColon,
     #[token(":")]
