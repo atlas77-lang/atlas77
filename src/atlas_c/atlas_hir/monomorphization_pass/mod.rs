@@ -93,7 +93,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             .body
             .structs
             .iter()
-            .filter(|(_, s)| s.copy_constructor.is_none() && s.flag.is_non_copyable())
+            .filter(|(_, s)| s.copy_constructor.is_none() && !s.flag.is_non_copyable())
             .map(|(name, s)| {
                 (
                     (*name).to_string(),
@@ -110,7 +110,7 @@ impl<'hir> MonomorphizationPass<'hir> {
         // Now assign copy constructors using the collected data
         for (struct_name, ty, fields) in structs_to_process {
             let copy_ctor = self.make_copy_constructor(ty, &fields, module);
-
+            eprintln!("[DEBUG] Generated copy constructor for struct {}", struct_name);
             if let Some(current_struct) = module.body.structs.get_mut(struct_name.as_str()) {
                 current_struct.signature.copy_constructor =
                     copy_ctor.as_ref().map(|c| c.signature.clone());

@@ -1,14 +1,13 @@
 import "std/io";
 // A non-copyable resource (like a file handle or unique pointer)
+#[std::non_copyable]
 struct UniqueResource {
 public:
     id: int64;
-    id2: int64;
     
     UniqueResource(id: int64) {
         println("Resource created");
         this.id = id;
-        this.id2 = id * 2;
     }
     
     ~UniqueResource() {

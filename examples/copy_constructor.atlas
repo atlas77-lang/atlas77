@@ -23,3 +23,17 @@ public:
         this.b = *from.b;
     }
 }
+
+fun main() {
+    let original = new Copyable<string>(42, "Hello");
+    let copy = original;
+    print("Original a: ");
+    print(original.a);
+    print(", b: ");
+    print(original.b);
+    println("");
+    print("Copy a: ");
+    print(copy.a);
+    print(", b: ");
+    println(copy.b);
+}
