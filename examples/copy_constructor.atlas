@@ -1,0 +1,30 @@
+import "std/io";
+
+struct Copyable<T: std::copyable> {
+public:
+    a: int64;
+    b: T;
+    // Normal constructor
+    Copyable(a: int64, b: T) {
+        this.a = a;
+        this.b = b;
+    }
+    // Destructor
+    ~Copyable() {
+        delete this.b;
+    }
+}
+
+fun main() {
+    let original = new Copyable<int64>(42, 100);
+    let copy = original;
+    print("Original a: ");
+    print(original.a);
+    print(", b: ");
+    print(original.b);
+    println("");
+    print("Copy a: ");
+    print(copy.a);
+    print(", b: ");
+    println(copy.b);
+}

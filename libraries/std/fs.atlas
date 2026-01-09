@@ -20,13 +20,15 @@ public:
         this.path = path;
     }
 
-    fun _copy(&const this) -> File {
-        return new File(*this.path);
-    }
-
     ~File() {
         //Following the RAII pattern, we close the file when it goes out of scope
         close_file(this.path);
+    }
+
+    /// Not sure if this is a good idea to have a copy constructor for File
+    File(from: &const File) {
+        this.path = *from.path;
+        this.content = *from.content;
     }
 
     fun read(&this) -> string {

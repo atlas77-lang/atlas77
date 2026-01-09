@@ -16,10 +16,9 @@ public:
     ~Iter() {
         delete this.data;
     }
-    fun _copy(&const this) -> Iter<T> {
-        let iter = new Iter<T>(*this.data);
-        iter.index = *this.index;
-        return iter;
+    Iter(from: &const Iter<T>) {
+        this.data = from.data;
+        this.index = *from.index;
     }
     /// Returns the next item in the iterator, or None if the end is reached.
     /// Note: For non-copyable types, this will copy the element.
