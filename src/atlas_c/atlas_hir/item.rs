@@ -58,6 +58,7 @@ pub struct HirStruct<'hir> {
     pub methods: Vec<HirStructMethod<'hir>>,
     pub fields: Vec<HirStructFieldSignature<'hir>>,
     pub constructor: HirStructConstructor<'hir>,
+    pub copy_constructor: Option<HirStructConstructor<'hir>>,
     pub destructor: HirStructConstructor<'hir>,
     pub vis: HirVisibility,
 }

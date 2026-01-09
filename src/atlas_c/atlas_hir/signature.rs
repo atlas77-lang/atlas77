@@ -34,6 +34,7 @@ pub struct HirStructSignature<'hir> {
     pub operators: Vec<HirBinaryOperator>,
     pub constants: BTreeMap<&'hir str, &'hir HirStructConstantSignature<'hir>>,
     pub constructor: HirStructConstructorSignature<'hir>,
+    pub copy_constructor: Option<HirStructConstructorSignature<'hir>>,
     pub destructor: HirStructConstructorSignature<'hir>,
 }
 

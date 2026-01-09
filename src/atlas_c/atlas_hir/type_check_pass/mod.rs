@@ -92,6 +92,10 @@ impl<'hir> TypeChecker<'hir> {
         }
         self.current_func_name = Some("constructor");
         self.check_constructor(&mut class.constructor)?;
+        if let Some(copy_ctor) = &mut class.copy_constructor {
+            self.current_func_name = Some("copy_ctor");
+            self.check_copy_ctor(copy_ctor)?;
+        }
         self.current_func_name = Some("destructor");
         self.check_destructor(&mut class.destructor)?;
         Ok(())
@@ -126,6 +130,39 @@ impl<'hir> TypeChecker<'hir> {
             self.check_stmt(stmt)?;
         }
         //Because it is a destructor we don't keep it in the `context_functions`
+        self.context_functions.pop();
+        Ok(())
+    }
+
+    fn check_copy_ctor(&mut self, copy_ctor: &mut HirStructConstructor<'hir>) -> HirResult<()> {
+        self.context_functions.push(HashMap::new());
+        self.context_functions
+            .last_mut()
+            .unwrap()
+            .insert(String::from("copy_ctor"), ContextFunction::new());
+        for param in &copy_ctor.params {
+            self.context_functions
+                .last_mut()
+                .unwrap()
+                .get_mut("copy_ctor")
+                .unwrap()
+                .insert(
+                    param.name,
+                    ContextVariable {
+                        _name: param.name,
+                        _name_span: param.span,
+                        ty: param.ty,
+                        _ty_span: param.ty_span,
+                        _is_mut: false,
+                        is_param: true,
+                        refs_locals: vec![],
+                    },
+                );
+        }
+        for stmt in &mut copy_ctor.body.statements {
+            self.check_stmt(stmt)?;
+        }
+        //Because it is a copy constructor we don't keep it in the `context_functions`
         self.context_functions.pop();
         Ok(())
     }
@@ -580,8 +617,11 @@ impl<'hir> TypeChecker<'hir> {
                         ));
                     }
                 };
-                //early return for constructor and destructor
-                if function_name == "constructor" || function_name == "destructor" {
+                //early return for constructor, destructor, and copy constructor
+                if function_name == "constructor"
+                    || function_name == "destructor"
+                    || function_name == "copy_ctor"
+                {
                     s.ty = self_ty;
                     return Ok(self_ty);
                 }
@@ -1818,11 +1858,9 @@ impl<'hir> TypeChecker<'hir> {
 
     #[inline(always)]
     fn type_mismatch_err(
-        actual_type: &str,
-        actual_loc: &Span,
         expected_type: &str,
         expected_loc: &Span,
-actual_type: &str,
+        actual_type: &str,
         actual_loc: &Span,
     ) -> HirError {
         let actual_path = actual_loc.path;

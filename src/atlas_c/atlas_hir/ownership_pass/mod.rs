@@ -1,43 +1,37 @@
 //! Ownership Analysis Pass
 //!
-//! This pass implements MOVE/COPY semantics for Atlas77 following these principles:
+//! This pass implements MOVE/COPY semantics for Atlas77. It tracks ownership of values
+//! through the HIR, inserts copies or moves where appropriate, and emits destructors
+//! for owned values.
 //!
-//! 1. **Ownership Model**: Every variable owns its value. Ownership can be:
-//!    - **Moved**: single owner transfers (source becomes invalid)
-//!    - **Copied**: new owner created via copy constructor (source remains valid)
+//! Key ideas:
+//! 1. Ownership model: every variable owns its value. Ownership can be:
+//!    - Moved: ownership transfers and the source becomes invalid.
+//!    - Copied: a new owner is created via a *copy constructor*; the source remains valid.
 //!
-//! 2. **Copy Eligibility**: A type is copyable IFF:
+//! 2. Copy eligibility: a type is copyable IFF:
 //!    - It's a primitive type (int, float, bool, char, uint)
-//!    - It's a reference type (&T, &const T) - references are just pointers
-//!    - It's a struct that defines a `_copy` method
+//!    - It's a reference type (&T, &const T) - references are pointers
 //!    - It's a string (built-in copyable)
+//!    - It's a struct that declares a copy constructor (a dedicated constructor that
+//!      takes a `&const This` and is stored as `copy_constructor` in the HIR)
 //!
-//! 3. **COPY-Biased Lowering**: Initially assume everything is a COPY if the type allows it.
-//!    This guarantees correctness because copy constructors preserve source validity.
+//! 3. COPY-biased lowering: the pass initially prefers COPY for copyable types. Copying
+//!    preserves the source's validity and is therefore safe by default.
 //!
-//! 4. **Move Resolution (Last-Use Analysis)**: After initial lowering, identify the last
-//!    ownership-consuming use of each variable and rewrite COPY → MOVE for that use.
+//! 4. Move resolution (last-use analysis): after lowering, the pass identifies last
+//!    ownership-consuming uses and converts COPY → MOVE for those uses to avoid
+//!    unnecessary copies.
 //!
-//! 5. **Destructor Insertion**: At the end of each scope, emit `delete` for every variable
-//!    that still owns a value (status == Owned).
+//! 5. Destructor insertion: at the end of each scope the pass emits `delete` for every
+//!    variable that still owns a value (except primitives/references).
 //!
-//! ## Phases
-//!
-//! The pass operates in multiple phases:
-//!
-//! 1. **Phase 1: Use Collection** - Walk the AST and record all uses of each variable,
-//!    classifying them as Read or OwnershipConsuming.
-//!
-//! 2. **Phase 2: COPY-Biased Lowering** - For each ownership-consuming use, insert a COPY
-//!    expression if the type is copyable, otherwise mark as needing MOVE.
-//!
-//! 3. **Phase 3: Last-Use Optimization** - For each variable, find the last ownership-consuming
-//!    use and convert COPY → MOVE if it was a COPY.
-//!
-//! 4. **Phase 4: Destructor Insertion** - At scope ends, insert DELETE for owned variables.
-//!
-//! 5. **Phase 5: Validation** - Check for illegal programs (use after move, copying non-copyable, etc.)
-
+//! Phases
+//! 1. Use Collection - walk the HIR and record all uses (Read vs OwnershipConsuming).
+//! 2. COPY-Biased Lowering - insert COPY for ownership-consuming uses of copyable types.
+//! 3. Last-Use Optimization - convert final COPY to MOVE where safe.
+//! 4. Destructor Insertion - insert DELETE statements at scope exits.
+//! 5. Validation - detect use-after-move, recursive copy constructors, illegal transfers, etc.
 mod context;
 pub use context::{
     ReferenceOrigin, ScopeMap, UseKind, VarData, VarKind, VarMap, VarStatus, VarUse,
@@ -68,6 +62,8 @@ use crate::atlas_c::{
     utils::{self, Span},
 };
 use miette::{ErrReport, NamedSource};
+
+const COPY_CONSTRUCTOR_MANGLED_NAME: &str = "atlas77__copy_ctor";
 
 /// The Ownership Analysis Pass
 ///
@@ -217,6 +213,52 @@ impl<'hir> OwnershipPass<'hir> {
                 }
 
                 self.current_method_context = None;
+            }
+
+            // Process copy constructor (if present)
+            if let Some(copy_ctor) = struct_def.copy_constructor.as_mut() {
+                self.scope_map = ScopeMap::new();
+                self.current_stmt_index = 0;
+
+                // Set method context so checks like recursive-copy detection work
+                self.current_method_context = Some(MethodContext {
+                    modifier: HirStructMethodModifier::None,
+                    method_span: copy_ctor.signature.span,
+                    struct_name: struct_def.signature.name,
+                    // Use the special name "atlas77__copy_ctor" so existing checks that looked
+                    // for method_name == "atlas77__copy_ctor" continue to function.
+                    method_name: COPY_CONSTRUCTOR_MANGLED_NAME,
+                    // The copy constructor constructs the struct type, so set return_ty
+                    // to the struct's named type to allow types_match comparisons.
+                    return_ty: Some(HirTy::Named(crate::atlas_c::atlas_hir::ty::HirNamedTy {
+                        name: struct_def.signature.name,
+                        span: struct_def.name_span,
+                    })),
+                    is_generic_struct,
+                });
+
+                // Register constructor parameters
+                for param in copy_ctor.params.iter() {
+                    let kind = self.classify_type_kind(param.ty);
+                    let is_copyable = self.is_type_copyable(param.ty);
+                    self.scope_map.insert(
+                        param.name,
+                        VarData::new(param.name, param.span, kind, param.ty, is_copyable, 0),
+                    );
+                }
+
+                // First pass: collect uses
+                if let Err(e) = self.collect_uses_in_block(&copy_ctor.body) {
+                    self.errors.push(e);
+                    self.current_method_context = None;
+                } else {
+                    // Second pass: transform
+                    self.current_stmt_index = 0;
+                    if let Err(e) = self.transform_block(&mut copy_ctor.body) {
+                        self.errors.push(e);
+                    }
+                    self.current_method_context = None;
+                }
             }
 
             // Process constructor
@@ -1004,28 +1046,6 @@ impl<'hir> OwnershipPass<'hir> {
                 ))
             }
             HirExpr::Call(call) => {
-                // Check if this is an explicit _copy() method call inside a _copy method
-                // This would cause infinite recursion
-                if let Some(method_ctx) = &self.current_method_context
-                    && method_ctx.method_name == "_copy"
-                    && let HirExpr::FieldAccess(field_access) = call.callee.as_ref()
-                    && field_access.field.name == "_copy"
-                    // Check if the return type of the call matches our return type
-                    && let Some(return_ty) = &method_ctx.return_ty
-                    && self.types_match(call.ty, return_ty)
-                {
-                    let path = call.span.path;
-                    let src = utils::get_file_content(path).unwrap_or_default();
-                    return Err(HirError::RecursiveCopyConstructor(
-                        RecursiveCopyConstructorError {
-                            copy_span: call.span,
-                            method_span: method_ctx.method_span,
-                            type_name: Self::get_type_name(call.ty),
-                            src: NamedSource::new(path, src),
-                        },
-                    ));
-                }
-
                 // Check if this is a method call that consumes `this` (modifier == None)
                 let method_consumes_this = self.method_consumes_this(&call.callee);
 
@@ -1548,7 +1568,7 @@ impl<'hir> OwnershipPass<'hir> {
 
                 // Check for recursive copy in _copy methods
                 if let Some(method_ctx) = &self.current_method_context
-                    && method_ctx.method_name == "_copy"
+                    && method_ctx.method_name == COPY_CONSTRUCTOR_MANGLED_NAME
                     && let Some(return_ty) = &method_ctx.return_ty
                     // Check if we're trying to copy the same type we're returning
                     && self.types_match(ident.ty, return_ty)
@@ -2130,12 +2150,12 @@ impl<'hir> OwnershipPass<'hir> {
             // This prevents the original variable from being deleted and freeing the shared data
             HirTy::List(_) => false,
 
-            // Named types (structs) are copyable if they have a _copy method
+            // Named types (structs) are copyable if they have a copy constructor
             HirTy::Named(named) => self
                 .hir_signature
                 .structs
                 .get(named.name)
-                .is_some_and(|s| s.methods.contains_key("_copy")),
+                .is_some_and(|s| s.copy_constructor.is_some()),
 
             // Generic types - need to check the monomorphized/instantiated struct
             HirTy::Generic(g) => {
@@ -2146,7 +2166,7 @@ impl<'hir> OwnershipPass<'hir> {
                 self.hir_signature
                     .structs
                     .get(mangled_name)
-                    .is_some_and(|s| s.methods.contains_key("_copy"))
+                    .is_some_and(|s| s.copy_constructor.is_some())
             }
 
             // Other types are not copyable
@@ -2274,7 +2294,7 @@ impl<'hir> OwnershipPass<'hir> {
                     .hir_signature
                     .structs
                     .get(ctx.struct_name)
-                    .is_some_and(|s| s.methods.contains_key("_copy"))
+                    .is_some_and(|s| s.copy_constructor.is_some())
                 {
                     return None;
                 }

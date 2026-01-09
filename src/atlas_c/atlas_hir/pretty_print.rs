@@ -135,6 +135,12 @@ impl HirPrettyPrinter {
             self.writeln("");
         }
 
+        if let Some(copy_ctor) = &struct_def.copy_constructor {
+            self.writeln("// Copy Constructor");
+            self.print_constructor(struct_def.name, copy_ctor);
+            self.writeln("");
+        }
+
         // Destructor
         if !struct_def.destructor.body.statements.is_empty() {
             self.writeln("// Destructor");
@@ -397,7 +403,7 @@ impl HirPrettyPrinter {
             HirExpr::HirBinaryOperation(bin_op) => {
                 self.write("(");
                 self.print_expr(&bin_op.lhs);
-                self.write(&format!(" {} ", bin_op.op));
+                self.write(&format!("{} ", bin_op.op));
                 self.print_expr(&bin_op.rhs);
                 self.write(")");
             }
@@ -478,7 +484,7 @@ impl HirPrettyPrinter {
                     self.write(&format!("{}: ", field_init.name));
                     self.print_expr(&field_init.value);
                 }
-                self.write(" }");
+                self.write("}");
             }
             HirExpr::Delete(delete) => {
                 self.write("delete ");
@@ -564,7 +570,7 @@ impl HirPrettyPrinter {
 
     fn write_indent(&mut self) {
         for _ in 0..self.indent {
-            self.output.push_str("    ");
+            self.output.push_str("\t");
         }
     }
 

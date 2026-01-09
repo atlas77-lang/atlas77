@@ -173,6 +173,12 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
         self.generate_bytecode_destructor(struct_name, &hir_struct.destructor, labels)?;
         self.local_variables.clear();
 
+        //generate copy constructor
+        if let Some(copy_ctor) = &hir_struct.copy_constructor {
+            self.generate_bytecode_copy_constructor(struct_name, copy_ctor, labels)?;
+            self.local_variables.clear();
+        }
+
         for method in hir_struct.methods.iter() {
             let mut bytecode = Vec::new();
             //If the method is not static, reserve space for `this`
@@ -239,6 +245,57 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             self.current_pos += len;
             self.local_variables.clear();
         }
+        Ok(())
+    }
+
+    fn generate_bytecode_copy_constructor(
+        &mut self,
+        struct_name: &str,
+        constructor: &HirStructConstructor<'hir>,
+        labels: &mut Vec<Label<'codegen>>,
+    ) -> HirResult<()> {
+        let mut bytecode = Vec::new();
+        let params = constructor.params.clone();
+
+        self.local_variables.insert(THIS_NAME);
+        for arg in params.iter() {
+            self.local_variables.insert(arg.name);
+        }
+        //self reference of the object
+        let this_idx = self.local_variables.get_index(THIS_NAME).unwrap();
+
+        self.generate_bytecode_block(&constructor.body, &mut bytecode)?;
+
+        let local_space = self.local_variables.len() - params.len();
+        if local_space > 0 {
+            bytecode.insert(
+                0,
+                Instruction::LocalSpace {
+                    // Reserve space for local variables excluding parameters
+                    nb_vars: local_space as u8,
+                },
+            );
+        }
+
+        //Return the self reference
+        bytecode.push(Instruction::LoadVar(this_idx));
+        bytecode.push(Instruction::Return);
+
+        let len = bytecode.len();
+        labels.push(Label {
+            name: self
+                .codegen_arena
+                .alloc(format!("{}_copy_ctor", struct_name)),
+            position: self.current_pos,
+            body: self.codegen_arena.alloc(bytecode),
+        });
+        self.program.functions.insert(
+            self.codegen_arena
+                .alloc(format!("{}_copy_ctor", struct_name)),
+            self.current_pos,
+        );
+        self.current_pos += len;
+
         Ok(())
     }
 
@@ -1153,31 +1210,43 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 self.generate_bytecode_expr(&move_expr.expr, bytecode)?;
             }
             // Copy expressions: for primitives, just generate the inner expression (bitwise copy)
-            // For objects with _copy method, call the copy constructor
+            // For objects with a copy constructor, call it.
             // For strings, deep copy using CloneString instruction
             HirExpr::Copy(copy_expr) => {
                 // Check if this is an object type that needs copy constructor call
                 match copy_expr.ty {
                     HirTy::Named(named) => {
+                        // A copy constructor signature is: `Name(this, from: &const Name) -> Name`
+                        let obj_descriptor = self
+                            .struct_pool
+                            .iter()
+                            .position(|s| s.name == named.name)
+                            .unwrap();
+                        bytecode.push(Instruction::NewObj { obj_descriptor });
                         // _copy takes &const this, so we need to pass a reference to the object
                         self.generate_receiver_addr(&copy_expr.expr, bytecode)?;
                         bytecode.push(Instruction::Call {
-                            func_name: format!("{}._copy", named.name),
-                            nb_args: 1,
+                            func_name: format!("{}_copy_ctor", named.name),
+                            nb_args: 2, //This pointer + from reference
                         });
                     }
                     HirTy::Generic(g) => {
-                        // _copy takes &const this, so we need to pass a reference to the object
-                        // For generic types, use the mangled name to find the monomorphized _copy method
                         let mangled_name = MonomorphizationPass::generate_mangled_name(
                             self.hir_arena,
                             g,
                             "struct",
                         );
+                        let obj_descriptor = self
+                            .struct_pool
+                            .iter()
+                            .position(|s| s.name == mangled_name)
+                            .unwrap();
+                        bytecode.push(Instruction::NewObj { obj_descriptor });
+                        // _copy takes &const this, so we need to pass a reference to the object
                         self.generate_receiver_addr(&copy_expr.expr, bytecode)?;
                         bytecode.push(Instruction::Call {
-                            func_name: format!("{}._copy", mangled_name),
-                            nb_args: 1,
+                            func_name: format!("{}_copy_ctor", mangled_name),
+                            nb_args: 2, //This pointer + from reference
                         });
                     }
                     // For strings, deep copy the string data
