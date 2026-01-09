@@ -1877,9 +1877,6 @@ impl<'hir> TypeChecker<'hir> {
         actual_type: &str,
         actual_loc: &Span,
     ) -> HirError {
-        eprintln!("[DEBUG] Generating type mismatch error:");
-        eprintln!("  Expected: {} at {:?}", expected_type, expected_loc);
-        eprintln!("  Actual:   {} at {:?}", actual_type, actual_loc);
         let actual_path = actual_loc.path;
         let actual_src = utils::get_file_content(actual_path).unwrap();
         let actual_err = TypeMismatchActual {

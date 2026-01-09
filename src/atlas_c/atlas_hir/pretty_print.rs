@@ -412,7 +412,7 @@ impl HirPrettyPrinter {
             HirExpr::HirBinaryOperation(bin_op) => {
                 self.write("(");
                 self.print_expr(&bin_op.lhs);
-                self.write(&format!("{} ", bin_op.op));
+                self.write(&format!(" {} ", bin_op.op));
                 self.print_expr(&bin_op.rhs);
                 self.write(")");
             }
