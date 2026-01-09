@@ -1153,6 +1153,26 @@ impl<'hir> OwnershipPass<'hir> {
                 {
                     let is_copyable = self.is_type_copyable(unary.ty);
                     if is_copyable && !Self::is_primitive_type(unary.ty) {
+                        // Check for recursive copy in copy constructors
+                        // When dereferencing in a copy constructor, we're copying the dereferenced value
+                        if let Some(method_ctx) = &self.current_method_context
+                            && method_ctx.method_name == COPY_CONSTRUCTOR_MANGLED_NAME
+                            && let Some(return_ty) = &method_ctx.return_ty
+                            // Check if the dereferenced type matches the type we're constructing
+                            && self.types_match(unary.ty, return_ty)
+                        {
+                            let path = unary.span.path;
+                            let src = utils::get_file_content(path).unwrap_or_default();
+                            return Err(HirError::RecursiveCopyConstructor(
+                                RecursiveCopyConstructorError {
+                                    copy_span: unary.span,
+                                    method_span: method_ctx.method_span,
+                                    type_name: Self::get_type_name(unary.ty),
+                                    src: NamedSource::new(path, src),
+                                },
+                            ));
+                        }
+
                         // Wrap in Copy to ensure proper deep copy semantics
                         return Ok(HirExpr::Copy(HirCopyExpr {
                             span: unary.span,
@@ -1564,25 +1584,6 @@ impl<'hir> OwnershipPass<'hir> {
                     )
                     .into();
                     eprintln!("{:?}", warning);
-                }
-
-                // Check for recursive copy in _copy methods
-                if let Some(method_ctx) = &self.current_method_context
-                    && method_ctx.method_name == COPY_CONSTRUCTOR_MANGLED_NAME
-                    && let Some(return_ty) = &method_ctx.return_ty
-                    // Check if we're trying to copy the same type we're returning
-                    && self.types_match(ident.ty, return_ty)
-                {
-                    let path = ident.span.path;
-                    let src = utils::get_file_content(path).unwrap_or_default();
-                    return Err(HirError::RecursiveCopyConstructor(
-                        RecursiveCopyConstructorError {
-                            copy_span: ident.span,
-                            method_span: method_ctx.method_span,
-                            type_name: Self::get_type_name(ident.ty),
-                            src: NamedSource::new(path, src),
-                        },
-                    ));
                 }
 
                 return Ok(HirExpr::Copy(HirCopyExpr {
@@ -2197,6 +2198,12 @@ impl<'hir> OwnershipPass<'hir> {
                     MonomorphizationPass::generate_mangled_name(self.hir_arena, g1, "struct");
                 let name2 =
                     MonomorphizationPass::generate_mangled_name(self.hir_arena, g2, "struct");
+                name1 == name2
+            }
+            (HirTy::Named(n), HirTy::Generic(g)) | (HirTy::Generic(g), HirTy::Named(n)) => {
+                let name1 = n.name.to_string();
+                let name2 =
+                    MonomorphizationPass::generate_mangled_name(self.hir_arena, g, "struct");
                 name1 == name2
             }
             (HirTy::ReadOnlyReference(r1), HirTy::ReadOnlyReference(r2)) => {
