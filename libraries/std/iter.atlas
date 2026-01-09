@@ -17,7 +17,7 @@ public:
         delete this.data;
     }
     Iter(from: &const Iter<T>) {
-        this.data = from.data;
+        this.data = *from.data;
         this.index = *from.index;
     }
     /// Returns the next item in the iterator, or None if the end is reached.

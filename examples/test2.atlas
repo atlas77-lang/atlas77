@@ -3,7 +3,6 @@ import "std/io";
 struct UniqueResource {
 public:
     id: int64;
-    // Multiple fields to dodge the automatic _copy generation
     id2: int64;
     
     UniqueResource(id: int64) {
@@ -29,10 +28,8 @@ public:
         println(this.value);
     }
 
-    fun _copy(&const this) -> Copyable {
-        println("Copying...");
-        // Dereference to get the value and create a new instance
-        return new Copyable(*this.value);
+    Copyable(from: &const Copyable) {
+        this.value = *from.value;
     }
 }
 

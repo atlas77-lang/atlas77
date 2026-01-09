@@ -21,11 +21,8 @@ public:
         println("Copyable destroyed");
     }
 
-    // This makes the struct copyable!
-    fun _copy(&const this) -> Copyable {
-        println("Copyable._copy called");
-        let result = new Copyable(*this.value);
-        return result;
+    Copyable(from: &const Copyable) {
+        this.value = *from.value;
     }
 
     fun get_value(&const this) -> int64 {

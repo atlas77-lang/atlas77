@@ -13,6 +13,7 @@ public:
     ~Copyable() {
         delete this.b;
     }
+    // The copy constructor is automatically generated because T is copyable
 }
 
 fun main() {
