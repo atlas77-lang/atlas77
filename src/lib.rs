@@ -2,6 +2,7 @@
 #![allow(clippy::single_match)]
 #![allow(clippy::new_without_default)]
 #![allow(clippy::unusual_byte_groupings)]
+#![allow(unused)]
 
 pub mod atlas_c;
 pub mod atlas_lib;

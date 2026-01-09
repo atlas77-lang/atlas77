@@ -3,7 +3,7 @@ import "std/io";
 // Flag telling explicitly the compiler to
 // generate a copy constructor if there is none
 // Will warn you if it fails to do so
-#[std::non_copyable]
+#[std::copyable]
 // The type T has to be copyable
 struct Copyable<T: std::copyable> {
 public:

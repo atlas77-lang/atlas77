@@ -232,6 +232,7 @@ impl<'hir> ScopeMap<'hir> {
     /// Returns all the variables that are owned (valid) in the current scope only
     ///
     /// Used when exiting a scope to determine which variables need to be deleted
+    /// Returns variables in reverse order of declaration (LIFO) for proper cleanup
     pub fn get_owned_vars_in_current_scope(&self) -> Vec<&VarData<'hir>> {
         let mut owned_vars = Vec::new();
         let scope = self.scopes.last().unwrap();
@@ -240,6 +241,13 @@ impl<'hir> ScopeMap<'hir> {
                 owned_vars.push(var);
             }
         }
+        // Sort by declaration order (descending), then by name (descending) for determinism
+        // This ensures most recently declared variables are deleted first (LIFO order)
+        owned_vars.sort_by(|a, b| {
+            b.declaration_stmt_index
+                .cmp(&a.declaration_stmt_index)
+                .then_with(|| b.name.cmp(a.name))
+        });
         owned_vars
     }
 
@@ -248,7 +256,7 @@ impl<'hir> ScopeMap<'hir> {
     /// Used when encountering a `return` statement to determine which variables need to be deleted
     /// before returning.
     ///
-    /// The variables are returned in reverse order of declaration.
+    /// The variables are returned in reverse order of declaration (LIFO).
     pub fn get_all_owned_vars(&self) -> Vec<&VarData<'hir>> {
         let mut owned_vars = Vec::new();
         let mut current_scope_index = self.scopes.len() - 1;
@@ -265,6 +273,13 @@ impl<'hir> ScopeMap<'hir> {
                 break;
             }
         }
+        // Sort by declaration order (descending), then by name (descending) for determinism
+        // This ensures most recently declared variables are deleted first (LIFO order)
+        owned_vars.sort_by(|a, b| {
+            b.declaration_stmt_index
+                .cmp(&a.declaration_stmt_index)
+                .then_with(|| b.name.cmp(a.name))
+        });
         owned_vars
     }
 
@@ -535,8 +550,7 @@ impl<'hir> VarData<'hir> {
     pub fn last_ownership_consuming_use(&self) -> Option<&VarUse> {
         self.uses
             .iter()
-            .filter(|u| u.kind == UseKind::OwnershipConsuming)
-            .next_back()
+            .rfind(|u| u.kind == UseKind::OwnershipConsuming)
     }
 
     /// Check if a given use is the last ownership-consuming use

@@ -56,7 +56,7 @@ use crate::atlas_c::{
         ty::HirTy,
         warning::{
             ConsumingMethodMayLeakThisWarning, HirWarning, ReferenceEscapesToConstructorWarning,
-            TemporaryValueCannotBeFreedWarning, UnnecessaryCopyDueToLaterBorrowsWarning,
+            UnnecessaryCopyDueToLaterBorrowsWarning,
         },
     },
     utils::{self, Span},
@@ -82,6 +82,10 @@ pub struct OwnershipPass<'hir> {
     /// Current method modifier (None if not in a method, or the modifier if in a method)
     /// Used to detect ownership transfer in borrowing methods
     current_method_context: Option<MethodContext<'hir>>,
+    /// Counter for generating unique temporary variable names
+    temp_var_counter: usize,
+    /// Statements to prepend before the current statement (for temporary extraction)
+    pending_statements: Vec<HirStatement<'hir>>,
 }
 
 /// Context for the current method being analyzed
@@ -112,6 +116,8 @@ impl<'hir> OwnershipPass<'hir> {
             hir_arena,
             current_stmt_index: 0,
             current_method_context: None,
+            temp_var_counter: 0,
+            pending_statements: Vec::new(),
         }
     }
 
@@ -125,6 +131,7 @@ impl<'hir> OwnershipPass<'hir> {
             // Reset state for each function
             self.scope_map = ScopeMap::new();
             self.current_stmt_index = 0;
+            self.temp_var_counter = 0;
 
             if let Err(e) = self.analyze_function(func) {
                 self.errors.push(e);
@@ -144,6 +151,7 @@ impl<'hir> OwnershipPass<'hir> {
             for method in struct_def.methods.iter_mut() {
                 self.scope_map = ScopeMap::new();
                 self.current_stmt_index = 0;
+                self.temp_var_counter = 0;
 
                 // Set method context for ownership checking
                 self.current_method_context = Some(MethodContext {
@@ -219,6 +227,7 @@ impl<'hir> OwnershipPass<'hir> {
             if let Some(copy_ctor) = struct_def.copy_constructor.as_mut() {
                 self.scope_map = ScopeMap::new();
                 self.current_stmt_index = 0;
+                self.temp_var_counter = 0;
 
                 // Set method context so checks like recursive-copy detection work
                 self.current_method_context = Some(MethodContext {
@@ -265,6 +274,7 @@ impl<'hir> OwnershipPass<'hir> {
             {
                 self.scope_map = ScopeMap::new();
                 self.current_stmt_index = 0;
+                self.temp_var_counter = 0;
 
                 for param in struct_def.constructor.params.iter() {
                     let kind = self.classify_type_kind(param.ty);
@@ -289,6 +299,7 @@ impl<'hir> OwnershipPass<'hir> {
             {
                 self.scope_map = ScopeMap::new();
                 self.current_stmt_index = 0;
+                self.temp_var_counter = 0;
 
                 for param in struct_def.destructor.params.iter() {
                     let kind = self.classify_type_kind(param.ty);
@@ -667,6 +678,9 @@ impl<'hir> OwnershipPass<'hir> {
         &mut self,
         stmt: &mut HirStatement<'hir>,
     ) -> HirResult<Vec<HirStatement<'hir>>> {
+        // Clear pending statements from previous transformation
+        self.pending_statements.clear();
+
         match stmt {
             HirStatement::Let(var_stmt) => {
                 let transformed_value = self.transform_expr_ownership(&var_stmt.value, true)?;
@@ -712,7 +726,10 @@ impl<'hir> OwnershipPass<'hir> {
                     value: transformed_value,
                 });
 
-                Ok(vec![new_stmt])
+                // Prepend any pending statements (temporary extractions)
+                let mut result = self.pending_statements.clone();
+                result.push(new_stmt);
+                Ok(result)
             }
             HirStatement::Const(var_stmt) => {
                 let transformed_value = self.transform_expr_ownership(&var_stmt.value, true)?;
@@ -755,14 +772,21 @@ impl<'hir> OwnershipPass<'hir> {
                     value: transformed_value,
                 });
 
-                Ok(vec![new_stmt])
+                // Prepend any pending statements (temporary extractions)
+                let mut result = self.pending_statements.clone();
+                result.push(new_stmt);
+                Ok(result)
             }
             HirStatement::Expr(expr_stmt) => {
                 let transformed = self.transform_expr_ownership(&expr_stmt.expr, false)?;
-                Ok(vec![HirStatement::Expr(HirExprStmt {
+                let new_stmt = HirStatement::Expr(HirExprStmt {
                     span: expr_stmt.span,
                     expr: transformed,
-                })])
+                });
+                // Prepend any pending statements (temporary extractions)
+                let mut result = self.pending_statements.clone();
+                result.push(new_stmt);
+                Ok(result)
             }
             HirStatement::Return(ret) => {
                 // Return always moves the value
@@ -1242,30 +1266,24 @@ impl<'hir> OwnershipPass<'hir> {
             HirExpr::FieldAccess(field) => {
                 // Check if the target expression creates a temporary value that needs to be freed
                 // This catches method chaining like: foo.bar().baz() where bar() returns a temporary
-                if Self::should_warn_about_temporary_in_method_chain(&field.target) {
-                    let path = field.span.path;
-                    let src = utils::get_file_content(path).unwrap_or_default();
+                // Instead of warning, we extract the temporary into a variable
+                let transformed_target =
+                    if Self::should_warn_about_temporary_in_method_chain(&field.target) {
+                        // Extract the temporary into a variable
+                        let (temp_name, let_stmt) =
+                            self.extract_temporary(*field.target.clone(), field.target.span())?;
+                        self.pending_statements.push(let_stmt);
 
-                    let target_expr_str = Self::get_expr_description(&field.target);
-                    let field_name = field.field.name;
-
-                    let warning: ErrReport = HirWarning::TemporaryValueCannotBeFreed(
-                        TemporaryValueCannotBeFreedWarning {
-                            src: NamedSource::new(path, src),
+                        // Use the temporary variable instead
+                        HirExpr::Ident(HirIdentExpr {
                             span: field.target.span(),
-                            expr_kind: target_expr_str,
-                            var_name: "result".to_string(),
-                            target_expr: format!(
-                                ".{} //Rest of your method chain here",
-                                field_name
-                            ),
-                        },
-                    )
-                    .into();
-                    eprintln!("{:?}", warning);
-                }
+                            name: temp_name,
+                            ty: field.target.ty(),
+                        })
+                    } else {
+                        self.transform_expr_ownership(&field.target, false)?
+                    };
 
-                let transformed_target = self.transform_expr_ownership(&field.target, false)?;
                 let field_access_expr =
                     HirExpr::FieldAccess(crate::atlas_c::atlas_hir::expr::HirFieldAccessExpr {
                         span: field.span,
@@ -1343,29 +1361,23 @@ impl<'hir> OwnershipPass<'hir> {
             }
             HirExpr::Casting(cast) => {
                 // Check if the inner expression creates a temporary value that needs to be freed
-                // If so, emit a warning because the ownership pass can't properly free it
-                if Self::should_warn_about_temporary_in_cast(&cast.expr) {
-                    let path = cast.span.path;
-                    let src = utils::get_file_content(path).unwrap_or_default();
+                // Instead of warning, we extract the temporary into a variable
+                let transformed = if Self::should_warn_about_temporary_in_cast(&cast.expr) {
+                    // Extract the temporary into a variable
+                    let (temp_name, let_stmt) =
+                        self.extract_temporary(*cast.expr.clone(), cast.expr.span())?;
+                    self.pending_statements.push(let_stmt);
 
-                    let expr_kind = Self::get_expr_description(&cast.expr);
-                    let target_type = Self::get_type_name(cast.ty);
+                    // Use the temporary variable instead
+                    HirExpr::Ident(HirIdentExpr {
+                        span: cast.expr.span(),
+                        name: temp_name,
+                        ty: cast.expr.ty(),
+                    })
+                } else {
+                    self.transform_expr_ownership(&cast.expr, is_ownership_consuming)?
+                };
 
-                    let warning: ErrReport = HirWarning::TemporaryValueCannotBeFreed(
-                        TemporaryValueCannotBeFreedWarning {
-                            src: NamedSource::new(path, src),
-                            span: cast.expr.span(),
-                            expr_kind,
-                            var_name: "result".to_string(), // Generic name for help message
-                            target_expr: format!(" as {}", target_type),
-                        },
-                    )
-                    .into();
-                    eprintln!("{:?}", warning);
-                }
-
-                let transformed =
-                    self.transform_expr_ownership(&cast.expr, is_ownership_consuming)?;
                 Ok(HirExpr::Casting(
                     crate::atlas_c::atlas_hir::expr::HirCastExpr {
                         span: cast.span,
@@ -2514,6 +2526,13 @@ impl<'hir> OwnershipPass<'hir> {
             HirExpr::HirBinaryOperation(binop) => {
                 !binop.ty.is_ref() && Self::type_needs_memory_management(binop.ty)
             }
+            // Copy/Move expressions - check if the inner expression needs management
+            HirExpr::Copy(copy_expr) => Self::should_warn_about_temporary_in_cast(&copy_expr.expr),
+            HirExpr::Move(move_expr) => Self::should_warn_about_temporary_in_cast(&move_expr.expr),
+            // Field access - if it returns a managed type, it might need extraction
+            HirExpr::FieldAccess(field) => {
+                !field.ty.is_ref() && Self::type_needs_memory_management(field.ty)
+            }
             // Any other expression that creates a value needing memory management
             _ => false,
         }
@@ -2570,11 +2589,50 @@ impl<'hir> OwnershipPass<'hir> {
         }
     }
 
-    /// Get a human-readable description of an expression for error messages
-    fn get_expr_description(expr: &HirExpr) -> String {
-        let mut pretty_printer = HirPrettyPrinter::new();
-        pretty_printer.print_expr(expr);
+    /// Generate a unique temporary variable name
+    fn generate_temp_var_name(&mut self) -> &'hir str {
+        let name = format!("__atlas77_temp_{}", self.temp_var_counter);
+        self.temp_var_counter += 1;
+        self.hir_arena.names().get(&name)
+    }
 
-        pretty_printer.get_output()
+    /// Extract a temporary expression into a variable, returning the variable name and let statement
+    /// This is used to properly manage the lifetime of temporary values in casts and method chains
+    fn extract_temporary(
+        &mut self,
+        expr: HirExpr<'hir>,
+        span: Span,
+    ) -> HirResult<(&'hir str, HirStatement<'hir>)> {
+        let temp_name = self.generate_temp_var_name();
+        let ty = expr.ty();
+
+        // Transform the expression (it might need COPY/MOVE inserted)
+        let transformed_expr = self.transform_expr_ownership(&expr, true)?;
+
+        // Register the temporary variable
+        let kind = self.classify_type_kind(ty);
+        let is_copyable = self.is_type_copyable(ty);
+
+        let var_data = VarData::new(
+            temp_name,
+            span,
+            kind,
+            ty,
+            is_copyable,
+            self.current_stmt_index,
+        );
+        self.scope_map.insert(temp_name, var_data);
+
+        // Create the let statement
+        let let_stmt = HirStatement::Let(HirVariableStmt {
+            span,
+            name: temp_name,
+            name_span: span,
+            ty,
+            ty_span: Some(span),
+            value: transformed_expr,
+        });
+
+        Ok((temp_name, let_stmt))
     }
 }

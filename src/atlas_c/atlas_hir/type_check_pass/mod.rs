@@ -86,7 +86,7 @@ impl<'hir> TypeChecker<'hir> {
             self.current_class_name = Some(class.0);
             self.check_class(class.1)?;
         }
-        for (_, hir_union) in &mut hir.body.unions {
+        for hir_union in hir.body.unions.values_mut() {
             self.check_union(hir_union)?;
         }
         Ok(hir)
@@ -96,13 +96,13 @@ impl<'hir> TypeChecker<'hir> {
         if hir_union.variants.len() <= 1 {
             let path = hir_union.span.path;
             let src = utils::get_file_content(path).unwrap();
-            return Err(HirError::UnionMustHaveAtLeastTwoVariant(
+            Err(HirError::UnionMustHaveAtLeastTwoVariant(
                 UnionMustHaveAtLeastTwoVariantError {
                     union_name: hir_union.name.to_string(),
                     span: hir_union.name_span,
                     src: NamedSource::new(path, src),
                 },
-            ));
+            ))
         } else {
             let mut variants = HashMap::new();
             for variant in &hir_union.variants {
@@ -144,7 +144,7 @@ impl<'hir> TypeChecker<'hir> {
                 return Err(HirError::StructCannotHaveAFieldOfItsOwnType(
                     StructCannotHaveAFieldOfItsOwnTypeError {
                         struct_name: if let Some(gen_ty) = class.pre_mangled_ty {
-                            format!("{}", HirPrettyPrinter::generic_ty_str(gen_ty))
+                            HirPrettyPrinter::generic_ty_str(gen_ty)
                         } else {
                             class.name.to_string()
                         },
