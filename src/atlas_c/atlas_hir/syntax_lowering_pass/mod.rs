@@ -473,10 +473,12 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
         let signature = HirStructSignature {
             declaration_span: node.span,
+            name,
             name_span: node.name.span,
+            // This is filled by the monomorphization pass if needed
+            pre_mangled_ty: None,
             vis: node.vis.into(),
             flag: node.flag.into(),
-            name,
             methods: {
                 let mut map = BTreeMap::new();
                 for method in methods.iter() {
@@ -502,6 +504,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         Ok(HirStruct {
             span: node.span,
             name,
+            // This is filled by the monomorphization pass if needed
+            pre_mangled_ty: None,
             name_span: node.name.span,
             signature,
             methods,

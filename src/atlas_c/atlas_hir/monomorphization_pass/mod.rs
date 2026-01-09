@@ -327,6 +327,8 @@ impl<'hir> MonomorphizationPass<'hir> {
     ) -> HirResult<&'hir HirTy<'hir>> {
         let base_name = actual_type.name;
         let mut new_struct = template.clone();
+        new_struct.pre_mangled_ty = Some(actual_type);
+        new_struct.signature.pre_mangled_ty = Some(actual_type);
         //Collect generic names
         let generics = template.signature.generics.clone();
         if generics.len() != actual_type.inner.len() {

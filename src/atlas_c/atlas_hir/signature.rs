@@ -3,6 +3,7 @@ use crate::atlas_c::atlas_frontend::parser::ast::{AstFlag, AstVisibility};
 use crate::atlas_c::atlas_hir::expr::HirUnaryOp;
 use crate::atlas_c::atlas_hir::expr::{HirBinaryOperator, HirExpr};
 use crate::atlas_c::atlas_hir::item::HirEnum;
+use crate::atlas_c::atlas_hir::ty::HirGenericTy;
 use crate::atlas_c::utils::Span;
 use std::collections::BTreeMap;
 use std::fmt::Display;
@@ -26,6 +27,8 @@ pub struct HirStructSignature<'hir> {
     pub vis: HirVisibility,
     pub flag: HirFlag,
     pub name: &'hir str,
+    /// If the struct name is mangled, this contains the pre-mangled type
+    pub pre_mangled_ty: Option<&'hir HirGenericTy<'hir>>,
     pub name_span: Span,
     pub methods: BTreeMap<&'hir str, HirStructMethodSignature<'hir>>,
     pub fields: BTreeMap<&'hir str, HirStructFieldSignature<'hir>>,

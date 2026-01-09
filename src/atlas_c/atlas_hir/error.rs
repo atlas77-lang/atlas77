@@ -63,6 +63,7 @@ declare_error_type! {
         CannotMoveOutOfContainer(CannotMoveOutOfContainerError),
         RecursiveCopyConstructor(RecursiveCopyConstructorError),
         StdNonCopyableStructCannotHaveCopyConstructor(StdNonCopyableStructCannotHaveCopyConstructorError),
+        StructCannotHaveAFieldOfItsOwnType(StructCannotHaveAFieldOfItsOwnTypeError),
     }
 }
 
@@ -889,4 +890,29 @@ pub struct StdNonCopyableStructCannotHaveCopyConstructorError {
     #[source_code]
     pub src: NamedSource<String>,
     pub struct_name: String,
+}
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::struct_cannot_have_a_field_of_its_own_type),
+    help(
+        "A struct cannot directly or indirectly contain itself as a field, as this would create infinite size.
+This error occurs when:
+  - A struct has a field of its own type (direct cycle): `struct A {{ a: A }}`
+  - A struct contains another struct that eventually contains the first struct (indirect cycle): `struct A {{ b: B }}` where `struct B {{ a: A }}`
+
+Solutions:
+  - Use a reference: `&T` or `&const T` (references are fixed-size pointers)
+  - Use an indirection type: `optional<T>` or `expected<T, E>` (these allow null/empty states)
+  - Redesign the data structure to avoid the cycle"
+    )
+)]
+#[error("struct `{struct_name}` contains a cyclic reference to itself")]
+pub struct StructCannotHaveAFieldOfItsOwnTypeError {
+    pub struct_name: String,
+    #[label = "struct `{struct_name}` defined here"]
+    pub struct_span: Span,
+    #[label(collection)]
+    pub cycle_path: Vec<miette::LabeledSpan>,
+    #[source_code]
+    pub src: NamedSource<String>,
 }

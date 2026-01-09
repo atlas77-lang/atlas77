@@ -4,6 +4,7 @@ use crate::atlas_c::atlas_hir::signature::{
     HirStructMethodSignature, HirStructSignature, HirTypeParameterItemSignature, HirUnionSignature,
     HirVisibility,
 };
+use crate::atlas_c::atlas_hir::ty::HirGenericTy;
 use crate::atlas_c::utils::Span;
 
 #[derive(Debug, Clone)]
@@ -53,6 +54,8 @@ pub struct HirUnion<'hir> {
 pub struct HirStruct<'hir> {
     pub span: Span,
     pub name: &'hir str,
+    /// If the struct name is mangled, this contains the pre-mangled type
+    pub pre_mangled_ty: Option<&'hir HirGenericTy<'hir>>,
     pub name_span: Span,
     pub signature: HirStructSignature<'hir>,
     pub methods: Vec<HirStructMethod<'hir>>,

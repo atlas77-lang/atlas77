@@ -3,10 +3,14 @@ mod context;
 use super::{
     HirFunction, HirModule, HirModuleSignature, arena::HirArena, expr, stmt::HirStatement,
 };
-use crate::atlas_c::atlas_hir::error::StdNonCopyableStructCannotHaveCopyConstructorError;
+use crate::atlas_c::atlas_hir::error::{
+    StdNonCopyableStructCannotHaveCopyConstructorError, StructCannotHaveAFieldOfItsOwnTypeError,
+};
 use crate::atlas_c::atlas_hir::item::HirStructConstructor;
+use crate::atlas_c::atlas_hir::pretty_print::HirPrettyPrinter;
 use crate::atlas_c::atlas_hir::signature::{
-    HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier, HirVisibility,
+    HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier,
+    HirStructSignature, HirVisibility,
 };
 use crate::atlas_c::atlas_hir::{
     error::{
@@ -37,7 +41,7 @@ use crate::atlas_c::atlas_hir::{
 use crate::atlas_c::utils;
 use crate::atlas_c::utils::Span;
 use miette::{ErrReport, NamedSource};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub struct TypeChecker<'hir> {
     arena: &'hir HirArena<'hir>,
@@ -85,6 +89,34 @@ impl<'hir> TypeChecker<'hir> {
     }
 
     pub fn check_class(&mut self, class: &mut HirStruct<'hir>) -> HirResult<()> {
+        // Check for cyclic struct references (struct containing itself directly or indirectly)
+        for field in &class.fields {
+            let mut visited = HashSet::new();
+            let mut cycle_path = Vec::new();
+
+            if self.has_cyclic_reference(
+                field.ty,
+                &class.signature,
+                &mut visited,
+                &mut cycle_path,
+                field.span,
+            ) {
+                let path = class.span.path;
+                let src = utils::get_file_content(path).unwrap();
+                return Err(HirError::StructCannotHaveAFieldOfItsOwnType(
+                    StructCannotHaveAFieldOfItsOwnTypeError {
+                        struct_name: if let Some(gen_ty) = class.pre_mangled_ty {
+                            format!("{}", HirPrettyPrinter::generic_ty_str(gen_ty))
+                        } else {
+                            class.name.to_string()
+                        },
+                        struct_span: class.name_span,
+                        cycle_path,
+                        src: NamedSource::new(path, src),
+                    },
+                ));
+            }
+        }
         for method in &mut class.methods {
             self.current_class_name = Some(class.name);
             self.current_func_name = Some(method.name);
@@ -1857,6 +1889,167 @@ impl<'hir> TypeChecker<'hir> {
             HirTy::ReadOnlyReference(read_only) => self.get_class_name_of_type(read_only.inner),
             HirTy::MutableReference(mutable) => self.get_class_name_of_type(mutable.inner),
             _ => None,
+        }
+    }
+
+    /// Check if a type has a cyclic reference to the target struct.
+    /// This function:
+    /// - Returns false for references (they don't cause infinite size)
+    /// - Recursively checks fields of structs to detect indirect cycles
+    /// - Uses a visited set to avoid infinite recursion
+    /// - Collects the path of the cycle with labeled spans for clear error reporting
+    fn has_cyclic_reference(
+        &self,
+        ty: &HirTy<'hir>,
+        target_struct: &HirStructSignature<'hir>,
+        visited: &mut HashSet<&'hir str>,
+        cycle_path: &mut Vec<miette::LabeledSpan>,
+        current_field_span: Span,
+    ) -> bool {
+        match ty {
+            // References are OK - they don't cause infinite size
+            HirTy::ReadOnlyReference(_) | HirTy::MutableReference(_) => false,
+
+            // Check named struct type
+            HirTy::Named(named) => {
+                // If it's the target struct, we found a cycle
+                if named.name == target_struct.name {
+                    let type_name = self.get_type_display_name(ty);
+                    cycle_path.push(miette::LabeledSpan::new_with_span(
+                        Some(format!(
+                            "field of type `{}` completes the cycle back to `{}`",
+                            type_name, target_struct.name
+                        )),
+                        current_field_span,
+                    ));
+                    return true;
+                }
+
+                // Avoid infinite recursion by checking if we've already visited this struct
+                if visited.contains(named.name) {
+                    return false;
+                }
+                visited.insert(named.name);
+
+                // Add current field to the path
+                let type_name = self.get_type_display_name(ty);
+                let path_index = cycle_path.len();
+                cycle_path.push(miette::LabeledSpan::new_with_span(
+                    Some(format!("→ field of type `{}`", type_name)),
+                    current_field_span,
+                ));
+
+                // Recursively check the fields of this struct
+                if let Some(struct_def) = self.signature.structs.get(named.name) {
+                    for field in struct_def.fields.values() {
+                        if self.has_cyclic_reference(
+                            field.ty,
+                            target_struct,
+                            visited,
+                            cycle_path,
+                            field.span,
+                        ) {
+                            return true;
+                        }
+                    }
+                }
+
+                // No cycle found through this path, remove it
+                cycle_path.truncate(path_index);
+                visited.remove(named.name);
+                false
+            }
+
+            // Check generic struct type
+            HirTy::Generic(generic) => {
+                // Get the mangled name for this generic struct
+                let mangled_name =
+                    MonomorphizationPass::generate_mangled_name(self.arena, generic, "struct");
+
+                // If the mangled name matches or resolves to the target struct, we found a cycle
+                if mangled_name == target_struct.name {
+                    let type_name = self.get_type_display_name(ty);
+                    cycle_path.push(miette::LabeledSpan::new_with_span(
+                        Some(format!(
+                            "field of type `{}` completes the cycle back to `{}`",
+                            type_name,
+                            if let Some(gen_ty) = target_struct.pre_mangled_ty {
+                                HirPrettyPrinter::generic_ty_str(gen_ty)   
+                            } else {
+                                target_struct.name.to_string()
+                            }
+                        )),
+                        current_field_span,
+                    ));
+                    return true;
+                }
+
+                // Avoid infinite recursion
+                if visited.contains(mangled_name) {
+                    return false;
+                }
+                visited.insert(mangled_name);
+
+                // Add current field to the path
+                let type_name = self.get_type_display_name(ty);
+                let path_index = cycle_path.len();
+                cycle_path.push(miette::LabeledSpan::new_with_span(
+                    Some(format!("→ field of type `{}`", type_name)),
+                    current_field_span,
+                ));
+
+                // Recursively check the fields of this generic struct
+                if let Some(struct_def) = self.signature.structs.get(mangled_name) {
+                    for field in struct_def.fields.values() {
+                        if self.has_cyclic_reference(
+                            field.ty,
+                            target_struct,
+                            visited,
+                            cycle_path,
+                            field.span,
+                        ) {
+                            return true;
+                        }
+                    }
+                }
+
+                // No cycle found through this path, remove it
+                cycle_path.truncate(path_index);
+                visited.remove(mangled_name);
+                false
+            }
+
+            // Other types (primitives, lists, etc.) can't be cyclic
+            _ => false,
+        }
+    }
+
+    /// Get a human-readable display name for a type (for error messages)
+    fn get_type_display_name(&self, ty: &HirTy<'hir>) -> String {
+        match ty {
+            HirTy::Named(n) => n.name.to_string(),
+            HirTy::Generic(g) => {
+                let args = g
+                    .inner
+                    .iter()
+                    .map(|t| self.get_type_display_name(t))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{}<{}>", g.name, args)
+            }
+            HirTy::ReadOnlyReference(r) => {
+                format!("&const {}", self.get_type_display_name(r.inner))
+            }
+            HirTy::MutableReference(m) => format!("&{}", self.get_type_display_name(m.inner)),
+            HirTy::Boolean(_) => "bool".to_string(),
+            HirTy::Int64(_) => "int64".to_string(),
+            HirTy::Float64(_) => "float64".to_string(),
+            HirTy::Char(_) => "char".to_string(),
+            HirTy::UInt64(_) => "uint64".to_string(),
+            HirTy::String(_) => "string".to_string(),
+            HirTy::Unit(_) => "unit".to_string(),
+            HirTy::List(l) => format!("[{}]", self.get_type_display_name(l.inner)),
+            _ => "<unknown>".to_string(),
         }
     }
 

@@ -1,6 +1,7 @@
 use crate::atlas_c::atlas_hir::{
     item::HirUnion,
     signature::{HirFlag, HirStructMethodModifier, HirStructMethodSignature},
+    ty::HirGenericTy,
 };
 
 use super::{
@@ -107,10 +108,17 @@ impl HirPrettyPrinter {
             }
             HirFlag::None => {}
         }
+
+        let struct_name = if let Some(pre_mangled_ty) = struct_def.pre_mangled_ty {
+            Self::generic_ty_str(pre_mangled_ty)
+        } else {
+            struct_def.name.to_string()
+        };
+
         self.write(&format!(
             "{} struct {} ",
             self.visibility_str(struct_def.vis),
-            struct_def.name
+            struct_name
         ));
 
         // Type parameters (from generics in signature)
@@ -140,20 +148,20 @@ impl HirPrettyPrinter {
         // Constructor
         if !struct_def.constructor.body.statements.is_empty() {
             self.writeln("// Constructor");
-            self.print_constructor(struct_def.name, &struct_def.constructor);
+            self.print_constructor(&struct_name, &struct_def.constructor);
             self.writeln("");
         }
 
         if let Some(copy_ctor) = &struct_def.copy_constructor {
             self.writeln("// Copy Constructor");
-            self.print_constructor(struct_def.name, copy_ctor);
+            self.print_constructor(&struct_name, copy_ctor);
             self.writeln("");
         }
 
         // Destructor
         if !struct_def.destructor.body.statements.is_empty() {
             self.writeln("// Destructor");
-            self.print_constructor(&format!("~{}", struct_def.name), &struct_def.destructor);
+            self.print_constructor(&format!("~{}", struct_name), &struct_def.destructor);
             self.writeln("");
         }
 
@@ -519,7 +527,23 @@ impl HirPrettyPrinter {
         }
     }
 
-    fn type_str(ty: &HirTy) -> String {
+    pub fn generic_ty_str(generic_ty: &HirGenericTy) -> String {
+        let mut result = String::new();
+        result.push_str(generic_ty.name);
+        if !generic_ty.inner.is_empty() {
+            result.push('<');
+            for (i, arg) in generic_ty.inner.iter().enumerate() {
+                if i > 0 {
+                    result.push_str(", ");
+                }
+                result.push_str(&Self::type_str(arg));
+            }
+            result.push('>');
+        }
+        result
+    }
+
+    pub fn type_str(ty: &HirTy) -> String {
         match ty {
             HirTy::Int64(_) => "int64".to_string(),
             HirTy::Float64(_) => "float64".to_string(),
