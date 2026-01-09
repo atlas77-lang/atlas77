@@ -16,6 +16,13 @@ fun test1() {
     println(ref_1); //Should error: use after free
 }
 
+fun test1_2() -> &const int64 {
+    let my_vec = new Vector<int64>([1, 2, 3, 4, 5]);
+    let ref_1 = my_vec.get(0u);
+    delete my_vec;
+    return ref_1; //Should error: use after free
+}
+
 fun test2() {
     let my_vec = new Vector<int64>([1, 2, 3, 4, 5]);
     let ref_1 = my_vec.get(0u);

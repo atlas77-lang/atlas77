@@ -98,15 +98,15 @@ impl HirPrettyPrinter {
     }
 
     fn print_struct(&mut self, struct_def: &HirStruct) {
-            match struct_def.flag {
-                HirFlag::NonCopyable(_) => {
-                    self.writeln("#[std::non_copyable]");
-                }
-                HirFlag::Copyable(_) => {
-                    self.writeln("#[std::copyable]");
-                }
-                HirFlag::None => {}
+        match struct_def.flag {
+            HirFlag::NonCopyable(_) => {
+                self.writeln("#[std::non_copyable]");
             }
+            HirFlag::Copyable(_) => {
+                self.writeln("#[std::copyable]");
+            }
+            HirFlag::None => {}
+        }
         self.write(&format!(
             "{} struct {} ",
             self.visibility_str(struct_def.vis),

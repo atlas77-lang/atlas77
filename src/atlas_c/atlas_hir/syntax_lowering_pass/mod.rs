@@ -463,10 +463,10 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             );
         }
 
-        let constructor = self.visit_constructor(node.constructor, &fields)?;
-        let destructor = self.visit_destructor(node.destructor, &fields)?;
+        let constructor = self.visit_constructor(node.name_span, node.constructor, &fields)?;
+        let destructor = self.visit_destructor(node.name_span, node.destructor, &fields)?;
         let copy_constructor = if node.copy_constructor.is_some() {
-            Some(self.visit_constructor(node.copy_constructor, &fields)?)
+            Some(self.visit_constructor(node.name_span, node.copy_constructor, &fields)?)
         } else {
             None
         };
@@ -516,6 +516,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
     fn make_default_constructor(
         &mut self,
+        name_span: Span,
         fields: &[HirStructFieldSignature<'hir>],
     ) -> HirStructConstructor<'hir> {
         let mut params: Vec<HirFunctionParameterSignature<'hir>> = Vec::new();
@@ -540,7 +541,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         }
 
         let constructor_signature = HirStructConstructorSignature {
-            span: Span::default(),
+            span: name_span,
             params: params.clone(),
             type_params: type_params.clone(),
             vis: HirVisibility::Public,
@@ -577,12 +578,12 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         }
 
         HirStructConstructor {
-            span: Span::default(),
+            span: name_span,
             signature: self.arena.intern(constructor_signature),
             params,
             type_params,
             body: HirBlock {
-                span: Span::default(),
+                span: name_span,
                 statements,
             },
             //Constructor is public by default
@@ -660,11 +661,12 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
     fn visit_constructor(
         &mut self,
+        name_span: Span,
         constructor: Option<&'ast AstConstructor<'ast>>,
         fields: &[HirStructFieldSignature<'hir>],
     ) -> HirResult<HirStructConstructor<'hir>> {
         if constructor.is_none() {
-            let hir = self.make_default_constructor(fields);
+            let hir = self.make_default_constructor(name_span, fields);
             return Ok(hir);
         }
         let constructor = constructor.unwrap();
@@ -710,12 +712,13 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
     fn visit_destructor(
         &mut self,
+        name_span: Span,
         destructor: Option<&'ast AstDestructor<'ast>>,
         fields: &[HirStructFieldSignature<'hir>],
     ) -> HirResult<HirStructConstructor<'hir>> {
         if destructor.is_none() {
             let signature = HirStructConstructorSignature {
-                span: Span::default(),
+                span: name_span,
                 params: Vec::new(),
                 type_params: Vec::new(),
                 vis: HirVisibility::Public,
@@ -744,12 +747,12 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 }));
             }
             let hir = HirStructConstructor {
-                span: Span::default(),
+                span: name_span,
                 signature: self.arena.intern(signature),
                 params: Vec::new(),
                 type_params: Vec::new(),
                 body: HirBlock {
-                    span: Span::default(),
+                    span: name_span,
                     statements,
                 },
                 //Destructor is public by default

@@ -377,8 +377,7 @@ impl<'hir> TypeChecker<'hir> {
                 }
 
                 let mut expected_ret_ty = self.arena.types().get_uninitialized_ty();
-                let mut span = Span::default();
-                if self.current_class_name.is_some() {
+                let span = if self.current_class_name.is_some() {
                     //This means we're in a class method
                     let class = self
                         .signature
@@ -387,7 +386,7 @@ impl<'hir> TypeChecker<'hir> {
                         .unwrap();
                     let method = class.methods.get(self.current_func_name.unwrap()).unwrap();
                     expected_ret_ty = self.arena.intern(method.clone().return_ty);
-                    span = method.return_ty_span.unwrap_or(r.span);
+                    method.return_ty_span.unwrap_or(r.span)
                 } else if self.current_func_name.is_some() {
                     //This means we're in a standalone function
                     let func_ret_from = self
@@ -396,8 +395,10 @@ impl<'hir> TypeChecker<'hir> {
                         .get(self.current_func_name.unwrap())
                         .unwrap();
                     expected_ret_ty = self.arena.intern(func_ret_from.return_ty.clone());
-                    span = func_ret_from.return_ty_span.unwrap_or(r.span);
-                }
+                    func_ret_from.return_ty_span.unwrap_or(r.span)
+                } else {
+                    r.span
+                };
                 self.is_equivalent_ty(expected_ret_ty, span, actual_ret_ty, r.value.span())
             }
             HirStatement::While(w) => {
@@ -1876,6 +1877,9 @@ impl<'hir> TypeChecker<'hir> {
         actual_type: &str,
         actual_loc: &Span,
     ) -> HirError {
+        eprintln!("[DEBUG] Generating type mismatch error:");
+        eprintln!("  Expected: {} at {:?}", expected_type, expected_loc);
+        eprintln!("  Actual:   {} at {:?}", actual_type, actual_loc);
         let actual_path = actual_loc.path;
         let actual_src = utils::get_file_content(actual_path).unwrap();
         let actual_err = TypeMismatchActual {

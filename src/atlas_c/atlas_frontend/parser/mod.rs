@@ -671,10 +671,8 @@ impl<'ast> Parser<'ast> {
                 let _ = self.advance();
             }
         }
-        self.expect(TokenKind::RParen)?;
-        let mut ret_ty = AstType::Unit(AstUnitType {
-            span: Span::default(),
-        });
+        let span = Span::union_span(&name.span, &self.expect(TokenKind::RParen)?.span);
+        let mut ret_ty = AstType::Unit(AstUnitType { span });
         if self.current().kind() == TokenKind::RArrow {
             let _ = self.advance();
             ret_ty = self.parse_type()?;
@@ -860,10 +858,8 @@ impl<'ast> Parser<'ast> {
                 let _ = self.advance();
             }
         }
-        self.expect(TokenKind::RParen)?;
-        let mut ret_ty = AstType::Unit(AstUnitType {
-            span: Span::default(),
-        });
+        let span = Span::union_span(&name.span, &self.expect(TokenKind::RParen)?.span);
+        let mut ret_ty = AstType::Unit(AstUnitType { span });
         if self.current().kind() == TokenKind::RArrow {
             let _ = self.advance();
             ret_ty = self.parse_type()?;

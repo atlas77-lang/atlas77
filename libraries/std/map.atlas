@@ -20,10 +20,9 @@ public:
         delete this.key;
         delete this.value;
     }
-    /// Copy constructor - creates a deep copy of the pair
-    /// Note: K and V must be copyable types for this to work correctly
-    fun _copy(&const this) -> Pair<K, V> {
-        return new Pair<K, V>(*(this.key), *(this.value));
+    Pair(from: &const Pair<K, V>) {
+        this.key = *from.key;
+        this.value = *from.value;
     }
     fun get_first(&const this) -> K {
         return *(this.key);

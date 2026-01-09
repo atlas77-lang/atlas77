@@ -1631,6 +1631,20 @@ impl<'hir> OwnershipPass<'hir> {
                         ));
                     }
 
+                    // Check for use-after-delete (includes references whose origin was deleted)
+                    if let VarStatus::Deleted { delete_span } = &var_data.status {
+                        let path = ident.span.path;
+                        let src = utils::get_file_content(path).unwrap_or_default();
+                        return Err(HirError::TryingToAccessADeletedValue(
+                            TryingToAccessADeletedValueError {
+                                delete_span: *delete_span,
+                                access_span: ident.span,
+                                src: NamedSource::new(path, src),
+                            }, 
+
+                        ));
+                    }
+
                     // References can be returned as-is (they're just pointers)
                     if var_data.kind == VarKind::Reference {
                         return Ok(HirExpr::Ident(ident.clone()));
