@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+// TODO: Move this pass to LIR instead of HIR
+
 use crate::atlas_c::{
     atlas_hir::{HirModule, arena::HirArena, error::HirResult},
     utils::Span,

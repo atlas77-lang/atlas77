@@ -9,12 +9,12 @@ use miette::NamedSource;
 
 use crate::atlas_c::atlas_frontend::parser::{
     ast::{
-        AstEnum, AstEnumVariant, AstExternType, AstObjLiteralExpr, AstObjLiteralField,
-        AstReadOnlyRefType, AstStdGenericConstraint, AstUnion,
+        AstEnum, AstEnumVariant, AstExternType, AstFlag, AstGlobalConst, AstObjLiteralExpr,
+        AstObjLiteralField, AstReadOnlyRefType, AstStdGenericConstraint, AstUnion, ConstructorKind,
     },
     error::{
-        NoFieldInStructError, OnlyOneConstructorAllowedError, ParseResult, SyntaxError,
-        UnexpectedTokenError,
+        DestructorWithParametersError, FlagDoesntExistError, NoFieldInStructError,
+        OnlyOneConstructorAllowedError, ParseResult, SyntaxError, UnexpectedTokenError,
     },
 };
 use ast::{
@@ -204,6 +204,18 @@ impl<'ast> Parser<'ast> {
             TokenKind::KwStruct => Ok(AstItem::Struct(self.parse_struct()?)),
             TokenKind::KwUnion => Ok(AstItem::Union(self.parse_union()?)),
             TokenKind::KwEnum => Ok(AstItem::Enum(self.parse_enum()?)),
+            TokenKind::KwConst => {
+                let c = self.parse_const()?;
+                self.expect(TokenKind::Semicolon)?;
+                let c = AstItem::Constant(AstGlobalConst {
+                    span: c.span,
+                    name: c.name,
+                    ty: c.ty,
+                    value: c.value,
+                    vis: AstVisibility::default(),
+                });
+                Ok(c)
+            }
             TokenKind::KwPublic => {
                 let _ = self.advance();
                 let mut item = self.parse_item()?;
@@ -216,12 +228,54 @@ impl<'ast> Parser<'ast> {
                 item.set_vis(AstVisibility::Private);
                 Ok(item)
             }
+            TokenKind::Hash => {
+                let flag = self.parse_flag()?;
+                let mut item = self.parse_item()?;
+                item.set_flag(flag);
+                Ok(item)
+            }
             //Handling comments
             _ => Err(self.unexpected_token_error(
                 TokenVec(vec![TokenKind::Identifier("Item".to_string())]),
                 &self.current().span(),
             )),
         }
+    }
+
+    // TODO: Be a bit more flexible with flag names. e.g. `debug`, `display` or whatever without "std" could be allowed
+    fn parse_flag(&mut self) -> ParseResult<AstFlag> {
+        self.expect(TokenKind::Hash)?;
+        self.expect(TokenKind::LBracket)?;
+        let start_span = self.expect(TokenKind::Identifier("std".to_string()))?.span;
+        self.expect(TokenKind::DoubleColon)?;
+        let flag_token = match self.current().kind() {
+            TokenKind::Identifier(ref s) if s == "copyable" => {
+                let span = self.advance().span;
+                AstFlag::Copyable(Span::union_span(&start_span, &span))
+            }
+            TokenKind::Identifier(ref s) if s == "non_copyable" => {
+                let span = self.advance().span;
+                AstFlag::NonCopyable(Span::union_span(&start_span, &span))
+            }
+            _ => {
+                return Err(Box::new(SyntaxError::FlagDoesntExist(
+                    FlagDoesntExistError {
+                        span: self.current().span,
+                        src: NamedSource::new(
+                            self.current().span.path,
+                            get_file_content(self.current().span.path)
+                                .expect("Failed to get source content for error reporting"),
+                        ),
+                        flag_name: match &self.current().kind() {
+                            TokenKind::Identifier(s) => s.clone(),
+                            _ => format!("{:?}", self.current().kind()),
+                        },
+                    },
+                )));
+            }
+        };
+        self.expect(TokenKind::RBracket)?;
+        Ok(flag_token)
     }
 
     fn parse_enum(&mut self) -> ParseResult<AstEnum<'ast>> {
@@ -316,6 +370,18 @@ impl<'ast> Parser<'ast> {
             }
         }
         self.expect(TokenKind::RParen)?;
+        if !params.is_empty() {
+            return Err(Box::new(SyntaxError::DestructorWithParameters(
+                DestructorWithParametersError {
+                    span: Span::union_span(&start_span, &self.current().span()),
+                    src: NamedSource::new(
+                        self.current().span.path,
+                        get_file_content(self.current().span.path)
+                            .expect("Failed to get source content for error reporting"),
+                    ),
+                },
+            )));
+        }
         let body = self.parse_block()?;
         let node = AstDestructor {
             span: Span::union_span(&start_span, &body.span),
@@ -399,6 +465,7 @@ impl<'ast> Parser<'ast> {
         self.expect(TokenKind::LBrace)?;
         let mut fields = vec![];
         let mut constructor: Option<&'ast AstConstructor<'ast>> = None;
+        let mut copy_constructor: Option<&'ast AstConstructor<'ast>> = None;
         let mut destructor: Option<&'ast AstDestructor<'ast>> = None;
         let mut methods = vec![];
         let mut operators = vec![];
@@ -423,17 +490,31 @@ impl<'ast> Parser<'ast> {
                 TokenKind::Identifier(s) => {
                     curr_vis = self.parse_current_vis(curr_vis)?;
                     if s == struct_identifier.name {
-                        if constructor.is_none() {
-                            constructor =
-                                Some(self.arena.alloc(self.parse_constructor(
-                                    struct_identifier.name.to_owned(),
-                                    curr_vis,
-                                )?));
-                        } else {
-                            //We still parse it so we can give a better error message and recover later
-                            let bad_constructor = self
-                                .parse_constructor(struct_identifier.name.to_owned(), curr_vis)?;
-                            self.only_one_constructor_allowed_error(&bad_constructor.span);
+                        // This can be either a constructor or a copy constructor
+                        let ctor =
+                            self.parse_constructor(struct_identifier.name.to_owned(), curr_vis)?;
+                        let kind = self.constructor_kind(struct_identifier.name, &ctor);
+                        match kind {
+                            ConstructorKind::Regular => {
+                                if constructor.is_none() {
+                                    constructor = Some(self.arena.alloc(ctor));
+                                } else {
+                                    return Err(self.only_one_constructor_allowed_error(
+                                        &ctor.span,
+                                        "constructor".to_string(),
+                                    ));
+                                }
+                            }
+                            ConstructorKind::Copy => {
+                                if copy_constructor.is_none() {
+                                    copy_constructor = Some(self.arena.alloc(ctor));
+                                } else {
+                                    return Err(self.only_one_constructor_allowed_error(
+                                        &ctor.span,
+                                        "copy constructor".to_string(),
+                                    ));
+                                }
+                            }
                         }
                     } else {
                         let mut obj_field = self.parse_obj_field()?;
@@ -452,7 +533,10 @@ impl<'ast> Parser<'ast> {
                         //We still parse it so we can give a better error message and recover later
                         let bad_destructor =
                             self.parse_destructor(struct_identifier.name.to_owned(), curr_vis)?;
-                        self.only_one_constructor_allowed_error(&bad_destructor.span);
+                        return Err(self.only_one_constructor_allowed_error(
+                            &bad_destructor.span,
+                            "destructor".to_string(),
+                        ));
                     }
                 }
                 _ => {
@@ -491,13 +575,40 @@ impl<'ast> Parser<'ast> {
             fields: self.arena.alloc_vec(fields),
             constructor,
             destructor,
+            copy_constructor,
             generics: self.arena.alloc_vec(generics),
             methods: self.arena.alloc_vec(methods),
             operators: self.arena.alloc_vec(operators),
             constants: self.arena.alloc_vec(constants),
             vis: AstVisibility::default(),
+            flag: AstFlag::default(),
         };
         Ok(node)
+    }
+
+    // This function returns the kind of constructor given (currently only regular & copy constructors are supported)
+    fn constructor_kind(
+        &self,
+        struct_name: &str,
+        constructor: &AstConstructor<'ast>,
+    ) -> ConstructorKind {
+        if constructor.args.len() == 1 {
+            let ident = match constructor.args[0].ty {
+                AstType::ReadOnlyRef(AstReadOnlyRefType {
+                    inner: AstType::Named(AstNamedType { name: ident, .. }),
+                    ..
+                }) => ident,
+                AstType::ReadOnlyRef(AstReadOnlyRefType {
+                    inner: AstType::Generic(AstGenericType { name: ident, .. }),
+                    ..
+                }) => ident,
+                _ => return ConstructorKind::Regular,
+            };
+            if ident.name == struct_name {
+                return ConstructorKind::Copy;
+            }
+        }
+        ConstructorKind::Regular
     }
 
     fn parse_method(&mut self) -> ParseResult<AstMethod<'ast>> {
@@ -560,10 +671,8 @@ impl<'ast> Parser<'ast> {
                 let _ = self.advance();
             }
         }
-        self.expect(TokenKind::RParen)?;
-        let mut ret_ty = AstType::Unit(AstUnitType {
-            span: Span::default(),
-        });
+        let span = Span::union_span(&name.span, &self.expect(TokenKind::RParen)?.span);
+        let mut ret_ty = AstType::Unit(AstUnitType { span });
         if self.current().kind() == TokenKind::RArrow {
             let _ = self.advance();
             ret_ty = self.parse_type()?;
@@ -749,10 +858,8 @@ impl<'ast> Parser<'ast> {
                 let _ = self.advance();
             }
         }
-        self.expect(TokenKind::RParen)?;
-        let mut ret_ty = AstType::Unit(AstUnitType {
-            span: Span::default(),
-        });
+        let span = Span::union_span(&name.span, &self.expect(TokenKind::RParen)?.span);
+        let mut ret_ty = AstType::Unit(AstUnitType { span });
         if self.current().kind() == TokenKind::RArrow {
             let _ = self.advance();
             ret_ty = self.parse_type()?;
@@ -1042,6 +1149,11 @@ impl<'ast> Parser<'ast> {
 
                 Ok(node)
             }
+            // Handle assignment to unary expressions like `*ref_x = 100`
+            TokenKind::OpAssign => {
+                let node = AstExpr::Assign(self.parse_assign(left)?);
+                Ok(node)
+            }
             _ => Ok(left),
         }
     }
@@ -1071,7 +1183,12 @@ impl<'ast> Parser<'ast> {
         // Unary operators apply to the full postfix expression:
         // &get_string() means &(get_string()), -arr[0] means -(arr[0]),
         // *ptr.field means *(ptr.field), !obj.method() means !(obj.method())
-        let expr = self.parse_primary()?;
+        // When there's a unary operator, don't parse assignment inside - it should apply to the whole unary expr
+        let expr = if op.is_some() {
+            self.parse_primary_no_assign()?
+        } else {
+            self.parse_primary()?
+        };
         let node = AstUnaryOpExpr {
             span: Span::union_span(&start_pos, &self.current().span()),
             op,
@@ -1191,7 +1308,14 @@ impl<'ast> Parser<'ast> {
     fn parse_primary(&mut self) -> ParseResult<AstExpr<'ast>> {
         let node = self.parse_primary_no_postfix()?;
         // Parse postfix operations (method calls, field access, indexing) on all primary expressions
-        self.parse_ident_access(node)
+        self.parse_ident_access(node, true)
+    }
+
+    /// Parse primary expression with postfix operations but WITHOUT assignment handling.
+    /// Used when parsing operand of unary expressions to avoid `*ref_x = 100` being parsed as `*(ref_x = 100)`.
+    fn parse_primary_no_assign(&mut self) -> ParseResult<AstExpr<'ast>> {
+        let node = self.parse_primary_no_postfix()?;
+        self.parse_ident_access(node, false)
     }
 
     fn parse_delete_obj(&mut self) -> ParseResult<AstExpr<'ast>> {
@@ -1205,7 +1329,13 @@ impl<'ast> Parser<'ast> {
     }
 
     /// TODO: We should be able to write `new Foo().bar()` but currently we can't
-    fn parse_ident_access(&mut self, origin: AstExpr<'ast>) -> ParseResult<AstExpr<'ast>> {
+    /// `handle_assign`: if true, handles `= value` as an assignment expression.
+    /// Set to false when parsing operands of unary expressions to avoid `*ref_x = 100` being parsed as `*(ref_x = 100)`.
+    fn parse_ident_access(
+        &mut self,
+        origin: AstExpr<'ast>,
+        handle_assign: bool,
+    ) -> ParseResult<AstExpr<'ast>> {
         let mut node = origin;
         while self.peek().is_some() {
             match self.current().kind() {
@@ -1219,7 +1349,7 @@ impl<'ast> Parser<'ast> {
                 TokenKind::Dot => {
                     node = AstExpr::FieldAccess(self.parse_field_access(node)?);
                 }
-                TokenKind::OpAssign => {
+                TokenKind::OpAssign if handle_assign => {
                     node = AstExpr::Assign(self.parse_assign(node)?);
                     return Ok(node);
                 }
@@ -1915,12 +2045,13 @@ impl<'ast> Parser<'ast> {
         }))
     }
 
-    fn only_one_constructor_allowed_error(&self, span: &Span) -> Box<SyntaxError> {
+    fn only_one_constructor_allowed_error(&self, span: &Span, kind: String) -> Box<SyntaxError> {
         let path = span.path;
         let src = get_file_content(path).expect("Failed to read source file");
         Box::new(SyntaxError::OnlyOneConstructorAllowed(
             OnlyOneConstructorAllowedError {
                 span: *span,
+                kind,
                 src: NamedSource::new(path, src),
             },
         ))

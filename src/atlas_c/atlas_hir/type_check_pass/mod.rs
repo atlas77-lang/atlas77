@@ -3,9 +3,15 @@ mod context;
 use super::{
     HirFunction, HirModule, HirModuleSignature, arena::HirArena, expr, stmt::HirStatement,
 };
-use crate::atlas_c::atlas_hir::item::HirStructConstructor;
+use crate::atlas_c::atlas_hir::error::{
+    StdNonCopyableStructCannotHaveCopyConstructorError, StructCannotHaveAFieldOfItsOwnTypeError,
+    UnionMustHaveAtLeastTwoVariantError, UnionVariantDefinedMultipleTimesError,
+};
+use crate::atlas_c::atlas_hir::item::{HirStructConstructor, HirUnion};
+use crate::atlas_c::atlas_hir::pretty_print::HirPrettyPrinter;
 use crate::atlas_c::atlas_hir::signature::{
-    HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier, HirVisibility,
+    HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier,
+    HirStructSignature, HirVisibility,
 };
 use crate::atlas_c::atlas_hir::{
     error::{
@@ -36,7 +42,7 @@ use crate::atlas_c::atlas_hir::{
 use crate::atlas_c::utils;
 use crate::atlas_c::utils::Span;
 use miette::{ErrReport, NamedSource};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub struct TypeChecker<'hir> {
     arena: &'hir HirArena<'hir>,
@@ -80,10 +86,75 @@ impl<'hir> TypeChecker<'hir> {
             self.current_class_name = Some(class.0);
             self.check_class(class.1)?;
         }
+        for (_, hir_union) in &mut hir.body.unions {
+            self.check_union(hir_union)?;
+        }
         Ok(hir)
     }
 
+    fn check_union(&mut self, hir_union: &HirUnion<'hir>) -> HirResult<()> {
+        if hir_union.variants.len() <= 1 {
+            let path = hir_union.span.path;
+            let src = utils::get_file_content(path).unwrap();
+            return Err(HirError::UnionMustHaveAtLeastTwoVariant(
+                UnionMustHaveAtLeastTwoVariantError {
+                    union_name: hir_union.name.to_string(),
+                    span: hir_union.name_span,
+                    src: NamedSource::new(path, src),
+                },
+            ));
+        } else {
+            let mut variants = HashMap::new();
+            for variant in &hir_union.variants {
+                if let Some((_, v_span)) = variants.get_key_value(variant.ty) {
+                    let path = hir_union.span.path;
+                    let src = utils::get_file_content(path).unwrap();
+                    return Err(HirError::UnionVariantDefinedMultipleTimes(
+                        UnionVariantDefinedMultipleTimesError {
+                            union_name: hir_union.name.to_string(),
+                            variant_ty: format!("{}", variant.ty),
+                            first_span: *v_span,
+                            second_span: variant.span,
+                            src: NamedSource::new(path, src),
+                        },
+                    ));
+                } else {
+                    variants.insert(variant.ty, variant.span);
+                }
+            }
+            Ok(())
+        }
+    }
+
     pub fn check_class(&mut self, class: &mut HirStruct<'hir>) -> HirResult<()> {
+        // Check for cyclic struct references (struct containing itself directly or indirectly)
+        for field in &class.fields {
+            let mut visited = HashSet::new();
+            let mut cycle_path = Vec::new();
+
+            if self.has_cyclic_reference(
+                field.ty,
+                &class.signature,
+                &mut visited,
+                &mut cycle_path,
+                field.span,
+            ) {
+                let path = class.span.path;
+                let src = utils::get_file_content(path).unwrap();
+                return Err(HirError::StructCannotHaveAFieldOfItsOwnType(
+                    StructCannotHaveAFieldOfItsOwnTypeError {
+                        struct_name: if let Some(gen_ty) = class.pre_mangled_ty {
+                            format!("{}", HirPrettyPrinter::generic_ty_str(gen_ty))
+                        } else {
+                            class.name.to_string()
+                        },
+                        struct_span: class.name_span,
+                        cycle_path,
+                        src: NamedSource::new(path, src),
+                    },
+                ));
+            }
+        }
         for method in &mut class.methods {
             self.current_class_name = Some(class.name);
             self.current_func_name = Some(method.name);
@@ -92,6 +163,22 @@ impl<'hir> TypeChecker<'hir> {
         }
         self.current_func_name = Some("constructor");
         self.check_constructor(&mut class.constructor)?;
+        if let Some(copy_ctor) = &mut class.copy_constructor {
+            if class.flag.is_non_copyable() {
+                let path = class.span.path;
+                let src = utils::get_file_content(path).unwrap();
+                return Err(HirError::StdNonCopyableStructCannotHaveCopyConstructor(
+                    StdNonCopyableStructCannotHaveCopyConstructorError {
+                        struct_name: class.name.to_string(),
+                        copy_ctor_span: copy_ctor.signature.span,
+                        flag_span: class.flag.span().unwrap(),
+                        src: NamedSource::new(path, src),
+                    },
+                ));
+            }
+            self.current_func_name = Some("copy_ctor");
+            self.check_copy_ctor(copy_ctor)?;
+        }
         self.current_func_name = Some("destructor");
         self.check_destructor(&mut class.destructor)?;
         Ok(())
@@ -126,6 +213,39 @@ impl<'hir> TypeChecker<'hir> {
             self.check_stmt(stmt)?;
         }
         //Because it is a destructor we don't keep it in the `context_functions`
+        self.context_functions.pop();
+        Ok(())
+    }
+
+    fn check_copy_ctor(&mut self, copy_ctor: &mut HirStructConstructor<'hir>) -> HirResult<()> {
+        self.context_functions.push(HashMap::new());
+        self.context_functions
+            .last_mut()
+            .unwrap()
+            .insert(String::from("copy_ctor"), ContextFunction::new());
+        for param in &copy_ctor.params {
+            self.context_functions
+                .last_mut()
+                .unwrap()
+                .get_mut("copy_ctor")
+                .unwrap()
+                .insert(
+                    param.name,
+                    ContextVariable {
+                        _name: param.name,
+                        _name_span: param.span,
+                        ty: param.ty,
+                        _ty_span: param.ty_span,
+                        _is_mut: false,
+                        is_param: true,
+                        refs_locals: vec![],
+                    },
+                );
+        }
+        for stmt in &mut copy_ctor.body.statements {
+            self.check_stmt(stmt)?;
+        }
+        //Because it is a copy constructor we don't keep it in the `context_functions`
         self.context_functions.pop();
         Ok(())
     }
@@ -327,8 +447,7 @@ impl<'hir> TypeChecker<'hir> {
                 }
 
                 let mut expected_ret_ty = self.arena.types().get_uninitialized_ty();
-                let mut span = Span::default();
-                if self.current_class_name.is_some() {
+                let span = if self.current_class_name.is_some() {
                     //This means we're in a class method
                     let class = self
                         .signature
@@ -337,7 +456,7 @@ impl<'hir> TypeChecker<'hir> {
                         .unwrap();
                     let method = class.methods.get(self.current_func_name.unwrap()).unwrap();
                     expected_ret_ty = self.arena.intern(method.clone().return_ty);
-                    span = method.return_ty_span.unwrap_or(r.span);
+                    method.return_ty_span.unwrap_or(r.span)
                 } else if self.current_func_name.is_some() {
                     //This means we're in a standalone function
                     let func_ret_from = self
@@ -346,16 +465,18 @@ impl<'hir> TypeChecker<'hir> {
                         .get(self.current_func_name.unwrap())
                         .unwrap();
                     expected_ret_ty = self.arena.intern(func_ret_from.return_ty.clone());
-                    span = func_ret_from.return_ty_span.unwrap_or(r.span);
-                }
+                    func_ret_from.return_ty_span.unwrap_or(r.span)
+                } else {
+                    r.span
+                };
                 self.is_equivalent_ty(expected_ret_ty, span, actual_ret_ty, r.value.span())
             }
             HirStatement::While(w) => {
                 let cond_ty = self.check_expr(&mut w.condition)?;
                 self.is_equivalent_ty(
-                    cond_ty,
-                    w.condition.span(),
                     self.arena.types().get_boolean_ty(),
+                    w.condition.span(),
+                    cond_ty,
                     w.condition.span(),
                 )?;
                 //there should be just "self.context.new_scope()" and "self.context.end_scope()"
@@ -380,9 +501,9 @@ impl<'hir> TypeChecker<'hir> {
             HirStatement::IfElse(i) => {
                 let cond_ty = self.check_expr(&mut i.condition)?;
                 self.is_equivalent_ty(
-                    cond_ty,
-                    i.condition.span(),
                     self.arena.types().get_boolean_ty(),
+                    i.condition.span(),
+                    cond_ty,
                     i.condition.span(),
                 )?;
 
@@ -427,10 +548,10 @@ impl<'hir> TypeChecker<'hir> {
                     expr_ty
                 } else {
                     self.is_equivalent_ty(
-                        expr_ty,
-                        c.value.span(),
                         c.ty,
                         c.ty_span.unwrap_or(c.name_span),
+                        expr_ty,
+                        c.value.span(),
                     )?;
                     c.ty
                 };
@@ -457,10 +578,10 @@ impl<'hir> TypeChecker<'hir> {
                     );
 
                 self.is_equivalent_ty(
-                    expr_ty,
-                    c.value.span(),
                     const_ty,
                     c.ty_span.unwrap_or(c.name_span),
+                    expr_ty,
+                    c.value.span(),
                 )
             }
             HirStatement::Let(l) => {
@@ -580,8 +701,11 @@ impl<'hir> TypeChecker<'hir> {
                         ));
                     }
                 };
-                //early return for constructor and destructor
-                if function_name == "constructor" || function_name == "destructor" {
+                //early return for constructor, destructor, and copy constructor
+                if function_name == "constructor"
+                    || function_name == "destructor"
+                    || function_name == "copy_ctor"
+                {
                     s.ty = self_ty;
                     return Ok(self_ty);
                 }
@@ -689,9 +813,9 @@ impl<'hir> TypeChecker<'hir> {
                 let target = self.check_expr(&mut indexing_expr.target)?;
                 let index = self.check_expr(&mut indexing_expr.index)?;
                 self.is_equivalent_ty(
-                    index,
-                    indexing_expr.index.span(),
                     self.arena.types().get_uint64_ty(),
+                    indexing_expr.index.span(),
+                    index,
                     indexing_expr.index.span(),
                 )?;
 
@@ -834,8 +958,7 @@ impl<'hir> TypeChecker<'hir> {
                     };
                     *tmp
                 } else if let HirTy::Generic(g) = obj_lit.ty {
-                    let name =
-                        MonomorphizationPass::mangle_generic_object_name(self.arena, g, "union");
+                    let name = MonomorphizationPass::generate_mangled_name(self.arena, g, "union");
                     union_ty = self.arena.intern(HirNamedTy { name, span: g.span })
                         as &'hir HirNamedTy<'hir>;
                     let tmp = match self.signature.unions.get(name) {
@@ -908,20 +1031,12 @@ impl<'hir> TypeChecker<'hir> {
                         }
                     };
                     let field_ty = self.check_expr(&mut field.value)?;
-                    let is_equivalent = self.is_equivalent_ty(
-                        field_ty,
-                        field.value.span(),
+                    self.is_equivalent_ty(
                         field_signature.ty,
                         field_signature.span,
-                    );
-                    if is_equivalent.is_err() {
-                        return Err(Self::type_mismatch_err(
-                            &format!("{}", field_ty),
-                            &field.value.span(),
-                            &format!("{}", field_signature.ty),
-                            &field_signature.span,
-                        ));
-                    }
+                        field_ty,
+                        field.value.span(),
+                    )?;
                 }
 
                 Ok(obj_lit.ty)
@@ -938,8 +1053,7 @@ impl<'hir> TypeChecker<'hir> {
                     };
                     *tmp
                 } else if let HirTy::Generic(g) = obj.ty {
-                    let name =
-                        MonomorphizationPass::mangle_generic_object_name(self.arena, g, "struct");
+                    let name = MonomorphizationPass::generate_mangled_name(self.arena, g, "struct");
                     struct_ty = self.arena.intern(HirNamedTy { name, span: g.span })
                         as &'hir HirNamedTy<'hir>;
                     let tmp = match self.signature.structs.get(name) {
@@ -1006,16 +1120,7 @@ impl<'hir> TypeChecker<'hir> {
                     .zip(obj.args.iter_mut())
                 {
                     let arg_ty = self.check_expr(arg)?;
-                    let is_equivalent =
-                        self.is_equivalent_ty(arg_ty, arg.span(), param.ty, param.span);
-                    if is_equivalent.is_err() {
-                        return Err(Self::type_mismatch_err(
-                            &format!("{}", arg_ty),
-                            &arg.span(),
-                            &format!("{}", param.ty),
-                            &param.span,
-                        ));
-                    }
+                    self.is_equivalent_ty(param.ty, param.span, arg_ty, arg.span())?;
                 }
                 obj.ty = self
                     .arena
@@ -1032,7 +1137,7 @@ impl<'hir> TypeChecker<'hir> {
                         let name = if func_expr.generics.is_empty() {
                             i.name
                         } else {
-                            MonomorphizationPass::mangle_generic_object_name(
+                            MonomorphizationPass::generate_mangled_name(
                                 self.arena,
                                 &HirGenericTy {
                                     name: i.name,
@@ -1208,9 +1313,9 @@ impl<'hir> TypeChecker<'hir> {
                     HirExpr::StaticAccess(static_access) => {
                         let name = match static_access.target {
                             HirTy::Named(n) => n.name,
-                            HirTy::Generic(g) => MonomorphizationPass::mangle_generic_object_name(
-                                self.arena, g, "struct",
-                            ),
+                            HirTy::Generic(g) => {
+                                MonomorphizationPass::generate_mangled_name(self.arena, g, "struct")
+                            }
                             _ => {
                                 let path = static_access.span.path;
                                 let src = utils::get_file_content(path).unwrap();
@@ -1258,7 +1363,7 @@ impl<'hir> TypeChecker<'hir> {
                                 .zip(func_expr.args.iter_mut())
                             {
                                 let arg_ty = self.check_expr(arg)?;
-                                self.is_equivalent_ty(arg_ty, arg.span(), param.ty, param.span)?;
+                                self.is_equivalent_ty(param.ty, param.span, arg_ty, arg.span())?;
                             }
 
                             static_access.ty =
@@ -1288,38 +1393,31 @@ impl<'hir> TypeChecker<'hir> {
                 let lhs = self.check_expr(&mut a.lhs)?;
                 //Todo needs a special rule for `this.field = value`, because you can assign once to a const field
 
-                //Check if lhs is a const reference
-                if lhs.is_const() {
-                    //Check if we're in a constructor
-                    if self.current_func_name == Some("constructor")
-                        && self.current_class_name.is_some()
-                    {
-                        self.is_equivalent_ty(lhs, a.lhs.span(), rhs, a.rhs.span())?;
-                        return Ok(lhs);
-                    } else {
-                        return Err(Self::trying_to_mutate_const_reference(&a.lhs.span(), lhs));
-                    }
-                }
-                //Let's check if we are dereferencing a const reference
-                if let HirExpr::Unary(unary_expr) = &*a.lhs {
-                    if let Some(HirUnaryOp::Deref) = &unary_expr.op {
-                        let deref_target_ty = self.check_expr(&mut unary_expr.expr.clone())?;
-                        if deref_target_ty.is_const() {
-                            //Check if we're in a constructor
-                            if self.current_func_name == Some("constructor")
-                                && self.current_class_name.is_some()
-                            {
-                                self.is_equivalent_ty(lhs, a.lhs.span(), rhs, a.rhs.span())?;
-                                return Ok(lhs);
-                            } else {
-                                return Err(Self::trying_to_mutate_const_reference(
-                                    &a.lhs.span(),
-                                    deref_target_ty,
-                                ));
-                            }
+                // Check if we are dereferencing a const reference (mutation through const ref)
+                // This catches: `*const_ref = value`
+                if let HirExpr::Unary(unary_expr) = &*a.lhs
+                    && let Some(HirUnaryOp::Deref) = &unary_expr.op
+                {
+                    let deref_target_ty = self.check_expr(&mut unary_expr.expr.clone())?;
+                    if deref_target_ty.is_const() {
+                        // Allow mutation in constructor for field initialization
+                        if !(self.current_func_name == Some("constructor")
+                            && self.current_class_name.is_some())
+                        {
+                            return Err(Self::trying_to_mutate_const_reference(
+                                &a.lhs.span(),
+                                deref_target_ty,
+                            ));
                         }
                     }
                 }
+
+                // Note: We intentionally do NOT block assignments where lhs.is_const() is true
+                // but there's no dereference. For example:
+                //   let arr: [&const T] = ...;
+                //   arr[i] = some_const_ref;  // This is OK - storing a const ref value
+                // This is different from *const_ref = value (mutation through const ref)
+
                 self.is_equivalent_ty(lhs, a.lhs.span(), rhs, a.rhs.span())?;
                 Ok(lhs)
             }
@@ -1744,9 +1842,7 @@ impl<'hir> TypeChecker<'hir> {
 
             //(HirTy::Int64(_), HirTy::UInt64(_)) | (HirTy::UInt64(_), HirTy::Int64(_)) => Ok(()),
             (HirTy::Generic(g), HirTy::Named(n)) | (HirTy::Named(n), HirTy::Generic(g)) => {
-                if MonomorphizationPass::mangle_generic_object_name(self.arena, g, "struct")
-                    == n.name
-                {
+                if MonomorphizationPass::generate_mangled_name(self.arena, g, "struct") == n.name {
                     Ok(())
                 } else {
                     Err(Self::type_mismatch_err(
@@ -1811,14 +1907,17 @@ impl<'hir> TypeChecker<'hir> {
             HirTy::Generic(g) => {
                 // Need to handle union and struct generics
                 let name;
-                if self.signature.structs.contains_key(
-                    MonomorphizationPass::mangle_generic_object_name(self.arena, g, "struct"),
-                ) {
-                    name =
-                        MonomorphizationPass::mangle_generic_object_name(self.arena, g, "struct");
+                if self
+                    .signature
+                    .structs
+                    .contains_key(MonomorphizationPass::generate_mangled_name(
+                        self.arena, g, "struct",
+                    ))
+                {
+                    name = MonomorphizationPass::generate_mangled_name(self.arena, g, "struct");
                     return Some(name);
                 } else {
-                    name = MonomorphizationPass::mangle_generic_object_name(self.arena, g, "union");
+                    name = MonomorphizationPass::generate_mangled_name(self.arena, g, "union");
                     if self.signature.unions.contains_key(name) {
                         return Some(name);
                     }
@@ -1828,6 +1927,183 @@ impl<'hir> TypeChecker<'hir> {
             HirTy::ReadOnlyReference(read_only) => self.get_class_name_of_type(read_only.inner),
             HirTy::MutableReference(mutable) => self.get_class_name_of_type(mutable.inner),
             _ => None,
+        }
+    }
+
+    /// Check if a type has a cyclic reference to the target struct.
+    /// This function:
+    /// - Returns false for references (they don't cause infinite size)
+    /// - Recursively checks fields of structs to detect indirect cycles
+    /// - Uses a visited set to avoid infinite recursion
+    /// - Collects the path of the cycle with labeled spans for clear error reporting
+    fn has_cyclic_reference(
+        &self,
+        ty: &HirTy<'hir>,
+        target_struct: &HirStructSignature<'hir>,
+        visited: &mut HashSet<&'hir str>,
+        cycle_path: &mut Vec<miette::LabeledSpan>,
+        current_field_span: Span,
+    ) -> bool {
+        match ty {
+            // References are OK - they don't cause infinite size
+            HirTy::ReadOnlyReference(_) | HirTy::MutableReference(_) => false,
+
+            // Check named struct type
+            HirTy::Named(named) => {
+                // If it's the target struct, we found a cycle
+                if named.name == target_struct.name {
+                    let type_name = self.get_type_display_name(ty);
+                    cycle_path.push(miette::LabeledSpan::new_with_span(
+                        Some(format!(
+                            "field of type `{}` completes the cycle back to `{}`",
+                            type_name, target_struct.name
+                        )),
+                        current_field_span,
+                    ));
+                    return true;
+                }
+
+                // Avoid infinite recursion by checking if we've already visited this struct
+                if visited.contains(named.name) {
+                    return false;
+                }
+                visited.insert(named.name);
+
+                // Add current field to the path
+                let type_name = self.get_type_display_name(ty);
+                let path_index = cycle_path.len();
+                cycle_path.push(miette::LabeledSpan::new_with_span(
+                    Some(format!("→ field of type `{}`", type_name)),
+                    current_field_span,
+                ));
+
+                // Recursively check the fields of this struct
+                if let Some(struct_def) = self.signature.structs.get(named.name) {
+                    for field in struct_def.fields.values() {
+                        if self.has_cyclic_reference(
+                            field.ty,
+                            target_struct,
+                            visited,
+                            cycle_path,
+                            field.span,
+                        ) {
+                            return true;
+                        }
+                    }
+                } else if let Some(union_def) = self.signature.unions.get(named.name) {
+                    // If there is only one variant, we need to check it for cycles
+                    if !union_def.variants.len() <= 1 {
+                        for variant in union_def.variants.values() {
+                            // If it's one variant and there are others, skip checking this variant to avoid false positives
+                            if self.has_cyclic_reference(
+                                variant.ty,
+                                target_struct,
+                                visited,
+                                cycle_path,
+                                variant.span,
+                            ) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+
+                // No cycle found through this path, remove it
+                cycle_path.truncate(path_index);
+                visited.remove(named.name);
+                false
+            }
+
+            // Check generic struct type
+            HirTy::Generic(generic) => {
+                // Get the mangled name for this generic struct
+                let mangled_name =
+                    MonomorphizationPass::generate_mangled_name(self.arena, generic, "struct");
+
+                // If the mangled name matches or resolves to the target struct, we found a cycle
+                if mangled_name == target_struct.name {
+                    let type_name = self.get_type_display_name(ty);
+                    cycle_path.push(miette::LabeledSpan::new_with_span(
+                        Some(format!(
+                            "field of type `{}` completes the cycle back to `{}`",
+                            type_name,
+                            if let Some(gen_ty) = target_struct.pre_mangled_ty {
+                                HirPrettyPrinter::generic_ty_str(gen_ty)
+                            } else {
+                                target_struct.name.to_string()
+                            }
+                        )),
+                        current_field_span,
+                    ));
+                    return true;
+                }
+
+                // Avoid infinite recursion
+                if visited.contains(mangled_name) {
+                    return false;
+                }
+                visited.insert(mangled_name);
+
+                // Add current field to the path
+                let type_name = self.get_type_display_name(ty);
+                let path_index = cycle_path.len();
+                cycle_path.push(miette::LabeledSpan::new_with_span(
+                    Some(format!("→ field of type `{}`", type_name)),
+                    current_field_span,
+                ));
+
+                // Recursively check the fields of this generic struct
+                if let Some(struct_def) = self.signature.structs.get(mangled_name) {
+                    for field in struct_def.fields.values() {
+                        if self.has_cyclic_reference(
+                            field.ty,
+                            target_struct,
+                            visited,
+                            cycle_path,
+                            field.span,
+                        ) {
+                            return true;
+                        }
+                    }
+                }
+
+                // No cycle found through this path, remove it
+                cycle_path.truncate(path_index);
+                visited.remove(mangled_name);
+                false
+            }
+
+            // Other types (primitives, lists, etc.) can't be cyclic
+            _ => false,
+        }
+    }
+
+    /// Get a human-readable display name for a type (for error messages)
+    fn get_type_display_name(&self, ty: &HirTy<'hir>) -> String {
+        match ty {
+            HirTy::Named(n) => n.name.to_string(),
+            HirTy::Generic(g) => {
+                let args = g
+                    .inner
+                    .iter()
+                    .map(|t| self.get_type_display_name(t))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{}<{}>", g.name, args)
+            }
+            HirTy::ReadOnlyReference(r) => {
+                format!("&const {}", self.get_type_display_name(r.inner))
+            }
+            HirTy::MutableReference(m) => format!("&{}", self.get_type_display_name(m.inner)),
+            HirTy::Boolean(_) => "bool".to_string(),
+            HirTy::Int64(_) => "int64".to_string(),
+            HirTy::Float64(_) => "float64".to_string(),
+            HirTy::Char(_) => "char".to_string(),
+            HirTy::UInt64(_) => "uint64".to_string(),
+            HirTy::String(_) => "string".to_string(),
+            HirTy::Unit(_) => "unit".to_string(),
+            HirTy::List(l) => format!("[{}]", self.get_type_display_name(l.inner)),
+            _ => "<unknown>".to_string(),
         }
     }
 
@@ -1843,10 +2119,10 @@ impl<'hir> TypeChecker<'hir> {
 
     #[inline(always)]
     fn type_mismatch_err(
-        actual_type: &str,
-        actual_loc: &Span,
         expected_type: &str,
         expected_loc: &Span,
+        actual_type: &str,
+        actual_loc: &Span,
     ) -> HirError {
         let actual_path = actual_loc.path;
         let actual_src = utils::get_file_content(actual_path).unwrap();
@@ -2037,10 +2313,10 @@ impl<'hir> TypeChecker<'hir> {
                         }
                         HirExpr::FieldAccess(fa) => {
                             // Check if the base object is a local variable
-                            if let HirExpr::Ident(ident) = fa.target.as_ref() {
-                                if self.is_local_variable(ident.name) {
-                                    return vec![ident.name];
-                                }
+                            if let HirExpr::Ident(ident) = fa.target.as_ref()
+                                && self.is_local_variable(ident.name)
+                            {
+                                return vec![ident.name];
                             }
                         }
                         _ => {}
@@ -2071,14 +2347,12 @@ impl<'hir> TypeChecker<'hir> {
 
     /// Get the local variables that a variable references (if any)
     fn get_refs_locals(&self, name: &str) -> Vec<&'hir str> {
-        if let Some(context_map) = self.context_functions.last() {
-            if let Some(func_name) = self.current_func_name {
-                if let Some(context_func) = context_map.get(func_name) {
-                    if let Some(var) = context_func.get_variable(name) {
-                        return var.refs_locals.clone();
-                    }
-                }
-            }
+        if let Some(context_map) = self.context_functions.last()
+            && let Some(func_name) = self.current_func_name
+            && let Some(context_func) = context_map.get(func_name)
+            && let Some(var) = context_func.get_variable(name)
+        {
+            return var.refs_locals.clone();
         }
         vec![]
     }
@@ -2086,17 +2360,16 @@ impl<'hir> TypeChecker<'hir> {
     /// Check if a variable name refers to a local variable (not a function parameter)
     fn is_local_variable(&self, name: &str) -> bool {
         // Get the current function's context
-        if let Some(context_map) = self.context_functions.last() {
-            if let Some(func_name) = self.current_func_name {
-                if let Some(context_func) = context_map.get(func_name) {
-                    // Check if the variable is in the local scope
-                    if let Some(var) = context_func.get_variable(name) {
-                        // If it's a parameter, it's not local
-                        return !var.is_param;
-                    }
-                }
-            }
+        if let Some(context_map) = self.context_functions.last()
+            && let Some(func_name) = self.current_func_name
+            && let Some(context_func) = context_map.get(func_name)
+            // Check if the variable is in the local scope
+            && let Some(var) = context_func.get_variable(name)
+        {
+            // If it's a parameter, it's not local
+            return !var.is_param;
         }
+
         // If we can't determine, assume it's local (conservative)
         true
     }

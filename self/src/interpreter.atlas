@@ -4,6 +4,7 @@ import "src/lexer";
 import "std/string";
 import "std/iter";
 
+#[std::non_copyable]
 public struct BrainFuckInterpreter {
 public:
     cells: [uint64];
@@ -20,16 +21,6 @@ public:
     }
     ~BrainFuckInterpreter() {
         delete this.cells;
-    }
-    fun _copy(&const this) -> BrainFuckInterpreter {
-        let interpreter = new BrainFuckInterpreter();
-        let i: uint64 = 0u;
-        while i < 50u {
-            interpreter.cells[i] = (*this.cells)[i];
-            i = i + 1u;
-        }
-        interpreter.pointer = *this.pointer;
-        return interpreter;
     }
     fun run(&this, tokens: Vector<Token>) {
         println("Running BrainFuck Interpreter...");
@@ -49,7 +40,8 @@ public:
                 let char_value = this.cells[this.pointer] as char;
                 print(char_value);
             } else if token.kind == TokenKind::INPUT {
-                let input_char = input() as char;
+                let input = input();
+                let input_char = input as char;
                 this.cells[this.pointer] = input_char as uint64;
             } else if token.kind == TokenKind::LOOP_START {
                 // Loop handling not implemented yet

@@ -2,17 +2,18 @@ import "std/io";
 import "std/map";
 
 struct Either<T, U> {
-    public:
-        first: T;
-        second: U;
+public:
+    first: T;
+    second: U;
 
     Either(first: T, second: U) {
         this.first = first;
         this.second = second;
     }
 
-    fun _copy(&const this) -> Either<T, U> {
-        return new Either<T, U>(*this.first, *this.second);
+    Either(from: &const Either<T, U>) {
+        this.first = *from.first;
+        this.second = *from.second;
     }
 
     fun swap(this) -> Either<U, T> {
@@ -38,8 +39,8 @@ struct Either<T, U> {
 }
 
 struct Box<T> {
-    public:
-        value: T;
+public:
+    value: T;
 
     Box(value: T) {
         this.value = value;

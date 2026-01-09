@@ -187,7 +187,7 @@ pub fn to_chars(state: VMState) -> RuntimeResult<VMData> {
         return Err(RuntimeError::InvalidObjectAccess(VMTag::String, obj_kind));
     };
 
-    let char_data: Vec<VMData> = string.chars().map(|c| VMData::new_char(c)).collect();
+    let char_data: Vec<VMData> = string.chars().map(VMData::new_char).collect();
 
     let list_idx = state.object_map.put(ObjectKind::List(char_data));
     match list_idx {

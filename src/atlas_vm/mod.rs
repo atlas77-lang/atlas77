@@ -2,6 +2,7 @@ mod error;
 mod heap;
 pub mod instruction;
 pub mod libraries;
+pub mod new_instruction;
 mod object;
 pub mod runtime;
 pub mod stack;

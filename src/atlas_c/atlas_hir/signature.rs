@@ -1,8 +1,9 @@
 use super::ty::{HirTy, HirUnitTy};
-use crate::atlas_c::atlas_frontend::parser::ast::AstVisibility;
+use crate::atlas_c::atlas_frontend::parser::ast::{AstFlag, AstVisibility};
 use crate::atlas_c::atlas_hir::expr::HirUnaryOp;
 use crate::atlas_c::atlas_hir::expr::{HirBinaryOperator, HirExpr};
 use crate::atlas_c::atlas_hir::item::HirEnum;
+use crate::atlas_c::atlas_hir::ty::HirGenericTy;
 use crate::atlas_c::utils::Span;
 use std::collections::BTreeMap;
 use std::fmt::Display;
@@ -24,7 +25,10 @@ pub struct HirModuleSignature<'hir> {
 pub struct HirStructSignature<'hir> {
     pub declaration_span: Span,
     pub vis: HirVisibility,
+    pub flag: HirFlag,
     pub name: &'hir str,
+    /// If the struct name is mangled, this contains the pre-mangled type
+    pub pre_mangled_ty: Option<&'hir HirGenericTy<'hir>>,
     pub name_span: Span,
     pub methods: BTreeMap<&'hir str, HirStructMethodSignature<'hir>>,
     pub fields: BTreeMap<&'hir str, HirStructFieldSignature<'hir>>,
@@ -34,6 +38,7 @@ pub struct HirStructSignature<'hir> {
     pub operators: Vec<HirBinaryOperator>,
     pub constants: BTreeMap<&'hir str, &'hir HirStructConstantSignature<'hir>>,
     pub constructor: HirStructConstructorSignature<'hir>,
+    pub copy_constructor: Option<HirStructConstructorSignature<'hir>>,
     pub destructor: HirStructConstructorSignature<'hir>,
 }
 
@@ -93,6 +98,40 @@ impl From<AstVisibility> for HirVisibility {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum HirFlag {
+    Copyable(Span),
+    NonCopyable(Span),
+    #[default]
+    None,
+}
+
+impl From<AstFlag> for HirFlag {
+    fn from(ast_flag: AstFlag) -> Self {
+        match ast_flag {
+            AstFlag::Copyable(span) => HirFlag::Copyable(span),
+            AstFlag::NonCopyable(span) => HirFlag::NonCopyable(span),
+            AstFlag::None => HirFlag::None,
+        }
+    }
+}
+
+impl HirFlag {
+    pub fn span(&self) -> Option<Span> {
+        match self {
+            HirFlag::Copyable(span) => Some(*span),
+            HirFlag::NonCopyable(span) => Some(*span),
+            HirFlag::None => None,
+        }
+    }
+    pub fn is_non_copyable(&self) -> bool {
+        matches!(self, HirFlag::NonCopyable(_))
+    }
+    pub fn is_copyable(&self) -> bool {
+        matches!(self, HirFlag::Copyable(_))
+    }
+}
+
 #[derive(Debug, Clone)]
 //Also used for the destructor
 pub struct HirStructConstructorSignature<'hir> {
@@ -129,12 +168,12 @@ pub enum ConstantValue {
 impl Display for ConstantValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ConstantValue::Int(i) => write!(f, "int64 : {}", i),
-            ConstantValue::Float(fl) => write!(f, "float64 : {}", fl),
-            ConstantValue::UInt(u) => write!(f, "uint64 : {}", u),
-            ConstantValue::String(s) => write!(f, "string : \"{}\"", s),
-            ConstantValue::Bool(b) => write!(f, "bool : {}", b),
-            ConstantValue::Char(c) => write!(f, "char : '{}'", c),
+            ConstantValue::Int(i) => write!(f, "{}", i),
+            ConstantValue::Float(fl) => write!(f, "{}", fl),
+            ConstantValue::UInt(u) => write!(f, "{}", u),
+            ConstantValue::String(s) => write!(f, "\"{}\"", s),
+            ConstantValue::Bool(b) => write!(f, "{}", b),
+            ConstantValue::Char(c) => write!(f, "'{}'", c),
             ConstantValue::Unit => write!(f, "()"),
             ConstantValue::List(l) => {
                 let elements: Vec<String> = l.iter().map(|elem| format!("{}", elem)).collect();

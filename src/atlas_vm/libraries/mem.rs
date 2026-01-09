@@ -4,8 +4,12 @@ use crate::atlas_vm::runtime::CallBack;
 use crate::atlas_vm::runtime::vm_state::VMState;
 use crate::atlas_vm::vm_data::VMData;
 
-pub const MEM_FUNCTIONS: [(&str, CallBack); 2] =
-    [("memcpy", memcpy), ("delete_from_ref", delete_from_ref)];
+pub const MEM_FUNCTIONS: [(&str, CallBack); 4] = [
+    ("memcpy", memcpy),
+    ("delete_from_ref", delete_from_ref),
+    ("swap", swap),
+    ("replace", replace),
+];
 
 pub fn delete_from_ref(state: VMState) -> Result<VMData, RuntimeError> {
     let data_ptr = state.stack.pop()?.as_ref();
@@ -27,7 +31,7 @@ pub fn memcpy(state: VMState) -> Result<VMData, RuntimeError> {
     // If it's a primitive type or a reference, just return a copy
     let src_data = unsafe { &*src_ptr };
     if src_data.is_primitive() || src_data.is_ref() {
-        return Ok(src_data.clone());
+        return Ok(*src_data);
     }
     // Otherwise, we need to do a shallow copy of the object
     let obj_idx = src_data.as_object();
@@ -42,4 +46,28 @@ pub fn memcpy(state: VMState) -> Result<VMData, RuntimeError> {
     };
     let new_obj_idx = state.object_map.put(new_obj)?;
     Ok(VMData::new_object(new_obj_idx))
+}
+
+pub fn swap(state: VMState) -> Result<VMData, RuntimeError> {
+    let b_ptr = state.stack.pop()?.as_ref();
+    let a_ptr = state.stack.pop()?.as_ref();
+
+    let a_data = unsafe { &mut *(a_ptr as *const VMData as *mut VMData) };
+    let b_data = unsafe { &mut *(b_ptr as *const VMData as *mut VMData) };
+
+    std::mem::swap(a_data, b_data);
+
+    Ok(VMData::new_unit())
+}
+
+pub fn replace(state: VMState) -> Result<VMData, RuntimeError> {
+    let src_data = state.stack.pop()?;
+    let dest_ptr = state.stack.pop()?.as_ref();
+
+    let dest_data = unsafe { &mut *(dest_ptr as *const VMData as *mut VMData) };
+
+    let old_value = *dest_data;
+    *dest_data = src_data;
+
+    Ok(old_value)
 }

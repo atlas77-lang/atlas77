@@ -45,7 +45,9 @@ declare_error_type! {
         TryingToAccessFieldOnNonObjectType(TryingToAccessFieldOnNonObjectTypeError),
         NullableTypeRequiresStdLibrary(NullableTypeRequiresStdLibraryError),
         TryingToAccessAMovedValue(TryingToAccessAMovedValueError),
+        TryingToAccessAPotentiallyMovedValue(TryingToAccessAPotentiallyMovedValueError),
         TryingToAccessADeletedValue(TryingToAccessADeletedValueError),
+        CannotMoveOutOfLoop(CannotMoveOutOfLoopError),
         CallingNonConstMethodOnConstReference(CallingNonConstMethodOnConstReferenceError),
         TryingToMutateConstReference(TryingToMutateConstReferenceError),
         TryingToCreateAnUnionWithMoreThanOneActiveField(TryingToCreateAnUnionWithMoreThanOneActiveFieldError),
@@ -60,6 +62,10 @@ declare_error_type! {
         CannotTransferOwnershipInBorrowingMethod(CannotTransferOwnershipInBorrowingMethodError),
         CannotMoveOutOfContainer(CannotMoveOutOfContainerError),
         RecursiveCopyConstructor(RecursiveCopyConstructorError),
+        StdNonCopyableStructCannotHaveCopyConstructor(StdNonCopyableStructCannotHaveCopyConstructorError),
+        StructCannotHaveAFieldOfItsOwnType(StructCannotHaveAFieldOfItsOwnTypeError),
+        UnionMustHaveAtLeastTwoVariant(UnionMustHaveAtLeastTwoVariantError),
+        UnionVariantDefinedMultipleTimes(UnionVariantDefinedMultipleTimesError),
     }
 }
 
@@ -224,10 +230,10 @@ pub struct CallingNonConstMethodOnConstReferenceOrigin {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
-    code(sema::trying_to_access_a_moved_value),
-    help("consider cloning the value before moving it, or using a reference")
+    code(sema::trying_to_access_a_deleted_value),
+    help("consider cloning the value before deleting it, or using a reference")
 )]
-#[error("trying to access a moved value")]
+#[error("trying to access a deleted value")]
 pub struct TryingToAccessADeletedValueError {
     #[label = "value was deleted here"]
     pub delete_span: Span,
@@ -247,6 +253,21 @@ pub struct TryingToAccessAMovedValueError {
     #[label = "value was moved here"]
     pub move_span: Span,
     #[label = "trying to access moved value here"]
+    pub access_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::trying_to_access_a_potentially_moved_value),
+    help("consider cloning the value before moving it, or using a reference")
+)]
+#[error("trying to access a potentially moved value")]
+pub struct TryingToAccessAPotentiallyMovedValueError {
+    #[label = "value was potentially moved here"]
+    pub move_span: Span,
+    #[label = "trying to access potentially moved value here"]
     pub access_span: Span,
     #[source_code]
     pub src: NamedSource<String>,
@@ -275,7 +296,7 @@ pub struct TryingToAccessFieldOnNonObjectTypeError {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::unsupported_item))]
-#[error("{item} isn't supported yet")]
+#[error("{item} aren't supported yet")]
 pub struct UnsupportedItemError {
     #[label = "unsupported item"]
     pub span: Span,
@@ -819,18 +840,115 @@ pub struct CannotMoveOutOfContainerError {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
-    code(sema::recursive_copy_constructor),
+    code(sema::cannot_move_out_of_loop),
     help(
-        "a copy constructor cannot copy the same type it's constructing, as this would cause infinite recursion. Check if you're dereferencing fields of `&const this` - use direct field access instead of `*this.field`"
+        "variables cannot be moved inside loops because the loop could iterate multiple times, causing use-after-move. Consider moving the variable before the loop, or restructuring your code"
     )
 )]
-#[error("recursive copy detected in `_copy` method for type `{type_name}`")]
+#[error("cannot move variable `{var_name}` inside loop")]
+pub struct CannotMoveOutOfLoopError {
+    #[label = "loop starts here"]
+    pub loop_span: Span,
+    #[label = "variable `{var_name}` is moved here"]
+    pub move_span: Span,
+    pub var_name: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::recursive_copy_constructor),
+    help(
+        "a copy constructor cannot copy the same type it's constructing, as this would cause infinite recursion."
+    )
+)]
+#[error("recursive copy detected in the Copy constructor for type `{type_name}`")]
 pub struct RecursiveCopyConstructorError {
     #[label = "copy constructor defined here"]
     pub method_span: Span,
     #[label = "attempting to copy `{type_name}` inside its own copy constructor"]
     pub copy_span: Span,
     pub type_name: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::std_non_copyable_struct_cannot_have_copy_constructor),
+    help(
+        "structs marked as `std::non_copyable` are not allowed to have copy constructors. Remove either the copy constructor or the `std::non_copyable` attribute."
+    )
+)]
+#[error(
+    "struct `{struct_name}` is marked as `std::non_copyable` and cannot have a copy constructor"
+)]
+pub struct StdNonCopyableStructCannotHaveCopyConstructorError {
+    #[label = "copy constructor defined here"]
+    pub copy_ctor_span: Span,
+    #[label = "`std::non_copyable` flag set here"]
+    pub flag_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+    pub struct_name: String,
+}
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::struct_cannot_have_a_field_of_its_own_type),
+    help(
+        "A struct cannot directly or indirectly contain itself as a field, as this would create infinite size.
+This error occurs when:
+  - A struct has a field of its own type (direct cycle): `struct A {{ a: A }}`
+  - A struct contains another struct that eventually contains the first struct (indirect cycle): `struct A {{ b: B }}` where `struct B {{ a: A }}`
+
+Solutions:
+  - Use a reference: `&T` or `&const T` (references are fixed-size pointers)
+  - Use an indirection type: `optional<T>` or `expected<T, E>` (these allow null/empty states)
+  - Redesign the data structure to avoid the cycle"
+    )
+)]
+#[error("struct `{struct_name}` contains a cyclic reference to itself")]
+pub struct StructCannotHaveAFieldOfItsOwnTypeError {
+    pub struct_name: String,
+    #[label = "struct `{struct_name}` defined here"]
+    pub struct_span: Span,
+    #[label(collection)]
+    pub cycle_path: Vec<miette::LabeledSpan>,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::union_must_have_at_least_two_variant),
+    help(
+        "A union must have at least two variants to be valid, add a `unit` variant if you need a nullable state."
+    )
+)]
+#[error("{union_name} must have at least two variants")]
+pub struct UnionMustHaveAtLeastTwoVariantError {
+    pub union_name: String,
+    #[label = "{union_name} must have at least two variants"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::union_variant_defined_multiple_times),
+    help(
+        "Each variant in a union must have a unique name. Rename one of the variants to resolve the conflict."
+    )
+)]
+#[error("union `{union_name}` has a variant of type `{variant_ty}` defined multiple times")]
+pub struct UnionVariantDefinedMultipleTimesError {
+    pub union_name: String,
+    pub variant_ty: String,
+    #[label = "first definition of variant of type `{variant_ty}`"]
+    pub first_span: Span,
+    #[label = "second definition of variant of type `{variant_ty}`"]
+    pub second_span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }

@@ -194,6 +194,21 @@ impl HirTy<'_> {
             _ => None,
         }
     }
+    pub fn is_unit(&self) -> bool {
+        matches!(self, HirTy::Unit(_))
+    }
+    pub fn is_primitive(&self) -> bool {
+        matches!(
+            self,
+            HirTy::Int64(_)
+                | HirTy::Float64(_)
+                | HirTy::UInt64(_)
+                | HirTy::Boolean(_)
+                | HirTy::Unit(_)
+                | HirTy::Char(_)
+                | HirTy::String(_)
+        )
+    }
 }
 
 impl fmt::Display for HirTy<'_> {

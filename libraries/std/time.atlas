@@ -16,6 +16,10 @@ public:
         this.nsec = nsec;
     }
     ~Time() {}
+    Time(from: &const Time) {
+        this.sec = *from.sec;
+        this.nsec = *from.nsec;
+    }
 
     fun _copy(&const this) -> Time {
         return new Time(*this.sec, *this.nsec);

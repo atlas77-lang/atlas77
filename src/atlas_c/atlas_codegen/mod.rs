@@ -173,6 +173,12 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
         self.generate_bytecode_destructor(struct_name, &hir_struct.destructor, labels)?;
         self.local_variables.clear();
 
+        //generate copy constructor
+        if let Some(copy_ctor) = &hir_struct.copy_constructor {
+            self.generate_bytecode_copy_constructor(struct_name, copy_ctor, labels)?;
+            self.local_variables.clear();
+        }
+
         for method in hir_struct.methods.iter() {
             let mut bytecode = Vec::new();
             //If the method is not static, reserve space for `this`
@@ -242,7 +248,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
         Ok(())
     }
 
-    fn generate_bytecode_constructor(
+    fn generate_bytecode_copy_constructor(
         &mut self,
         struct_name: &str,
         constructor: &HirStructConstructor<'hir>,
@@ -279,13 +285,61 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
         labels.push(Label {
             name: self
                 .codegen_arena
-                .alloc(format!("{}.{}", struct_name, "new")),
+                .alloc(format!("{}_copy_ctor", struct_name)),
             position: self.current_pos,
             body: self.codegen_arena.alloc(bytecode),
         });
         self.program.functions.insert(
             self.codegen_arena
-                .alloc(format!("{}.{}", struct_name, "new")),
+                .alloc(format!("{}_copy_ctor", struct_name)),
+            self.current_pos,
+        );
+        self.current_pos += len;
+
+        Ok(())
+    }
+
+    fn generate_bytecode_constructor(
+        &mut self,
+        struct_name: &str,
+        constructor: &HirStructConstructor<'hir>,
+        labels: &mut Vec<Label<'codegen>>,
+    ) -> HirResult<()> {
+        let mut bytecode = Vec::new();
+        let params = constructor.params.clone();
+
+        self.local_variables.insert(THIS_NAME);
+        for arg in params.iter() {
+            self.local_variables.insert(arg.name);
+        }
+        //self reference of the object
+        let this_idx = self.local_variables.get_index(THIS_NAME).unwrap();
+
+        self.generate_bytecode_block(&constructor.body, &mut bytecode)?;
+
+        let local_space = self.local_variables.len() - params.len();
+        if local_space > 0 {
+            bytecode.insert(
+                0,
+                Instruction::LocalSpace {
+                    // Reserve space for local variables excluding parameters
+                    nb_vars: local_space as u8,
+                },
+            );
+        }
+
+        //Return the self reference
+        bytecode.push(Instruction::LoadVar(this_idx));
+        bytecode.push(Instruction::Return);
+
+        let len = bytecode.len();
+        labels.push(Label {
+            name: self.codegen_arena.alloc(format!("{}_ctor", struct_name)),
+            position: self.current_pos,
+            body: self.codegen_arena.alloc(bytecode),
+        });
+        self.program.functions.insert(
+            self.codegen_arena.alloc(format!("{}_ctor", struct_name)),
             self.current_pos,
         );
         self.current_pos += len;
@@ -329,15 +383,12 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
 
         let len = bytecode.len();
         labels.push(Label {
-            name: self
-                .codegen_arena
-                .alloc(format!("{}.{}", struct_name, "destroy")),
+            name: self.codegen_arena.alloc(format!("{}_dtor", struct_name)),
             position: self.current_pos,
             body: self.codegen_arena.alloc(bytecode),
         });
         self.program.functions.insert(
-            self.codegen_arena
-                .alloc(format!("{}.{}", struct_name, "destroy")),
+            self.codegen_arena.alloc(format!("{}_dtor", struct_name)),
             self.current_pos,
         );
         self.current_pos += len;
@@ -749,7 +800,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         let name = if func_expr.generics.is_empty() {
                             i.name
                         } else {
-                            MonomorphizationPass::mangle_generic_object_name(
+                            MonomorphizationPass::generate_mangled_name(
                                 self.hir_arena,
                                 &HirGenericTy {
                                     name: i.name,
@@ -823,7 +874,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     HirExpr::StaticAccess(static_access) => {
                         let name = match static_access.target {
                             HirTy::Named(n) => n.name,
-                            HirTy::Generic(g) => MonomorphizationPass::mangle_generic_object_name(
+                            HirTy::Generic(g) => MonomorphizationPass::generate_mangled_name(
                                 self.hir_arena,
                                 g,
                                 "struct",
@@ -959,11 +1010,9 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             HirExpr::StaticAccess(static_access) => {
                 let struct_name = match static_access.target {
                     HirTy::Named(n) => n.name,
-                    HirTy::Generic(g) => MonomorphizationPass::mangle_generic_object_name(
-                        self.hir_arena,
-                        g,
-                        "struct",
-                    ),
+                    HirTy::Generic(g) => {
+                        MonomorphizationPass::generate_mangled_name(self.hir_arena, g, "struct")
+                    }
                     _ => {
                         return Err(Self::unsupported_expr_err(
                             expr,
@@ -1084,11 +1133,9 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             HirExpr::NewObj(new_obj) => {
                 let name = match &new_obj.ty {
                     HirTy::Named(n) => n.name,
-                    HirTy::Generic(g) => MonomorphizationPass::mangle_generic_object_name(
-                        self.hir_arena,
-                        g,
-                        "struct",
-                    ),
+                    HirTy::Generic(g) => {
+                        MonomorphizationPass::generate_mangled_name(self.hir_arena, g, "struct")
+                    }
                     _ => {
                         return Err(Self::unsupported_expr_err(
                             expr,
@@ -1106,7 +1153,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     self.generate_bytecode_expr(arg, bytecode)?;
                 }
                 bytecode.push(Instruction::Call {
-                    func_name: format!("{}.new", name),
+                    func_name: format!("{}_ctor", name),
                     nb_args: (new_obj.args.len() + 1) as u8, // +1 for the this pointer
                 });
             }
@@ -1149,7 +1196,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 bytecode.push(Instruction::Dup); // Stack: [obj_ptr, obj_ptr]
                 // Call the destructor (consumes one copy)
                 bytecode.push(Instruction::Call {
-                    func_name: format!("{}.destroy", name),
+                    func_name: format!("{}_dtor", name),
                     nb_args: 1,
                 }); // Stack: [obj_ptr, unit]
                 // Pop the Unit return value from destroy
@@ -1163,31 +1210,43 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 self.generate_bytecode_expr(&move_expr.expr, bytecode)?;
             }
             // Copy expressions: for primitives, just generate the inner expression (bitwise copy)
-            // For objects with _copy method, call the copy constructor
+            // For objects with a copy constructor, call it.
             // For strings, deep copy using CloneString instruction
             HirExpr::Copy(copy_expr) => {
                 // Check if this is an object type that needs copy constructor call
                 match copy_expr.ty {
                     HirTy::Named(named) => {
+                        // A copy constructor signature is: `Name(this, from: &const Name) -> Name`
+                        let obj_descriptor = self
+                            .struct_pool
+                            .iter()
+                            .position(|s| s.name == named.name)
+                            .unwrap();
+                        bytecode.push(Instruction::NewObj { obj_descriptor });
                         // _copy takes &const this, so we need to pass a reference to the object
                         self.generate_receiver_addr(&copy_expr.expr, bytecode)?;
                         bytecode.push(Instruction::Call {
-                            func_name: format!("{}._copy", named.name),
-                            nb_args: 1,
+                            func_name: format!("{}_copy_ctor", named.name),
+                            nb_args: 2, //This pointer + from reference
                         });
                     }
                     HirTy::Generic(g) => {
-                        // _copy takes &const this, so we need to pass a reference to the object
-                        // For generic types, use the mangled name to find the monomorphized _copy method
-                        let mangled_name = MonomorphizationPass::mangle_generic_object_name(
+                        let mangled_name = MonomorphizationPass::generate_mangled_name(
                             self.hir_arena,
                             g,
                             "struct",
                         );
+                        let obj_descriptor = self
+                            .struct_pool
+                            .iter()
+                            .position(|s| s.name == mangled_name)
+                            .unwrap();
+                        bytecode.push(Instruction::NewObj { obj_descriptor });
+                        // _copy takes &const this, so we need to pass a reference to the object
                         self.generate_receiver_addr(&copy_expr.expr, bytecode)?;
                         bytecode.push(Instruction::Call {
-                            func_name: format!("{}._copy", mangled_name),
-                            nb_args: 1,
+                            func_name: format!("{}_copy_ctor", mangled_name),
+                            nb_args: 2, //This pointer + from reference
                         });
                     }
                     // For strings, deep copy the string data
@@ -1230,16 +1289,13 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
             HirExpr::FieldAccess(field_access) => {
                 // Check if this is a union field access by looking up the type
-                let obj_name_for_check = match self.get_class_name_of_type(field_access.target.ty())
-                {
-                    Some(n) => n,
-                    None => "",
-                };
-                let is_union_access = self
+                let obj_name_for_check = self
+                    .get_class_name_of_type(field_access.target.ty())
+                    .unwrap_or_default();
+                let is_union_access = !self
                     .struct_pool
                     .iter()
-                    .find(|s| s.name == obj_name_for_check)
-                    .is_none()
+                    .any(|s| s.name == obj_name_for_check)
                     && !obj_name_for_check.is_empty();
 
                 // For union field access, get the address of the union itself (all fields same location)
@@ -1323,7 +1379,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 ));
             }
         }
-        return Ok(());
+        Ok(())
     }
 
     fn unsupported_expr_err(expr: &HirExpr, message: String) -> HirError {
@@ -1471,7 +1527,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
     fn get_class_name_of_type(&self, ty: &HirTy<'hir>) -> Option<&'hir str> {
         match ty {
             HirTy::Named(n) => Some(n.name),
-            HirTy::Generic(g) => Some(MonomorphizationPass::mangle_generic_object_name(
+            HirTy::Generic(g) => Some(MonomorphizationPass::generate_mangled_name(
                 self.hir_arena,
                 g,
                 "struct",

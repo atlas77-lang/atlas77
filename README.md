@@ -39,7 +39,7 @@ Atlas77 is an experimental **statically typed systems language** designed around
 It runs on a **custom VM** and aims to provide a clear, minimal foundation for building higher-level abstractions in
 libraries rather than in the compiler itself.
 > [!Note]
-> The language is currently running on a bytecode VM, but I am working on an ahead-of-time compiler using Cranelift.
+> The VM will be reworked soon as it doesn't really fit the language design anymore.
 
 The 2 core philosophies are simple:
 - **Keep the core language tiny, make everything else userland.**

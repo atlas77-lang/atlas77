@@ -12,6 +12,8 @@ declare_warning_type!(
         CannotGenerateACopyConstructorForThisType(CannotGenerateACopyConstructorForThisTypeWarning),
         UnnecessaryCopyDueToLaterBorrows(UnnecessaryCopyDueToLaterBorrowsWarning),
         TemporaryValueCannotBeFreed(TemporaryValueCannotBeFreedWarning),
+        ReferenceEscapesToConstructor(ReferenceEscapesToConstructorWarning),
+        UnionFieldCannotBeAutomaticallyDeleted(UnionFieldCannotBeAutomaticallyDeletedWarning),
     }
 );
 
@@ -19,14 +21,20 @@ declare_warning_type!(
 #[diagnostic(
     code(sema::cannot_generate_a_copy_constructor_for_this_type),
     severity(warning),
-    help("Consider implementing a custom copy constructor for this type")
+    help(
+        "Consider implementing a custom copy constructor for this type, or making its fields copyable"
+    )
 )]
-#[error("Cannot generate a copy constructor for type `{type_name}`")]
+#[error(
+    "Type `{type_name}` is marked as std::copyable, but a copy constructor could not be automatically generated"
+)]
 pub struct CannotGenerateACopyConstructorForThisTypeWarning {
     #[source_code]
     pub src: NamedSource<String>,
-    #[label = "Automatic copy constructor generation failed for this type"]
-    pub span: Span,
+    #[label = "Type `{type_name}` is marked as std::copyable here"]
+    pub flag_span: Span,
+    #[label("Type `{type_name}` declared here")]
+    pub name_span: Span,
     pub type_name: String,
 }
 
@@ -88,13 +96,13 @@ pub struct ThisTypeIsStillUnstableWarning {
         "Add `delete this;` before returning, or change to `&this` / `&const this` if you don't need to consume ownership"
     )
 )]
-#[error("Consuming method `{method_name}` does not explicitly delete `this`")]
+#[error("Consuming method `{method_signature}` does not explicitly delete `this`")]
 pub struct ConsumingMethodMayLeakThisWarning {
     #[source_code]
     pub src: NamedSource<String>,
     #[label = "This method takes ownership of `this` but doesn't delete it, which may cause a memory leak"]
     pub span: Span,
-    pub method_name: String,
+    pub method_signature: String,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -125,7 +133,9 @@ pub struct UnnecessaryCopyDueToLaterBorrowsWarning {
         "Store the result in a variable first: \n\t\t- let temp = {expr_kind};\n\t\t- let {var_name} = temp{target_expr};"
     )
 )]
-#[error("Temporary value from `{expr_kind}` cannot be freed in this expression. It will most probably cause a memory leak.")]
+#[error(
+    "Temporary value from `{expr_kind}` cannot be freed in this expression. It will most probably cause a memory leak."
+)]
 pub struct TemporaryValueCannotBeFreedWarning {
     #[source_code]
     pub src: NamedSource<String>,
@@ -137,4 +147,50 @@ pub struct TemporaryValueCannotBeFreedWarning {
     pub expr_kind: String,
     pub var_name: String,
     pub target_expr: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::reference_escapes_to_constructor),
+    severity(warning),
+    help(
+        "If `{origin_var}` is deleted or consumed before the constructed object, \
+        accessing the stored reference will be a use-after-free bug. \
+        Consider updating the reference before using it if the origin changes."
+    )
+)]
+#[error("Reference `{ref_var}` (originating from `{origin_var}`) is passed to a constructor")]
+pub struct ReferenceEscapesToConstructorWarning {
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label(
+        primary,
+        "Reference escapes here - it may be stored in `{constructed_type}`"
+    )]
+    pub span: Span,
+    #[label("Reference originates from this variable")]
+    pub origin_span: Span,
+    pub ref_var: String,
+    pub origin_var: String,
+    pub constructed_type: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::union_field_cannot_be_automatically_deleted),
+    severity(warning),
+    help(
+        "Unions require special handling for deletion. Consider implementing a custom destructor for this type."
+    )
+)]
+#[error(
+    "The compiler cannot automatically delete the union field `{field_name}` of struct `{struct_name}` as it may lead to undefined behavior"
+)]
+pub struct UnionFieldCannotBeAutomaticallyDeletedWarning {
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label = "Union field `{field_name}` cannot be automatically deleted here"]
+    pub span: Span,
+    pub field_name: String,
+    pub struct_name: String,
 }

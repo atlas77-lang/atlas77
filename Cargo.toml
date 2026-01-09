@@ -1,6 +1,6 @@
 [package]
 name = "atlas_77"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2024"
 description = "Programming language with strong interoperability with Rust (WIP)"
 authors = ["Gipson62", "ElhamAryanpur"]
@@ -39,9 +39,13 @@ bumpalo = "3.19.1"
 # For pretty printing of errors
 miette = { version = "7.6.0", features = ["fancy"] }
 thiserror = "2.0.17"
+# For the Lexer
 logos = "0.16.0"
+# For case checks
 heck = "0.5.0"
+# To store the std library
 include_dir = "0.7.4"
+# std/math needs it
 rand = "0.9.2"
+# std/time needs it
 time = { version = "0.3.44", features = ["formatting"] }
-# cranelift = "0.126.1"

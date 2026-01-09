@@ -14,10 +14,39 @@ declare_error_type! {
         OnlyOneConstructorAllowed(OnlyOneConstructorAllowedError),
         NoFieldInStruct(NoFieldInStructError),
         InvalidCharacter(InvalidCharacterError),
+        DestructorWithParameters(DestructorWithParametersError),
+        FlagDoesntExist(FlagDoesntExistError),
     }
 }
 
 pub type ParseResult<T> = Result<T, Box<SyntaxError>>;
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(syntax::flag_doesnt_exist),
+    help("Use an existing flag (e.g., 'copyable' or 'non_copyable')")
+)]
+#[error("Flag '{flag_name}' does not exist")]
+pub struct FlagDoesntExistError {
+    #[label = "flag does not exist"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+    pub flag_name: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(syntax::destructor_with_parameters),
+    help("Remove the parameters from the destructor")
+)]
+#[error("Destructor cannot have parameters")]
+pub struct DestructorWithParametersError {
+    #[label = "destructor cannot have parameters"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(syntax::no_field_in_class), help("Add fields to the struct"))]
@@ -39,8 +68,9 @@ pub struct NoFieldInStructError {
 #[error("Only one constructor or destructor is allowed per struct")]
 //This should also have a label pointing to the 1st constructor/destructor
 pub struct OnlyOneConstructorAllowedError {
-    #[label = "only one constructor or destructor is allowed per struct"]
+    #[label = "only one {kind} is allowed per struct"]
     pub span: Span,
+    pub kind: String,
     #[source_code]
     pub src: NamedSource<String>,
 }

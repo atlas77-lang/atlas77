@@ -1,10 +1,23 @@
 use super::{signature::HirFunctionSignature, stmt::HirBlock};
 use crate::atlas_c::atlas_hir::signature::{
-    HirFunctionParameterSignature, HirStructConstructorSignature, HirStructFieldSignature,
+    HirFlag, HirFunctionParameterSignature, HirStructConstructorSignature, HirStructFieldSignature,
     HirStructMethodSignature, HirStructSignature, HirTypeParameterItemSignature, HirUnionSignature,
     HirVisibility,
 };
+use crate::atlas_c::atlas_hir::ty::HirGenericTy;
 use crate::atlas_c::utils::Span;
+
+#[derive(Debug, Clone)]
+pub struct HirGlobalConst<'hir> {
+    pub span: Span,
+    pub name: &'hir str,
+    pub name_span: Span,
+    pub ty: &'hir str,
+    pub ty_span: Span,
+    pub value: &'hir str,
+    pub value_span: Span,
+    pub vis: HirVisibility,
+}
 
 #[derive(Debug, Clone)]
 pub struct HirFunction<'hir> {
@@ -41,13 +54,17 @@ pub struct HirUnion<'hir> {
 pub struct HirStruct<'hir> {
     pub span: Span,
     pub name: &'hir str,
+    /// If the struct name is mangled, this contains the pre-mangled type
+    pub pre_mangled_ty: Option<&'hir HirGenericTy<'hir>>,
     pub name_span: Span,
     pub signature: HirStructSignature<'hir>,
     pub methods: Vec<HirStructMethod<'hir>>,
     pub fields: Vec<HirStructFieldSignature<'hir>>,
     pub constructor: HirStructConstructor<'hir>,
+    pub copy_constructor: Option<HirStructConstructor<'hir>>,
     pub destructor: HirStructConstructor<'hir>,
     pub vis: HirVisibility,
+    pub flag: HirFlag,
 }
 
 #[derive(Debug, Clone)]

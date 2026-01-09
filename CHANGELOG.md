@@ -2,6 +2,97 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - 2026-01-07
+
+### Bug Fixes
+
+- Well, I forgot to put a comma after the "this" parameter ([e6290ed](https://github.com/atlas77-lang/Atlas77/commit/e6290ed2f7c72c603d27c0e84e81c3d4d6c89567))
+- Operator precedence with `*`/`&`/`-` ([6888675](https://github.com/atlas77-lang/Atlas77/commit/68886752f247d30024f6381ca126eb48c7897d16))
+- Temporary fix for `optional<T>.value()`, it would drop the value too early ([8e77249](https://github.com/atlas77-lang/Atlas77/commit/8e77249a3e374e0d8898455fd212cf245bfb4f6d))
+- Calling the copy constructor of a union variant would crash ([d3258bc](https://github.com/atlas77-lang/Atlas77/commit/d3258bc852409644590b64efde96f8dace02e4b9))
+- Arrays of generic ty wouldn't have the inner ty name mangled ([d6d9486](https://github.com/atlas77-lang/Atlas77/commit/d6d9486274fcd716995c2cd0e92849165af9ca85))
+- Removed "protected" keyword (wtf was it there?) ([bd842cb](https://github.com/atlas77-lang/Atlas77/commit/bd842cb22dd95309678e2ff5a77f3a3c46c8ae6a))
+- Issue with references (&T would not be coerced to &const T in some cases) ([87e7e33](https://github.com/atlas77-lang/Atlas77/commit/87e7e33267160ed96c80bf232086ac69da748586))
+- Added escape characters in string literals ([003a786](https://github.com/atlas77-lang/Atlas77/commit/003a786d717851060021b384dd1dbf8bd2e81e3e))
+- Last use is a move is more often correctly used ([d8faeed](https://github.com/atlas77-lang/Atlas77/commit/d8faeed0e17336007ab188951fc338045160ae6e))
+- Issues with Deref unary ([2e2b90f](https://github.com/atlas77-lang/Atlas77/commit/2e2b90f005650e3c04edc2566c59599ea9ec0c15))
+- Every method on Vector<T> should now be stable-ish ([4f588d4](https://github.com/atlas77-lang/Atlas77/commit/4f588d4687b30cfbcf47561d30d7b88b6c6c41ca))
+- Removed clunky test to see if we can move out of a container or not ([88d3896](https://github.com/atlas77-lang/Atlas77/commit/88d389634678d85d661597131d2007ed52851aa7))
+- Generics struct weren't properly checked ([10c75fd](https://github.com/atlas77-lang/Atlas77/commit/10c75fded7a1c579a970b52222c5ef684df9dd0b))
+- Issues with returning references would sometimes tries to move the value anyway ([e6cd147](https://github.com/atlas77-lang/Atlas77/commit/e6cd1479cc4b4fad5f8442d2cd88965db7514c50))
+- Halt instruction wasn't CAPITALIZED ([36291b3](https://github.com/atlas77-lang/Atlas77/commit/36291b3cd34673ccd2a26c56c539a90de15c963a))
+- BlueEngine builds again now (it still doesn't work, but it builds) ([a3ece3a](https://github.com/atlas77-lang/Atlas77/commit/a3ece3a5d7344666bf3865d08bad5fe0cc37d52d))
+- Issues with deref operator not properly consuming ownership in some cases ([2332500](https://github.com/atlas77-lang/Atlas77/commit/2332500a71e6d5b574b96764379d24729e8dc032))
+- Copy/Move expressions now create a tmp_var slot when being referenced ([b359309](https://github.com/atlas77-lang/Atlas77/commit/b3593097693bc78b39c918587fd27b066c2bbe3f))
+- Remove the warning from deleting ref. They are now just ignored and you can use `delete_from_ref(&T) instead` ([4a25056](https://github.com/atlas77-lang/Atlas77/commit/4a250569670e8089ceed1237da021b0f94a843b9))
+- Vector<T> ownership made it impossible to have a `.take(i)` or `.pop()`, it's now fixed with the use of `memcpy<T>(&T) -> T` ([ae7c018](https://github.com/atlas77-lang/Atlas77/commit/ae7c018b38fd44dd670449440ccde11639bc22c8))
+- Removed double free error by just ignoring it ([d915c65](https://github.com/atlas77-lang/Atlas77/commit/d915c656251d216ed486b645a4d06c65c5385f8a))
+- More fixes, but man, every type should just be `std::copyable`, it would fix so much issues ([66ef510](https://github.com/atlas77-lang/Atlas77/commit/66ef510945530dc45b06bfd762300ca32474c261))
+- Issues with temporary references ([6589444](https://github.com/atlas77-lang/Atlas77/commit/6589444202c4156af2ec5b881cecf2539fcc4b10))
+- Missing '{' in src ([afecdf7](https://github.com/atlas77-lang/Atlas77/commit/afecdf7320f5447a52aeaa05d21431efa98728e0))
+- Blocks not adding "delete" at the end of the scope ([2b27f61](https://github.com/atlas77-lang/Atlas77/commit/2b27f6104578efb11394305c168fec4db5f01231))
+- Made optional/expected not relied on generic types to be copyable ([55c4f97](https://github.com/atlas77-lang/Atlas77/commit/55c4f9714468559f03da2e4ef06794b547ac5011))
+- Cannot transfer ownership in borrowing method (e.g.: `&this`, `&const this`) ([9ce37e6](https://github.com/atlas77-lang/Atlas77/commit/9ce37e60eb580c3e01758bef3c9d0be19d788e43))
+- Issue with dereference in const function ([76e9875](https://github.com/atlas77-lang/Atlas77/commit/76e9875746d23d1942c897f79bad60986ec139a0))
+- Issue when using String.into_iter() ([189a2b7](https://github.com/atlas77-lang/Atlas77/commit/189a2b7f131baa74ee496a5a33ab1ef2994d2dcc))
+- Prevent double-delete of explicitly deleted variables ([59d7573](https://github.com/atlas77-lang/Atlas77/commit/59d7573988d30b12621c794a1b9139aa076cae3e))
+- Require explicit borrowing and make lists non-copyable ([8632024](https://github.com/atlas77-lang/Atlas77/commit/8632024be4950d57dec692a2b704f85bb443cf12))
+- A lot of bug fixes ([8955870](https://github.com/atlas77-lang/Atlas77/commit/8955870c140f8c4f0a5b0a63edaa05ba0eca9d24))
+- `string` is now a copy type ([6881278](https://github.com/atlas77-lang/Atlas77/commit/6881278f00380d6ee9a5e2f2db535f14992142bb))
+- Fixed an issue with unary operator not operatoring on the correct operand ([54aff18](https://github.com/atlas77-lang/Atlas77/commit/54aff1888bbc791f5d3f095bed6fa21e9b93cb38))
+- Functions took ownership of values but never freed it ([db17fcc](https://github.com/atlas77-lang/Atlas77/commit/db17fcc721e2eb2f659a3d1d1d5f279bc6dbf7d1))
+- Destructors not being called properly ([a526ec9](https://github.com/atlas77-lang/Atlas77/commit/a526ec90af56799e409fcc06a923c5dc77bb96d1))
+- It was possible to mutate constant ref with `*a = something` ([67c8beb](https://github.com/atlas77-lang/Atlas77/commit/67c8beb2e0c60e8278622e7ce6ee957d0b653803))
+- Returning a struct with a temporary ref was still possible ([1a8db46](https://github.com/atlas77-lang/Atlas77/commit/1a8db46e47376a59673f37bf823ca62b107c2afb))
+
+### Documentation
+
+- More info in the Roadmap ([c09afe5](https://github.com/atlas77-lang/Atlas77/commit/c09afe518b02d68dc05b8394fdaa4840fa55cee6))
+- Updated `ROADMAP.md` ([2915adf](https://github.com/atlas77-lang/Atlas77/commit/2915adf0b17d0c38df9f46bf8061960448e0fe55))
+- Added ROADMAP.md ([11b089f](https://github.com/atlas77-lang/Atlas77/commit/11b089fe2251b811afcfe9ef101416563081f46a))
+- Updated the README.md ([b1d8464](https://github.com/atlas77-lang/Atlas77/commit/b1d84649d5cbf32ecfd457eb73fc419f6bb415a9))
+
+### Features
+
+- Warning for method chains that returns object without consuming them ([36ef22d](https://github.com/atlas77-lang/Atlas77/commit/36ef22dc3bff43967c65f9672602e62f664554cf))
+- Added a warning for temporary variables not freed. ([4e8d420](https://github.com/atlas77-lang/Atlas77/commit/4e8d420dadfb5d899196a338974133a75bb93905))
+- Now the compiler will warn you if there is an uneeded copy ([bfaaa85](https://github.com/atlas77-lang/Atlas77/commit/bfaaa85aaf279ac55f9a09035587c5f4366a67a8))
+- Added a basic `Queue<T>` with a fixed size for now ([aec4663](https://github.com/atlas77-lang/Atlas77/commit/aec4663b43c4f02dfbc6d85f06f26a6b91eb0b96))
+- Ref are now deref in print/println/panic to display everything properly ([5fe0da7](https://github.com/atlas77-lang/Atlas77/commit/5fe0da7330db99e20cb5aef854a6d1c5459bec06))
+- Added unions & extern fn to pretty print ([078a486](https://github.com/atlas77-lang/Atlas77/commit/078a486a1389a768ee065b96e9bfb7e94e348d0e))
+- Pretty printer for atlas77 hir code ([5d238f8](https://github.com/atlas77-lang/Atlas77/commit/5d238f804aeff1924a68a41c4ab6bf8186dcee6e))
+- Implement recursive copy detection in ownership pass and add example ([83e46ae](https://github.com/atlas77-lang/Atlas77/commit/83e46ae3ffa5633870c5fc004b04b3784ca67777))
+- Phantom Pop bug; Destructor LocalSpace Bug ([04376c5](https://github.com/atlas77-lang/Atlas77/commit/04376c5955decbad857b3c7d8a5d60177f1f1a7f))
+- Added ObjectKind info to `RuntimeError::InvalidObjectAccess` ([ea7ac29](https://github.com/atlas77-lang/Atlas77/commit/ea7ac2925aad4ad10f9c7da20a562b40e2ff6c9b))
+- Better error handling for string access ([3296da7](https://github.com/atlas77-lang/Atlas77/commit/3296da70aef1e0aea866fa9114296747efc8c1d0))
+- Enhance ownership and memory management with new indexing and reference handling ([b784ac3](https://github.com/atlas77-lang/Atlas77/commit/b784ac3a249c052734d73f6e8fd865dbaaf7381c))
+- Introduced `std::memcpy(&T) -> T` to allow for shallow copy of objects ([fb10ec7](https://github.com/atlas77-lang/Atlas77/commit/fb10ec7b2e142e6b5b45097fb0a71c57c61a2752))
+- Automatically generated copy constructor ([f0d14c3](https://github.com/atlas77-lang/Atlas77/commit/f0d14c30ff3bed698f4b0b95d06f699de640cced))
+- Automatic addition of a _copy constructor in structs ([a7e59e6](https://github.com/atlas77-lang/Atlas77/commit/a7e59e63a80c0cbf6c5d6becc3d793f2dbba2c5f))
+- Add &this mutable reference modifier for struct methods ([76a51ca](https://github.com/atlas77-lang/Atlas77/commit/76a51ca2fadd71be9733fc25069650a2556a2da7))
+- Added a bit more errors for consistency ([172ca08](https://github.com/atlas77-lang/Atlas77/commit/172ca08d3689afe04ed26092685ead9bdbf8bc37))
+- Well, MOVE/COPY semantics are there I think... Still need some tests though ([1953acf](https://github.com/atlas77-lang/Atlas77/commit/1953acff643da304067553a608dac315d1660bd8))
+- References are now actually useful ([70d26a6](https://github.com/atlas77-lang/Atlas77/commit/70d26a66f7f31e360527d99febf419333a822eaf))
+
+### Miscellaneous Tasks
+
+- Bump to v0.7.0 Covenant ([d6d97ce](https://github.com/atlas77-lang/Atlas77/commit/d6d97ce21f0920731d3ebd7b1aa0bb43e051bbe4))
+- Expanded test.atlas ([fba787f](https://github.com/atlas77-lang/Atlas77/commit/fba787fb748c8f9610bd2f5737b41d0a32f02ded))
+- Added v0.7.x branch to github actions ([87abf90](https://github.com/atlas77-lang/Atlas77/commit/87abf908bed4a7a318255e5d8e9730f880017fb8))
+
+### Misc
+
+- Removed debug output ([1d9babd](https://github.com/atlas77-lang/Atlas77/commit/1d9babd304dd8f85b2ff9f584324fc39c1630de5))
+- Changed tests ownership folder name ([85bb4b0](https://github.com/atlas77-lang/Atlas77/commit/85bb4b0424779f1b3a8e508beeecefd05e08a905))
+- Added this signature to methods ([d743396](https://github.com/atlas77-lang/Atlas77/commit/d7433968edb1a3c1e19775c00f776bb85802eb05))
+- Updated clap & bumpalo to latest ([34e109e](https://github.com/atlas77-lang/Atlas77/commit/34e109eb37c6a80caeef1ca3b4d2e8cbfdfcaee6))
+- Ref.atlas -> test2.atlas ([b1aabcb](https://github.com/atlas77-lang/Atlas77/commit/b1aabcb6bb9f84e6cdf649a905ed3707430b1592))
+- Removed LifetimePass as everything has been moved to OwnershipPass ([17c30d0](https://github.com/atlas77-lang/Atlas77/commit/17c30d0bde8e788bb880cd84a49ce020be89ab56))
+
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
 ## [0.6.4] - 2025-12-23
 
 ### Bug Fixes

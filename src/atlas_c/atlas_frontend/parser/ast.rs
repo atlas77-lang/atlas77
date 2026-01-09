@@ -20,6 +20,7 @@ pub enum AstItem<'ast> {
     Function(AstFunction<'ast>),
     Enum(AstEnum<'ast>),
     Union(AstUnion<'ast>),
+    Constant(AstGlobalConst<'ast>),
 }
 
 impl AstItem<'_> {
@@ -31,6 +32,13 @@ impl AstItem<'_> {
             AstItem::Function(v) => v.vis = vis,
             AstItem::Enum(v) => v.vis = vis,
             AstItem::Union(v) => v.vis = vis,
+            AstItem::Constant(v) => v.vis = vis,
+        }
+    }
+    pub fn set_flag(&mut self, flag: AstFlag) {
+        match self {
+            AstItem::Struct(v) => v.flag = flag,
+            _ => {}
         }
     }
     pub fn span(&self) -> Span {
@@ -41,8 +49,42 @@ impl AstItem<'_> {
             AstItem::Function(v) => v.span,
             AstItem::Enum(v) => v.span,
             AstItem::Union(v) => v.span,
+            AstItem::Constant(v) => v.span,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Flags that can be applied to AST nodes
+/// Currently used for marking structs as copyable or non-copyable
+/// e.g.:
+/// ```
+/// #[std::copyable]
+/// struct Foo {
+///   x: int64;
+/// }
+/// ```
+/// or
+/// ```
+/// #[std::non_copyable]
+/// struct Bar {
+///  x: int64;
+/// }
+/// ```
+pub enum AstFlag {
+    Copyable(Span),
+    NonCopyable(Span),
+    #[default]
+    None,
+}
+
+#[derive(Debug, Clone)]
+pub struct AstGlobalConst<'ast> {
+    pub span: Span,
+    pub name: &'ast AstIdentifier<'ast>,
+    pub ty: &'ast AstType<'ast>,
+    pub value: &'ast AstExpr<'ast>,
+    pub vis: AstVisibility,
 }
 
 #[derive(Debug, Clone)]
@@ -119,11 +161,14 @@ pub struct AstStruct<'ast> {
     pub fields: &'ast [&'ast AstObjField<'ast>],
     pub field_span: Span,
     pub constructor: Option<&'ast AstConstructor<'ast>>,
+    pub copy_constructor: Option<&'ast AstConstructor<'ast>>,
     pub destructor: Option<&'ast AstDestructor<'ast>>,
     pub generics: &'ast [&'ast AstGeneric<'ast>],
     pub operators: &'ast [&'ast AstOperatorOverload<'ast>],
     pub constants: &'ast [&'ast AstConst<'ast>],
     pub methods: &'ast [&'ast AstMethod<'ast>],
+    // Currently only one flag supported: copyable or non-copyable
+    pub flag: AstFlag,
 }
 
 #[derive(Debug, Clone, Default, Copy)]
@@ -179,6 +224,12 @@ pub enum AstOverloadableOperator {
     ///     return new Foo(other.x);
     ///   }
     /// }
+    Copy,
+}
+
+#[derive(Debug, Clone)]
+pub enum ConstructorKind {
+    Regular,
     Copy,
 }
 

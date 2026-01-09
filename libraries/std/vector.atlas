@@ -7,8 +7,9 @@ public extern len<T>(data: &const [T]) -> uint64;
 public extern slice<T>(data: &const [T], start: uint64, end: uint64) -> [T];
 
 public struct Vector<T> {
-public:
+private:
     data: [T];
+public:
     length: uint64;
     capacity: uint64;
 
@@ -24,26 +25,38 @@ public:
             delete this.data[i];
             i = i + 1u;
         }
-        // deleting an array doesn't call destructors on its elements, 
-        // so we do it manually
-        delete this.data;
+        // We free only the allocated array
+        // This doesn't call the destructor of the elements again
+        delete_from_ref(&this.data);
     }
-    fun _copy(&const this) -> Vector<T> {
-        return new Vector<T>(*this.data);
+    /// TODO: Add a where T: std::copyable constraint here
+    Vector(from: &const Vector<T>) {
+        this.length = *(from.length);
+        this.capacity = *(from.capacity);
+        // We only allocate the size we need
+        this.data = new [T; this.length];
+        let i: uint64 = 0u;
+        while i < this.length {
+            this.data[i] = *from.get(i);
+            i = i + 1u;
+        }
     }
     /// Creates a new Vector with the specified capacity.
-
     fun with_capacity(capacity: uint64) -> Vector<T> {
         let vec = new Vector<T>(new [T; capacity]);
         vec.length = 0u;
         return vec;
     }
 
-    fun get(&this, index: uint64) -> &const T {
-        if index >= this.length {
+    fun len(&const this) -> uint64 {
+        return *this.length;
+    }
+
+    fun get(&const this, index: uint64) -> &const T {
+        if index >= *this.length {
             panic("Index out of bounds");
         }
-        return &(this.data[index]);
+        return &((*this.data)[index]);
     }
 
     fun get_mut(&this, index: uint64) -> &T {
@@ -103,6 +116,13 @@ public:
     fun take(&this, index: uint64) -> T {
         // Public method to take an element out of the vector
         return this.try_take(index);
+    }
+
+    fun get_slice(&this, start: uint64, end: uint64) -> [T] {
+        if start > end || end > this.length {
+            panic("Slice indices out of bounds");
+        }
+        return slice(&this.data, start, end);
     }
 
 private:

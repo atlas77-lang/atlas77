@@ -20,10 +20,9 @@ public:
         delete this.key;
         delete this.value;
     }
-    /// Copy constructor - creates a deep copy of the pair
-    /// Note: K and V must be copyable types for this to work correctly
-    fun _copy(&const this) -> Pair<K, V> {
-        return new Pair<K, V>(*(this.key), *(this.value));
+    Pair(from: &const Pair<K, V>) {
+        this.key = *from.key;
+        this.value = *from.value;
     }
     fun get_first(&const this) -> K {
         return *(this.key);
@@ -33,7 +32,10 @@ public:
     }
     /// Consumes this pair and returns a new pair with swapped key and value
     fun swap(this) -> Pair<V, K> {
-        return new Pair<V, K>(this.value, this.key);
+        let value = this.value;
+        let key = this.key;
+        delete_from_ref(&this);
+        return new Pair<V, K>(value, key);
     }
 }
 /// A simple map implementation using two parallel arrays.
@@ -53,23 +55,16 @@ public:
         delete this.keys;
         delete this.values;
     }
-    fun _copy(&const this) -> Map<K, V> {
-        let new_map = new Map<K, V>();
-        let i: uint64 = 0u;
-        while i < *this.keys.length {
-            let key = *((*this.keys).get(i));
-            let value = *((*this.values).get(i));
-            new_map.keys.push(key);
-            new_map.values.push(value);
-            i = i + 1u;
-        }
-        return new_map;
+    /// Copy constructor - creates a deep copy of the map
+    Map(from: &const Map<K, V>) {
+        this.keys = *from.keys;
+        this.values = *from.values;
     }
     /// Retrieves the value associated with the given key.
     /// Returns None if the key does not exist.
-    fun get(&this, key: K) -> optional<&const V> {
+    fun get(&const this, key: K) -> optional<&const V> {
         let i: uint64 = 0u;
-        while i < this.keys.length {
+        while i < *this.keys.length {
             if this.keys.get(i) == &key {
                 let value = this.values.get(i);
                 return optional<&const V>::of(value);
@@ -84,7 +79,7 @@ public:
         let i: uint64 = 0u;
         while i < this.keys.length {
             if this.keys.get(i) == &key {
-                let value = this.values.get(i);
+                let value = this.values.get_mut(i);
                 return optional<&V>::of(value);
             }
             i = i + 1u;
@@ -151,5 +146,29 @@ public:
         }
         delete this;
         return new Iter<Pair<K, V>>(pairs);
+    }
+
+    fun keys(&const this) -> Iter<&const K> {
+        let size = *this.keys.length;
+        let keys_vec = Vector<&const K>::with_capacity(size);
+        let i = 0u;
+        while i < size {
+            let key_ref = this.keys.get(i);
+            keys_vec.push(key_ref);
+            i = i + 1u;
+        }
+        return new Iter<&const K>(keys_vec);
+    }
+
+    fun values(&const this) -> Iter<&const V> {
+        let size = *this.values.length;
+        let values_vec = Vector<&const V>::with_capacity(size);
+        let i = 0u;
+        while i < size {
+            let value_ref = this.values.get(i);
+            values_vec.push(value_ref);
+            i = i + 1u;
+        }
+        return new Iter<&const V>(values_vec);
     }
 }

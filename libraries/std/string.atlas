@@ -37,9 +37,9 @@ public:
         delete this.s;
     }
 
-    /// Copy constructor - creates a deep copy of the string
-    fun _copy(&const this) -> String {
-        return new String(*this.s);
+    String(from: &const String) {
+        this.len = *from.len;
+        this.s = *from.s;
     }
 
     fun from_chars(s: [char]) -> String {

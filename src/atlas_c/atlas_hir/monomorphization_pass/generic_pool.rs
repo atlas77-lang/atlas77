@@ -77,7 +77,7 @@ impl<'hir> HirGenericPool<'hir> {
         }
 
         //TODO: Differentiate between struct and union here
-        let name = MonomorphizationPass::mangle_generic_object_name(self.arena, &generic, "struct");
+        let name = MonomorphizationPass::generate_mangled_name(self.arena, &generic, "struct");
         self.structs.entry(name).or_insert(HirGenericInstance {
             name: generic.name,
             args: generic.inner,
@@ -101,10 +101,10 @@ impl<'hir> HirGenericPool<'hir> {
             }
         }
         //We need to check if it's an instantiated generics or a generic definition e.g.: Result<T> or Result<uint64>
-        if !self.is_generic_instantiated(&generic, module) {
+        if !self.is_generic_instantiated(generic, module) {
             return;
         }
-        let name = MonomorphizationPass::mangle_generic_object_name(self.arena, generic, "union");
+        let name = MonomorphizationPass::generate_mangled_name(self.arena, generic, "union");
         self.unions.entry(name).or_insert(HirGenericInstance {
             name: generic.name,
             args: generic.inner.clone(),
@@ -119,15 +119,14 @@ impl<'hir> HirGenericPool<'hir> {
         module: &HirModuleSignature<'hir>,
     ) {
         // Check for constraints if function has generics
-        if let Some(func_sig) = module.functions.get(generic.name) {
-            if !func_sig.generics.is_empty() {
-                if func_sig.generics.len() == generic.inner.len() {
-                    // TODO: Validate that the concrete types satisfy the generic constraints
-                    // This stub implementation currently skips constraint checking
-                    for _param in func_sig.generics.iter() {
-                        // TODO: Check if each concrete type in generic.inner[i] satisfies constraints for _param
-                    }
-                }
+        if let Some(func_sig) = module.functions.get(generic.name)
+            && !func_sig.generics.is_empty()
+            && func_sig.generics.len() == generic.inner.len()
+        {
+            // TODO: Validate that the concrete types satisfy the generic constraints
+            // This stub implementation currently skips constraint checking
+            for _param in func_sig.generics.iter() {
+                // TODO: Check if each concrete type in generic.inner[i] satisfies constraints for _param
             }
         }
 
@@ -138,7 +137,7 @@ impl<'hir> HirGenericPool<'hir> {
         }
 
         let mangled_name =
-            MonomorphizationPass::mangle_generic_object_name(self.arena, &generic, "function");
+            MonomorphizationPass::generate_mangled_name(self.arena, &generic, "function");
         self.functions
             .entry(mangled_name)
             .or_insert(HirGenericInstance {
@@ -313,7 +312,7 @@ impl<'hir> HirGenericPool<'hir> {
                 None => false,
             },
             HirTy::Generic(g) => {
-                let name = MonomorphizationPass::mangle_generic_object_name(self.arena, g, "struct");
+                let name = MonomorphizationPass::generate_mangled_name(self.arena, g, "struct");
                 match module.structs.get(name) {
                     Some(struct_sig) => struct_sig.methods.contains_key("_copy"),
                     None => false,

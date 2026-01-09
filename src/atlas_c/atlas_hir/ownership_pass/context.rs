@@ -2,6 +2,76 @@ use std::collections::HashMap;
 
 use crate::atlas_c::{atlas_hir::ty::HirTy, utils::Span};
 
+/// Tracks where a reference value originates from.
+///
+/// This is used to detect use-after-free bugs: when the origin of a reference
+/// is deleted or moved, all references derived from it become invalid.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum ReferenceOrigin<'hir> {
+    /// No origin tracking (for non-reference types)
+    #[default]
+    None,
+    /// Reference originates from a specific variable
+    Variable(&'hir str),
+    /// Reference originates from multiple possible sources (e.g., from a function
+    /// that takes multiple reference arguments)
+    Union(Vec<ReferenceOrigin<'hir>>),
+}
+
+impl<'hir> ReferenceOrigin<'hir> {
+    /// Check if this origin includes a specific variable name
+    pub fn includes(&self, var_name: &str) -> bool {
+        match self {
+            ReferenceOrigin::None => false,
+            ReferenceOrigin::Variable(name) => *name == var_name,
+            ReferenceOrigin::Union(origins) => origins.iter().any(|o| o.includes(var_name)),
+        }
+    }
+
+    /// Merge two origins into a union
+    pub fn merge(self, other: ReferenceOrigin<'hir>) -> ReferenceOrigin<'hir> {
+        match (self, other) {
+            (ReferenceOrigin::None, other) => other,
+            (this, ReferenceOrigin::None) => this,
+            (ReferenceOrigin::Variable(a), ReferenceOrigin::Variable(b)) if a == b => {
+                ReferenceOrigin::Variable(a)
+            }
+            (ReferenceOrigin::Variable(a), ReferenceOrigin::Variable(b)) => {
+                ReferenceOrigin::Union(vec![
+                    ReferenceOrigin::Variable(a),
+                    ReferenceOrigin::Variable(b),
+                ])
+            }
+            (ReferenceOrigin::Union(mut origins), ReferenceOrigin::Variable(v)) => {
+                if !origins
+                    .iter()
+                    .any(|o| matches!(o, ReferenceOrigin::Variable(x) if *x == v))
+                {
+                    origins.push(ReferenceOrigin::Variable(v));
+                }
+                ReferenceOrigin::Union(origins)
+            }
+            (ReferenceOrigin::Variable(v), ReferenceOrigin::Union(mut origins)) => {
+                if !origins
+                    .iter()
+                    .any(|o| matches!(o, ReferenceOrigin::Variable(x) if *x == v))
+                {
+                    origins.insert(0, ReferenceOrigin::Variable(v));
+                }
+                ReferenceOrigin::Union(origins)
+            }
+            (ReferenceOrigin::Union(mut a), ReferenceOrigin::Union(b)) => {
+                for origin in b {
+                    if !a.contains(&origin) {
+                        a.push(origin);
+                    }
+                }
+                ReferenceOrigin::Union(a)
+            }
+        }
+    }
+}
+
 /// Represents how a variable is used in an expression
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UseKind {
@@ -111,6 +181,36 @@ impl<'hir> ScopeMap<'hir> {
         }
     }
 
+    /// Invalidate all references whose origin includes the given variable name.
+    /// This should be called when a variable is deleted or consumed by a method.
+    ///
+    /// Returns the names of variables that were invalidated.
+    pub fn invalidate_references_with_origin(
+        &mut self,
+        origin_name: &str,
+        invalidation_span: Span,
+    ) -> Vec<&'hir str> {
+        let mut invalidated = Vec::new();
+
+        // Check all scopes for references that depend on this origin
+        for scope in &mut self.scopes {
+            for (var_name, var_data) in scope.var_status.iter_mut() {
+                // Only invalidate reference types that depend on this origin
+                if var_data.kind == VarKind::Reference
+                    && var_data.origin.includes(origin_name)
+                    && var_data.status.is_valid()
+                {
+                    var_data.status = VarStatus::Deleted {
+                        delete_span: invalidation_span,
+                    };
+                    invalidated.push(*var_name);
+                }
+            }
+        }
+
+        invalidated
+    }
+
     pub fn mark_as_borrowed(&mut self, name: &str) -> Option<()> {
         if let Some(var) = self.get_mut(name) {
             var.borrow_count += 1;
@@ -167,6 +267,177 @@ impl<'hir> ScopeMap<'hir> {
         }
         owned_vars
     }
+
+    /// Merge ownership states after an if-else statement.
+    ///
+    /// This handles the case where a variable is moved in one branch but not the other.
+    /// After merging:
+    /// - If moved in both branches → Moved
+    /// - If moved in one branch only → ConditionallyMoved  
+    /// - If owned in both → Owned (unchanged)
+    ///
+    /// `then_state` is the state after the then branch
+    /// `else_state` is the state after the else branch (or the original state if no else)
+    /// The result is applied to the current scope map.
+    pub fn merge_branch_states(
+        &mut self,
+        then_state: &ScopeMap<'hir>,
+        else_state: &ScopeMap<'hir>,
+    ) {
+        // We need to check variables that exist in parent scopes (not the if/else inner scopes)
+        // because those are the ones that could have been moved inside the branches
+        let current_scope = self.scopes.last_mut().unwrap();
+
+        for (name, var_data) in current_scope.var_status.iter_mut() {
+            let then_var = then_state.get(name);
+            let else_var = else_state.get(name);
+
+            match (then_var, else_var) {
+                (Some(then_v), Some(else_v)) => {
+                    let then_moved = matches!(
+                        then_v.status,
+                        VarStatus::Moved { .. } | VarStatus::ConditionallyMoved { .. }
+                    );
+                    let else_moved = matches!(
+                        else_v.status,
+                        VarStatus::Moved { .. } | VarStatus::ConditionallyMoved { .. }
+                    );
+
+                    match (then_moved, else_moved) {
+                        (true, true) => {
+                            // Moved in both branches - definitely moved
+                            if let VarStatus::Moved { move_span } = &then_v.status {
+                                var_data.status = VarStatus::Moved {
+                                    move_span: *move_span,
+                                };
+                            } else if let VarStatus::ConditionallyMoved { move_span } =
+                                &then_v.status
+                            {
+                                var_data.status = VarStatus::Moved {
+                                    move_span: *move_span,
+                                };
+                            }
+                        }
+                        (true, false) => {
+                            // Moved only in then branch - conditionally moved
+                            if let VarStatus::Moved { move_span } = &then_v.status {
+                                var_data.status = VarStatus::ConditionallyMoved {
+                                    move_span: *move_span,
+                                };
+                            }
+                        }
+                        (false, true) => {
+                            // Moved only in else branch - conditionally moved
+                            if let VarStatus::Moved { move_span } = &else_v.status {
+                                var_data.status = VarStatus::ConditionallyMoved {
+                                    move_span: *move_span,
+                                };
+                            }
+                        }
+                        (false, false) => {
+                            // Not moved in either branch - keep as owned
+                        }
+                    }
+                }
+                _ => {
+                    // Variable not found in one of the states - shouldn't happen
+                    // but leave as is
+                }
+            }
+        }
+
+        // Also check parent scopes
+        for scope_idx in (0..self.scopes.len() - 1).rev() {
+            let scope = &mut self.scopes[scope_idx];
+            for (name, var_data) in scope.var_status.iter_mut() {
+                let then_var = then_state.get(name);
+                let else_var = else_state.get(name);
+
+                match (then_var, else_var) {
+                    (Some(then_v), Some(else_v)) => {
+                        let then_moved = matches!(
+                            then_v.status,
+                            VarStatus::Moved { .. } | VarStatus::ConditionallyMoved { .. }
+                        );
+                        let else_moved = matches!(
+                            else_v.status,
+                            VarStatus::Moved { .. } | VarStatus::ConditionallyMoved { .. }
+                        );
+
+                        match (then_moved, else_moved) {
+                            (true, true) => {
+                                if let VarStatus::Moved { move_span } = &then_v.status {
+                                    var_data.status = VarStatus::Moved {
+                                        move_span: *move_span,
+                                    };
+                                } else if let VarStatus::ConditionallyMoved { move_span } =
+                                    &then_v.status
+                                {
+                                    var_data.status = VarStatus::Moved {
+                                        move_span: *move_span,
+                                    };
+                                }
+                            }
+                            (true, false) => {
+                                if let VarStatus::Moved { move_span } = &then_v.status {
+                                    var_data.status = VarStatus::ConditionallyMoved {
+                                        move_span: *move_span,
+                                    };
+                                }
+                            }
+                            (false, true) => {
+                                if let VarStatus::Moved { move_span } = &else_v.status {
+                                    var_data.status = VarStatus::ConditionallyMoved {
+                                        move_span: *move_span,
+                                    };
+                                }
+                            }
+                            (false, false) => {}
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    /// Get variables that were moved in one branch but still owned in another.
+    /// Returns pairs of (variable_name, was_moved_in_then_branch).
+    /// This is used to insert delete statements in the branch that didn't move.
+    pub fn get_conditionally_moved_vars<'a>(
+        &self,
+        then_state: &'a ScopeMap<'hir>,
+        else_state: &'a ScopeMap<'hir>,
+    ) -> Vec<(&'hir str, bool, &'a VarData<'hir>)> {
+        let mut result = Vec::new();
+
+        // Check all scopes for variables that are moved in one branch but not the other
+        for scope in &self.scopes {
+            for name in scope.var_status.keys() {
+                let then_var = then_state.get(name);
+                let else_var = else_state.get(name);
+
+                if let (Some(then_v), Some(else_v)) = (then_var, else_var) {
+                    let then_moved = matches!(then_v.status, VarStatus::Moved { .. });
+                    let else_moved = matches!(else_v.status, VarStatus::Moved { .. });
+
+                    match (then_moved, else_moved) {
+                        (true, false) => {
+                            // Moved in then, still owned in else - need delete in else
+                            result.push((*name, true, else_v));
+                        }
+                        (false, true) => {
+                            // Moved in else, still owned in then - need delete in then
+                            result.push((*name, false, then_v));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        result
+    }
 }
 
 /// Contains all variable information for a given scope
@@ -208,6 +479,9 @@ pub struct VarData<'hir> {
     pub borrow_count: usize,
     /// Statement index where this variable was declared
     pub declaration_stmt_index: usize,
+    /// For reference types: tracks what variable(s) this reference points into.
+    /// When the origin is deleted/moved, this reference becomes invalid.
+    pub origin: ReferenceOrigin<'hir>,
 }
 
 impl<'hir> VarData<'hir> {
@@ -229,6 +503,31 @@ impl<'hir> VarData<'hir> {
             uses: Vec::new(),
             borrow_count: 0,
             declaration_stmt_index,
+            origin: ReferenceOrigin::None,
+        }
+    }
+
+    /// Create a new VarData with a specific origin (for reference types)
+    pub fn with_origin(
+        name: &'hir str,
+        span: Span,
+        kind: VarKind,
+        ty: &'hir HirTy<'hir>,
+        is_copyable: bool,
+        declaration_stmt_index: usize,
+        origin: ReferenceOrigin<'hir>,
+    ) -> Self {
+        Self {
+            name,
+            status: VarStatus::Owned,
+            span,
+            kind,
+            ty,
+            is_copyable,
+            uses: Vec::new(),
+            borrow_count: 0,
+            declaration_stmt_index,
+            origin,
         }
     }
 
@@ -237,7 +536,7 @@ impl<'hir> VarData<'hir> {
         self.uses
             .iter()
             .filter(|u| u.kind == UseKind::OwnershipConsuming)
-            .last()
+            .next_back()
     }
 
     /// Check if a given use is the last ownership-consuming use
@@ -294,6 +593,10 @@ pub enum VarStatus {
     Deleted { delete_span: Span },
     /// The variable is borrowed (references only)
     Borrowed,
+    /// The variable was moved in one branch of a conditional but not the other.
+    /// This means the outer scope should NOT generate a delete for it - each branch
+    /// is responsible for handling its own cleanup.
+    ConditionallyMoved { move_span: Span },
 }
 
 // For backwards compatibility with existing code
@@ -305,13 +608,17 @@ impl VarStatus {
 
 impl PartialEq for VarStatus {
     fn eq(&self, other: &VarStatus) -> bool {
-        match (self, other) {
-            (VarStatus::Owned, VarStatus::Owned) => true,
-            (VarStatus::Moved { .. }, VarStatus::Moved { .. }) => true,
-            (VarStatus::Deleted { .. }, VarStatus::Deleted { .. }) => true,
-            (VarStatus::Borrowed, VarStatus::Borrowed) => true,
-            _ => false,
-        }
+        matches!(
+            (self, other),
+            (VarStatus::Owned, VarStatus::Owned)
+                | (VarStatus::Moved { .. }, VarStatus::Moved { .. })
+                | (VarStatus::Deleted { .. }, VarStatus::Deleted { .. })
+                | (VarStatus::Borrowed, VarStatus::Borrowed)
+                | (
+                    VarStatus::ConditionallyMoved { .. },
+                    VarStatus::ConditionallyMoved { .. }
+                )
+        )
     }
 }
 
