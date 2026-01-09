@@ -37,7 +37,7 @@ use crate::atlas_c::{
             HirEnum, HirEnumVariant, HirFunction, HirStruct, HirStructConstructor, HirStructMethod,
             HirUnion,
         },
-        monomorphization_pass::{MonomorphizationPass, generic_pool::HirGenericPool},
+        monomorphization_pass::generic_pool::HirGenericPool,
         signature::{
             ConstantValue, HirFunctionParameterSignature, HirFunctionSignature,
             HirGenericConstraint, HirGenericConstraintKind, HirModuleSignature,
@@ -51,7 +51,10 @@ use crate::atlas_c::{
         },
         syntax_lowering_pass::case::Case,
         ty::{HirGenericTy, HirNamedTy, HirTy},
-        warning::{HirWarning, NameShouldBeInDifferentCaseWarning, ThisTypeIsStillUnstableWarning, UnionFieldCannotBeAutomaticallyDeletedWarning},
+        warning::{
+            HirWarning, NameShouldBeInDifferentCaseWarning, ThisTypeIsStillUnstableWarning,
+            UnionFieldCannotBeAutomaticallyDeletedWarning,
+        },
     },
     utils::{self, Span},
 };
@@ -748,12 +751,15 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     // Deleting union causes Undefined Behavior, so we skip it
                     let path = field.span.path;
                     let src = utils::get_file_content(path).unwrap();
-                    let warning: ErrReport = HirWarning::UnionFieldCannotBeAutomaticallyDeleted(UnionFieldCannotBeAutomaticallyDeletedWarning{
-                        span: field.span,
-                        field_name: field.name.to_string(),
-                        struct_name: struct_name.to_string(),
-                        src: NamedSource::new(path, src),
-                    }).into();
+                    let warning: ErrReport = HirWarning::UnionFieldCannotBeAutomaticallyDeleted(
+                        UnionFieldCannotBeAutomaticallyDeletedWarning {
+                            span: field.span,
+                            field_name: field.name.to_string(),
+                            struct_name: struct_name.to_string(),
+                            src: NamedSource::new(path, src),
+                        },
+                    )
+                    .into();
                     eprintln!("{:?}", warning);
                     continue;
                 }
