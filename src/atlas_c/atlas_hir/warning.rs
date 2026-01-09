@@ -13,6 +13,7 @@ declare_warning_type!(
         UnnecessaryCopyDueToLaterBorrows(UnnecessaryCopyDueToLaterBorrowsWarning),
         TemporaryValueCannotBeFreed(TemporaryValueCannotBeFreedWarning),
         ReferenceEscapesToConstructor(ReferenceEscapesToConstructorWarning),
+        UnionFieldCannotBeAutomaticallyDeleted(UnionFieldCannotBeAutomaticallyDeletedWarning),
     }
 );
 
@@ -172,4 +173,24 @@ pub struct ReferenceEscapesToConstructorWarning {
     pub ref_var: String,
     pub origin_var: String,
     pub constructed_type: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::union_field_cannot_be_automatically_deleted),
+    severity(warning),
+    help(
+        "Unions require special handling for deletion. Consider implementing a custom destructor for this type."
+    )
+)]
+#[error(
+    "The compiler cannot automatically delete the union field `{field_name}` of struct `{struct_name}` as it may lead to undefined behavior"
+)]
+pub struct UnionFieldCannotBeAutomaticallyDeletedWarning {
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label = "Union field `{field_name}` cannot be automatically deleted here"]
+    pub span: Span,
+    pub field_name: String,
+    pub struct_name: String,
 }

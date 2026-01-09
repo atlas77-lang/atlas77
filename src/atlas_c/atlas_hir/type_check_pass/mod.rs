@@ -5,8 +5,9 @@ use super::{
 };
 use crate::atlas_c::atlas_hir::error::{
     StdNonCopyableStructCannotHaveCopyConstructorError, StructCannotHaveAFieldOfItsOwnTypeError,
+    UnionMustHaveAtLeastTwoVariantError, UnionVariantDefinedMultipleTimesError,
 };
-use crate::atlas_c::atlas_hir::item::HirStructConstructor;
+use crate::atlas_c::atlas_hir::item::{HirStructConstructor, HirUnion};
 use crate::atlas_c::atlas_hir::pretty_print::HirPrettyPrinter;
 use crate::atlas_c::atlas_hir::signature::{
     HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier,
@@ -85,7 +86,44 @@ impl<'hir> TypeChecker<'hir> {
             self.current_class_name = Some(class.0);
             self.check_class(class.1)?;
         }
+        for (_, hir_union) in &mut hir.body.unions {
+            self.check_union(hir_union)?;
+        }
         Ok(hir)
+    }
+
+    fn check_union(&mut self, hir_union: &HirUnion<'hir>) -> HirResult<()> {
+        if hir_union.variants.len() <= 1 {
+            let path = hir_union.span.path;
+            let src = utils::get_file_content(path).unwrap();
+            return Err(HirError::UnionMustHaveAtLeastTwoVariant(
+                UnionMustHaveAtLeastTwoVariantError {
+                    union_name: hir_union.name.to_string(),
+                    span: hir_union.name_span,
+                    src: NamedSource::new(path, src),
+                },
+            ));
+        } else {
+            let mut variants = HashMap::new();
+            for variant in &hir_union.variants {
+                if let Some((_, v_span)) = variants.get_key_value(variant.ty) {
+                    let path = hir_union.span.path;
+                    let src = utils::get_file_content(path).unwrap();
+                    return Err(HirError::UnionVariantDefinedMultipleTimes(
+                        UnionVariantDefinedMultipleTimesError {
+                            union_name: hir_union.name.to_string(),
+                            variant_ty: format!("{}", variant.ty),
+                            first_span: *v_span,
+                            second_span: variant.span,
+                            src: NamedSource::new(path, src),
+                        },
+                    ));
+                } else {
+                    variants.insert(variant.ty, variant.span);
+                }
+            }
+            Ok(())
+        }
     }
 
     pub fn check_class(&mut self, class: &mut HirStruct<'hir>) -> HirResult<()> {
@@ -1952,6 +1990,22 @@ impl<'hir> TypeChecker<'hir> {
                             return true;
                         }
                     }
+                } else if let Some(union_def) = self.signature.unions.get(named.name) {
+                    // If there is only one variant, we need to check it for cycles
+                    if !union_def.variants.len() <= 1 {
+                        for variant in union_def.variants.values() {
+                            // If it's one variant and there are others, skip checking this variant to avoid false positives
+                            if self.has_cyclic_reference(
+                                variant.ty,
+                                target_struct,
+                                visited,
+                                cycle_path,
+                                variant.span,
+                            ) {
+                                return true;
+                            }
+                        }
+                    }
                 }
 
                 // No cycle found through this path, remove it
@@ -1974,7 +2028,7 @@ impl<'hir> TypeChecker<'hir> {
                             "field of type `{}` completes the cycle back to `{}`",
                             type_name,
                             if let Some(gen_ty) = target_struct.pre_mangled_ty {
-                                HirPrettyPrinter::generic_ty_str(gen_ty)   
+                                HirPrettyPrinter::generic_ty_str(gen_ty)
                             } else {
                                 target_struct.name.to_string()
                             }

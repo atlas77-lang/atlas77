@@ -37,7 +37,7 @@ use crate::atlas_c::{
             HirEnum, HirEnumVariant, HirFunction, HirStruct, HirStructConstructor, HirStructMethod,
             HirUnion,
         },
-        monomorphization_pass::generic_pool::HirGenericPool,
+        monomorphization_pass::{MonomorphizationPass, generic_pool::HirGenericPool},
         signature::{
             ConstantValue, HirFunctionParameterSignature, HirFunctionSignature,
             HirGenericConstraint, HirGenericConstraintKind, HirModuleSignature,
@@ -51,7 +51,7 @@ use crate::atlas_c::{
         },
         syntax_lowering_pass::case::Case,
         ty::{HirGenericTy, HirNamedTy, HirTy},
-        warning::{HirWarning, NameShouldBeInDifferentCaseWarning, ThisTypeIsStillUnstableWarning},
+        warning::{HirWarning, NameShouldBeInDifferentCaseWarning, ThisTypeIsStillUnstableWarning, UnionFieldCannotBeAutomaticallyDeletedWarning},
     },
     utils::{self, Span},
 };
@@ -464,7 +464,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         }
 
         let constructor = self.visit_constructor(node.name_span, node.constructor, &fields)?;
-        let destructor = self.visit_destructor(node.name_span, node.destructor, &fields)?;
+        let destructor = self.visit_destructor(name, node.name_span, node.destructor, &fields)?;
         let copy_constructor = if node.copy_constructor.is_some() {
             Some(self.visit_constructor(node.name_span, node.copy_constructor, &fields)?)
         } else {
@@ -716,6 +716,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
     fn visit_destructor(
         &mut self,
+        struct_name: &str,
         name_span: Span,
         destructor: Option<&'ast AstDestructor<'ast>>,
         fields: &[HirStructFieldSignature<'hir>],
@@ -729,6 +730,33 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             };
             let mut statements = vec![];
             for field in fields.iter() {
+                if field.ty.is_primitive() {
+                    // No need to delete primitive types
+                    continue;
+                }
+                // TODO: Handle unions properly
+                // It's very messy to use the AST for the check here, but for now it works
+                if let Some(name) = self.get_union_name(field.ty)
+                    && self.ast.items.iter().any(|item| {
+                        if let AstItem::Union(ast_union) = item {
+                            let union_name = self.arena.names().get(ast_union.name.name);
+                            return union_name == name;
+                        }
+                        false
+                    })
+                {
+                    // Deleting union causes Undefined Behavior, so we skip it
+                    let path = field.span.path;
+                    let src = utils::get_file_content(path).unwrap();
+                    let warning: ErrReport = HirWarning::UnionFieldCannotBeAutomaticallyDeleted(UnionFieldCannotBeAutomaticallyDeletedWarning{
+                        span: field.span,
+                        field_name: field.name.to_string(),
+                        struct_name: struct_name.to_string(),
+                        src: NamedSource::new(path, src),
+                    }).into();
+                    eprintln!("{:?}", warning);
+                    continue;
+                }
                 let delete_expr = HirExpr::Delete(HirDeleteExpr {
                     span: field.span,
                     expr: Box::new(HirExpr::FieldAccess(HirFieldAccessExpr {
@@ -1540,5 +1568,13 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             src: NamedSource::new(path, src),
             span: *span,
         })
+    }
+
+    fn get_union_name(&self, ty: &'hir HirTy<'hir>) -> Option<&'hir str> {
+        match ty {
+            HirTy::Named(n) => Some(n.name),
+            HirTy::Generic(g) => Some(g.name),
+            _ => None,
+        }
     }
 }

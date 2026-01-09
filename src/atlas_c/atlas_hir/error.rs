@@ -64,6 +64,8 @@ declare_error_type! {
         RecursiveCopyConstructor(RecursiveCopyConstructorError),
         StdNonCopyableStructCannotHaveCopyConstructor(StdNonCopyableStructCannotHaveCopyConstructorError),
         StructCannotHaveAFieldOfItsOwnType(StructCannotHaveAFieldOfItsOwnTypeError),
+        UnionMustHaveAtLeastTwoVariant(UnionMustHaveAtLeastTwoVariantError),
+        UnionVariantDefinedMultipleTimes(UnionVariantDefinedMultipleTimesError),
     }
 }
 
@@ -913,6 +915,40 @@ pub struct StructCannotHaveAFieldOfItsOwnTypeError {
     pub struct_span: Span,
     #[label(collection)]
     pub cycle_path: Vec<miette::LabeledSpan>,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::union_must_have_at_least_two_variant),
+    help(
+        "A union must have at least two variants to be valid, add a `unit` variant if you need a nullable state."
+    )
+)]
+#[error("{union_name} must have at least two variants")]
+pub struct UnionMustHaveAtLeastTwoVariantError {
+    pub union_name: String,
+    #[label = "{union_name} must have at least two variants"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::union_variant_defined_multiple_times),
+    help(
+        "Each variant in a union must have a unique name. Rename one of the variants to resolve the conflict."
+    )
+)]
+#[error("union `{union_name}` has a variant of type `{variant_ty}` defined multiple times")]
+pub struct UnionVariantDefinedMultipleTimesError {
+    pub union_name: String,
+    pub variant_ty: String,
+    #[label = "first definition of variant of type `{variant_ty}`"]
+    pub first_span: Span,
+    #[label = "second definition of variant of type `{variant_ty}`"]
+    pub second_span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }
