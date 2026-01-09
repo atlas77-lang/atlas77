@@ -131,6 +131,7 @@ pub struct AstStruct<'ast> {
     pub fields: &'ast [&'ast AstObjField<'ast>],
     pub field_span: Span,
     pub constructor: Option<&'ast AstConstructor<'ast>>,
+    pub copy_constructor: Option<&'ast AstConstructor<'ast>>,
     pub destructor: Option<&'ast AstDestructor<'ast>>,
     pub generics: &'ast [&'ast AstGeneric<'ast>],
     pub operators: &'ast [&'ast AstOperatorOverload<'ast>],
@@ -191,6 +192,12 @@ pub enum AstOverloadableOperator {
     ///     return new Foo(other.x);
     ///   }
     /// }
+    Copy,
+}
+
+#[derive(Debug, Clone)]
+pub enum ConstructorKind {
+    Regular,
     Copy,
 }
 

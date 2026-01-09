@@ -10,10 +10,11 @@ use miette::NamedSource;
 use crate::atlas_c::atlas_frontend::parser::{
     ast::{
         AstEnum, AstEnumVariant, AstExternType, AstGlobalConst, AstObjLiteralExpr,
-        AstObjLiteralField, AstReadOnlyRefType, AstStdGenericConstraint, AstUnion,
+        AstObjLiteralField, AstReadOnlyRefType, AstStdGenericConstraint, AstUnion, ConstructorKind,
     },
     error::{
-        DestructorWithParametersError, NoFieldInStructError, OnlyOneConstructorAllowedError, ParseResult, SyntaxError, UnexpectedTokenError
+        DestructorWithParametersError, NoFieldInStructError, OnlyOneConstructorAllowedError,
+        ParseResult, SyntaxError, UnexpectedTokenError,
     },
 };
 use ast::{
@@ -447,17 +448,31 @@ impl<'ast> Parser<'ast> {
                 TokenKind::Identifier(s) => {
                     curr_vis = self.parse_current_vis(curr_vis)?;
                     if s == struct_identifier.name {
-                        if constructor.is_none() {
-                            constructor =
-                                Some(self.arena.alloc(self.parse_constructor(
-                                    struct_identifier.name.to_owned(),
-                                    curr_vis,
-                                )?));
-                        } else {
-                            //We still parse it so we can give a better error message and recover later
-                            let bad_constructor = self
-                                .parse_constructor(struct_identifier.name.to_owned(), curr_vis)?;
-                            return Err(self.only_one_constructor_allowed_error(&bad_constructor.span));
+                        // This can be either a constructor or a copy constructor
+                        let ctor =
+                            self.parse_constructor(struct_identifier.name.to_owned(), curr_vis)?;
+                        let kind = self.constructor_kind(&struct_identifier.name, &ctor);
+                        match kind {
+                            ConstructorKind::Regular => {
+                                if constructor.is_none() {
+                                    constructor = Some(self.arena.alloc(ctor));
+                                } else {
+                                    return Err(self.only_one_constructor_allowed_error(
+                                        &ctor.span,
+                                        "constructor".to_string(),
+                                    ));
+                                }
+                            }
+                            ConstructorKind::Copy => {
+                                if copy_constructor.is_none() {
+                                    copy_constructor = Some(self.arena.alloc(ctor));
+                                } else {
+                                    return Err(self.only_one_constructor_allowed_error(
+                                        &ctor.span,
+                                        "copy constructor".to_string(),
+                                    ));
+                                }
+                            }
                         }
                     } else {
                         let mut obj_field = self.parse_obj_field()?;
@@ -476,7 +491,10 @@ impl<'ast> Parser<'ast> {
                         //We still parse it so we can give a better error message and recover later
                         let bad_destructor =
                             self.parse_destructor(struct_identifier.name.to_owned(), curr_vis)?;
-                        self.only_one_constructor_allowed_error(&bad_destructor.span);
+                        return Err(self.only_one_constructor_allowed_error(
+                            &bad_destructor.span,
+                            "destructor".to_string(),
+                        ));
                     }
                 }
                 _ => {
@@ -515,6 +533,7 @@ impl<'ast> Parser<'ast> {
             fields: self.arena.alloc_vec(fields),
             constructor,
             destructor,
+            copy_constructor,
             generics: self.arena.alloc_vec(generics),
             methods: self.arena.alloc_vec(methods),
             operators: self.arena.alloc_vec(operators),
@@ -522,6 +541,31 @@ impl<'ast> Parser<'ast> {
             vis: AstVisibility::default(),
         };
         Ok(node)
+    }
+
+    // This function returns the kind of constructor given (currently only regular & copy constructors are supported)
+    fn constructor_kind(
+        &self,
+        struct_name: &str,
+        constructor: &AstConstructor<'ast>,
+    ) -> ConstructorKind {
+        if constructor.args.len() == 1 {
+            let ident = match constructor.args[0].ty {
+                AstType::ReadOnlyRef(AstReadOnlyRefType {
+                    inner: AstType::Named(AstNamedType { name: ident, .. }),
+                    ..
+                }) => ident,
+                AstType::ReadOnlyRef(AstReadOnlyRefType {
+                    inner: AstType::Generic(AstGenericType { name: ident, .. }),
+                    ..
+                }) => ident,
+                _ => return ConstructorKind::Regular,
+            };
+            if ident.name == struct_name {
+                return ConstructorKind::Copy;
+            }
+        }
+        ConstructorKind::Regular
     }
 
     fn parse_method(&mut self) -> ParseResult<AstMethod<'ast>> {
@@ -1962,12 +2006,13 @@ impl<'ast> Parser<'ast> {
         }))
     }
 
-    fn only_one_constructor_allowed_error(&self, span: &Span) -> Box<SyntaxError> {
+    fn only_one_constructor_allowed_error(&self, span: &Span, kind: String) -> Box<SyntaxError> {
         let path = span.path;
         let src = get_file_content(path).expect("Failed to read source file");
         Box::new(SyntaxError::OnlyOneConstructorAllowed(
             OnlyOneConstructorAllowedError {
                 span: *span,
+                kind,
                 src: NamedSource::new(path, src),
             },
         ))

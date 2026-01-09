@@ -21,7 +21,10 @@ declare_error_type! {
 pub type ParseResult<T> = Result<T, Box<SyntaxError>>;
 
 #[derive(Error, Diagnostic, Debug)]
-#[diagnostic(code(syntax::destructor_with_parameters), help("Remove the parameters from the destructor"))]
+#[diagnostic(
+    code(syntax::destructor_with_parameters),
+    help("Remove the parameters from the destructor")
+)]
 #[error("Destructor cannot have parameters")]
 pub struct DestructorWithParametersError {
     #[label = "destructor cannot have parameters"]
@@ -29,7 +32,6 @@ pub struct DestructorWithParametersError {
     #[source_code]
     pub src: NamedSource<String>,
 }
-
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(syntax::no_field_in_class), help("Add fields to the struct"))]
@@ -51,8 +53,9 @@ pub struct NoFieldInStructError {
 #[error("Only one constructor or destructor is allowed per struct")]
 //This should also have a label pointing to the 1st constructor/destructor
 pub struct OnlyOneConstructorAllowedError {
-    #[label = "only one constructor or destructor is allowed per struct"]
+    #[label = "only one {kind} is allowed per struct"]
     pub span: Span,
+    pub kind: String,
     #[source_code]
     pub src: NamedSource<String>,
 }
