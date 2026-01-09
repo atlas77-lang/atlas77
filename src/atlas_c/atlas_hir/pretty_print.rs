@@ -570,7 +570,7 @@ impl HirPrettyPrinter {
 
     fn write_indent(&mut self) {
         for _ in 0..self.indent {
-            self.output.push_str("\t");
+            self.output.push('\t');
         }
     }
 

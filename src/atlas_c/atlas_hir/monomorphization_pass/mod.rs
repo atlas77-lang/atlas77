@@ -13,9 +13,8 @@ use crate::atlas_c::{
         item::{HirStruct, HirStructConstructor, HirUnion},
         monomorphization_pass::generic_pool::HirGenericPool,
         signature::{
-            HirFlag, HirFunctionParameterSignature, HirGenericConstraint,
-            HirStructConstructorSignature, HirStructFieldSignature, HirTypeParameterItemSignature,
-            HirVisibility,
+            HirFunctionParameterSignature, HirGenericConstraint, HirStructConstructorSignature,
+            HirStructFieldSignature, HirTypeParameterItemSignature, HirVisibility,
         },
         stmt::{HirBlock, HirExprStmt, HirStatement},
         ty::{HirGenericTy, HirListTy, HirMutableReferenceTy, HirReadOnlyReferenceTy, HirTy},
@@ -110,7 +109,7 @@ impl<'hir> MonomorphizationPass<'hir> {
 
         // Now assign copy constructors using the collected data
         for (struct_name, ty, fields) in structs_to_process {
-            let copy_ctor = self.make_copy_constructor(&ty, &fields, module);
+            let copy_ctor = self.make_copy_constructor(ty, &fields, module);
 
             if let Some(current_struct) = module.body.structs.get_mut(struct_name.as_str()) {
                 current_struct.signature.copy_constructor =

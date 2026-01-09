@@ -1,5 +1,9 @@
 #![deny(warnings)]
 #![deny(clippy::unwrap_used)]
+#![allow(clippy::result_large_err)]
+#![allow(clippy::single_match)]
+#![allow(clippy::new_without_default)]
+#![allow(clippy::unusual_byte_groupings)]
 
 use atlas_77::{CompilationFlag, build, run};
 use clap::Parser;

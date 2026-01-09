@@ -1951,35 +1951,33 @@ impl<'hir> OwnershipPass<'hir> {
         };
 
         // Check if the argument is an identifier with a known origin
-        if let HirExpr::Ident(ident) = inner {
-            if let Some(var_data) = self.scope_map.get(ident.name) {
-                // Only warn if the reference has a trackable origin
-                if let ReferenceOrigin::Variable(origin_name) = &var_data.origin {
-                    // Get the origin variable's span for the label
-                    let origin_span = self
-                        .scope_map
-                        .get(origin_name)
-                        .map(|v| v.span)
-                        .unwrap_or(ident.span);
+        if let HirExpr::Ident(ident) = inner
+            && let Some(var_data) = self.scope_map.get(ident.name)
+            // Only warn if the reference has a trackable origin
+            && let ReferenceOrigin::Variable(origin_name) = &var_data.origin
+        {
+            // Get the origin variable's span for the label
+            let origin_span = self
+                .scope_map
+                .get(origin_name)
+                .map(|v| v.span)
+                .unwrap_or(ident.span);
 
-                    let path = constructor_span.path;
-                    let src = utils::get_file_content(path).unwrap_or_default();
+            let path = constructor_span.path;
+            let src = utils::get_file_content(path).unwrap_or_default();
 
-                    let warning: ErrReport = HirWarning::ReferenceEscapesToConstructor(
-                        ReferenceEscapesToConstructorWarning {
-                            src: NamedSource::new(path, src),
-                            span: constructor_span,
-                            origin_span,
-                            ref_var: ident.name.to_string(),
-                            origin_var: origin_name.to_string(),
-                            constructed_type: constructed_ty.to_string(),
-                        },
-                    )
-                    .into();
+            let warning: ErrReport =
+                HirWarning::ReferenceEscapesToConstructor(ReferenceEscapesToConstructorWarning {
+                    src: NamedSource::new(path, src),
+                    span: constructor_span,
+                    origin_span,
+                    ref_var: ident.name.to_string(),
+                    origin_var: origin_name.to_string(),
+                    constructed_type: constructed_ty.to_string(),
+                })
+                .into();
 
-                    eprintln!("{:?}", warning);
-                }
-            }
+            eprintln!("{:?}", warning);
         }
     }
 

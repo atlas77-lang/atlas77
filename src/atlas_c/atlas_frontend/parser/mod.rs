@@ -493,7 +493,7 @@ impl<'ast> Parser<'ast> {
                         // This can be either a constructor or a copy constructor
                         let ctor =
                             self.parse_constructor(struct_identifier.name.to_owned(), curr_vis)?;
-                        let kind = self.constructor_kind(&struct_identifier.name, &ctor);
+                        let kind = self.constructor_kind(struct_identifier.name, &ctor);
                         match kind {
                             ConstructorKind::Regular => {
                                 if constructor.is_none() {

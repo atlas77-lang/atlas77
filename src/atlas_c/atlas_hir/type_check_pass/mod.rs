@@ -6,8 +6,7 @@ use super::{
 use crate::atlas_c::atlas_hir::error::StdNonCopyableStructCannotHaveCopyConstructorError;
 use crate::atlas_c::atlas_hir::item::HirStructConstructor;
 use crate::atlas_c::atlas_hir::signature::{
-    HirFlag, HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier,
-    HirVisibility,
+    HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier, HirVisibility,
 };
 use crate::atlas_c::atlas_hir::{
     error::{

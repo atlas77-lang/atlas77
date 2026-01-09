@@ -1,5 +1,7 @@
 #![allow(clippy::result_large_err)]
 #![allow(clippy::single_match)]
+#![allow(clippy::new_without_default)]
+#![allow(clippy::unusual_byte_groupings)]
 
 pub mod atlas_c;
 pub mod atlas_lib;

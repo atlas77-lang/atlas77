@@ -465,12 +465,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
         let constructor = self.visit_constructor(node.constructor, &fields)?;
         let destructor = self.visit_destructor(node.destructor, &fields)?;
-        let copy_constructor;
-        if node.copy_constructor.is_some() {
-            copy_constructor = Some(self.visit_constructor(node.copy_constructor, &fields)?);
+        let copy_constructor = if node.copy_constructor.is_some() {
+            Some(self.visit_constructor(node.copy_constructor, &fields)?)
         } else {
-            copy_constructor = None;
-        }
+            None
+        };
 
         let signature = HirStructSignature {
             declaration_span: node.span,
@@ -496,10 +495,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             constants,
             generics,
             constructor: constructor.signature.clone(),
-            copy_constructor: match &copy_constructor {
-                Some(c) => Some(c.signature.clone()),
-                None => None,
-            },
+            copy_constructor: copy_constructor.as_ref().map(|c| c.signature.clone()),
             destructor: destructor.signature.clone(),
         };
 
@@ -580,7 +576,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }));
         }
 
-        let hir = HirStructConstructor {
+        HirStructConstructor {
             span: Span::default(),
             signature: self.arena.intern(constructor_signature),
             params,
@@ -591,8 +587,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             },
             //Constructor is public by default
             vis: HirVisibility::Public,
-        };
-        hir
+        }
     }
 
     fn visit_constraint(
