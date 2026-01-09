@@ -40,6 +40,7 @@ pub struct HirStructSignature<'hir> {
     pub constructor: HirStructConstructorSignature<'hir>,
     pub copy_constructor: Option<HirStructConstructorSignature<'hir>>,
     pub destructor: HirStructConstructorSignature<'hir>,
+    pub had_user_defined_constructor: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -129,6 +130,9 @@ impl HirFlag {
     }
     pub fn is_copyable(&self) -> bool {
         matches!(self, HirFlag::Copyable(_))
+    }
+    pub fn is_no_flag(&self) -> bool {
+        matches!(self, HirFlag::None)
     }
 }
 
@@ -246,7 +250,7 @@ pub enum HirStructMethodModifier {
     Mutable,
     /// Method that consumes ownership of `this` (this)
     #[default]
-    None,
+    Consuming,
 }
 
 #[derive(Debug, Clone)]

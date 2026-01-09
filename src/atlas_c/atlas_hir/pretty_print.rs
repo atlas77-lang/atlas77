@@ -209,7 +209,7 @@ impl HirPrettyPrinter {
         match &method_sig.modifier {
             HirStructMethodModifier::Const => self.write("&const this"),
             HirStructMethodModifier::Mutable => self.write("&this"),
-            HirStructMethodModifier::None => self.write("this"),
+            HirStructMethodModifier::Consuming => self.write("this"),
             HirStructMethodModifier::Static => {}
         }
         if !method_sig.params.is_empty() && method_sig.modifier != HirStructMethodModifier::Static {

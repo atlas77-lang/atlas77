@@ -94,7 +94,13 @@ impl<'hir> MonomorphizationPass<'hir> {
             .body
             .structs
             .iter()
-            .filter(|(_, s)| s.copy_constructor.is_none() && !s.flag.is_non_copyable())
+            .filter(|(_, s)| {
+                s.copy_constructor.is_none()
+                    && !s.flag.is_non_copyable()
+                    // If the struct has a user-defined destructor AND no flag saying it's copyable,
+                    //  we cannot auto-generate a copy constructor
+                    && !(s.had_user_defined_destructor && s.flag.is_no_flag())
+            })
             .map(|(name, s)| {
                 (
                     ((*name).to_string(), s.name_span),

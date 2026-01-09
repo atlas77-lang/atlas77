@@ -717,7 +717,7 @@ impl<'hir> TypeChecker<'hir> {
                         s.ty = readonly_self_ty;
                         Ok(readonly_self_ty)
                     }
-                    HirStructMethodModifier::Mutable | HirStructMethodModifier::None => {
+                    HirStructMethodModifier::Mutable | HirStructMethodModifier::Consuming => {
                         // Both &this (mutable reference) and this (ownership) use the same
                         // object type inside the method body - the difference is only in
                         // ownership semantics at the call site
@@ -1338,7 +1338,7 @@ impl<'hir> TypeChecker<'hir> {
                             .iter()
                             .find(|m| *m.0 == static_access.field.name);
                         if let Some((_, method_signature)) = func {
-                            if method_signature.modifier == HirStructMethodModifier::None
+                            if method_signature.modifier == HirStructMethodModifier::Consuming
                                 || method_signature.modifier == HirStructMethodModifier::Const
                             {
                                 let src = utils::get_file_content(path).unwrap();

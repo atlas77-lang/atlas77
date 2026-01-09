@@ -3,7 +3,7 @@ import "std/io";
 // Flag telling explicitly the compiler to
 // generate a copy constructor if there is none
 // Will warn you if it fails to do so
-#[std::copyable]
+#[std::non_copyable]
 // The type T has to be copyable
 struct Copyable<T: std::copyable> {
 public:
@@ -15,27 +15,14 @@ public:
         this.b = b;
     }
     // Destructor
-
+    ~Copyable() {
+        delete this.b;
+    }
     // Copy constructor
     Copyable(from: &const Copyable<T>) {
         this.a = *from.a;
         this.b = *from.b;
     }
-}
-public struct Foo<T> {
-    value: Copyable<T>;
-}
-// Should fail because of recursive types
-struct AA {
-  b: CC;
-}
-struct BB {
-  a: CC;
-}
-
-union CC {
-  a: AA;
-  b: BB;
 }
 
 fun main() {

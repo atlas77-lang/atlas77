@@ -194,7 +194,7 @@ impl<'hir> OwnershipPass<'hir> {
 
                 // Warn if this is a consuming method without `delete this` or ownership transfer
                 // TODO: Add a way to warn only once per method
-                if method.signature.modifier == HirStructMethodModifier::None {
+                if method.signature.modifier == HirStructMethodModifier::Consuming {
                     // Don't warn if:
                     // 1. The method contains `delete this`, OR
                     // 2. The method returns/passes `this` or `this.field` to another function
@@ -222,7 +222,7 @@ impl<'hir> OwnershipPass<'hir> {
 
                 // Set method context so checks like recursive-copy detection work
                 self.current_method_context = Some(MethodContext {
-                    modifier: HirStructMethodModifier::None,
+                    modifier: HirStructMethodModifier::Consuming,
                     method_span: copy_ctor.signature.span,
                     struct_name: struct_def.signature.name,
                     // Use the special name "atlas77__copy_ctor" so existing checks that looked
@@ -781,7 +781,7 @@ impl<'hir> OwnershipPass<'hir> {
                 let is_consuming_method = self
                     .current_method_context
                     .as_ref()
-                    .is_some_and(|ctx| ctx.modifier == HirStructMethodModifier::None);
+                    .is_some_and(|ctx| ctx.modifier == HirStructMethodModifier::Consuming);
 
                 // Check if we're returning `this` directly (not a field of this)
                 let returning_this_directly =
@@ -1930,7 +1930,7 @@ impl<'hir> OwnershipPass<'hir> {
             {
                 // Only `fun foo(this)` (modifier == None) consumes ownership
                 // `fun foo(&this)` (Mutable) and `fun foo(&const this)` (Const) borrow
-                return method_sig.modifier == HirStructMethodModifier::None;
+                return method_sig.modifier == HirStructMethodModifier::Consuming;
             }
         }
         false
