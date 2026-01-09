@@ -1,6 +1,9 @@
 import "std/io";
 
+// Flags telling explicitely the compiler to 
+// generate a copy constructor if there is none
 #[std::copyable]
+// The type T has to be copyable
 struct Copyable<T: std::copyable> {
 public:
     a: int64;
@@ -14,26 +17,9 @@ public:
     ~Copyable() {
         delete this.b;
     }
-    // Copy constructor - test recursive copy detection
-    // Dereferencing `from` should trigger an implicit copy of Copyable<T>,
-    // which would recursively call this copy constructor
+    // Copy constructor
     Copyable(from: &const Copyable<T>) {
-        // Dereference - should trigger recursive copy
         this.a = *from.a;
         this.b = *from.b;
     }
-}
-
-fun main() {
-    let original = new Copyable<string>(42, "Hello");
-    let copy = original;
-    print("Original a: ");
-    print(original.a);
-    print(", b: ");
-    print(original.b);
-    println("");
-    print("Copy a: ");
-    print(copy.a);
-    print(", b: ");
-    println(copy.b);
 }
