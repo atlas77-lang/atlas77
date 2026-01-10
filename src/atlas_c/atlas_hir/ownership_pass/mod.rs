@@ -924,8 +924,14 @@ impl<'hir> OwnershipPass<'hir> {
                 Ok(result)
             }
             HirStatement::IfElse(if_else) => {
+                // Extract temporaries from the condition first
+                let condition_with_temps =
+                    self.extract_temporaries_from_expr(if_else.condition.clone())?;
                 let transformed_condition =
-                    self.transform_expr_ownership(&if_else.condition, false)?;
+                    self.transform_expr_ownership(&condition_with_temps, false)?;
+
+                // Save the pending statements (they'll be cleared when we transform the branches)
+                let condition_pending_statements = self.pending_statements.clone();
 
                 // Save state before if-else for comparison and else branch
                 let pre_if_state = self.scope_map.clone();
@@ -995,18 +1001,27 @@ impl<'hir> OwnershipPass<'hir> {
                 self.scope_map
                     .merge_branch_states(&post_then_state, &post_else_state);
 
-                Ok(vec![HirStatement::IfElse(
+                // Prepend any pending statements (temporary extractions from condition)
+                let mut result = condition_pending_statements;
+                result.push(HirStatement::IfElse(
                     crate::atlas_c::atlas_hir::stmt::HirIfElseStmt {
                         span: if_else.span,
                         condition: transformed_condition,
                         then_branch: final_then_branch,
                         else_branch: final_else_branch,
                     },
-                )])
+                ));
+                Ok(result)
             }
             HirStatement::While(while_stmt) => {
+                // Extract temporaries from the condition first
+                let condition_with_temps =
+                    self.extract_temporaries_from_expr(while_stmt.condition.clone())?;
                 let transformed_condition =
-                    self.transform_expr_ownership(&while_stmt.condition, false)?;
+                    self.transform_expr_ownership(&condition_with_temps, false)?;
+
+                // Save the pending statements (they'll be cleared when we transform the loop body)
+                let condition_pending_statements = self.pending_statements.clone();
 
                 // Save state before loop
                 let pre_loop_state = self.scope_map.clone();
@@ -1071,13 +1086,16 @@ impl<'hir> OwnershipPass<'hir> {
                     }));
                 }
 
-                Ok(vec![HirStatement::While(
+                // Prepend any pending statements (temporary extractions from condition)
+                let mut result = condition_pending_statements;
+                result.push(HirStatement::While(
                     crate::atlas_c::atlas_hir::stmt::HirWhileStmt {
                         span: while_stmt.span,
                         condition: transformed_condition,
                         body: while_stmt.body.clone(),
                     },
-                )])
+                ));
+                Ok(result)
             }
             HirStatement::Break(span) => Ok(vec![HirStatement::Break(*span)]),
             HirStatement::Continue(span) => Ok(vec![HirStatement::Continue(*span)]),
@@ -2663,6 +2681,10 @@ impl<'hir> OwnershipPass<'hir> {
             HirExpr::FieldAccess(field) => {
                 !field.ty.is_ref() && Self::type_needs_memory_management(field.ty)
             }
+            // Nested casts - the inner cast creates a temporary that needs to be extracted
+            HirExpr::Casting(cast) => {
+                !cast.ty.is_ref() && Self::type_needs_memory_management(cast.ty)
+            }
             // Any other expression that creates a value needing memory management
             _ => false,
         }
@@ -2724,6 +2746,77 @@ impl<'hir> OwnershipPass<'hir> {
         let name = format!("__atlas77_temp_{}", self.temp_var_counter);
         self.temp_var_counter += 1;
         self.hir_arena.names().get(&name)
+    }
+
+    /// Extract temporaries from method chains in an expression recursively
+    /// This handles expressions like: obj.method1().method2().method3()
+    /// Returns a transformed expression with temporaries extracted
+    fn extract_temporaries_from_expr(&mut self, expr: HirExpr<'hir>) -> HirResult<HirExpr<'hir>> {
+        match expr {
+            // Unwrap Unary expressions with no operator (grouping/parentheses)
+            HirExpr::Unary(unary) if unary.op.is_none() => {
+                let processed_inner = self.extract_temporaries_from_expr(*unary.expr.clone())?;
+                Ok(HirExpr::Unary(UnaryOpExpr {
+                    span: unary.span,
+                    op: None,
+                    expr: Box::new(processed_inner),
+                    ty: unary.ty,
+                }))
+            }
+            HirExpr::Call(mut call) => {
+                // First, recursively process the callee to extract any nested temporaries
+                let processed_callee = self.extract_temporaries_from_expr(*call.callee.clone())?;
+                call.callee = Box::new(processed_callee);
+
+                // Then check if the call itself creates a temporary in a method chain context
+                // This happens when the call returns a value that will be used for field access/method call
+                Ok(HirExpr::Call(call))
+            }
+            // For field access, check if the target is a call chain that needs extraction
+            HirExpr::FieldAccess(mut field) => {
+                // First recursively process the target
+                let processed_target = self.extract_temporaries_from_expr(*field.target.clone())?;
+
+                // Then check if this processed target needs extraction
+                if Self::should_warn_about_temporary_in_method_chain(&processed_target) {
+                    let (temp_name, let_stmt) =
+                        self.extract_temporary(processed_target.clone(), processed_target.span())?;
+                    self.pending_statements.push(let_stmt);
+
+                    field.target = Box::new(HirExpr::Ident(HirIdentExpr {
+                        span: processed_target.span(),
+                        name: temp_name,
+                        ty: processed_target.ty(),
+                    }));
+                } else {
+                    field.target = Box::new(processed_target);
+                }
+                Ok(HirExpr::FieldAccess(field))
+            }
+            // For nested casts, extract inner cast if needed
+            HirExpr::Casting(mut cast) => {
+                // First recursively process the inner expression
+                let processed_inner = self.extract_temporaries_from_expr(*cast.expr.clone())?;
+
+                // Check if this processed inner expression needs extraction
+                if Self::should_warn_about_temporary_in_cast(&processed_inner) {
+                    let (temp_name, let_stmt) =
+                        self.extract_temporary(processed_inner.clone(), processed_inner.span())?;
+                    self.pending_statements.push(let_stmt);
+
+                    cast.expr = Box::new(HirExpr::Ident(HirIdentExpr {
+                        span: processed_inner.span(),
+                        name: temp_name,
+                        ty: processed_inner.ty(),
+                    }));
+                } else {
+                    cast.expr = Box::new(processed_inner);
+                }
+                Ok(HirExpr::Casting(cast))
+            }
+            // For other expressions, just return as-is
+            _ => Ok(expr),
+        }
     }
 
     /// Extract a temporary expression into a variable, returning the variable name and let statement
