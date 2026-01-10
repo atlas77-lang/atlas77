@@ -630,6 +630,12 @@ impl<'hir> TypeChecker<'hir> {
                     l.value.span(),
                 )
             }
+            HirStatement::Block(block) => {
+                for stmt in &mut block.statements {
+                    self.check_stmt(stmt)?;
+                }
+                Ok(())
+            }
             _ => Err(HirError::UnsupportedExpr(UnsupportedExpr {
                 span: stmt.span(),
                 expr: format!("{:?}", stmt),

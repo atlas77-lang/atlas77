@@ -6,7 +6,7 @@ use crate::atlas_c::utils::Span;
 /// Only the HirBlock & HirReturn is useful
 #[derive(Debug, Clone)]
 pub enum HirStatement<'hir> {
-    _Block(HirBlock<'hir>),
+    Block(HirBlock<'hir>),
     Return(HirReturn<'hir>),
     Expr(HirExprStmt<'hir>),
     Let(HirVariableStmt<'hir>),
@@ -21,7 +21,7 @@ pub enum HirStatement<'hir> {
 impl HirStatement<'_> {
     pub fn span(&self) -> Span {
         match self {
-            HirStatement::_Block(block) => block.span,
+            HirStatement::Block(block) => block.span,
             HirStatement::Return(ret) => ret.span,
             HirStatement::Expr(expr) => expr.span,
             HirStatement::Let(let_stmt) => let_stmt.span,

@@ -519,6 +519,11 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 //NB: This is not semantically incorrect
                 bytecode.push(Instruction::Pop);
             }
+            HirStatement::Block(block) => {
+                for stmt in &block.statements {
+                    self.generate_bytecode_stmt(stmt, bytecode)?;
+                }
+            }
             _ => {
                 let path = stmt.span().path;
                 let src = utils::get_file_content(path).unwrap();

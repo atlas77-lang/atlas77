@@ -823,6 +823,11 @@ impl<'hir> MonomorphizationPass<'hir> {
             HirStatement::Return(return_stmt) => {
                 self.monomorphize_expression(&mut return_stmt.value, types_to_change, module)?;
             }
+            HirStatement::Block(block_stmt) => {
+                for stmt in block_stmt.statements.iter_mut() {
+                    self.monomorphize_statement(stmt, types_to_change.clone(), module)?;
+                }
+            }
             _ => {}
         }
         Ok(())

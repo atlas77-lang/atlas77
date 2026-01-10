@@ -929,6 +929,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 });
                 Ok(hir)
             }
+            AstStatement::Block(ast_block) => {
+                let block = self.visit_block(ast_block)?;
+                let hir = HirStatement::Block(block);
+                Ok(hir)
+            }
             AstStatement::Const(ast_const) => {
                 let name = self.arena.names().get(ast_const.name.name);
                 if !name.is_snake_case() {

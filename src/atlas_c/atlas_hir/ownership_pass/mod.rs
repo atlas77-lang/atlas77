@@ -472,7 +472,7 @@ impl<'hir> OwnershipPass<'hir> {
                 self.scope_map = snapshot;
             }
             HirStatement::Break(_) | HirStatement::Continue(_) => {}
-            HirStatement::_Block(block) => {
+            HirStatement::Block(block) => {
                 self.scope_map.new_scope();
                 self.collect_uses_in_block(block)?;
                 self.scope_map.end_scope();
@@ -673,6 +673,13 @@ impl<'hir> OwnershipPass<'hir> {
                         .is_some_and(|s| Self::statement_always_returns(s))
                 });
                 then_returns && else_returns
+            }
+            HirStatement::Block(block) => {
+                // A block always returns if its last statement always returns
+                block
+                    .statements
+                    .last()
+                    .is_some_and(|s| Self::statement_always_returns(s))
             }
             _ => false,
         }
@@ -1016,11 +1023,11 @@ impl<'hir> OwnershipPass<'hir> {
             }
             HirStatement::Break(span) => Ok(vec![HirStatement::Break(*span)]),
             HirStatement::Continue(span) => Ok(vec![HirStatement::Continue(*span)]),
-            HirStatement::_Block(block) => {
+            HirStatement::Block(block) => {
                 self.scope_map.new_scope();
                 self.transform_block(block)?;
                 self.scope_map.end_scope();
-                Ok(vec![HirStatement::_Block(block.clone())])
+                Ok(vec![HirStatement::Block(block.clone())])
             }
         }
     }
@@ -2380,7 +2387,7 @@ impl<'hir> OwnershipPass<'hir> {
                         .is_some_and(Self::block_contains_delete_this)
             }
             HirStatement::While(while_stmt) => Self::block_contains_delete_this(&while_stmt.body),
-            HirStatement::_Block(block) => Self::block_contains_delete_this(block),
+            HirStatement::Block(block) => Self::block_contains_delete_this(block),
             _ => false,
         }
     }
@@ -2430,7 +2437,7 @@ impl<'hir> OwnershipPass<'hir> {
             HirStatement::While(while_stmt) => {
                 Self::block_transfers_this_ownership(&while_stmt.body)
             }
-            HirStatement::_Block(block) => Self::block_transfers_this_ownership(block),
+            HirStatement::Block(block) => Self::block_transfers_this_ownership(block),
             _ => false,
         }
     }

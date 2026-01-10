@@ -925,6 +925,10 @@ impl<'ast> Parser<'ast> {
                 let node = AstStatement::Return(self.parse_return()?);
                 Ok(node)
             }
+            TokenKind::LBrace => {
+                let node = AstStatement::Block(self.parse_block()?);
+                Ok(node)
+            }
             _ => {
                 let node = self.parse_expr()?;
                 self.expect(TokenKind::Semicolon)?;

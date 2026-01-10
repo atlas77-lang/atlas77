@@ -319,7 +319,7 @@ impl HirPrettyPrinter {
 
     fn print_statement(&mut self, stmt: &HirStatement) {
         match stmt {
-            HirStatement::_Block(block) => {
+            HirStatement::Block(block) => {
                 self.writeln("{");
                 self.indent();
                 self.print_block(block);
