@@ -766,6 +766,16 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     eprintln!("{:?}", warning);
                     continue;
                 }
+                if self.ast.items.iter().any(|item| {
+                    if let AstItem::Enum(ast_enum) = item {
+                        let enum_name = self.arena.names().get(ast_enum.name.name);
+                        return enum_name == field.ty.to_string();
+                    }
+                    false
+                }) {
+                    // No need to delete enums
+                    continue;
+                }
                 let delete_expr = HirExpr::Delete(HirDeleteExpr {
                     span: field.span,
                     expr: Box::new(HirExpr::FieldAccess(HirFieldAccessExpr {
