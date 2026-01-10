@@ -244,7 +244,7 @@ impl<'hir> ScopeMap<'hir> {
         owned_vars.sort_by(|a, b| {
             b.declaration_stmt_index
                 .cmp(&a.declaration_stmt_index)
-                .then_with(|| b.name.cmp(a.name))
+                .then_with(|| a.name.cmp(b.name))
         });
         owned_vars
     }
@@ -276,7 +276,7 @@ impl<'hir> ScopeMap<'hir> {
         owned_vars.sort_by(|a, b| {
             b.declaration_stmt_index
                 .cmp(&a.declaration_stmt_index)
-                .then_with(|| b.name.cmp(a.name))
+                .then_with(|| a.name.cmp(b.name))
         });
         owned_vars
     }
