@@ -602,8 +602,8 @@ impl<'hir> MonomorphizationPass<'hir> {
             // TODO: Add support for list copy constructors
             // HirTy::List(list) => self.can_be_copyable(list.inner, module),
             HirTy::Named(named) => {
-                let struct_name = named.name;
-                if let Some(hir_struct) = module.signature.structs.get(struct_name) {
+                let obj_name = named.name;
+                if let Some(hir_struct) = module.signature.structs.get(obj_name) {
                     // TODO: Add a check for the presence of a destructor in the struct
                     if hir_struct.copy_constructor.is_some() {
                         return true;
@@ -614,6 +614,10 @@ impl<'hir> MonomorphizationPass<'hir> {
                             return false;
                         }
                     }
+                    return true;
+                }
+                if let Some(hir_enum) = module.signature.enums.get(obj_name) {
+                    // Enums are just uint64 under the hood
                     return true;
                 }
                 false
