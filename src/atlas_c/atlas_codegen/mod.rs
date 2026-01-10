@@ -1152,10 +1152,17 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 for arg in &new_obj.args {
                     self.generate_bytecode_expr(arg, bytecode)?;
                 }
-                bytecode.push(Instruction::Call {
-                    func_name: format!("{}_ctor", name),
-                    nb_args: (new_obj.args.len() + 1) as u8, // +1 for the this pointer
-                });
+                if new_obj.is_copy_constructor_call {
+                    bytecode.push(Instruction::Call {
+                        func_name: format!("{}_copy_ctor", name),
+                        nb_args: (2) as u8, // &this + from reference
+                    });
+                } else {
+                    bytecode.push(Instruction::Call {
+                        func_name: format!("{}_ctor", name),
+                        nb_args: (new_obj.args.len() + 1) as u8, // +1 for the this pointer
+                    });
+                }
             }
             HirExpr::NewArray(new_array) => {
                 self.generate_bytecode_expr(&new_array.size, bytecode)?;

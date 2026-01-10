@@ -367,13 +367,36 @@ impl<'hir> MonomorphizationPass<'hir> {
             module,
         )?;
         self.monomorphize_constructor(&mut new_struct.destructor, types_to_change.clone(), module)?;
-        if new_struct.copy_constructor.is_some() {
-            self.monomorphize_constructor(
-                new_struct.copy_constructor.as_mut().unwrap(),
-                types_to_change.clone(),
-                module,
-            )?;
+
+        // Monomorphize copy constructor signature params first, then sync body params
+        if let Some(copy_ctor_sig) = new_struct.signature.copy_constructor.as_mut() {
+            for arg in copy_ctor_sig.params.iter_mut() {
+                for (j, generic) in generics.iter().enumerate() {
+                    arg.ty = self.change_inner_type(
+                        arg.ty,
+                        generic.generic_name,
+                        actual_type.inner[j].clone(),
+                        module,
+                    );
+                }
+            }
         }
+
+        // Monomorphize copy constructor body
+        if let Some(copy_ctor) = new_struct.copy_constructor.as_mut() {
+            self.monomorphize_constructor(copy_ctor, types_to_change.clone(), module)?;
+            // Sync body params from signature
+            for (i, _) in copy_ctor.params.clone().iter().enumerate() {
+                copy_ctor.params[i] = new_struct
+                    .signature
+                    .copy_constructor
+                    .as_ref()
+                    .unwrap()
+                    .params[i]
+                    .clone();
+            }
+        }
+
         for arg in new_struct.signature.constructor.params.iter_mut() {
             for (j, generic) in generics.iter().enumerate() {
                 arg.ty = self.change_inner_type(

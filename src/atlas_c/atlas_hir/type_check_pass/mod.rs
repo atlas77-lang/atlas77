@@ -5,14 +5,17 @@ use super::{
 };
 use crate::atlas_c::atlas_hir::error::{
     StdNonCopyableStructCannotHaveCopyConstructorError, StructCannotHaveAFieldOfItsOwnTypeError,
-    UnionMustHaveAtLeastTwoVariantError, UnionVariantDefinedMultipleTimesError,
+    ThisStructDoesNotHaveACopyConstructorError, UnionMustHaveAtLeastTwoVariantError,
+    UnionVariantDefinedMultipleTimesError,
 };
+use crate::atlas_c::atlas_hir::expr::HirNewObjExpr;
 use crate::atlas_c::atlas_hir::item::{HirStructConstructor, HirUnion};
 use crate::atlas_c::atlas_hir::pretty_print::HirPrettyPrinter;
 use crate::atlas_c::atlas_hir::signature::{
     HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier,
     HirStructSignature, HirVisibility,
 };
+use crate::atlas_c::atlas_hir::ty::HirReadOnlyReferenceTy;
 use crate::atlas_c::atlas_hir::{
     error::{
         AccessingClassFieldOutsideClassError, AccessingPrivateConstructorError,
@@ -1105,22 +1108,48 @@ impl<'hir> TypeChecker<'hir> {
                         },
                     ));
                 }
+                let mut is_copy_ctor_call = false;
                 if struct_signature.constructor.params.len() != obj.args.len() {
-                    return Err(Self::type_mismatch_err(
-                        &format!("{} parameter(s)", obj.args.len()),
-                        &obj.span,
-                        &format!("{} argument(s)", struct_signature.constructor.params.len()),
-                        &struct_signature.constructor.span,
-                    ));
+                    if self.is_copy_constructor_call(obj) {
+                        is_copy_ctor_call = true;
+                    } else {
+                        return Err(Self::type_mismatch_err(
+                            &format!("{} argument(s)", struct_signature.constructor.params.len()),
+                            &struct_signature.constructor.span,
+                            &format!("{} parameter(s)", obj.args.len()),
+                            &obj.span,
+                        ));
+                    }
                 }
-                for (param, arg) in struct_signature
-                    .constructor
-                    .params
-                    .iter()
-                    .zip(obj.args.iter_mut())
-                {
-                    let arg_ty = self.check_expr(arg)?;
-                    self.is_equivalent_ty(param.ty, param.span, arg_ty, arg.span())?;
+                if !is_copy_ctor_call {
+                    for (param, arg) in struct_signature
+                        .constructor
+                        .params
+                        .iter()
+                        .zip(obj.args.iter_mut())
+                    {
+                        let arg_ty = self.check_expr(arg)?;
+                        self.is_equivalent_ty(param.ty, param.span, arg_ty, arg.span())?;
+                    }
+                } else {
+                    //Check copy constructor
+                    if let Some(copy_ctor) = &struct_signature.copy_constructor {
+                        let param = &copy_ctor.params.first().unwrap();
+                        let arg = obj.args.first_mut().unwrap();
+                        let arg_ty = self.check_expr(arg)?;
+                        self.is_equivalent_ty(param.ty, param.span, arg_ty, arg.span())?;
+                        obj.is_copy_constructor_call = true;
+                    } else {
+                        return Err(HirError::ThisStructDoesNotHaveACopyConstructor(
+                            ThisStructDoesNotHaveACopyConstructorError {
+                                span: obj.span,
+                                src: NamedSource::new(
+                                    obj.span.path,
+                                    utils::get_file_content(obj.span.path).unwrap(),
+                                ),
+                            },
+                        ));
+                    }
                 }
                 obj.ty = self
                     .arena
@@ -1598,6 +1627,45 @@ impl<'hir> TypeChecker<'hir> {
         }
     }
 
+    fn is_copy_constructor_call(&mut self, new_obj: &HirNewObjExpr<'hir>) -> bool {
+        if new_obj.args.len() != 1 {
+            eprintln!("Copy constructor must have exactly one argument");
+            return false;
+        }
+        let arg_ty = self.check_expr(&mut new_obj.args[0].clone());
+        if arg_ty.is_err() {
+            eprintln!("Failed to check argument type for copy constructor");
+            return false;
+        }
+        let struct_ty = {
+            let struct_name = match new_obj.ty {
+                HirTy::Named(n) => n.name,
+                HirTy::Generic(g) => {
+                    MonomorphizationPass::generate_mangled_name(self.arena, g, "struct")
+                }
+                _ => {
+                    eprintln!("New object type is not named or generic");
+                    return false;
+                }
+            };
+            self.arena.types().get_readonly_reference_ty(
+                self.arena.types().get_named_ty(struct_name, new_obj.span),
+            )
+        };
+        let arg_ty = arg_ty.unwrap();
+        if self
+            .is_equivalent_ty(struct_ty, new_obj.span, arg_ty, new_obj.args[0].span())
+            .is_err()
+        {
+            eprintln!(
+                "Argument type {} is not equivalent to struct type {} for copy constructor",
+                arg_ty, struct_ty
+            );
+            return false;
+        }
+        true
+    }
+
     fn check_extern_fn(
         &mut self,
         name: &'hir str,
@@ -1825,19 +1893,15 @@ impl<'hir> TypeChecker<'hir> {
     }
 
     /// Check if two types are equivalent, considering generics and references
-    ///
-    /// - ty1 is the expected type
-    /// - ty2 is the actual type
-    ///
     /// We need a way to handle &primitive and &const primitive being equivalent to primitive
     fn is_equivalent_ty(
         &self,
-        ty1: &HirTy<'_>,
-        ty1_span: Span,
-        ty2: &HirTy<'_>,
-        ty2_span: Span,
+        expected_ty: &HirTy<'_>,
+        expected_span: Span,
+        found_ty: &HirTy<'_>,
+        found_span: Span,
     ) -> HirResult<()> {
-        match (ty1, ty2) {
+        match (expected_ty, found_ty) {
             // Let's handle ref to primitive types
 
             //(HirTy::Int64(_), HirTy::UInt64(_)) | (HirTy::UInt64(_), HirTy::Int64(_)) => Ok(()),
@@ -1846,10 +1910,10 @@ impl<'hir> TypeChecker<'hir> {
                     Ok(())
                 } else {
                     Err(Self::type_mismatch_err(
-                        &format!("{}", ty1),
-                        &ty1_span,
-                        &format!("{}", ty2),
-                        &ty2_span,
+                        &format!("{}", expected_ty),
+                        &expected_span,
+                        &format!("{}", found_ty),
+                        &found_span,
                     ))
                 }
             }
@@ -1859,26 +1923,30 @@ impl<'hir> TypeChecker<'hir> {
                     Ok(())
                 } else {
                     Err(Self::type_mismatch_err(
-                        &format!("{}", ty1),
-                        &ty1_span,
-                        &format!("{}", ty2),
-                        &ty2_span,
+                        &format!("{}", expected_ty),
+                        &expected_span,
+                        &format!("{}", found_ty),
+                        &found_span,
                     ))
                 }
             }
-            (HirTy::ReadOnlyReference(read_only1), HirTy::ReadOnlyReference(read_only2)) => {
-                self.is_equivalent_ty(read_only1.inner, ty1_span, read_only2.inner, ty2_span)
-            }
+            (HirTy::ReadOnlyReference(read_only1), HirTy::ReadOnlyReference(read_only2)) => self
+                .is_equivalent_ty(
+                    read_only1.inner,
+                    expected_span,
+                    read_only2.inner,
+                    found_span,
+                ),
             (HirTy::ReadOnlyReference(r1), HirTy::MutableReference(m2)) => {
                 // A mutable reference (&T) can be coerced to a read-only reference (&const T)
                 // ty1 = &const T (expected), ty2 = &T (actual) - this is valid
-                self.is_equivalent_ty(r1.inner, ty1_span, m2.inner, ty2_span)
+                self.is_equivalent_ty(r1.inner, expected_span, m2.inner, found_span)
             }
             (HirTy::MutableReference(mutable1), HirTy::MutableReference(mutable2)) => {
-                self.is_equivalent_ty(mutable1.inner, ty1_span, mutable2.inner, ty2_span)
+                self.is_equivalent_ty(mutable1.inner, expected_span, mutable2.inner, found_span)
             }
             (HirTy::List(list1), HirTy::List(list2)) => {
-                self.is_equivalent_ty(list1.inner, ty1_span, list2.inner, ty2_span)
+                self.is_equivalent_ty(list1.inner, expected_span, list2.inner, found_span)
             }
             // NOTE: Removed implicit value-to-reference coercion.
             // Previously, `&const T` could match `T` and `&mut T` could match `T`.
@@ -1887,14 +1955,14 @@ impl<'hir> TypeChecker<'hir> {
             // the implicit borrow and would try to move/consume the list.
             // Now users must explicitly write `len(&list)` to borrow.
             _ => {
-                if HirTyId::from(ty1) == HirTyId::from(ty2) {
+                if HirTyId::from(expected_ty) == HirTyId::from(found_ty) {
                     Ok(())
                 } else {
                     Err(Self::type_mismatch_err(
-                        &format!("{}", ty1),
-                        &ty1_span,
-                        &format!("{}", ty2),
-                        &ty2_span,
+                        &format!("{}", expected_ty),
+                        &expected_span,
+                        &format!("{}", found_ty),
+                        &found_span,
                     ))
                 }
             }

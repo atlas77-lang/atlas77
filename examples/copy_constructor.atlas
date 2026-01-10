@@ -32,9 +32,13 @@ fun main() {
     print(original.a);
     print(", b: ");
     print(original.b);
-    println("");
     print("Copy a: ");
     print(copy.a);
     print(", b: ");
     println(copy.b);
+    let copy_of_copy = new Copyable<string>(&copy);
+    print("Copy of Copy a: ");
+    print(copy_of_copy.a);
+    print(", b: ");
+    println(copy_of_copy.b);
 }

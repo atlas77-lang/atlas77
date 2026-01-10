@@ -1152,6 +1152,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         .map(|arg| self.visit_expr(arg))
                         .collect::<HirResult<Vec<_>>>()?,
                     args_ty: Vec::new(),
+                    // Filled in during type checking
+                    is_copy_constructor_call: false,
                 });
                 Ok(hir)
             }

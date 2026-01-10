@@ -47,7 +47,12 @@ use crate::atlas_c::{
             RecursiveCopyConstructorError, TryingToAccessADeletedValueError,
             TryingToAccessAMovedValueError, TryingToAccessAPotentiallyMovedValueError,
         },
-        expr::{HirCopyExpr, HirDeleteExpr, HirExpr, HirIdentExpr, HirMoveExpr},
+        expr::{
+            HirAssignExpr, HirBinaryOpExpr, HirCastExpr, HirCopyExpr, HirDeleteExpr, HirExpr,
+            HirFieldAccessExpr, HirFieldInit, HirFunctionCallExpr, HirIdentExpr, HirIndexingExpr,
+            HirListLiteralExpr, HirMoveExpr, HirNewObjExpr, HirObjLiteralExpr, HirUnaryOp,
+            UnaryOpExpr,
+        },
         item::HirFunction,
         monomorphization_pass::MonomorphizationPass,
         pretty_print::HirPrettyPrinter,
@@ -547,16 +552,16 @@ impl<'hir> OwnershipPass<'hir> {
             }
             HirExpr::Unary(unary) => {
                 let inner_consumes = match &unary.op {
-                    Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::AsRef) => {
+                    Some(HirUnaryOp::AsRef) => {
                         // Taking a reference borrows, doesn't consume
                         if let HirExpr::Ident(ident) = unary.expr.as_ref() {
                             self.scope_map.mark_as_borrowed(ident.name);
                         }
                         false
                     }
-                    Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::Deref) => false,
-                    Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::Neg) => false,
-                    Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::Not) => false,
+                    Some(HirUnaryOp::Deref) => false,
+                    Some(HirUnaryOp::Neg) => false,
+                    Some(HirUnaryOp::Not) => false,
                     // No operator - propagate the consuming flag
                     None => is_ownership_consuming,
                 };
@@ -1060,14 +1065,12 @@ impl<'hir> OwnershipPass<'hir> {
                 let transformed_rhs =
                     self.transform_expr_ownership(&assign.rhs, rhs_consumes_ownership)?;
 
-                Ok(HirExpr::Assign(
-                    crate::atlas_c::atlas_hir::expr::HirAssignExpr {
-                        span: assign.span,
-                        lhs: Box::new(transformed_lhs),
-                        rhs: Box::new(transformed_rhs),
-                        ty: assign.ty,
-                    },
-                ))
+                Ok(HirExpr::Assign(HirAssignExpr {
+                    span: assign.span,
+                    lhs: Box::new(transformed_lhs),
+                    rhs: Box::new(transformed_rhs),
+                    ty: assign.ty,
+                }))
             }
             HirExpr::Call(call) => {
                 // Check if this is a method call that consumes `this` (modifier == None)
@@ -1091,7 +1094,7 @@ impl<'hir> OwnershipPass<'hir> {
                                 .invalidate_references_with_origin(ident.name, call.span);
                         }
 
-                        HirExpr::FieldAccess(crate::atlas_c::atlas_hir::expr::HirFieldAccessExpr {
+                        HirExpr::FieldAccess(HirFieldAccessExpr {
                             span: field_access.span,
                             target: Box::new(transformed_target),
                             field: field_access.field.clone(),
@@ -1116,42 +1119,38 @@ impl<'hir> OwnershipPass<'hir> {
                     transformed_args.push(self.transform_expr_ownership(arg, consumes_ownership)?);
                 }
 
-                Ok(HirExpr::Call(
-                    crate::atlas_c::atlas_hir::expr::HirFunctionCallExpr {
-                        span: call.span,
-                        callee: Box::new(transformed_callee),
-                        callee_span: call.callee_span,
-                        args: transformed_args,
-                        args_ty: call.args_ty.clone(),
-                        generics: call.generics.clone(),
-                        ty: call.ty,
-                    },
-                ))
+                Ok(HirExpr::Call(HirFunctionCallExpr {
+                    span: call.span,
+                    callee: Box::new(transformed_callee),
+                    callee_span: call.callee_span,
+                    args: transformed_args,
+                    args_ty: call.args_ty.clone(),
+                    generics: call.generics.clone(),
+                    ty: call.ty,
+                }))
             }
             HirExpr::HirBinaryOperation(binop) => {
                 let transformed_lhs = self.transform_expr_ownership(&binop.lhs, false)?;
                 let transformed_rhs = self.transform_expr_ownership(&binop.rhs, false)?;
 
-                Ok(HirExpr::HirBinaryOperation(
-                    crate::atlas_c::atlas_hir::expr::HirBinaryOpExpr {
-                        span: binop.span,
-                        op: binop.op.clone(),
-                        op_span: binop.op_span,
-                        lhs: Box::new(transformed_lhs),
-                        rhs: Box::new(transformed_rhs),
-                        ty: binop.ty,
-                    },
-                ))
+                Ok(HirExpr::HirBinaryOperation(HirBinaryOpExpr {
+                    span: binop.span,
+                    op: binop.op.clone(),
+                    op_span: binop.op_span,
+                    lhs: Box::new(transformed_lhs),
+                    rhs: Box::new(transformed_rhs),
+                    ty: binop.ty,
+                }))
             }
             HirExpr::Unary(unary) => {
                 // For unary expressions, determine if inner should consume ownership
                 let inner_consumes = match &unary.op {
                     // Reference operators don't consume ownership (borrow)
-                    Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::AsRef) => false,
-                    Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::Deref) => false,
+                    Some(HirUnaryOp::AsRef) => false,
+                    Some(HirUnaryOp::Deref) => false,
                     // Neg and Not are typically for primitives - don't consume
-                    Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::Neg) => false,
-                    Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::Not) => false,
+                    Some(HirUnaryOp::Neg) => false,
+                    Some(HirUnaryOp::Not) => false,
                     // No operator means this is just a wrapper - propagate the consuming flag
                     None => is_ownership_consuming,
                 };
@@ -1159,7 +1158,7 @@ impl<'hir> OwnershipPass<'hir> {
                 let transformed_inner =
                     self.transform_expr_ownership(&unary.expr, inner_consumes)?;
 
-                let unary_expr = HirExpr::Unary(crate::atlas_c::atlas_hir::expr::UnaryOpExpr {
+                let unary_expr = HirExpr::Unary(UnaryOpExpr {
                     span: unary.span,
                     op: unary.op.clone(),
                     expr: Box::new(transformed_inner),
@@ -1169,12 +1168,7 @@ impl<'hir> OwnershipPass<'hir> {
                 // Special case: Deref in an ownership-consuming context with a copyable result type
                 // needs to produce a copy of the object, not just read the pointer.
                 // This handles cases like `*this.field` in _copy methods where field is an object.
-                if is_ownership_consuming
-                    && matches!(
-                        unary.op,
-                        Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::Deref)
-                    )
-                {
+                if is_ownership_consuming && matches!(unary.op, Some(HirUnaryOp::Deref)) {
                     let is_copyable = self.is_type_copyable(unary.ty);
                     if is_copyable && !Self::is_primitive_type(unary.ty) {
                         // Check for recursive copy in copy constructors
@@ -1219,20 +1213,19 @@ impl<'hir> OwnershipPass<'hir> {
                     transformed_args.push(self.transform_expr_ownership(arg, true)?);
                 }
 
-                Ok(HirExpr::NewObj(
-                    crate::atlas_c::atlas_hir::expr::HirNewObjExpr {
-                        span: new_obj.span,
-                        ty: new_obj.ty,
-                        args: transformed_args,
-                        args_ty: new_obj.args_ty.clone(),
-                    },
-                ))
+                Ok(HirExpr::NewObj(HirNewObjExpr {
+                    span: new_obj.span,
+                    ty: new_obj.ty,
+                    args: transformed_args,
+                    args_ty: new_obj.args_ty.clone(),
+                    is_copy_constructor_call: new_obj.is_copy_constructor_call,
+                }))
             }
             HirExpr::ObjLiteral(obj_lit) => {
                 let mut transformed_fields = Vec::new();
                 for field in obj_lit.fields.iter() {
                     let transformed_value = self.transform_expr_ownership(&field.value, true)?;
-                    transformed_fields.push(crate::atlas_c::atlas_hir::expr::HirFieldInit {
+                    transformed_fields.push(HirFieldInit {
                         span: field.span,
                         name: field.name,
                         name_span: field.name_span,
@@ -1241,13 +1234,11 @@ impl<'hir> OwnershipPass<'hir> {
                     });
                 }
 
-                Ok(HirExpr::ObjLiteral(
-                    crate::atlas_c::atlas_hir::expr::HirObjLiteralExpr {
-                        span: obj_lit.span,
-                        ty: obj_lit.ty,
-                        fields: transformed_fields,
-                    },
-                ))
+                Ok(HirExpr::ObjLiteral(HirObjLiteralExpr {
+                    span: obj_lit.span,
+                    ty: obj_lit.ty,
+                    fields: transformed_fields,
+                }))
             }
             HirExpr::ListLiteral(list) => {
                 let mut transformed_items = Vec::new();
@@ -1255,13 +1246,11 @@ impl<'hir> OwnershipPass<'hir> {
                     transformed_items.push(self.transform_expr_ownership(item, true)?);
                 }
 
-                Ok(HirExpr::ListLiteral(
-                    crate::atlas_c::atlas_hir::expr::HirListLiteralExpr {
-                        span: list.span,
-                        items: transformed_items,
-                        ty: list.ty,
-                    },
-                ))
+                Ok(HirExpr::ListLiteral(HirListLiteralExpr {
+                    span: list.span,
+                    items: transformed_items,
+                    ty: list.ty,
+                }))
             }
             HirExpr::FieldAccess(field) => {
                 // Check if the target expression creates a temporary value that needs to be freed
@@ -1284,13 +1273,12 @@ impl<'hir> OwnershipPass<'hir> {
                         self.transform_expr_ownership(&field.target, false)?
                     };
 
-                let field_access_expr =
-                    HirExpr::FieldAccess(crate::atlas_c::atlas_hir::expr::HirFieldAccessExpr {
-                        span: field.span,
-                        target: Box::new(transformed_target),
-                        field: field.field.clone(),
-                        ty: field.ty,
-                    });
+                let field_access_expr = HirExpr::FieldAccess(HirFieldAccessExpr {
+                    span: field.span,
+                    target: Box::new(transformed_target),
+                    field: field.field.clone(),
+                    ty: field.ty,
+                });
 
                 // If ownership is being consumed (e.g., returning a field, passing to a function),
                 // we need to either COPY the field value (if copyable) or MOVE it (if not).
@@ -1324,13 +1312,12 @@ impl<'hir> OwnershipPass<'hir> {
             HirExpr::Indexing(indexing) => {
                 let transformed_target = self.transform_expr_ownership(&indexing.target, false)?;
                 let transformed_index = self.transform_expr_ownership(&indexing.index, false)?;
-                let indexing_expr =
-                    HirExpr::Indexing(crate::atlas_c::atlas_hir::expr::HirIndexingExpr {
-                        span: indexing.span,
-                        target: Box::new(transformed_target),
-                        index: Box::new(transformed_index),
-                        ty: indexing.ty,
-                    });
+                let indexing_expr = HirExpr::Indexing(HirIndexingExpr {
+                    span: indexing.span,
+                    target: Box::new(transformed_target),
+                    index: Box::new(transformed_index),
+                    ty: indexing.ty,
+                });
 
                 // If ownership is being consumed, we need to COPY or emit an error
                 if is_ownership_consuming {
@@ -1378,13 +1365,11 @@ impl<'hir> OwnershipPass<'hir> {
                     self.transform_expr_ownership(&cast.expr, is_ownership_consuming)?
                 };
 
-                Ok(HirExpr::Casting(
-                    crate::atlas_c::atlas_hir::expr::HirCastExpr {
-                        span: cast.span,
-                        expr: Box::new(transformed),
-                        ty: cast.ty,
-                    },
-                ))
+                Ok(HirExpr::Casting(HirCastExpr {
+                    span: cast.span,
+                    expr: Box::new(transformed),
+                    ty: cast.ty,
+                }))
             }
             // Delete expressions - mark the variable as deleted so it won't be auto-deleted later
             // Also invalidate any references that point into the deleted variable
@@ -1685,8 +1670,8 @@ impl<'hir> OwnershipPass<'hir> {
                 // Special case: AsRef (&) and Deref (*) don't consume ownership of the inner expression
                 // We need to process the inner expression with is_ownership_consuming = false
                 let inner_consumes = match unary.op {
-                    Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::AsRef) => false,
-                    Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::Deref) => false,
+                    Some(HirUnaryOp::AsRef) => false,
+                    Some(HirUnaryOp::Deref) => false,
                     // For other unary ops in return context, propagate the ownership-consuming behavior
                     _ => true,
                 };
@@ -1697,7 +1682,7 @@ impl<'hir> OwnershipPass<'hir> {
                     self.transform_expr_ownership(&unary.expr, false)?
                 };
 
-                let unary_expr = HirExpr::Unary(crate::atlas_c::atlas_hir::expr::UnaryOpExpr {
+                let unary_expr = HirExpr::Unary(UnaryOpExpr {
                     span: unary.span,
                     op: unary.op.clone(),
                     expr: Box::new(transformed_inner),
@@ -1707,10 +1692,7 @@ impl<'hir> OwnershipPass<'hir> {
                 // Special case: Deref in a return context with a copyable result type
                 // needs to produce a copy of the dereferenced object.
                 // This handles cases like `*this.field` in methods that return owned values.
-                if matches!(
-                    unary.op,
-                    Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::Deref)
-                ) {
+                if matches!(unary.op, Some(HirUnaryOp::Deref)) {
                     let is_copyable = self.is_type_copyable(unary.ty);
                     if is_copyable && !Self::is_primitive_type(unary.ty) {
                         // Wrap in Copy to ensure proper deep copy semantics
@@ -2020,11 +2002,11 @@ impl<'hir> OwnershipPass<'hir> {
             // Direct borrow: &x → origin is x
             HirExpr::Unary(unary) => {
                 match &unary.op {
-                    Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::AsRef) => {
+                    Some(HirUnaryOp::AsRef) => {
                         // The reference points into the inner expression
                         self.get_origin_from_lvalue(&unary.expr)
                     }
-                    Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::Deref) => {
+                    Some(HirUnaryOp::Deref) => {
                         // Dereferencing a reference - inherit origin from the reference
                         self.compute_reference_origin(&unary.expr)
                     }
@@ -2113,12 +2095,7 @@ impl<'hir> OwnershipPass<'hir> {
             HirExpr::Indexing(indexing) => self.get_origin_from_lvalue(&indexing.target),
 
             // Deref: origin is from the inner reference
-            HirExpr::Unary(unary)
-                if matches!(
-                    unary.op,
-                    Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::Deref)
-                ) =>
-            {
+            HirExpr::Unary(unary) if matches!(unary.op, Some(HirUnaryOp::Deref)) => {
                 // Dereferencing a reference - get the origin from the reference
                 if let HirExpr::Ident(ident) = unary.expr.as_ref()
                     && let Some(var) = self.scope_map.get(ident.name)
