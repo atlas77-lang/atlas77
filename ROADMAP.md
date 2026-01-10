@@ -16,16 +16,19 @@ This is the next major milestone and is actively being worked on.
 To give more visibility into the expected progression of the v0.7 series, the current intent is roughly:
 
 ##### v0.7.0
+> Already released
 - Initial release based on the current ownership and move/copy work
 - Content largely matching what is present in the current PR:
   https://github.com/atlas77-lang/atlas77/pull/141
 
 ##### v0.7.1
+> Already released
 - Complete rework of the `_copy` constructor semantics
-- Introduction of `copyable` and `no_copy` flags on structs to make copy behavior explicit
-> Similar to how Rust does `#[derive(Copy)]` to make a struct copyable. In Atlas77 it will be a bit different, `copyable` will force a struct to be copyable (if possible) but you don't have to add `copyable` for a struct to be copyable by default, it just forces the compiler to try. `no_copy` will prevent a struct from being copyable even if all its fields are copyable.
+- Introduction of `std::copyable` and `std::non_copyable` flags on structs to make copy behavior explicit
+> Similar to how Rust does `#[derive(Copy)]` to make a struct copyable. In Atlas77 it will be a bit different, `std::copyable` will force a struct to be copyable (if possible) but you don't have to add `std::copyable` for a struct to be copyable by default, it just forces the compiler to try. `std::non_copyable` will prevent a struct from being copyable even if all its fields are copyable.
 
 ##### v0.7.2
+> Currently in development
 - Introduction of constraints on methods of generic structs, based on the generic parameters of the struct  
   > Example: `Vector<T>.foo()` may only exist if `T` satisfies `std::copyable`
 
