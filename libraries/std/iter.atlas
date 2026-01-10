@@ -27,9 +27,9 @@ public:
             return optional<T>::empty();
         }
         
-        // Use dereference to trigger proper copy constructor for object types
-        let item: T = *(this.data.get(this.index));
-        this.index = this.index + 1u;
+        // We use take to move the first item (the next one) out of the vector
+        // This avoids copying for non-copyable types
+        let item: T = this.data.take(0u);
         return optional<T>::of(item);
     }
     /// Peeks at the next item without advancing the iterator
@@ -37,7 +37,8 @@ public:
         if this.index >= this.data.length {
             return optional<&const T>::empty();
         }
-        let item = this.data.get(this.index);
+        // 1 
+        let item = this.data.get(1u);
         return optional<&const T>::of(item);
     }
 
