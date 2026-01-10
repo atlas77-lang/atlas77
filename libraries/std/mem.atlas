@@ -9,3 +9,4 @@ public extern swap<T>(a: &T, b: &T);
 /// Replaces the memory of the destination value with that of the source value.
 /// Returns the old value that was in the destination.
 public extern replace<T>(dest: &T, src: T) -> T;
+public extern calloc<T>(size: uint64) -> &T;

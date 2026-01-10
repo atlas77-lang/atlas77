@@ -30,6 +30,7 @@ impl Debug for HirGenericPool<'_> {
             .field("structs", &self.structs)
             .field("methods", &self.methods)
             .field("functions", &self.functions)
+            .field("unions", &self.unions)
             .finish()
     }
 }
@@ -119,10 +120,12 @@ impl<'hir> HirGenericPool<'hir> {
         module: &HirModuleSignature<'hir>,
     ) {
         // Check for constraints if function has generics
+        let mut is_external = false;
         if let Some(func_sig) = module.functions.get(generic.name)
             && !func_sig.generics.is_empty()
             && func_sig.generics.len() == generic.inner.len()
         {
+            is_external = func_sig.is_external;
             // TODO: Validate that the concrete types satisfy the generic constraints
             // This stub implementation currently skips constraint checking
             for _param in func_sig.generics.iter() {
@@ -130,6 +133,10 @@ impl<'hir> HirGenericPool<'hir> {
             }
         }
 
+        if is_external {
+            // External functions don't need monomorphization
+            return;
+        }
         // Check if this is an instantiated generic or a generic definition
         let is_instantiated = self.is_generic_instantiated(&generic, module);
         if !is_instantiated {

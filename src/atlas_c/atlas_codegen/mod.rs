@@ -802,7 +802,9 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         for arg in &func_expr.args {
                             self.generate_bytecode_expr(arg, bytecode)?;
                         }
-                        let name = if func_expr.generics.is_empty() {
+                        let base_func = self.hir.signature.functions.get(i.name);
+                        let is_external = base_func.map(|f| f.is_external).unwrap_or(false);
+                        let name = if func_expr.generics.is_empty() || is_external {
                             i.name
                         } else {
                             MonomorphizationPass::generate_mangled_name(
@@ -1160,7 +1162,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 if new_obj.is_copy_constructor_call {
                     bytecode.push(Instruction::Call {
                         func_name: format!("{}_copy_ctor", name),
-                        nb_args: (2) as u8, // &this + from reference
+                        nb_args: 2, // &this + from reference
                     });
                 } else {
                     bytecode.push(Instruction::Call {

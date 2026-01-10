@@ -1169,7 +1169,12 @@ impl<'hir> TypeChecker<'hir> {
                 let callee = func_expr.callee.as_mut();
                 match callee {
                     HirExpr::Ident(i) => {
-                        let name = if func_expr.generics.is_empty() {
+                        // First check if the function is external by looking up the base name
+                        let base_func = self.signature.functions.get(i.name);
+                        let is_external = base_func.map(|f| f.is_external).unwrap_or(false);
+                        
+                        // Only mangle the name if it's NOT external and has generics
+                        let name = if func_expr.generics.is_empty() || is_external {
                             i.name
                         } else {
                             MonomorphizationPass::generate_mangled_name(

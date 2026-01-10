@@ -666,6 +666,10 @@ impl<'hir> MonomorphizationPass<'hir> {
         let template = match module.body.functions.get(base_name) {
             Some(func) => func.clone(),
             None => {
+                //Maybe it's an external function
+                if let Some(func) = module.signature.functions.get(base_name) {
+                    return Ok(());
+                }
                 let path = span.path;
                 let src = crate::atlas_c::utils::get_file_content(path).unwrap();
                 return Err(UnknownType(UnknownTypeError {
@@ -910,32 +914,48 @@ impl<'hir> MonomorphizationPass<'hir> {
                 self.monomorphize_expression(&mut binary_expr.rhs, types_to_change, module)?;
             }
             HirExpr::Call(call_expr) => {
+                // First, check if this is an external function call
+                let is_external = if let HirExpr::Ident(ident_expr) = &*call_expr.callee {
+                    module.signature.functions.get(ident_expr.name)
+                        .map(|sig| sig.is_external)
+                        .unwrap_or(false)
+                } else {
+                    false
+                };
+
+                // Always monomorphize arguments
                 for arg in call_expr.args.iter_mut() {
                     self.monomorphize_expression(arg, types_to_change.clone(), module)?;
                 }
 
+                // Always monomorphize generic type arguments (for both external and non-external)
                 for generic in call_expr.generics.iter_mut() {
                     let monomorphized_ty =
                         self.swap_generic_types_in_ty(generic, types_to_change.clone());
                     *generic = monomorphized_ty;
                 }
 
-                // Register generic function instances if the callee is a generic function
-                if !call_expr.generics.is_empty()
-                    && let HirExpr::Ident(ident_expr) = &*call_expr.callee
-                    && let Some(func_sig) = module.signature.functions.get(ident_expr.name)
-                    && !func_sig.generics.is_empty()
-                {
-                    let generic_ty = HirGenericTy {
-                        name: ident_expr.name,
-                        inner: call_expr.generics.iter().map(|t| (*t).clone()).collect(),
-                        span: call_expr.span,
-                    };
-                    self.generic_pool
-                        .register_function_instance(generic_ty, &module.signature);
-                }
+                // For external functions, skip registration and callee monomorphization
+                // (which would mangle the function name)
+                if !is_external {
+                    // Register generic function instances if the callee is a generic function
+                    if !call_expr.generics.is_empty()
+                        && let HirExpr::Ident(ident_expr) = &*call_expr.callee
+                        && let Some(func_sig) = module.signature.functions.get(ident_expr.name)
+                        && !func_sig.generics.is_empty()
+                    {
+                        let generic_ty = HirGenericTy {
+                            name: ident_expr.name,
+                            inner: call_expr.generics.iter().map(|t| (*t).clone()).collect(),
+                            span: call_expr.span,
+                        };
+                        self.generic_pool
+                            .register_function_instance(generic_ty, &module.signature);
+                    }
 
-                self.monomorphize_expression(&mut call_expr.callee, types_to_change, module)?;
+                    // Monomorphize the callee itself (potentially mangles the name)
+                    self.monomorphize_expression(&mut call_expr.callee, types_to_change, module)?;
+                }
             }
             HirExpr::Casting(casting_expr) => {
                 self.monomorphize_expression(&mut casting_expr.expr, types_to_change, module)?;
