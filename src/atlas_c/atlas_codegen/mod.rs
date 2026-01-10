@@ -822,8 +822,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                 "function",
                             )
                         };
-                        let func = self.hir.signature.functions.get(name).unwrap();
-                        if func.is_external {
+                        if is_external {
                             bytecode.push(Instruction::ExternCall {
                                 func_name: name.to_string(),
                             });
