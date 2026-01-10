@@ -61,8 +61,7 @@ use crate::atlas_c::{
         stmt::{HirBlock, HirExprStmt, HirStatement, HirVariableStmt},
         ty::HirTy,
         warning::{
-            ConsumingMethodMayLeakThisWarning, HirWarning, ReferenceEscapesToConstructorWarning,
-            UnnecessaryCopyDueToLaterBorrowsWarning,
+            ConsumingMethodMayLeakThisWarning, HirWarning, UnnecessaryCopyDueToLaterBorrowsWarning,
         },
     },
     utils::{self, Span},

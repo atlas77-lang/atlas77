@@ -11,7 +11,6 @@ declare_warning_type!(
         ConsumingMethodMayLeakThis(ConsumingMethodMayLeakThisWarning),
         CannotGenerateACopyConstructorForThisType(CannotGenerateACopyConstructorForThisTypeWarning),
         UnnecessaryCopyDueToLaterBorrows(UnnecessaryCopyDueToLaterBorrowsWarning),
-        ReferenceEscapesToConstructor(ReferenceEscapesToConstructorWarning),
         UnionFieldCannotBeAutomaticallyDeleted(UnionFieldCannotBeAutomaticallyDeletedWarning),
     }
 );
@@ -122,32 +121,6 @@ pub struct UnnecessaryCopyDueToLaterBorrowsWarning {
     pub var_name: String,
     #[label(collection, "Borrowed here")]
     pub borrow_uses: Vec<Span>,
-}
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
-    code(sema::reference_escapes_to_constructor),
-    severity(warning),
-    help(
-        "If `{origin_var}` is deleted or consumed before the constructed object, \
-        accessing the stored reference will be a use-after-free bug. \
-        Consider updating the reference before using it if the origin changes."
-    )
-)]
-#[error("Reference `{ref_var}` (originating from `{origin_var}`) is passed to a constructor")]
-pub struct ReferenceEscapesToConstructorWarning {
-    #[source_code]
-    pub src: NamedSource<String>,
-    #[label(
-        primary,
-        "Reference escapes here - it may be stored in `{constructed_type}`"
-    )]
-    pub span: Span,
-    #[label("Reference originates from this variable")]
-    pub origin_span: Span,
-    pub ref_var: String,
-    pub origin_var: String,
-    pub constructed_type: String,
 }
 
 #[derive(Error, Diagnostic, Debug)]
