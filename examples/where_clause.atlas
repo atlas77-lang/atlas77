@@ -1,0 +1,39 @@
+#[std::copyable]
+struct TestWhereClause<T> {
+public:
+    foo: int64;
+    bar: T;
+    TestWhereClause(foo: int64, bar: T) {
+        this.foo = foo;
+        this.bar = bar;
+    }
+    TestWhereClause(from: &const TestWhereClause<T>) 
+    where T: std::copyable 
+    {
+        this.foo = from.foo;
+        this.bar = from.bar;
+    }
+    // This function requires T to be copyable
+    fun get_bar(&this) -> T 
+    where T: std::copyable 
+    {
+        return this.bar;
+    }
+}
+
+#[std::non_copyable]
+struct NonCopyable {
+public:
+    data: int64;
+    NonCopyable(int64 data) {
+        this.data = data;
+    }
+}
+
+fun main() {
+    let a = new TestWhereClause<NonCopyable>(42, new NonCopyable(100));
+    // This should cause a type checking error
+    let b = new TestWhereClause<NonCopyable>(&a);
+    // This should also cause a type checking error
+    let bar = a.get_bar();
+}
