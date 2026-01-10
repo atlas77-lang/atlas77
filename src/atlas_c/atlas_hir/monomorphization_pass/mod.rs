@@ -916,7 +916,10 @@ impl<'hir> MonomorphizationPass<'hir> {
             HirExpr::Call(call_expr) => {
                 // First, check if this is an external function call
                 let is_external = if let HirExpr::Ident(ident_expr) = &*call_expr.callee {
-                    module.signature.functions.get(ident_expr.name)
+                    module
+                        .signature
+                        .functions
+                        .get(ident_expr.name)
                         .map(|sig| sig.is_external)
                         .unwrap_or(false)
                 } else {

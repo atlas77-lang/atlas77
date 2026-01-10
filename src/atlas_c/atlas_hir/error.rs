@@ -67,6 +67,8 @@ declare_error_type! {
         StructCannotHaveAFieldOfItsOwnType(StructCannotHaveAFieldOfItsOwnTypeError),
         UnionMustHaveAtLeastTwoVariant(UnionMustHaveAtLeastTwoVariantError),
         UnionVariantDefinedMultipleTimes(UnionVariantDefinedMultipleTimesError),
+        LifetimeDependencyViolation(LifetimeDependencyViolationError),
+        ReturningValueWithLocalLifetimeDependency(ReturningValueWithLocalLifetimeDependencyError),
     }
 }
 
@@ -962,6 +964,49 @@ pub struct UnionVariantDefinedMultipleTimesError {
     pub first_span: Span,
     #[label = "second definition of variant of type `{variant_ty}`"]
     pub second_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::lifetime_dependency_violation),
+    help(
+        "The value `{value_name}` depends on `{origin_name}` which has been deleted or moved. \
+        Consider restructuring your code to avoid this lifetime dependency, or ensure `{origin_name}` \
+        outlives `{value_name}`."
+    )
+)]
+#[error("`{value_name}`'s lifetime is tied to `{origin_name}`'s lifetime")]
+pub struct LifetimeDependencyViolationError {
+    pub value_name: String,
+    pub origin_name: String,
+    #[label = "`{origin_name}` was deleted/moved here"]
+    pub origin_invalidation_span: Span,
+    #[label = "but `{value_name}` (which depends on `{origin_name}`) is accessed here"]
+    pub access_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::returning_value_with_local_lifetime_dependency),
+    help(
+        "Cannot return `{value_name}` because its lifetime is tied to `{origin_name}`, \
+        which is a local variable that will be destroyed when the function returns. \
+        Consider passing `{origin_name}` as a parameter, or restructuring your code \
+        to avoid this dependency."
+    )
+)]
+#[error("`{value_name}`'s lifetime is tied to local variable `{origin_name}`")]
+pub struct ReturningValueWithLocalLifetimeDependencyError {
+    pub value_name: String,
+    pub origin_name: String,
+    #[label = "`{origin_name}` is declared here as a local variable"]
+    pub origin_declaration_span: Span,
+    #[label = "cannot return `{value_name}` here because `{origin_name}` will be destroyed"]
+    pub return_span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }

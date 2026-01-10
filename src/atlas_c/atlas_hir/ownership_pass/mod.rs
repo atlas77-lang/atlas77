@@ -44,7 +44,8 @@ use crate::atlas_c::{
         error::{
             CannotMoveOutOfContainerError, CannotMoveOutOfLoopError,
             CannotTransferOwnershipInBorrowingMethodError, HirError, HirResult,
-            RecursiveCopyConstructorError, TryingToAccessADeletedValueError,
+            LifetimeDependencyViolationError, RecursiveCopyConstructorError,
+            ReturningValueWithLocalLifetimeDependencyError, TryingToAccessADeletedValueError,
             TryingToAccessAMovedValueError, TryingToAccessAPotentiallyMovedValueError,
         },
         expr::{
@@ -709,12 +710,25 @@ impl<'hir> OwnershipPass<'hir> {
                 let kind = self.classify_type_kind(ty);
                 let is_copyable = self.is_type_copyable(ty);
 
-                // Preserve the uses array and origin from the collection phase
-                let (existing_uses, existing_origin) = self
+                // Preserve the uses array from the collection phase
+                // For origin, compute it based on the value expression
+                let existing_uses = self
                     .scope_map
                     .get(var_stmt.name)
-                    .map(|v| (v.uses.clone(), v.origin.clone()))
+                    .map(|v| v.uses.clone())
                     .unwrap_or_default();
+
+                // Compute origin - this applies to both reference types AND objects that capture references
+                let origin = if kind == VarKind::Reference {
+                    // For reference types, track what they point to
+                    self.compute_reference_origin(&var_stmt.value)
+                } else if kind == VarKind::Object {
+                    // For objects created via constructors, check if any constructor argument is a reference
+                    // If so, the object's lifetime is tied to those references
+                    self.compute_object_lifetime_dependencies(&var_stmt.value)
+                } else {
+                    ReferenceOrigin::None
+                };
 
                 let mut new_var_data = VarData::with_origin(
                     var_stmt.name,
@@ -723,7 +737,7 @@ impl<'hir> OwnershipPass<'hir> {
                     ty,
                     is_copyable,
                     self.current_stmt_index,
-                    existing_origin,
+                    origin,
                 );
                 new_var_data.uses = existing_uses;
 
@@ -801,6 +815,50 @@ impl<'hir> OwnershipPass<'hir> {
                 Ok(result)
             }
             HirStatement::Return(ret) => {
+                // Check if we're returning an object that depends on local variables
+                // This prevents use-after-free when the function returns
+                // We need to check BEFORE transforming the expression
+                let var_name_to_check = match &ret.value {
+                    HirExpr::Ident(ident) => Some(ident.name),
+                    HirExpr::Move(mv) => {
+                        if let HirExpr::Ident(ident) = &*mv.expr {
+                            Some(ident.name)
+                        } else {
+                            None
+                        }
+                    }
+                    HirExpr::Copy(cp) => {
+                        if let HirExpr::Ident(ident) = &*cp.expr {
+                            Some(ident.name)
+                        } else {
+                            None
+                        }
+                    }
+                    HirExpr::Unary(unary) => {
+                        if unary.op.is_none() {
+                            if let HirExpr::Ident(ident) = &*unary.expr {
+                                Some(ident.name)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+
+                if let Some(var_name) = var_name_to_check {
+                    if let Some(var_data) = self.scope_map.get(var_name) {
+                        // Check if this variable depends on any local origins
+                        if let Some(err) =
+                            self.check_return_with_local_dependencies(var_data, ret.span)
+                        {
+                            return Err(err);
+                        }
+                    }
+                }
+
                 // Return always moves the value
                 let transformed = self.transform_expr_for_return(&ret.value)?;
 
@@ -1213,10 +1271,6 @@ impl<'hir> OwnershipPass<'hir> {
             HirExpr::NewObj(new_obj) => {
                 let mut transformed_args = Vec::new();
                 for arg in new_obj.args.iter() {
-                    // Check if this argument is a reference with an origin
-                    // If so, emit a warning that it might escape into the constructor
-                    self.check_reference_escapes_to_constructor(arg, new_obj.ty, new_obj.span);
-
                     transformed_args.push(self.transform_expr_ownership(arg, true)?);
                 }
 
@@ -1525,6 +1579,21 @@ impl<'hir> OwnershipPass<'hir> {
         if let VarStatus::Deleted { delete_span } = &var_data.status {
             let path = ident.span.path;
             let src = utils::get_file_content(path).unwrap_or_default();
+
+            // If the variable has a known origin, use the more descriptive lifetime error
+            if let ReferenceOrigin::Variable(origin_name) = &var_data.origin {
+                return Err(HirError::LifetimeDependencyViolation(
+                    LifetimeDependencyViolationError {
+                        value_name: ident.name.to_string(),
+                        origin_name: origin_name.to_string(),
+                        origin_invalidation_span: *delete_span,
+                        access_span: ident.span,
+                        src: NamedSource::new(path, src),
+                    },
+                ));
+            }
+
+            // Fall back to generic deleted value error
             return Err(HirError::TryingToAccessADeletedValue(
                 TryingToAccessADeletedValueError {
                     delete_span: *delete_span,
@@ -1801,6 +1870,20 @@ impl<'hir> OwnershipPass<'hir> {
                     ));
                 }
                 VarStatus::Deleted { delete_span } => {
+                    // If the variable has a known origin, use the more descriptive lifetime error
+                    if let ReferenceOrigin::Variable(origin_name) = &var_data.origin {
+                        return Err(HirError::LifetimeDependencyViolation(
+                            LifetimeDependencyViolationError {
+                                value_name: ident.name.to_string(),
+                                origin_name: origin_name.to_string(),
+                                origin_invalidation_span: *delete_span,
+                                access_span: ident.span,
+                                src: NamedSource::new(path, src),
+                            },
+                        ));
+                    }
+
+                    // Fall back to generic deleted value error
                     return Err(HirError::TryingToAccessADeletedValue(
                         TryingToAccessADeletedValueError {
                             delete_span: *delete_span,
@@ -1935,64 +2018,6 @@ impl<'hir> OwnershipPass<'hir> {
             }
         }
         false
-    }
-
-    // =========================================================================
-    // Reference Origin Tracking
-    // =========================================================================
-
-    /// Check if a reference argument escapes into a constructor and emit a warning.
-    ///
-    /// When a reference with a known origin is passed to a constructor, the constructed
-    /// object might store it. If the origin is later deleted, using the stored reference
-    /// would be a use-after-free bug. Since we can't know for sure if the constructor
-    /// stores the reference, we emit a warning.
-    fn check_reference_escapes_to_constructor(
-        &self,
-        arg: &HirExpr<'hir>,
-        constructed_ty: &HirTy<'hir>,
-        constructor_span: Span,
-    ) {
-        // Check if the argument is a reference type
-        if !arg.ty().is_ref() {
-            return;
-        }
-
-        // Unwrap Unary with op=None (which is just a wrapper)
-        let inner = match arg {
-            HirExpr::Unary(u) if u.op.is_none() => u.expr.as_ref(),
-            other => other,
-        };
-
-        // Check if the argument is an identifier with a known origin
-        if let HirExpr::Ident(ident) = inner
-            && let Some(var_data) = self.scope_map.get(ident.name)
-            // Only warn if the reference has a trackable origin
-            && let ReferenceOrigin::Variable(origin_name) = &var_data.origin
-        {
-            // Get the origin variable's span for the label
-            let origin_span = self
-                .scope_map
-                .get(origin_name)
-                .map(|v| v.span)
-                .unwrap_or(ident.span);
-
-            let path = constructor_span.path;
-            let src = utils::get_file_content(path).unwrap_or_default();
-
-            let warning: ErrReport =
-                HirWarning::ReferenceEscapesToConstructor(ReferenceEscapesToConstructorWarning {
-                    src: NamedSource::new(path, src),
-                    span: constructor_span,
-                    origin_span,
-                    ref_var: ident.name.to_string(),
-                    origin_var: origin_name.to_string(),
-                    constructed_type: constructed_ty.to_string(),
-                })
-                .into();
-
-            eprintln!("{:?}", warning);
-        }
     }
 
     /// Compute the origin of a reference expression.
@@ -2228,6 +2253,127 @@ impl<'hir> OwnershipPass<'hir> {
             | (HirTy::Unit(_), HirTy::Unit(_))
             | (HirTy::String(_), HirTy::String(_)) => true,
             _ => false,
+        }
+    }
+
+    /// Check if a variable being returned has dependencies on local variables
+    /// that will go out of scope. This prevents returning objects that contain
+    /// references to local data.
+    fn check_return_with_local_dependencies(
+        &self,
+        var_data: &VarData<'hir>,
+        return_span: Span,
+    ) -> Option<HirError> {
+        // Helper to check if an origin variable will be deleted when the function returns
+        let will_be_deleted = |origin_name: &'hir str| -> Option<Span> {
+            if let Some(origin_var) = self.scope_map.get(origin_name) {
+                // The origin will be deleted when we return if:
+                // 1. It's not a primitive or reference (those don't need deletion)
+                // 2. It's owned (not already moved/deleted)
+                // 3. It's declared before or at the same time as the returned variable
+                //    (indicating it's a local, not the returned value itself)
+
+                let is_declared_before_or_with =
+                    origin_var.declaration_stmt_index <= var_data.declaration_stmt_index;
+                let needs_deletion = origin_var.kind != VarKind::Primitive
+                    && origin_var.kind != VarKind::Reference
+                    && origin_var.status.is_valid();
+
+                // If the origin was declared at the same time or before the returned variable,
+                // and it's different from the returned variable, it will be deleted
+                if is_declared_before_or_with && origin_name != var_data.name && needs_deletion {
+                    return Some(origin_var.span);
+                }
+            }
+            None
+        };
+
+        // Check if the variable has any dependencies that will be deleted
+        match &var_data.origin {
+            ReferenceOrigin::Variable(origin_name) => {
+                if let Some(dep_span) = will_be_deleted(origin_name) {
+                    let path = return_span.path;
+                    let src = utils::get_file_content(path).unwrap_or_default();
+                    return Some(HirError::ReturningValueWithLocalLifetimeDependency(
+                        ReturningValueWithLocalLifetimeDependencyError {
+                            value_name: var_data.name.to_string(),
+                            origin_name: origin_name.to_string(),
+                            origin_declaration_span: dep_span,
+                            return_span,
+                            src: NamedSource::new(path, src),
+                        },
+                    ));
+                }
+            }
+            ReferenceOrigin::Union(origins) => {
+                // Check all origins in the union
+                for origin in origins {
+                    if let ReferenceOrigin::Variable(origin_name) = origin {
+                        if let Some(dep_span) = will_be_deleted(origin_name) {
+                            let path = return_span.path;
+                            let src = utils::get_file_content(path).unwrap_or_default();
+                            return Some(HirError::ReturningValueWithLocalLifetimeDependency(
+                                ReturningValueWithLocalLifetimeDependencyError {
+                                    value_name: var_data.name.to_string(),
+                                    origin_name: origin_name.to_string(),
+                                    origin_declaration_span: dep_span,
+                                    return_span,
+                                    src: NamedSource::new(path, src),
+                                },
+                            ));
+                        }
+                    }
+                }
+            }
+            ReferenceOrigin::None => {}
+        }
+        None
+    }
+
+    /// Compute lifetime dependencies for objects created via constructors.
+    /// If the constructor takes reference arguments, the constructed object's lifetime
+    /// is tied to those references.
+    fn compute_object_lifetime_dependencies(&self, expr: &HirExpr<'hir>) -> ReferenceOrigin<'hir> {
+        match expr {
+            // Handle wrapped expressions
+            HirExpr::Unary(unary) if unary.op.is_none() => {
+                self.compute_object_lifetime_dependencies(&unary.expr)
+            }
+            // For NewObj, check all constructor arguments
+            HirExpr::NewObj(new_obj) => {
+                let mut combined_origin = ReferenceOrigin::None;
+                for arg in &new_obj.args {
+                    // If argument is a reference type, track its origin
+                    if arg.ty().is_ref() {
+                        let arg_origin = self.compute_reference_origin(arg);
+                        combined_origin = combined_origin.merge(arg_origin);
+                    }
+                }
+                combined_origin
+            }
+            // For ObjLiteral (union constructors), check field initializers
+            HirExpr::ObjLiteral(obj_lit) => {
+                let mut combined_origin = ReferenceOrigin::None;
+                for field_init in &obj_lit.fields {
+                    if field_init.value.ty().is_ref() {
+                        let arg_origin = self.compute_reference_origin(&field_init.value);
+                        combined_origin = combined_origin.merge(arg_origin);
+                    }
+                }
+                combined_origin
+            }
+            // Function calls that return objects might also capture references from arguments
+            HirExpr::Call(call) => {
+                let mut combined_origin = ReferenceOrigin::None;
+                for arg in &call.args {
+                    if arg.ty().is_ref() {
+                        let arg_origin = self.compute_reference_origin(arg);
+                        combined_origin = combined_origin.merge(arg_origin);
+                    }
+                }
+                combined_origin
+            }
+            _ => ReferenceOrigin::None,
         }
     }
 

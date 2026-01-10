@@ -181,7 +181,7 @@ impl<'hir> ScopeMap<'hir> {
         }
     }
 
-    /// Invalidate all references whose origin includes the given variable name.
+    /// Invalidate all references and objects whose origin includes the given variable name.
     /// This should be called when a variable is deleted or consumed by a method.
     ///
     /// Returns the names of variables that were invalidated.
@@ -192,14 +192,12 @@ impl<'hir> ScopeMap<'hir> {
     ) -> Vec<&'hir str> {
         let mut invalidated = Vec::new();
 
-        // Check all scopes for references that depend on this origin
+        // Check all scopes for references and objects that depend on this origin
         for scope in &mut self.scopes {
             for (var_name, var_data) in scope.var_status.iter_mut() {
-                // Only invalidate reference types that depend on this origin
-                if var_data.kind == VarKind::Reference
-                    && var_data.origin.includes(origin_name)
-                    && var_data.status.is_valid()
-                {
+                // Invalidate both reference types AND object types that depend on this origin
+                // This handles the case where an object stores a reference passed to its constructor
+                if var_data.origin.includes(origin_name) && var_data.status.is_valid() {
                     var_data.status = VarStatus::Deleted {
                         delete_span: invalidation_span,
                     };
