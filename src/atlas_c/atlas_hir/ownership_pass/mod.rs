@@ -887,6 +887,7 @@ impl<'hir> OwnershipPass<'hir> {
                 // Generate delete statements for owned vars declared before this statement
                 // EXCEPT for any variable used in the return expression
                 let owned_vars = self.scope_map.get_all_owned_vars();
+                let mut vars_to_delete = Vec::new();
                 for var in owned_vars {
                     // Skip variables declared after this return statement
                     if var.declaration_stmt_index > self.current_stmt_index {
@@ -908,7 +909,14 @@ impl<'hir> OwnershipPass<'hir> {
                     if var.kind == VarKind::Reference {
                         continue;
                     }
-                    result.push(Self::create_delete_stmt(var.name, var.ty, ret.span));
+                    vars_to_delete.push((var.name, var.ty));
+                }
+
+                // Now generate delete statements and mark variables as deleted
+                for (var_name, var_ty) in vars_to_delete {
+                    result.push(Self::create_delete_stmt(var_name, var_ty, ret.span));
+                    // Mark the variable as deleted so later passes don't try to delete it again
+                    self.scope_map.mark_as_deleted(var_name, ret.span);
                 }
 
                 // Add the return statement
@@ -965,7 +973,7 @@ impl<'hir> OwnershipPass<'hir> {
                 let mut final_then_branch = if_else.then_branch.clone();
                 let mut final_else_branch = transformed_else_branch;
 
-                for (var_name, moved_in_then, var_data) in conditionally_moved {
+                for (var_name, moved_in_then, var_data) in &conditionally_moved {
                     // Skip primitives and references
                     if var_data.kind == VarKind::Primitive || var_data.kind == VarKind::Reference {
                         continue;
@@ -973,7 +981,7 @@ impl<'hir> OwnershipPass<'hir> {
 
                     let delete_stmt = Self::create_delete_stmt(var_name, var_data.ty, if_else.span);
 
-                    if moved_in_then {
+                    if *moved_in_then {
                         // Moved in then branch, so insert delete at end of else branch
                         if let Some(else_branch) = &mut final_else_branch {
                             // Insert before any return statement at the end
@@ -2575,7 +2583,7 @@ impl<'hir> OwnershipPass<'hir> {
         false
     }
 
-    /// Checks if a statement (recursively) contains a `delete this` statement
+    /// Checks if a block (recursively) contains a `delete this` statement
     fn stmt_contains_delete_this(stmt: &HirStatement<'hir>) -> bool {
         match stmt {
             HirStatement::Expr(expr_stmt) => Self::expr_is_delete_this(&expr_stmt.expr),

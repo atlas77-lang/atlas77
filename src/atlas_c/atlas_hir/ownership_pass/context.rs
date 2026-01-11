@@ -218,6 +218,15 @@ impl<'hir> ScopeMap<'hir> {
         }
     }
 
+    pub fn mark_as_deleted(&mut self, name: &str, delete_span: Span) -> Option<()> {
+        if let Some(var) = self.get_mut(name) {
+            var.status = VarStatus::Deleted { delete_span };
+            Some(())
+        } else {
+            None
+        }
+    }
+
     pub fn record_use(&mut self, name: &str, use_info: VarUse) -> Option<()> {
         if let Some(var) = self.get_mut(name) {
             var.uses.push(use_info);
@@ -431,16 +440,23 @@ impl<'hir> ScopeMap<'hir> {
                 let else_var = else_state.get(name);
 
                 if let (Some(then_v), Some(else_v)) = (then_var, else_var) {
-                    let then_moved = matches!(then_v.status, VarStatus::Moved { .. });
-                    let else_moved = matches!(else_v.status, VarStatus::Moved { .. });
+                    // A variable is "consumed" if it's either moved or explicitly deleted
+                    let then_consumed = matches!(
+                        then_v.status,
+                        VarStatus::Moved { .. } | VarStatus::Deleted { .. }
+                    );
+                    let else_consumed = matches!(
+                        else_v.status,
+                        VarStatus::Moved { .. } | VarStatus::Deleted { .. }
+                    );
 
-                    match (then_moved, else_moved) {
+                    match (then_consumed, else_consumed) {
                         (true, false) => {
-                            // Moved in then, still owned in else - need delete in else
+                            // Consumed in then, still owned in else - need delete in else
                             result.push((*name, true, else_v));
                         }
                         (false, true) => {
-                            // Moved in else, still owned in then - need delete in then
+                            // Consumed in else, still owned in then - need delete in then
                             result.push((*name, false, then_v));
                         }
                         _ => {}
