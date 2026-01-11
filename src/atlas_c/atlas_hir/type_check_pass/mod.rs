@@ -1071,7 +1071,21 @@ impl<'hir> TypeChecker<'hir> {
                         ));
                     }
                 }
+
                 if !is_copy_ctor_call {
+                    if struct_signature.constructor.vis != HirVisibility::Public
+                        && self.current_class_name != Some(struct_ty.name)
+                    {
+                        let path = obj.span.path;
+                        let src = utils::get_file_content(path).unwrap();
+                        return Err(HirError::AccessingPrivateConstructor(
+                            AccessingPrivateConstructorError {
+                                span: obj.span,
+                                kind: String::from("constructor"),
+                                src: NamedSource::new(path, src),
+                            },
+                        ));
+                    }
                     for (param, arg) in struct_signature
                         .constructor
                         .params
