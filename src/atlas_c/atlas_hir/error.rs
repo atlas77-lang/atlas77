@@ -50,6 +50,7 @@ declare_error_type! {
         TryingToAccessADeletedValue(TryingToAccessADeletedValueError),
         CannotMoveOutOfLoop(CannotMoveOutOfLoopError),
         CallingNonConstMethodOnConstReference(CallingNonConstMethodOnConstReferenceError),
+        CallingConsumingMethodOnMutableReference(CallingConsumingMethodOnMutableReferenceError),
         TryingToMutateConstReference(TryingToMutateConstReferenceError),
         TryingToCreateAnUnionWithMoreThanOneActiveField(TryingToCreateAnUnionWithMoreThanOneActiveFieldError),
         TypeDoesNotImplementRequiredConstraint(TypeDoesNotImplementRequiredConstraintError),
@@ -203,6 +204,34 @@ pub struct TryingToMutateConstReferenceError {
     #[label = "cannot mutate `{ty}` as it is a const reference"]
     pub span: Span,
     pub ty: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::calling_consuming_method_on_mutable_reference),
+    help(
+        "consider using an owned value instead (You can use the DeRef operator `*` to get an owned value from a mutable reference)"
+    )
+)]
+#[error("calling a consuming method on a mutable reference")]
+pub struct CallingConsumingMethodOnMutableReferenceError {
+    #[label = "method called on mutable reference here"]
+    pub call_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[source]
+    #[diagnostic_source]
+    pub origin: CallingConsumingMethodOnMutableReferenceOrigin,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic()]
+#[error("")]
+pub struct CallingConsumingMethodOnMutableReferenceOrigin {
+    #[label = "method is marked as consuming here"]
+    pub method_span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }

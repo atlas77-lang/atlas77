@@ -22,6 +22,7 @@ pub fn println(state: VMState) -> Result<VMData, RuntimeError> {
             println!("{}", val)
         }
         VMTag::Ref => {
+            eprintln!("Reference");
             let val = unsafe { &*val.as_ref() };
             if val.is_object() {
                 println!("{}", state.object_map.get(val.as_object())?);
@@ -62,6 +63,7 @@ pub fn print(state: VMState) -> Result<VMData, RuntimeError> {
             print!("{}", val)
         }
         VMTag::Ref => {
+            eprintln!("Reference");
             let val = unsafe { &*val.as_ref() };
             print!("{}", val)
         }

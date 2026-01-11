@@ -4,6 +4,7 @@ use super::{
     HirFunction, HirModule, HirModuleSignature, arena::HirArena, expr, stmt::HirStatement,
 };
 use crate::atlas_c::atlas_hir::error::{
+    CallingConsumingMethodOnMutableReferenceError, CallingConsumingMethodOnMutableReferenceOrigin,
     StdNonCopyableStructCannotHaveCopyConstructorError, StructCannotHaveAFieldOfItsOwnTypeError,
     ThisStructDoesNotHaveACopyConstructorError, UnionMustHaveAtLeastTwoVariantError,
     UnionVariantDefinedMultipleTimesError,
@@ -1273,6 +1274,23 @@ impl<'hir> TypeChecker<'hir> {
                                 ));
                             }
 
+                            if self.is_mutable_ref_ty(target_ty)
+                                && (method_signature.modifier == HirStructMethodModifier::Mutable
+                                    || method_signature.modifier == HirStructMethodModifier::Const)
+                            {
+                                // Here we can either auto deref if target_ty.inner is copyable
+                                // Or we can just error out and ask the user to deref manually
+                                // For simplicity, we error out for now
+                                let path = field_access.span.path;
+                                let src = utils::get_file_content(path).unwrap();
+                                return Err(
+                                    Self::calling_consuming_method_on_mutable_reference_err(
+                                        &method_signature.span,
+                                        &field_access.span,
+                                    ),
+                                );
+                            }
+
                             for (param, arg) in method_signature
                                 .params
                                 .iter()
@@ -2186,6 +2204,28 @@ impl<'hir> TypeChecker<'hir> {
             actual: actual_err,
         };
         HirError::TypeMismatch(expected_err)
+    }
+
+    fn calling_consuming_method_on_mutable_reference_err(
+        declaration_span: &Span,
+        call_span: &Span,
+    ) -> HirError {
+        let declaration_path = declaration_span.path;
+        let declaration_src = utils::get_file_content(declaration_path).unwrap();
+        let origin = CallingConsumingMethodOnMutableReferenceOrigin {
+            method_span: *declaration_span,
+            src: NamedSource::new(declaration_path, declaration_src),
+        };
+
+        let call_path = call_span.path;
+        let call_src = utils::get_file_content(call_path).unwrap();
+        HirError::CallingConsumingMethodOnMutableReference(
+            CallingConsumingMethodOnMutableReferenceError {
+                call_span: *call_span,
+                src: NamedSource::new(call_path, call_src),
+                origin,
+            },
+        )
     }
 
     fn calling_non_const_method_on_const_reference_err(
