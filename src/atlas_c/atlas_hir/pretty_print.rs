@@ -493,14 +493,19 @@ impl HirPrettyPrinter {
                 self.write(")");
             }
             HirExpr::ObjLiteral(obj_lit) => {
-                self.write(&format!("{} {{ ", Self::type_str(obj_lit.ty)));
+                self.write(&format!("{} {{\n", Self::type_str(obj_lit.ty)));
+                self.indent();
                 for (i, field_init) in obj_lit.fields.iter().enumerate() {
+                    self.write_indent();
+                    self.write(&format!(".{} = ", field_init.name));
+                    self.print_expr(&field_init.value);
                     if i > 0 {
                         self.write(", ");
                     }
-                    self.write(&format!("{}: ", field_init.name));
-                    self.print_expr(&field_init.value);
+                    self.write("\n");
                 }
+                self.dedent();
+                self.write_indent();
                 self.write("}");
             }
             HirExpr::Delete(delete) => {
