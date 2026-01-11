@@ -1045,19 +1045,6 @@ impl<'hir> TypeChecker<'hir> {
                         },
                     ));
                 }
-                if struct_signature.constructor.vis != HirVisibility::Public
-                    && self.current_class_name != Some(struct_ty.name)
-                {
-                    let path = obj.span.path;
-                    let src = utils::get_file_content(path).unwrap();
-                    return Err(HirError::AccessingPrivateConstructor(
-                        AccessingPrivateConstructorError {
-                            span: obj.span,
-                            kind: String::from("constructor"),
-                            src: NamedSource::new(path, src),
-                        },
-                    ));
-                }
                 let mut is_copy_ctor_call = false;
                 if struct_signature.constructor.params.len() != obj.args.len() {
                     if self.is_copy_constructor_call(obj) {
@@ -1450,9 +1437,18 @@ impl<'hir> TypeChecker<'hir> {
                                 .find(|v| *v.0 == field_access.field.name);
                             match variant {
                                 Some((_, var)) => {
-                                    field_access.ty = var.ty;
-                                    field_access.field.ty = var.ty;
-                                    return Ok(var.ty);
+                                    // Preserve reference type from target_ty like struct field access does
+                                    if self.is_const_ty(target_ty) {
+                                        field_access.ty =
+                                            self.arena.types().get_readonly_reference_ty(var.ty);
+                                        field_access.field.ty =
+                                            self.arena.types().get_readonly_reference_ty(var.ty);
+                                        return Ok(field_access.ty);
+                                    } else {
+                                        field_access.ty = var.ty;
+                                        field_access.field.ty = var.ty;
+                                        return Ok(var.ty);
+                                    }
                                 }
                                 None => {
                                     return Err(Self::unknown_field_err(
