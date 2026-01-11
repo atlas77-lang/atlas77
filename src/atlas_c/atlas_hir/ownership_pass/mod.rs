@@ -42,7 +42,7 @@ use crate::atlas_c::{
         HirModule,
         arena::HirArena,
         error::{
-            CannotMoveOutOfContainerError, CannotMoveOutOfLoopError,
+            CannotMoveOutOfContainerError, CannotMoveOutOfLoopError, CannotMoveOutOfReferenceError,
             CannotTransferOwnershipInBorrowingMethodError, HirError, HirResult,
             LifetimeDependencyViolationError, RecursiveCopyConstructorError,
             ReturningValueWithLocalLifetimeDependencyError, TryingToAccessADeletedValueError,
@@ -1252,6 +1252,21 @@ impl<'hir> OwnershipPass<'hir> {
                 // This handles cases like `*this.field` in _copy methods where field is an object.
                 if is_ownership_consuming && matches!(unary.op, Some(HirUnaryOp::Deref)) {
                     let is_copyable = self.is_type_copyable(unary.ty);
+
+                    // If we're dereferencing in an ownership-consuming context and the type is not copyable,
+                    // this is an error - you can't move out of a reference
+                    if !is_copyable {
+                        let path = unary.span.path;
+                        let src = utils::get_file_content(path).unwrap_or_default();
+                        return Err(HirError::CannotMoveOutOfReference(
+                            CannotMoveOutOfReferenceError {
+                                span: unary.span,
+                                ty_name: Self::get_type_name(unary.ty),
+                                src: NamedSource::new(path, src),
+                            },
+                        ));
+                    }
+
                     if is_copyable && !Self::is_primitive_type(unary.ty) {
                         // Check for recursive copy in copy constructors
                         // When dereferencing in a copy constructor, we're copying the dereferenced value
@@ -1787,6 +1802,21 @@ impl<'hir> OwnershipPass<'hir> {
                 // This handles cases like `*this.field` in methods that return owned values.
                 if matches!(unary.op, Some(HirUnaryOp::Deref)) {
                     let is_copyable = self.is_type_copyable(unary.ty);
+
+                    // If we're dereferencing in a return context (ownership-consuming) and the type is not copyable,
+                    // this is an error - you can't move out of a reference
+                    if !is_copyable {
+                        let path = unary.span.path;
+                        let src = utils::get_file_content(path).unwrap_or_default();
+                        return Err(HirError::CannotMoveOutOfReference(
+                            CannotMoveOutOfReferenceError {
+                                span: unary.span,
+                                ty_name: Self::get_type_name(unary.ty),
+                                src: NamedSource::new(path, src),
+                            },
+                        ));
+                    }
+
                     if is_copyable && !Self::is_primitive_type(unary.ty) {
                         // Wrap in Copy to ensure proper deep copy semantics
                         return Ok(HirExpr::Copy(HirCopyExpr {
@@ -2173,7 +2203,7 @@ impl<'hir> OwnershipPass<'hir> {
     /// - It's a primitive type (always implicitly copyable)
     /// - It's a reference type (just a pointer, trivially copyable)
     /// - It's a string (built-in copyable)
-    /// - It's a struct with a `_copy` method
+    /// - It's a struct with a copy Constructor defined
     fn is_type_copyable(&self, ty: &HirTy<'hir>) -> bool {
         match ty {
             // Primitives are always copyable (bitwise copy)

@@ -62,8 +62,10 @@ declare_error_type! {
         UnknownMethod(UnknownMethodError),
         CannotTransferOwnershipInBorrowingMethod(CannotTransferOwnershipInBorrowingMethodError),
         CannotMoveOutOfContainer(CannotMoveOutOfContainerError),
+        CannotMoveOutOfReference(CannotMoveOutOfReferenceError),
         RecursiveCopyConstructor(RecursiveCopyConstructorError),
         StdNonCopyableStructCannotHaveCopyConstructor(StdNonCopyableStructCannotHaveCopyConstructorError),
+        CopyConstructorParameterMustBeCopyable(CopyConstructorParameterMustBeCopyableError),
         StructCannotHaveAFieldOfItsOwnType(StructCannotHaveAFieldOfItsOwnTypeError),
         UnionMustHaveAtLeastTwoVariant(UnionMustHaveAtLeastTwoVariantError),
         UnionVariantDefinedMultipleTimes(UnionVariantDefinedMultipleTimesError),
@@ -855,6 +857,22 @@ pub struct CannotMoveOutOfContainerError {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
+    code(sema::cannot_move_out_of_reference),
+    help(
+        "cannot dereference (copy/move out of) a reference to a non-copyable type. \nTo fix this:\n  - Implement a copy constructor for `{ty_name}` if it should be copyable\n  - Or work with the reference directly without dereferencing it"
+    )
+)]
+#[error("cannot dereference non-copyable type `{ty_name}` from a reference")]
+pub struct CannotMoveOutOfReferenceError {
+    #[label = "trying to dereference `{ty_name}` here, but it's not copyable"]
+    pub span: Span,
+    pub ty_name: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
     code(sema::cannot_move_out_of_loop),
     help(
         "variables cannot be moved inside loops because the loop could iterate multiple times, causing use-after-move. Consider moving the variable before the loop, or restructuring your code"
@@ -907,6 +925,26 @@ pub struct StdNonCopyableStructCannotHaveCopyConstructorError {
     #[source_code]
     pub src: NamedSource<String>,
     pub struct_name: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::copy_constructor_parameter_must_be_copyable),
+    help(
+        "a copy constructor copies the fields of the source object. If the type contains non-copyable fields, you cannot implement a copy constructor. Consider implementing a move constructor or restructuring your type."
+    )
+)]
+#[error(
+    "copy constructor for `{struct_name}` cannot be used because it contains non-copyable fields"
+)]
+pub struct CopyConstructorParameterMustBeCopyableError {
+    #[label = "copy constructor defined here"]
+    pub copy_ctor_span: Span,
+    #[label = "but `{struct_name}` contains fields that are not copyable"]
+    pub struct_span: Span,
+    pub struct_name: String,
+    #[source_code]
+    pub src: NamedSource<String>,
 }
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
