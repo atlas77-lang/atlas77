@@ -588,7 +588,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         //Get the value
                         self.generate_bytecode_expr(&a.rhs, bytecode)?;
                         let struct_name =
-                            match self.get_class_name_of_type(field_access.target.ty()) {
+                            match self.get_struct_name_of_type(field_access.target.ty()) {
                                 Some(n) => n,
                                 None => {
                                     return Err(Self::unsupported_expr_err(
@@ -600,14 +600,37 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                     ));
                                 }
                             };
-                        let struct_descriptor = self
+                        let struct_descriptor = match self
                             .struct_pool
                             .iter()
                             .find(|c| c.name == struct_name)
-                            .unwrap_or_else(|| {
-                                //should never happen
-                                panic!("Struct {} not found", struct_name)
-                            });
+                        {
+                            Some(s) => s,
+                            None => {
+                                let union_name = match self
+                                    .get_union_name_of_type(field_access.target.ty())
+                                {
+                                    Some(n) => n,
+                                    None => {
+                                        return Err(Self::unsupported_expr_err(
+                                            expr,
+                                            format!(
+                                                "[CodeGen] No struct or union descriptor for: {}",
+                                                struct_name
+                                            ),
+                                        ));
+                                    }
+                                };
+                                if let Some(un) = self.hir.signature.unions.get(union_name) {
+                                    // No operation needed for union field access
+                                    return Ok(());
+                                }
+                                return Err(Self::unsupported_expr_err(
+                                    expr,
+                                    format!("[CodeGen] No struct descriptor for: {}", struct_name),
+                                ));
+                            }
+                        };
                         //get the position of the field
                         let field = struct_descriptor
                             .fields
@@ -836,7 +859,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     HirExpr::FieldAccess(field_access) => {
                         // Get the struct name first to look up method signature
                         let struct_name =
-                            match self.get_class_name_of_type(field_access.target.ty()) {
+                            match self.get_struct_name_of_type(field_access.target.ty()) {
                                 Some(n) => n,
                                 _ => {
                                     return Err(Self::unsupported_expr_err(
@@ -975,7 +998,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 if is_ref {
                     bytecode.push(Instruction::LoadIndirect);
                 }
-                let obj_name = match self.get_class_name_of_type(field_access.target.ty()) {
+                let obj_name = match self.get_struct_name_of_type(field_access.target.ty()) {
                     Some(n) => n,
                     None => {
                         return Err(Self::unsupported_expr_err(
@@ -1177,7 +1200,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             HirExpr::Delete(delete) => {
                 let name = match &delete.expr.ty() {
                     HirTy::Named(_) | HirTy::Generic(_) => {
-                        self.get_class_name_of_type(delete.expr.ty()).unwrap()
+                        self.get_struct_name_of_type(delete.expr.ty()).unwrap()
                     }
                     HirTy::String(_) | HirTy::List(_) => {
                         //Strings and Lists have their own delete instruction
@@ -1303,7 +1326,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             HirExpr::FieldAccess(field_access) => {
                 // Check if this is a union field access by looking up the type
                 let obj_name_for_check = self
-                    .get_class_name_of_type(field_access.target.ty())
+                    .get_struct_name_of_type(field_access.target.ty())
                     .unwrap_or_default();
                 let is_union_access = !self
                     .struct_pool
@@ -1327,7 +1350,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 ) {
                     bytecode.push(Instruction::LoadIndirect);
                 }
-                let obj_name = match self.get_class_name_of_type(field_access.target.ty()) {
+                let obj_name = match self.get_struct_name_of_type(field_access.target.ty()) {
                     Some(n) => n,
                     None => {
                         return Err(Self::unsupported_expr_err(
@@ -1439,7 +1462,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 bytecode.push(Instruction::LoadVarAddr(var_index));
             }
             HirExpr::FieldAccess(field_access) => {
-                let obj_name = match self.get_class_name_of_type(field_access.target.ty()) {
+                let obj_name = match self.get_struct_name_of_type(field_access.target.ty()) {
                     Some(n) => n,
                     None => {
                         return Err(Self::unsupported_expr_err(
@@ -1537,7 +1560,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
         path.starts_with("std")
     }
 
-    fn get_class_name_of_type(&self, ty: &HirTy<'hir>) -> Option<&'hir str> {
+    fn get_struct_name_of_type(&self, ty: &HirTy<'hir>) -> Option<&'hir str> {
         match ty {
             HirTy::Named(n) => Some(n.name),
             HirTy::Generic(g) => Some(MonomorphizationPass::generate_mangled_name(
@@ -1545,8 +1568,22 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 g,
                 "struct",
             )),
-            HirTy::ReadOnlyReference(read_only) => self.get_class_name_of_type(read_only.inner),
-            HirTy::MutableReference(mutable) => self.get_class_name_of_type(mutable.inner),
+            HirTy::ReadOnlyReference(read_only) => self.get_struct_name_of_type(read_only.inner),
+            HirTy::MutableReference(mutable) => self.get_struct_name_of_type(mutable.inner),
+            _ => None,
+        }
+    }
+
+    fn get_union_name_of_type(&self, ty: &HirTy<'hir>) -> Option<&'hir str> {
+        match ty {
+            HirTy::Named(n) => Some(n.name),
+            HirTy::Generic(g) => Some(MonomorphizationPass::generate_mangled_name(
+                self.hir_arena,
+                g,
+                "union",
+            )),
+            HirTy::ReadOnlyReference(read_only) => self.get_union_name_of_type(read_only.inner),
+            HirTy::MutableReference(mutable) => self.get_union_name_of_type(mutable.inner),
             _ => None,
         }
     }
