@@ -2,6 +2,53 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.2] - 2026-01-11
+
+### Bug Fixes
+
+- Prevent double-delete by tracking deleted variables ([f0bcd9f](https://github.com/atlas77-lang/Atlas77/commit/f0bcd9f08648d9f76bf4bae1c589e3a30ee0814f))
+- Mutable ref can't access consuming method ([cb2f565](https://github.com/atlas77-lang/Atlas77/commit/cb2f5655df08d016a96ddea406dd31258a9a463f))
+- Preserving mutable references for types ([18f4e80](https://github.com/atlas77-lang/Atlas77/commit/18f4e80c1a3d19cb255b930ceed9b2b3da12987e))
+- Union variants now preserve references when getting accessed by field ([cd06e2a](https://github.com/atlas77-lang/Atlas77/commit/cd06e2a57d4a1ad2377b2f9a91d408ee447168e7))
+- Trying to access a copy constructor when the constructor was private would result in a bad error message ([322add4](https://github.com/atlas77-lang/Atlas77/commit/322add48bc2e98e6a516bb153f689e5c8f59ea91))
+- Cannot move out of `std::non_copyable` references ([8d4615d](https://github.com/atlas77-lang/Atlas77/commit/8d4615d43b669c1f2bbe23be626e7e64df388adc))
+- Codegen now support direct union variant assignment ([23995c5](https://github.com/atlas77-lang/Atlas77/commit/23995c5548d6b6a54cfb4a135292b5505dfaf959))
+- If/else & while temporaries in condition weren't extracted ([5664f83](https://github.com/atlas77-lang/Atlas77/commit/5664f838cfbfa7a402185dba0bff59b54c4b5851))
+- Issue with order of deletion of temporary variables ([4a67d7b](https://github.com/atlas77-lang/Atlas77/commit/4a67d7ba8e40ea542fd8f272524e1b2933dc8644))
+- References can't escape to constructors/functions if their origins have been deleted/moved ([0c3c256](https://github.com/atlas77-lang/Atlas77/commit/0c3c256a69ec4f198fcccbdb3c099c39d2bec41f))
+- The compiler would try to mangle function name even for external functions ([a6f2158](https://github.com/atlas77-lang/Atlas77/commit/a6f215878a303bf8878693c0b579328942cbc0ac))
+- Copy constructor wasn't generated if there was an enum field in a struct ([bb85e39](https://github.com/atlas77-lang/Atlas77/commit/bb85e39658e52f9f72b36c8820d762767825ec23))
+- `Iter<T>.next()` wouldn't move out `T` from the underlying Vector, which causes use after free in `T` destructor ([4fb71af](https://github.com/atlas77-lang/Atlas77/commit/4fb71afdeebba3f5ce9c5b8c82fc94c9d679ca46))
+- Compiler would try to generate delete statements for enums ([571d3f7](https://github.com/atlas77-lang/Atlas77/commit/571d3f73df4856290b1d6e4307aa4b508e3b9fd2))
+- Temporary values that need to be deleted in casts and method chains are now properly unwrapped into temporary variables ([c7557d2](https://github.com/atlas77-lang/Atlas77/commit/c7557d27eae2e170489f53a453ed470526b33f42))
+- No flag and a destructor will result in no copy constructor ([57a7e29](https://github.com/atlas77-lang/Atlas77/commit/57a7e294f8bc2461f706351fe5a0289998eefb07))
+
+### Documentation
+
+- Updated the ROADMAP.md ([78ef9d3](https://github.com/atlas77-lang/Atlas77/commit/78ef9d3509138d2209fe9c0c7353fe6b8af2e68b))
+
+### Features
+
+- BIG SURPRISE ([973e737](https://github.com/atlas77-lang/Atlas77/commit/973e737b487161f9048fb79fce548ac02841030a))
+- Added a copy constructor to `optional<T>` ([09b8dd1](https://github.com/atlas77-lang/Atlas77/commit/09b8dd1dbe3bfed08dc3d01eeeb91b010c6b8857))
+- Added blocks to the language ([4f9ee16](https://github.com/atlas77-lang/Atlas77/commit/4f9ee16f7507cae191324c2731bba1bec0d6175f))
+- The copy constructor is now callable `new MyStruct(&my_struct)` ([4db580b](https://github.com/atlas77-lang/Atlas77/commit/4db580b438de072821d96088b75e12c742fd868c))
+
+### Miscellaneous Tasks
+
+- Removed test file ([aac0688](https://github.com/atlas77-lang/Atlas77/commit/aac0688ec8319dab0309ad691ce0ee8f3110ccdd))
+
+### Misc
+
+- Cleaner pretty print of union literal ([5b5ed87](https://github.com/atlas77-lang/Atlas77/commit/5b5ed87d97252269ba2b8cd9bb1937c791d7fd42))
+- Removed one fixed warning ([b3961ac](https://github.com/atlas77-lang/Atlas77/commit/b3961ac92cce17808fa146e341839efe61cc6441))
+- Added a test for the upcoming `where` clause ([18b0929](https://github.com/atlas77-lang/Atlas77/commit/18b0929eb8330b433df16a84f2559399dc443fc6))
+- Removed special case "_copy" method ([d9ce2a1](https://github.com/atlas77-lang/Atlas77/commit/d9ce2a10cba7c36689c1d4544846b999558e98ce))
+
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
 ## [0.7.1] - 2026-01-09
 
 ### Bug Fixes
