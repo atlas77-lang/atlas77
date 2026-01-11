@@ -1,0 +1,43 @@
+import "std/optional";
+
+public enum FutureState {
+    Pending,
+    Completed,
+    Failed,
+}
+
+public struct Future<T> {
+private:
+    state: FutureState;
+    result: T?;
+    Future() {
+        this.state = FutureState::Pending;
+        this.result = optional<T>::empty();
+    }
+    ~Future() {
+        if this.state == FutureState::Completed {
+            delete this.result;
+        }
+    }
+public:
+    fun set_result(&this, result: T) {
+        this.state = FutureState::Completed;
+        this.result = optional<T>::of(result);
+    }
+
+    fun set_failed(&this) {
+        this.state = FutureState::Failed;
+    }
+
+    fun is_completed(&const this) -> bool {
+        return *this.state == FutureState::Completed;
+    }
+
+    fun get_state(&const this): FutureState {
+        return *this.state;
+    }
+
+    fun get_result(&this) -> T? {
+        return this.result;
+    }
+}
