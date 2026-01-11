@@ -1444,6 +1444,11 @@ impl<'hir> TypeChecker<'hir> {
                                         field_access.field.ty =
                                             self.arena.types().get_readonly_reference_ty(var.ty);
                                         return Ok(field_access.ty);
+                                    } else if self.is_mutable_ref_ty(target_ty) {
+                                        field_access.ty = self.arena.types().get_ref_ty(var.ty);
+                                        field_access.field.ty =
+                                            self.arena.types().get_ref_ty(var.ty);
+                                        return Ok(field_access.ty);
                                     } else {
                                         field_access.ty = var.ty;
                                         field_access.field.ty = var.ty;
@@ -1490,6 +1495,9 @@ impl<'hir> TypeChecker<'hir> {
                             .arena
                             .types()
                             .get_readonly_reference_ty(field_signature.ty);
+                    } else if self.is_mutable_ref_ty(target_ty) {
+                        field_access.ty = self.arena.types().get_ref_ty(field_signature.ty);
+                        field_access.field.ty = self.arena.types().get_ref_ty(field_signature.ty);
                     } else {
                         field_access.ty = field_signature.ty;
                         field_access.field.ty = field_signature.ty;
@@ -1855,6 +1863,10 @@ impl<'hir> TypeChecker<'hir> {
 
     fn is_const_ty(&self, ty: &HirTy<'_>) -> bool {
         matches!(ty, HirTy::ReadOnlyReference(_))
+    }
+
+    fn is_mutable_ref_ty(&self, ty: &HirTy<'_>) -> bool {
+        matches!(ty, HirTy::MutableReference(_))
     }
 
     /// Check if two types are equivalent, considering generics and references

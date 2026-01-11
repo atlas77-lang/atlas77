@@ -2231,11 +2231,18 @@ impl<'hir> OwnershipPass<'hir> {
             HirTy::List(_) => false,
 
             // Named types (structs) are copyable if they have a copy constructor
-            HirTy::Named(named) => self
-                .hir_signature
-                .structs
-                .get(named.name)
-                .is_some_and(|s| s.copy_constructor.is_some()),
+            HirTy::Named(named) => {
+                if let Some(s) = self.hir_signature.structs.get(named.name) {
+                    s.copy_constructor.is_some()
+                } else {
+                    // This might be an enum
+                    if let Some(e) = self.hir_signature.enums.get(named.name) {
+                        true
+                    } else {
+                        false
+                    }
+                }
+            }
 
             // Generic types - need to check the monomorphized/instantiated struct
             HirTy::Generic(g) => {

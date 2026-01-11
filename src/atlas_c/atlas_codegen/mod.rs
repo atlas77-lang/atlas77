@@ -1253,18 +1253,20 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 match copy_expr.ty {
                     HirTy::Named(named) => {
                         // A copy constructor signature is: `Name(this, from: &const Name) -> Name`
-                        let obj_descriptor = self
-                            .struct_pool
-                            .iter()
-                            .position(|s| s.name == named.name)
-                            .unwrap();
-                        bytecode.push(Instruction::NewObj { obj_descriptor });
-                        // _copy takes &const this, so we need to pass a reference to the object
-                        self.generate_receiver_addr(&copy_expr.expr, bytecode)?;
-                        bytecode.push(Instruction::Call {
-                            func_name: format!("{}_copy_ctor", named.name),
-                            nb_args: 2, //This pointer + from reference
-                        });
+                        if let Some(obj_descriptor) =
+                            self.struct_pool.iter().position(|s| s.name == named.name)
+                        {
+                            bytecode.push(Instruction::NewObj { obj_descriptor });
+                            // The copy constructor takes &const this, so we need to pass a reference to the object
+                            self.generate_receiver_addr(&copy_expr.expr, bytecode)?;
+                            bytecode.push(Instruction::Call {
+                                func_name: format!("{}_copy_ctor", named.name),
+                                nb_args: 2, //This pointer + from reference
+                            });
+                        } else {
+                            // Might be an enum
+                            self.generate_bytecode_expr(&copy_expr.expr, bytecode)?;
+                        }
                     }
                     HirTy::Generic(g) => {
                         let mangled_name = MonomorphizationPass::generate_mangled_name(
