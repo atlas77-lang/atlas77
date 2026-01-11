@@ -11,8 +11,6 @@ declare_warning_type!(
         ConsumingMethodMayLeakThis(ConsumingMethodMayLeakThisWarning),
         CannotGenerateACopyConstructorForThisType(CannotGenerateACopyConstructorForThisTypeWarning),
         UnnecessaryCopyDueToLaterBorrows(UnnecessaryCopyDueToLaterBorrowsWarning),
-        TemporaryValueCannotBeFreed(TemporaryValueCannotBeFreedWarning),
-        ReferenceEscapesToConstructor(ReferenceEscapesToConstructorWarning),
         UnionFieldCannotBeAutomaticallyDeleted(UnionFieldCannotBeAutomaticallyDeletedWarning),
     }
 );
@@ -123,56 +121,6 @@ pub struct UnnecessaryCopyDueToLaterBorrowsWarning {
     pub var_name: String,
     #[label(collection, "Borrowed here")]
     pub borrow_uses: Vec<Span>,
-}
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
-    code(sema::temporary_value_cannot_be_freed),
-    severity(warning),
-    help(
-        "Store the result in a variable first: \n\t\t- let temp = {expr_kind};\n\t\t- let {var_name} = temp{target_expr};"
-    )
-)]
-#[error(
-    "Temporary value from `{expr_kind}` cannot be freed in this expression. It will most probably cause a memory leak."
-)]
-pub struct TemporaryValueCannotBeFreedWarning {
-    #[source_code]
-    pub src: NamedSource<String>,
-    #[label(
-        primary,
-        "This creates a temporary value that should be freed, but the ownership pass cannot insert a free here"
-    )]
-    pub span: Span,
-    pub expr_kind: String,
-    pub var_name: String,
-    pub target_expr: String,
-}
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
-    code(sema::reference_escapes_to_constructor),
-    severity(warning),
-    help(
-        "If `{origin_var}` is deleted or consumed before the constructed object, \
-        accessing the stored reference will be a use-after-free bug. \
-        Consider updating the reference before using it if the origin changes."
-    )
-)]
-#[error("Reference `{ref_var}` (originating from `{origin_var}`) is passed to a constructor")]
-pub struct ReferenceEscapesToConstructorWarning {
-    #[source_code]
-    pub src: NamedSource<String>,
-    #[label(
-        primary,
-        "Reference escapes here - it may be stored in `{constructed_type}`"
-    )]
-    pub span: Span,
-    #[label("Reference originates from this variable")]
-    pub origin_span: Span,
-    pub ref_var: String,
-    pub origin_var: String,
-    pub constructed_type: String,
 }
 
 #[derive(Error, Diagnostic, Debug)]

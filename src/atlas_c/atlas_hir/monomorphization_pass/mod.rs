@@ -94,7 +94,13 @@ impl<'hir> MonomorphizationPass<'hir> {
             .body
             .structs
             .iter()
-            .filter(|(_, s)| s.copy_constructor.is_none() && !s.flag.is_non_copyable())
+            .filter(|(_, s)| {
+                s.copy_constructor.is_none()
+                    && !s.flag.is_non_copyable()
+                    // If the struct has a user-defined destructor AND no flag saying it's copyable,
+                    //  we cannot auto-generate a copy constructor
+                    && !(s.had_user_defined_destructor && s.flag.is_no_flag())
+            })
             .map(|(name, s)| {
                 (
                     ((*name).to_string(), s.name_span),
@@ -361,13 +367,36 @@ impl<'hir> MonomorphizationPass<'hir> {
             module,
         )?;
         self.monomorphize_constructor(&mut new_struct.destructor, types_to_change.clone(), module)?;
-        if new_struct.copy_constructor.is_some() {
-            self.monomorphize_constructor(
-                new_struct.copy_constructor.as_mut().unwrap(),
-                types_to_change.clone(),
-                module,
-            )?;
+
+        // Monomorphize copy constructor signature params first, then sync body params
+        if let Some(copy_ctor_sig) = new_struct.signature.copy_constructor.as_mut() {
+            for arg in copy_ctor_sig.params.iter_mut() {
+                for (j, generic) in generics.iter().enumerate() {
+                    arg.ty = self.change_inner_type(
+                        arg.ty,
+                        generic.generic_name,
+                        actual_type.inner[j].clone(),
+                        module,
+                    );
+                }
+            }
         }
+
+        // Monomorphize copy constructor body
+        if let Some(copy_ctor) = new_struct.copy_constructor.as_mut() {
+            self.monomorphize_constructor(copy_ctor, types_to_change.clone(), module)?;
+            // Sync body params from signature
+            for (i, _) in copy_ctor.params.clone().iter().enumerate() {
+                copy_ctor.params[i] = new_struct
+                    .signature
+                    .copy_constructor
+                    .as_ref()
+                    .unwrap()
+                    .params[i]
+                    .clone();
+            }
+        }
+
         for arg in new_struct.signature.constructor.params.iter_mut() {
             for (j, generic) in generics.iter().enumerate() {
                 arg.ty = self.change_inner_type(
@@ -573,8 +602,8 @@ impl<'hir> MonomorphizationPass<'hir> {
             // TODO: Add support for list copy constructors
             // HirTy::List(list) => self.can_be_copyable(list.inner, module),
             HirTy::Named(named) => {
-                let struct_name = named.name;
-                if let Some(hir_struct) = module.signature.structs.get(struct_name) {
+                let obj_name = named.name;
+                if let Some(hir_struct) = module.signature.structs.get(obj_name) {
                     // TODO: Add a check for the presence of a destructor in the struct
                     if hir_struct.copy_constructor.is_some() {
                         return true;
@@ -585,6 +614,10 @@ impl<'hir> MonomorphizationPass<'hir> {
                             return false;
                         }
                     }
+                    return true;
+                }
+                if let Some(hir_enum) = module.signature.enums.get(obj_name) {
+                    // Enums are just uint64 under the hood
                     return true;
                 }
                 false
@@ -633,6 +666,10 @@ impl<'hir> MonomorphizationPass<'hir> {
         let template = match module.body.functions.get(base_name) {
             Some(func) => func.clone(),
             None => {
+                //Maybe it's an external function
+                if let Some(func) = module.signature.functions.get(base_name) {
+                    return Ok(());
+                }
                 let path = span.path;
                 let src = crate::atlas_c::utils::get_file_content(path).unwrap();
                 return Err(UnknownType(UnknownTypeError {
@@ -794,6 +831,11 @@ impl<'hir> MonomorphizationPass<'hir> {
             HirStatement::Return(return_stmt) => {
                 self.monomorphize_expression(&mut return_stmt.value, types_to_change, module)?;
             }
+            HirStatement::Block(block_stmt) => {
+                for stmt in block_stmt.statements.iter_mut() {
+                    self.monomorphize_statement(stmt, types_to_change.clone(), module)?;
+                }
+            }
             _ => {}
         }
         Ok(())
@@ -872,32 +914,51 @@ impl<'hir> MonomorphizationPass<'hir> {
                 self.monomorphize_expression(&mut binary_expr.rhs, types_to_change, module)?;
             }
             HirExpr::Call(call_expr) => {
+                // First, check if this is an external function call
+                let is_external = if let HirExpr::Ident(ident_expr) = &*call_expr.callee {
+                    module
+                        .signature
+                        .functions
+                        .get(ident_expr.name)
+                        .map(|sig| sig.is_external)
+                        .unwrap_or(false)
+                } else {
+                    false
+                };
+
+                // Always monomorphize arguments
                 for arg in call_expr.args.iter_mut() {
                     self.monomorphize_expression(arg, types_to_change.clone(), module)?;
                 }
 
+                // Always monomorphize generic type arguments (for both external and non-external)
                 for generic in call_expr.generics.iter_mut() {
                     let monomorphized_ty =
                         self.swap_generic_types_in_ty(generic, types_to_change.clone());
                     *generic = monomorphized_ty;
                 }
 
-                // Register generic function instances if the callee is a generic function
-                if !call_expr.generics.is_empty()
-                    && let HirExpr::Ident(ident_expr) = &*call_expr.callee
-                    && let Some(func_sig) = module.signature.functions.get(ident_expr.name)
-                    && !func_sig.generics.is_empty()
-                {
-                    let generic_ty = HirGenericTy {
-                        name: ident_expr.name,
-                        inner: call_expr.generics.iter().map(|t| (*t).clone()).collect(),
-                        span: call_expr.span,
-                    };
-                    self.generic_pool
-                        .register_function_instance(generic_ty, &module.signature);
-                }
+                // For external functions, skip registration and callee monomorphization
+                // (which would mangle the function name)
+                if !is_external {
+                    // Register generic function instances if the callee is a generic function
+                    if !call_expr.generics.is_empty()
+                        && let HirExpr::Ident(ident_expr) = &*call_expr.callee
+                        && let Some(func_sig) = module.signature.functions.get(ident_expr.name)
+                        && !func_sig.generics.is_empty()
+                    {
+                        let generic_ty = HirGenericTy {
+                            name: ident_expr.name,
+                            inner: call_expr.generics.iter().map(|t| (*t).clone()).collect(),
+                            span: call_expr.span,
+                        };
+                        self.generic_pool
+                            .register_function_instance(generic_ty, &module.signature);
+                    }
 
-                self.monomorphize_expression(&mut call_expr.callee, types_to_change, module)?;
+                    // Monomorphize the callee itself (potentially mangles the name)
+                    self.monomorphize_expression(&mut call_expr.callee, types_to_change, module)?;
+                }
             }
             HirExpr::Casting(casting_expr) => {
                 self.monomorphize_expression(&mut casting_expr.expr, types_to_change, module)?;

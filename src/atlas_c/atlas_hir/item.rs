@@ -63,6 +63,7 @@ pub struct HirStruct<'hir> {
     pub constructor: HirStructConstructor<'hir>,
     pub copy_constructor: Option<HirStructConstructor<'hir>>,
     pub destructor: HirStructConstructor<'hir>,
+    pub had_user_defined_destructor: bool,
     pub vis: HirVisibility,
     pub flag: HirFlag,
 }

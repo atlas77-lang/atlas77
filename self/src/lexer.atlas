@@ -17,6 +17,7 @@ public union TokenValue {
     none: unit;
 }
 
+#[std::copyable]
 public struct Token {
 public:
     kind: TokenKind;

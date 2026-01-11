@@ -199,6 +199,7 @@ pub struct HirNewObjExpr<'hir> {
     pub ty: &'hir HirTy<'hir>,
     pub args: Vec<HirExpr<'hir>>,
     pub args_ty: Vec<&'hir HirTy<'hir>>,
+    pub is_copy_constructor_call: bool,
 }
 
 #[derive(Debug, Clone)]

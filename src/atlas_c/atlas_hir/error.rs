@@ -31,6 +31,7 @@ declare_error_type! {
         NonConstantValue(NonConstantValueError),
         ConstTyToNonConstTy(ConstTyToNonConstTyError),
         CanOnlyConstructStructs(CanOnlyConstructStructsError),
+        ThisStructDoesNotHaveACopyConstructor(ThisStructDoesNotHaveACopyConstructorError),
         TryingToIndexNonIndexableType(TryingToIndexNonIndexableTypeError),
         UselessError(UselessError),
         InvalidReadOnlyType(InvalidReadOnlyTypeError),
@@ -49,6 +50,7 @@ declare_error_type! {
         TryingToAccessADeletedValue(TryingToAccessADeletedValueError),
         CannotMoveOutOfLoop(CannotMoveOutOfLoopError),
         CallingNonConstMethodOnConstReference(CallingNonConstMethodOnConstReferenceError),
+        CallingConsumingMethodOnMutableReference(CallingConsumingMethodOnMutableReferenceError),
         TryingToMutateConstReference(TryingToMutateConstReferenceError),
         TryingToCreateAnUnionWithMoreThanOneActiveField(TryingToCreateAnUnionWithMoreThanOneActiveFieldError),
         TypeDoesNotImplementRequiredConstraint(TypeDoesNotImplementRequiredConstraintError),
@@ -61,11 +63,15 @@ declare_error_type! {
         UnknownMethod(UnknownMethodError),
         CannotTransferOwnershipInBorrowingMethod(CannotTransferOwnershipInBorrowingMethodError),
         CannotMoveOutOfContainer(CannotMoveOutOfContainerError),
+        CannotMoveOutOfReference(CannotMoveOutOfReferenceError),
         RecursiveCopyConstructor(RecursiveCopyConstructorError),
         StdNonCopyableStructCannotHaveCopyConstructor(StdNonCopyableStructCannotHaveCopyConstructorError),
+        CopyConstructorParameterMustBeCopyable(CopyConstructorParameterMustBeCopyableError),
         StructCannotHaveAFieldOfItsOwnType(StructCannotHaveAFieldOfItsOwnTypeError),
         UnionMustHaveAtLeastTwoVariant(UnionMustHaveAtLeastTwoVariantError),
         UnionVariantDefinedMultipleTimes(UnionVariantDefinedMultipleTimesError),
+        LifetimeDependencyViolation(LifetimeDependencyViolationError),
+        ReturningValueWithLocalLifetimeDependency(ReturningValueWithLocalLifetimeDependencyError),
     }
 }
 
@@ -198,6 +204,34 @@ pub struct TryingToMutateConstReferenceError {
     #[label = "cannot mutate `{ty}` as it is a const reference"]
     pub span: Span,
     pub ty: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::calling_consuming_method_on_mutable_reference),
+    help(
+        "consider using an owned value instead (You can use the DeRef operator `*` to get an owned value from a mutable reference)"
+    )
+)]
+#[error("calling a consuming method on a mutable reference")]
+pub struct CallingConsumingMethodOnMutableReferenceError {
+    #[label = "method called on mutable reference here"]
+    pub call_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[source]
+    #[diagnostic_source]
+    pub origin: CallingConsumingMethodOnMutableReferenceOrigin,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic()]
+#[error("")]
+pub struct CallingConsumingMethodOnMutableReferenceOrigin {
+    #[label = "method is marked as consuming here"]
+    pub method_span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }
@@ -502,6 +536,18 @@ pub struct TryingToIndexNonIndexableTypeError {
 #[error("You cannot construct non-struct types")]
 pub struct CanOnlyConstructStructsError {
     #[label = "only struct types can be constructed"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::this_struct_does_not_have_a_copy_constructor))]
+#[error(
+    "It seems like you are trying to use a copy constructor on a struct that does not have one."
+)]
+pub struct ThisStructDoesNotHaveACopyConstructorError {
+    #[label = "trying to use copy constructor, but this struct does not have one defined"]
     pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
@@ -840,6 +886,22 @@ pub struct CannotMoveOutOfContainerError {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
+    code(sema::cannot_move_out_of_reference),
+    help(
+        "cannot dereference (copy/move out of) a reference to a non-copyable type. \nTo fix this:\n  - Implement a copy constructor for `{ty_name}` if it should be copyable\n  - Or work with the reference directly without dereferencing it"
+    )
+)]
+#[error("cannot dereference non-copyable type `{ty_name}` from a reference")]
+pub struct CannotMoveOutOfReferenceError {
+    #[label = "trying to dereference `{ty_name}` here, but it's not copyable"]
+    pub span: Span,
+    pub ty_name: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
     code(sema::cannot_move_out_of_loop),
     help(
         "variables cannot be moved inside loops because the loop could iterate multiple times, causing use-after-move. Consider moving the variable before the loop, or restructuring your code"
@@ -892,6 +954,26 @@ pub struct StdNonCopyableStructCannotHaveCopyConstructorError {
     #[source_code]
     pub src: NamedSource<String>,
     pub struct_name: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::copy_constructor_parameter_must_be_copyable),
+    help(
+        "a copy constructor copies the fields of the source object. If the type contains non-copyable fields, you cannot implement a copy constructor. Consider implementing a move constructor or restructuring your type."
+    )
+)]
+#[error(
+    "copy constructor for `{struct_name}` cannot be used because it contains non-copyable fields"
+)]
+pub struct CopyConstructorParameterMustBeCopyableError {
+    #[label = "copy constructor defined here"]
+    pub copy_ctor_span: Span,
+    #[label = "but `{struct_name}` contains fields that are not copyable"]
+    pub struct_span: Span,
+    pub struct_name: String,
+    #[source_code]
+    pub src: NamedSource<String>,
 }
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
@@ -949,6 +1031,49 @@ pub struct UnionVariantDefinedMultipleTimesError {
     pub first_span: Span,
     #[label = "second definition of variant of type `{variant_ty}`"]
     pub second_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::lifetime_dependency_violation),
+    help(
+        "The value `{value_name}` depends on `{origin_name}` which has been deleted or moved. \
+        Consider restructuring your code to avoid this lifetime dependency, or ensure `{origin_name}` \
+        outlives `{value_name}`."
+    )
+)]
+#[error("`{value_name}`'s lifetime is tied to `{origin_name}`'s lifetime")]
+pub struct LifetimeDependencyViolationError {
+    pub value_name: String,
+    pub origin_name: String,
+    #[label = "`{origin_name}` was deleted/moved here"]
+    pub origin_invalidation_span: Span,
+    #[label = "but `{value_name}` (which depends on `{origin_name}`) is accessed here"]
+    pub access_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::returning_value_with_local_lifetime_dependency),
+    help(
+        "Cannot return `{value_name}` because its lifetime is tied to `{origin_name}`, \
+        which is a local variable that will be destroyed when the function returns. \
+        Consider passing `{origin_name}` as a parameter, or restructuring your code \
+        to avoid this dependency."
+    )
+)]
+#[error("`{value_name}`'s lifetime is tied to local variable `{origin_name}`")]
+pub struct ReturningValueWithLocalLifetimeDependencyError {
+    pub value_name: String,
+    pub origin_name: String,
+    #[label = "`{origin_name}` is declared here as a local variable"]
+    pub origin_declaration_span: Span,
+    #[label = "cannot return `{value_name}` here because `{origin_name}` will be destroyed"]
+    pub return_span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }

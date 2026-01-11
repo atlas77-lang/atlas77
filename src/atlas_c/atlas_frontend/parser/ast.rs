@@ -187,7 +187,7 @@ pub enum AstMethodModifier {
     ///
     /// e.g.: `fun into_iter(this) -> Iter<T> { ... }`
     #[default]
-    None,
+    Consuming,
 }
 
 #[derive(Debug, Clone)]

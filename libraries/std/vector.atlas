@@ -115,7 +115,11 @@ public:
     /// shifting subsequent elements to the left.
     fun take(&this, index: uint64) -> T {
         // Public method to take an element out of the vector
-        return this.try_take(index);
+        let result = this.try_take(index);
+        if result.is_empty() {
+            panic("Index out of bounds");
+        }
+        return result.value();
     }
 
     fun get_slice(&this, start: uint64, end: uint64) -> [T] {
@@ -126,9 +130,9 @@ public:
     }
 
 private:
-    fun try_take(&this, index: uint64) -> T {
+    fun try_take(&this, index: uint64) -> optional<T> {
         if index >= this.length {
-            panic("Index out of bounds");
+            return optional<T>::empty();
         }
         // We do memcpy and not a call to a copy constructor, because we only
         // need a shallow copy here to move the value out of the container.
@@ -141,6 +145,6 @@ private:
             i = i + 1u;
         }
         this.length = this.length - 1u;
-        return item;
+        return optional<T>::of(item);
     }
 }

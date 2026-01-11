@@ -634,7 +634,7 @@ impl<'ast> Parser<'ast> {
             let obj_field = self.parse_obj_field()?;
             if let AstType::ThisTy(_) = obj_field.ty {
                 // `this` - takes ownership
-                modifier = AstMethodModifier::None;
+                modifier = AstMethodModifier::Consuming;
             } else if let AstType::ReadOnlyRef(AstReadOnlyRefType {
                 inner: AstType::ThisTy(_),
                 ..
@@ -923,6 +923,10 @@ impl<'ast> Parser<'ast> {
             }
             TokenKind::KwReturn => {
                 let node = AstStatement::Return(self.parse_return()?);
+                Ok(node)
+            }
+            TokenKind::LBrace => {
+                let node = AstStatement::Block(self.parse_block()?);
                 Ok(node)
             }
             _ => {

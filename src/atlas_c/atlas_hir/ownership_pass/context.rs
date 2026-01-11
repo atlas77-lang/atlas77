@@ -181,7 +181,7 @@ impl<'hir> ScopeMap<'hir> {
         }
     }
 
-    /// Invalidate all references whose origin includes the given variable name.
+    /// Invalidate all references and objects whose origin includes the given variable name.
     /// This should be called when a variable is deleted or consumed by a method.
     ///
     /// Returns the names of variables that were invalidated.
@@ -192,14 +192,12 @@ impl<'hir> ScopeMap<'hir> {
     ) -> Vec<&'hir str> {
         let mut invalidated = Vec::new();
 
-        // Check all scopes for references that depend on this origin
+        // Check all scopes for references and objects that depend on this origin
         for scope in &mut self.scopes {
             for (var_name, var_data) in scope.var_status.iter_mut() {
-                // Only invalidate reference types that depend on this origin
-                if var_data.kind == VarKind::Reference
-                    && var_data.origin.includes(origin_name)
-                    && var_data.status.is_valid()
-                {
+                // Invalidate both reference types AND object types that depend on this origin
+                // This handles the case where an object stores a reference passed to its constructor
+                if var_data.origin.includes(origin_name) && var_data.status.is_valid() {
                     var_data.status = VarStatus::Deleted {
                         delete_span: invalidation_span,
                     };
@@ -220,6 +218,15 @@ impl<'hir> ScopeMap<'hir> {
         }
     }
 
+    pub fn mark_as_deleted(&mut self, name: &str, delete_span: Span) -> Option<()> {
+        if let Some(var) = self.get_mut(name) {
+            var.status = VarStatus::Deleted { delete_span };
+            Some(())
+        } else {
+            None
+        }
+    }
+
     pub fn record_use(&mut self, name: &str, use_info: VarUse) -> Option<()> {
         if let Some(var) = self.get_mut(name) {
             var.uses.push(use_info);
@@ -232,6 +239,7 @@ impl<'hir> ScopeMap<'hir> {
     /// Returns all the variables that are owned (valid) in the current scope only
     ///
     /// Used when exiting a scope to determine which variables need to be deleted
+    /// Returns variables in reverse order of declaration (LIFO) for proper cleanup
     pub fn get_owned_vars_in_current_scope(&self) -> Vec<&VarData<'hir>> {
         let mut owned_vars = Vec::new();
         let scope = self.scopes.last().unwrap();
@@ -240,6 +248,13 @@ impl<'hir> ScopeMap<'hir> {
                 owned_vars.push(var);
             }
         }
+        // Sort by declaration order (descending), then by name (descending) for determinism
+        // This ensures most recently declared variables are deleted first (LIFO order)
+        owned_vars.sort_by(|a, b| {
+            b.declaration_stmt_index
+                .cmp(&a.declaration_stmt_index)
+                .then_with(|| a.name.cmp(b.name))
+        });
         owned_vars
     }
 
@@ -248,7 +263,7 @@ impl<'hir> ScopeMap<'hir> {
     /// Used when encountering a `return` statement to determine which variables need to be deleted
     /// before returning.
     ///
-    /// The variables are returned in reverse order of declaration.
+    /// The variables are returned in reverse order of declaration (LIFO).
     pub fn get_all_owned_vars(&self) -> Vec<&VarData<'hir>> {
         let mut owned_vars = Vec::new();
         let mut current_scope_index = self.scopes.len() - 1;
@@ -265,6 +280,13 @@ impl<'hir> ScopeMap<'hir> {
                 break;
             }
         }
+        // Sort by declaration order (descending), then by name (descending) for determinism
+        // This ensures most recently declared variables are deleted first (LIFO order)
+        owned_vars.sort_by(|a, b| {
+            b.declaration_stmt_index
+                .cmp(&a.declaration_stmt_index)
+                .then_with(|| a.name.cmp(b.name))
+        });
         owned_vars
     }
 
@@ -418,16 +440,23 @@ impl<'hir> ScopeMap<'hir> {
                 let else_var = else_state.get(name);
 
                 if let (Some(then_v), Some(else_v)) = (then_var, else_var) {
-                    let then_moved = matches!(then_v.status, VarStatus::Moved { .. });
-                    let else_moved = matches!(else_v.status, VarStatus::Moved { .. });
+                    // A variable is "consumed" if it's either moved or explicitly deleted
+                    let then_consumed = matches!(
+                        then_v.status,
+                        VarStatus::Moved { .. } | VarStatus::Deleted { .. }
+                    );
+                    let else_consumed = matches!(
+                        else_v.status,
+                        VarStatus::Moved { .. } | VarStatus::Deleted { .. }
+                    );
 
-                    match (then_moved, else_moved) {
+                    match (then_consumed, else_consumed) {
                         (true, false) => {
-                            // Moved in then, still owned in else - need delete in else
+                            // Consumed in then, still owned in else - need delete in else
                             result.push((*name, true, else_v));
                         }
                         (false, true) => {
-                            // Moved in else, still owned in then - need delete in then
+                            // Consumed in else, still owned in then - need delete in then
                             result.push((*name, false, then_v));
                         }
                         _ => {}
@@ -535,8 +564,7 @@ impl<'hir> VarData<'hir> {
     pub fn last_ownership_consuming_use(&self) -> Option<&VarUse> {
         self.uses
             .iter()
-            .filter(|u| u.kind == UseKind::OwnershipConsuming)
-            .next_back()
+            .rfind(|u| u.kind == UseKind::OwnershipConsuming)
     }
 
     /// Check if a given use is the last ownership-consuming use

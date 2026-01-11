@@ -2,6 +2,7 @@
 #![allow(clippy::single_match)]
 #![allow(clippy::new_without_default)]
 #![allow(clippy::unusual_byte_groupings)]
+#![allow(unused)]
 
 pub mod atlas_c;
 pub mod atlas_lib;
@@ -29,8 +30,6 @@ use atlas_c::{
 };
 use bumpalo::Bump;
 use std::{collections::BTreeMap, io::Write, path::PathBuf, time::Instant};
-//todo: The pipeline of the compiler should be more straightforward and should include the "debug" and "release" modes
-//todo: There should also be a function for each stage of the pipeline
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum CompilationFlag {

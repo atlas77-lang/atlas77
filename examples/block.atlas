@@ -1,0 +1,17 @@
+import "std/io";
+
+fun main() {
+    let x = 0;
+    {
+        let y = 1;
+        print("Inside block: x = ");
+        print(x);
+        print(", y = ");
+        println(y);
+    }
+    let y: string = "2";
+    print("Outside block: x = ");
+    print(x);
+    print(", y = ");
+    println(y);
+}

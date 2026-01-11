@@ -1,0 +1,40 @@
+import "std/io";
+
+public struct BabyDontHurt {
+public:
+    lyrics: string;
+    amount: int64;
+    BabyDontHurt(lyrics: string, start_amount: int64) {
+        this.lyrics = lyrics;
+        this.amount = start_amount;
+    }
+    BabyDontHurt(from: &const BabyDontHurt) {
+        this.lyrics = *from.lyrics;
+        this.amount = *from.amount + 1;
+        println(this.lyrics);
+    }
+    fun sing(&this) {
+        this.amount = this.amount + 1;
+        println(this.lyrics);
+    }
+    fun clone(&this) -> BabyDontHurt {
+        return new BabyDontHurt(&this);
+    }
+    fun get_bool(&this) -> bool {
+        return true;
+    }
+}
+
+fun main() {
+    let song = new BabyDontHurt("Baby, don't hurt me", 0);
+    song.sing();
+    let copy_song = new BabyDontHurt(&song);
+    copy_song.sing();
+    if copy_song.clone().clone().clone().get_bool() {
+        println("Cloned successfully!");
+    }
+    while copy_song.clone().clone().clone().get_bool() {
+        println("Tuff");
+    }
+    let hehe = (25 as string) as int64;
+}

@@ -1,0 +1,23 @@
+import "std/io";
+
+struct HeHe {
+public:
+    val: int64;
+    HeHe(val: int64) {
+        this.val = val;
+    }
+    fun get_val(&this) -> int64 {
+        return this.val;
+    }
+    fun print(this) {
+        println(this);
+    }
+}
+
+fun main() {
+    let hehe = new HeHe(42);
+    let mut_ref: &HeHe = &hehe;
+    println(mut_ref.get_val());
+    mut_ref.print(); // Should error because print takes ownership
+    // mut_ref is just a reference, so you cannot do `mut_ref.print();`
+}

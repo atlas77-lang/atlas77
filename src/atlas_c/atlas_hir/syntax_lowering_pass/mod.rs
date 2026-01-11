@@ -467,6 +467,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         }
 
         let constructor = self.visit_constructor(node.name_span, node.constructor, &fields)?;
+        let had_user_defined_constructor = node.constructor.is_some();
         let destructor = self.visit_destructor(name, node.name_span, node.destructor, &fields)?;
         let copy_constructor = if node.copy_constructor.is_some() {
             Some(self.visit_constructor(node.name_span, node.copy_constructor, &fields)?)
@@ -502,6 +503,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             constructor: constructor.signature.clone(),
             copy_constructor: copy_constructor.as_ref().map(|c| c.signature.clone()),
             destructor: destructor.signature.clone(),
+            had_user_defined_constructor,
         };
 
         Ok(HirStruct {
@@ -516,6 +518,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             constructor,
             copy_constructor,
             destructor,
+            had_user_defined_destructor: had_user_defined_constructor,
             vis: node.vis.into(),
             flag: node.flag.into(),
         })
@@ -644,7 +647,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 AstMethodModifier::Const => HirStructMethodModifier::Const,
                 AstMethodModifier::Static => HirStructMethodModifier::Static,
                 AstMethodModifier::Mutable => HirStructMethodModifier::Mutable,
-                AstMethodModifier::None => HirStructMethodModifier::None,
+                AstMethodModifier::Consuming => HirStructMethodModifier::Consuming,
             },
             span: node.span,
             //TODO: PLACEHOLDER FOR NOW. NEED TO HANDLE VISIBILITY MODIFIERS IN METHODS
@@ -761,6 +764,16 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     )
                     .into();
                     eprintln!("{:?}", warning);
+                    continue;
+                }
+                if self.ast.items.iter().any(|item| {
+                    if let AstItem::Enum(ast_enum) = item {
+                        let enum_name = self.arena.names().get(ast_enum.name.name);
+                        return enum_name == field.ty.to_string();
+                    }
+                    false
+                }) {
+                    // No need to delete enums
                     continue;
                 }
                 let delete_expr = HirExpr::Delete(HirDeleteExpr {
@@ -914,6 +927,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     condition,
                     body,
                 });
+                Ok(hir)
+            }
+            AstStatement::Block(ast_block) => {
+                let block = self.visit_block(ast_block)?;
+                let hir = HirStatement::Block(block);
                 Ok(hir)
             }
             AstStatement::Const(ast_const) => {
@@ -1139,6 +1157,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         .map(|arg| self.visit_expr(arg))
                         .collect::<HirResult<Vec<_>>>()?,
                     args_ty: Vec::new(),
+                    // Filled in during type checking
+                    is_copy_constructor_call: false,
                 });
                 Ok(hir)
             }

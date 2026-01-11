@@ -13,7 +13,7 @@ use clap::Parser;
 #[command(
     bin_name = "atlas_77",
     author = "atlas77-lang",
-    version("v0.7.1 Covenant"),
+    version("v0.7.2 Covenant"),
     about = "Programming language made in Rust, a goofy cousin to C++. \nNB: The language is still in early development and is not stable yet, BEWARE.",
     long_about = "Atlas77 is a programming language made in Rust. It is a statically typed language with a focus on being a goofy cousin to C++ and useful for me (Gipson62) at least. \n\nNB: The language is still in early development and is not stable yet, BEWARE."
 )]

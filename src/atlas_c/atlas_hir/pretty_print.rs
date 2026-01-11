@@ -209,7 +209,7 @@ impl HirPrettyPrinter {
         match &method_sig.modifier {
             HirStructMethodModifier::Const => self.write("&const this"),
             HirStructMethodModifier::Mutable => self.write("&this"),
-            HirStructMethodModifier::None => self.write("this"),
+            HirStructMethodModifier::Consuming => self.write("this"),
             HirStructMethodModifier::Static => {}
         }
         if !method_sig.params.is_empty() && method_sig.modifier != HirStructMethodModifier::Static {
@@ -319,7 +319,7 @@ impl HirPrettyPrinter {
 
     fn print_statement(&mut self, stmt: &HirStatement) {
         match stmt {
-            HirStatement::_Block(block) => {
+            HirStatement::Block(block) => {
                 self.writeln("{");
                 self.indent();
                 self.print_block(block);
@@ -493,14 +493,19 @@ impl HirPrettyPrinter {
                 self.write(")");
             }
             HirExpr::ObjLiteral(obj_lit) => {
-                self.write(&format!("{} {{ ", Self::type_str(obj_lit.ty)));
+                self.write(&format!("{} {{\n", Self::type_str(obj_lit.ty)));
+                self.indent();
                 for (i, field_init) in obj_lit.fields.iter().enumerate() {
+                    self.write_indent();
+                    self.write(&format!(".{} = ", field_init.name));
+                    self.print_expr(&field_init.value);
                     if i > 0 {
                         self.write(", ");
                     }
-                    self.write(&format!("{}: ", field_init.name));
-                    self.print_expr(&field_init.value);
+                    self.write("\n");
                 }
+                self.dedent();
+                self.write_indent();
                 self.write("}");
             }
             HirExpr::Delete(delete) => {

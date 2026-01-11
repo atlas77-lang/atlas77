@@ -15,27 +15,14 @@ public:
         this.b = b;
     }
     // Destructor
-
+    ~Copyable() {
+        delete this.b;
+    }
     // Copy constructor
     Copyable(from: &const Copyable<T>) {
         this.a = *from.a;
         this.b = *from.b;
     }
-}
-public struct Foo<T> {
-    value: Copyable<T>;
-}
-// Should fail because of recursive types
-struct AA {
-  b: CC;
-}
-struct BB {
-  a: CC;
-}
-
-union CC {
-  a: AA;
-  b: BB;
 }
 
 fun main() {
@@ -45,9 +32,13 @@ fun main() {
     print(original.a);
     print(", b: ");
     print(original.b);
-    println("");
     print("Copy a: ");
     print(copy.a);
     print(", b: ");
     println(copy.b);
+    let copy_of_copy = new Copyable<string>(&copy);
+    print("Copy of Copy a: ");
+    print(copy_of_copy.a);
+    print(", b: ");
+    println(copy_of_copy.b);
 }

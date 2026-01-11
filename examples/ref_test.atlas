@@ -53,6 +53,17 @@ fun test5() -> Foo {
     return foo; // Should error: returning reference to deleted data
 }
 
+fun create_foo(ref: &const int64) -> Foo {
+    return new Foo(ref);
+}
+
+fun test6() -> Foo {
+    let my_vec = new Vector<int64>([1, 2, 3, 4, 5]);
+    let ref_1 = my_vec.get(0u);
+    let foo = create_foo(ref_1);
+    return foo; // Should error: returning object with local lifetime dependency
+}
+
 fun main() {
     println("Starting test for use after free...");
     test1();
