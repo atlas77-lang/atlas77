@@ -308,6 +308,15 @@ impl<'hir> HirLoweringPass<'hir> {
                 Ok(dest)
             }
 
+            HirExpr::UnitLiteral(lit) => {
+                let dest = self.new_temp();
+                self.emit(LirInstr::LoadImm {
+                    dst: dest.clone(),
+                    value: LirOperand::ImmUnit,
+                })?;
+                Ok(dest)
+            }
+
             // === Identifiers (variables/parameters) ===
             HirExpr::Ident(ident) => {
                 // Check if it's a parameter
@@ -654,6 +663,7 @@ impl std::fmt::Display for LirOperand {
             LirOperand::ImmFloat(fl) => write!(f, "%imm{}", fl),
             LirOperand::ImmBool(b) => write!(f, "%imm{}", b),
             LirOperand::ImmChar(c) => write!(f, "%imm{}", c),
+            LirOperand::ImmUnit => write!(f, "%imm()"),
         }
     }
 }

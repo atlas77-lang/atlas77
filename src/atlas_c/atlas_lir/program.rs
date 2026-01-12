@@ -195,6 +195,7 @@ pub enum LirOperand {
     ImmFloat(f64),
     ImmBool(bool),
     ImmChar(char),
+    ImmUnit,
 }
 
 impl LirOperand {
