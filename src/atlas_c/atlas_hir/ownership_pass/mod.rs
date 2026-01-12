@@ -813,6 +813,25 @@ impl<'hir> OwnershipPass<'hir> {
                 Ok(result)
             }
             HirStatement::Expr(expr_stmt) => {
+                // Special-case assignment to insert delete for previous value when needed
+                let assign = match &expr_stmt.expr {
+                    HirExpr::Assign(assign_expr) => Some(assign_expr),
+                    HirExpr::Unary(unary_expr) => {
+                        if let HirExpr::Assign(assign_expr) = unary_expr.expr.as_ref() {
+                            Some(assign_expr)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+                if let Some(assign_expr) = assign
+                    && let Some(stmts) =
+                        self.handle_assignment_with_deletes(assign_expr, expr_stmt.span)?
+                {
+                    return Ok(stmts);
+                }
+
                 let transformed = self.transform_expr_ownership(&expr_stmt.expr, false)?;
                 let new_stmt = HirStatement::Expr(HirExprStmt {
                     span: expr_stmt.span,
@@ -1892,6 +1911,150 @@ impl<'hir> OwnershipPass<'hir> {
                 })),
             }),
         })
+    }
+
+    /// Handle assignment expressions and insert delete statements when needed.
+    /// Returns `Ok(Some(stmts))` when the assignment was handled (statements
+    /// already produced), or `Ok(None)` to fall back to normal handling.
+    fn handle_assignment_with_deletes(
+        &mut self,
+        assign_expr: &HirAssignExpr<'hir>,
+        expr_span: Span,
+    ) -> HirResult<Option<Vec<HirStatement<'hir>>>> {
+        eprintln!("ownership_pass: handle_assignment_with_deletes called");
+        // Extract simple ident from LHS, possibly wrapped in a no-op Unary
+        let lhs_ident_opt: Option<HirIdentExpr<'hir>> = match assign_expr.lhs.as_ref() {
+            HirExpr::Ident(ident) => Some(ident.clone()),
+            HirExpr::Unary(unary) if unary.op.is_none() => {
+                if let HirExpr::Ident(ident) = &*unary.expr {
+                    Some(ident.clone())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+
+        let lhs_ident = match lhs_ident_opt {
+            Some(i) => i,
+            None => return Ok(None),
+        };
+
+        // Decide whether this LHS needs special handling (owned, non-primitive, non-reference)
+        let (should_handle, var_ty) = match self.scope_map.get(lhs_ident.name) {
+            Some(var_data) => (
+                var_data.status == VarStatus::Owned
+                    && var_data.kind != VarKind::Primitive
+                    && var_data.kind != VarKind::Reference,
+                var_data.ty,
+            ),
+            None => (false, self.hir_arena.types().get_uninitialized_ty()),
+        };
+
+        if !should_handle {
+            return Ok(None);
+        }
+
+        // Collect vars used in RHS to see if it references the LHS
+        let mut used = Vec::new();
+        Self::collect_vars_used_in_expr(&assign_expr.rhs, &mut used);
+
+        // Transform RHS first (it may consume ownership)
+        let transformed_rhs = self.transform_expr_ownership(&assign_expr.rhs, true)?;
+
+        // Start with any pending temporaries
+        let mut stmts: Vec<HirStatement<'hir>> = Vec::new();
+        let mut pending = self.pending_statements.clone();
+        stmts.append(&mut pending);
+
+        if used.contains(&lhs_ident.name) {
+            // RHS uses the LHS -> evaluate RHS into a temporary
+            let tmp_name = format!("__assign_tmp_{}", self.temp_var_counter);
+            self.temp_var_counter += 1;
+            let tmp_name_intern = self.hir_arena.names().get(&tmp_name);
+
+            // Insert temp variable into scope map
+            let tmp_ty = transformed_rhs.ty();
+            let tmp_kind = self.classify_type_kind(tmp_ty);
+            let tmp_is_copyable = self.is_type_copyable(tmp_ty);
+            let tmp_var = VarData::new(
+                tmp_name_intern,
+                assign_expr.span,
+                tmp_kind,
+                tmp_ty,
+                tmp_is_copyable,
+                self.current_stmt_index,
+            );
+            self.scope_map.insert(tmp_name_intern, tmp_var);
+
+            // let __tmp = <transformed_rhs>;
+            stmts.push(HirStatement::Const(HirVariableStmt {
+                span: assign_expr.span,
+                name: tmp_name_intern,
+                name_span: assign_expr.span,
+                ty: tmp_ty,
+                ty_span: Some(assign_expr.span),
+                value: transformed_rhs,
+            }));
+
+            // delete lhs
+            stmts.push(Self::create_delete_stmt(
+                lhs_ident.name,
+                var_ty,
+                assign_expr.span,
+            ));
+
+            // lhs = __tmp
+            let assign_after = HirExpr::Assign(HirAssignExpr {
+                span: assign_expr.span,
+                lhs: Box::new(HirExpr::Ident(lhs_ident.clone())),
+                rhs: Box::new(HirExpr::Ident(HirIdentExpr {
+                    span: assign_expr.span,
+                    name: tmp_name_intern,
+                    ty: tmp_ty,
+                })),
+                ty: assign_expr.ty,
+            });
+            stmts.push(HirStatement::Expr(HirExprStmt {
+                span: expr_span,
+                expr: assign_after,
+            }));
+
+            // After assignment, mark LHS as owned again
+            if let Some(lhs_var_mut) = self.scope_map.get_mut(lhs_ident.name) {
+                lhs_var_mut.status = VarStatus::Owned;
+            }
+
+            Ok(Some(stmts))
+        } else {
+            // RHS does not reference LHS -> safe to delete old value first
+            let mut result = self.pending_statements.clone();
+            // delete old value
+            result.push(Self::create_delete_stmt(
+                lhs_ident.name,
+                var_ty,
+                assign_expr.span,
+            ));
+
+            // Now create the transformed assignment using transformed_rhs
+            let new_assign = HirExpr::Assign(HirAssignExpr {
+                span: assign_expr.span,
+                lhs: assign_expr.lhs.clone(),
+                rhs: Box::new(transformed_rhs),
+                ty: assign_expr.ty,
+            });
+            result.push(HirStatement::Expr(HirExprStmt {
+                span: expr_span,
+                expr: new_assign,
+            }));
+
+            // Re-establish ownership on LHS (assignment gives it ownership)
+            if let Some(lhs_var_mut) = self.scope_map.get_mut(lhs_ident.name) {
+                lhs_var_mut.status = VarStatus::Owned;
+            }
+
+            Ok(Some(result))
+        }
     }
 
     /// Find the position to insert delete statements in a block.

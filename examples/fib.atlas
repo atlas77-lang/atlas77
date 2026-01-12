@@ -11,3 +11,9 @@ fun fib(n: int64) -> int64 {
         return fib(n - 1) + fib(n - 2);
     }
 }
+
+fun test() {
+    let s = "Hello, World!";
+    s = "Goodbye, World!";
+    println(s);
+}
