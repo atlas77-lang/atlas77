@@ -569,9 +569,23 @@ impl<'hir> TypeChecker<'hir> {
                 )
             }
             HirStatement::Block(block) => {
+                // We need to add a new scope for the block
+                self.context_functions
+                    .last_mut()
+                    .unwrap()
+                    .get_mut(self.current_func_name.unwrap())
+                    .unwrap()
+                    .new_scope();
                 for stmt in &mut block.statements {
                     self.check_stmt(stmt)?;
                 }
+                // We end the scope after finishing the block
+                self.context_functions
+                    .last_mut()
+                    .unwrap()
+                    .get_mut(self.current_func_name.unwrap())
+                    .unwrap()
+                    .end_scope();
                 Ok(())
             }
             _ => Err(HirError::UnsupportedExpr(UnsupportedExpr {
