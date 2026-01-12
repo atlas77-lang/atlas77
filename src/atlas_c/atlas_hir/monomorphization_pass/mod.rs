@@ -106,14 +106,13 @@ impl<'hir> MonomorphizationPass<'hir> {
 
         // First, monomorphize all non-generic function bodies to discover generic instantiations
         // We need to be careful about borrowing - collect the function names first
-        let non_generic_functions: Vec<&'hir str> = module
+        let non_generic_functions: Vec<_> = module
             .body
             .functions
             .iter()
             .filter(|(_, func)| {
-                func.signature.generics.is_empty()
-                    && !func.signature.is_external
-                    && self.already_monomorphized_functions.contains(func.name)
+                func.signature.generics.is_empty() && !func.signature.is_external
+                //&& self.already_monomorphized_functions.contains(func.name)
             })
             .map(|(_, func)| func.name)
             .collect();
@@ -137,10 +136,6 @@ impl<'hir> MonomorphizationPass<'hir> {
             if let Some(func) = module.body.functions.get_mut(func_name) {
                 func.body.statements = processed_stmts;
             }
-        }
-
-        for processed_func in non_generic_functions.iter() {
-            self.already_monomorphized_functions.insert(processed_func);
         }
 
         let mut generic_pool_clone = self.generic_pool.structs.clone();
