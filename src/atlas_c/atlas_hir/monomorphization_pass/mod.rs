@@ -13,8 +13,9 @@ use crate::atlas_c::{
         item::{HirStruct, HirStructConstructor, HirUnion},
         monomorphization_pass::generic_pool::HirGenericPool,
         signature::{
-            HirFunctionParameterSignature, HirGenericConstraint, HirStructConstructorSignature,
-            HirStructFieldSignature, HirTypeParameterItemSignature, HirVisibility,
+            HirFunctionParameterSignature, HirGenericConstraint, HirGenericConstraintKind,
+            HirModuleSignature, HirStructConstructorSignature, HirStructFieldSignature,
+            HirTypeParameterItemSignature, HirVisibility,
         },
         stmt::{HirBlock, HirExprStmt, HirStatement},
         ty::{HirGenericTy, HirListTy, HirMutableReferenceTy, HirReadOnlyReferenceTy, HirTy},
@@ -357,6 +358,22 @@ impl<'hir> MonomorphizationPass<'hir> {
 
         // Monomorphize copy constructor signature params first, then sync body params
         if let Some(copy_ctor_sig) = new_struct.signature.copy_constructor.as_mut() {
+            // Check where_clause constraints for copy constructor
+            if let Some(where_clause) = &copy_ctor_sig.where_clause {
+                let is_satisfied = self.check_where_constraints_on_method(
+                    where_clause,
+                    &generics,
+                    actual_type,
+                    &module.signature,
+                );
+                copy_ctor_sig.is_constraint_satisfied = is_satisfied;
+
+                // If constraints are not satisfied, remove the copy constructor body
+                if !is_satisfied {
+                    new_struct.copy_constructor = None;
+                }
+            }
+
             for arg in copy_ctor_sig.params.iter_mut() {
                 for (j, generic) in generics.iter().enumerate() {
                     arg.ty = self.change_inner_type(
@@ -369,7 +386,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             }
         }
 
-        // Monomorphize copy constructor body
+        // Monomorphize copy constructor body (only if constraints are satisfied)
         if let Some(copy_ctor) = new_struct.copy_constructor.as_mut() {
             self.monomorphize_constructor(copy_ctor, types_to_change.clone(), module)?;
             // Sync body params from signature
@@ -395,15 +412,58 @@ impl<'hir> MonomorphizationPass<'hir> {
             }
         }
 
-        for (name, func) in new_struct.signature.methods.iter_mut() {
+        // Check and mark methods based on where_clause constraints
+        let mut methods_constraint_status: std::collections::HashMap<&str, bool> =
+            std::collections::HashMap::new();
+        for (name, func) in new_struct.signature.methods.iter() {
+            // Skip methods with their own generics for now
             if func.generics.is_some() {
-                // We just ignore methods with their own generics for now
                 eprintln!(
                     "Warning: Skipping monomorphization of method {} because it has its own generics",
                     name
                 );
+                methods_constraint_status.insert(name, false);
                 continue;
             }
+
+            // Check where_clause constraints (struct-level generics only)
+            let is_satisfied = if let Some(where_clause) = &func.where_clause {
+                self.check_where_constraints_on_method(
+                    where_clause,
+                    &generics,
+                    actual_type,
+                    &module.signature,
+                )
+            } else {
+                true
+            };
+
+            methods_constraint_status.insert(name, is_satisfied);
+        }
+
+        // Mark methods with unsatisfied constraints in signature
+        for (name, func) in new_struct.signature.methods.iter_mut() {
+            if let Some(&is_satisfied) = methods_constraint_status.get(name) {
+                let mut new_func = func.clone();
+                new_func.is_constraint_satisfied = is_satisfied;
+                *func = new_func;
+            }
+        }
+
+        // Remove unsatisfied methods from body only (keep in signature for error reporting)
+        new_struct.methods.retain(|method| {
+            methods_constraint_status
+                .get(&method.name)
+                .copied()
+                .unwrap_or(true)
+        });
+
+        // Monomorphize remaining satisfied methods
+        for (name, func) in new_struct.signature.methods.iter_mut() {
+            if !methods_constraint_status.get(name).copied().unwrap_or(true) {
+                continue; // Skip unsatisfied methods
+            }
+
             //args:
             for param in func.params.iter_mut() {
                 for (i, generic_name) in generics.iter().enumerate() {
@@ -932,6 +992,57 @@ impl<'hir> MonomorphizationPass<'hir> {
     fn _mangle_function_name(&self, base_name: &str, actual_tys: &[&'hir HirTy<'hir>]) -> String {
         let parts: Vec<String> = actual_tys.iter().map(|t| format!("{}", t)).collect();
         format!("__atlas77__fun__{}__{}", base_name, parts.join("_"))
+    }
+
+    /// Check if a method's where_clause constraints are satisfied by the concrete types.
+    /// This only checks struct-level generic constraints.
+    fn check_where_constraints_on_method(
+        &self,
+        where_clause: &[&'hir HirGenericConstraint<'hir>],
+        struct_generics: &[&'hir HirGenericConstraint<'hir>],
+        actual_type: &'hir HirGenericTy<'hir>,
+        module_sig: &HirModuleSignature<'hir>,
+    ) -> bool {
+        // For each constraint in the where_clause, find the corresponding concrete type
+        for constraint in where_clause {
+            // Find which generic parameter index this constraint refers to
+            let generic_index = struct_generics
+                .iter()
+                .position(|g| g.generic_name == constraint.generic_name);
+
+            if let Some(index) = generic_index {
+                if index >= actual_type.inner.len() {
+                    // Generic index out of bounds - constraint can't be satisfied
+                    return false;
+                }
+
+                let concrete_type = &actual_type.inner[index];
+
+                // Check each constraint kind
+                for constraint_kind in &constraint.kind {
+                    match constraint_kind {
+                        HirGenericConstraintKind::Std { name, .. } => {
+                            // Check std::copyable constraint
+                            if *name == "copyable" {
+                                if !self
+                                    .generic_pool
+                                    .implements_std_copyable(module_sig, concrete_type)
+                                {
+                                    return false;
+                                }
+                            }
+                            // Add more std constraints here as needed
+                        }
+                        // Handle other constraint kinds as needed
+                        _ => {
+                            // For now, unknown constraints pass
+                        }
+                    }
+                }
+            }
+        }
+
+        true
     }
 
     /// Add a new struct signature to the module signature.

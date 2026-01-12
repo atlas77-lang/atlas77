@@ -72,6 +72,8 @@ declare_error_type! {
         UnionVariantDefinedMultipleTimes(UnionVariantDefinedMultipleTimesError),
         LifetimeDependencyViolation(LifetimeDependencyViolationError),
         ReturningValueWithLocalLifetimeDependency(ReturningValueWithLocalLifetimeDependencyError),
+        ConstructorCannotHaveAWhereClause(ConstructorCannotHaveAWhereClauseError),
+        MethodConstraintNotSatisfied(MethodConstraintNotSatisfiedError),
     }
 }
 
@@ -852,6 +854,26 @@ pub struct UnknownMethodError {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
+    code(sema::method_constraint_not_satisfied),
+    help(
+        "this member has a where clause constraint that is not satisfied by the concrete type used in this instantiation"
+    )
+)]
+#[error(
+    "{member_kind} `{member_name}` is not available on `{ty_name}` because its constraints are not satisfied"
+)]
+pub struct MethodConstraintNotSatisfiedError {
+    pub member_kind: String,
+    pub member_name: String,
+    pub ty_name: String,
+    #[label = "{member_kind} not available due to unsatisfied constraints"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
     code(sema::cannot_transfer_ownership_in_borrowing_method),
     help(
         "change the method to use `this` instead of `&this` if it needs to transfer ownership, or copy the value if the type is copyable"
@@ -1074,6 +1096,21 @@ pub struct ReturningValueWithLocalLifetimeDependencyError {
     pub origin_declaration_span: Span,
     #[label = "cannot return `{value_name}` here because `{origin_name}` will be destroyed"]
     pub return_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::constructor_cannot_have_a_where_clause),
+    help(
+        "constructors cannot have where clauses, maybe you meant to use that clause on the copy constructor?"
+    )
+)]
+#[error("constructors cannot have where clauses, they aren't conditionally defined")]
+pub struct ConstructorCannotHaveAWhereClauseError {
+    #[label = "constructors cannot have where clauses"]
+    pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }

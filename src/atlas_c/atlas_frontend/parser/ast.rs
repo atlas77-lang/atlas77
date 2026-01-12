@@ -239,6 +239,9 @@ pub struct AstConstructor<'ast> {
     pub args: &'ast [&'ast AstObjField<'ast>],
     pub body: &'ast AstBlock<'ast>,
     pub vis: AstVisibility,
+    /// Allows adding constraints on struct generics in the copy constructor
+    /// TODO: Maybe it's time to separate the copy constructor from the regular one
+    pub where_clause: Option<&'ast [&'ast AstGeneric<'ast>]>,
 }
 
 #[derive(Debug, Clone)]
@@ -259,6 +262,9 @@ pub struct AstMethod<'ast> {
     pub args: &'ast [&'ast AstObjField<'ast>],
     pub ret: &'ast AstType<'ast>,
     pub body: &'ast AstBlock<'ast>,
+    /// Optional where clause containing constraints on struct and method generics.
+    /// During syntax lowering, method-level generic constraints are moved into the `generics` field as bounds.
+    pub where_clause: Option<&'ast [&'ast AstGeneric<'ast>]>,
 }
 
 #[derive(Debug, Clone)]

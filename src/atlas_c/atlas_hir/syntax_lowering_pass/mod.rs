@@ -11,9 +11,9 @@ use crate::atlas_c::{
             arena::AstArena,
             ast::{
                 AstBinaryOp, AstBlock, AstConstructor, AstDestructor, AstEnum, AstExpr,
-                AstExternFunction, AstFunction, AstGenericConstraint, AstIdentifier, AstImport,
-                AstItem, AstLiteral, AstMethod, AstMethodModifier, AstObjField, AstProgram,
-                AstStatement, AstStruct, AstType, AstUnaryOp, AstUnion,
+                AstExternFunction, AstFunction, AstGeneric, AstGenericConstraint, AstIdentifier,
+                AstImport, AstItem, AstLiteral, AstMethod, AstMethodModifier, AstObjField,
+                AstProgram, AstStatement, AstStruct, AstType, AstUnaryOp, AstUnion,
             },
         },
     },
@@ -21,9 +21,9 @@ use crate::atlas_c::{
         HirImport, HirModule, HirModuleBody,
         arena::HirArena,
         error::{
-            HirError, HirResult, NonConstantValueError, NullableTypeRequiresStdLibraryError,
-            StructNameCannotBeOneLetterError, UnsupportedExpr, UnsupportedItemError,
-            UnsupportedStatement, UselessError,
+            ConstructorCannotHaveAWhereClauseError, HirError, HirResult, NonConstantValueError,
+            NullableTypeRequiresStdLibraryError, StructNameCannotBeOneLetterError, UnsupportedExpr,
+            UnsupportedItemError, UnsupportedStatement, UselessError,
         },
         expr::{
             HirAssignExpr, HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr,
@@ -37,7 +37,7 @@ use crate::atlas_c::{
             HirEnum, HirEnumVariant, HirFunction, HirStruct, HirStructConstructor, HirStructMethod,
             HirUnion,
         },
-        monomorphization_pass::generic_pool::HirGenericPool,
+        monomorphization_pass::{MonomorphizationPass, generic_pool::HirGenericPool},
         signature::{
             ConstantValue, HirFunctionParameterSignature, HirFunctionSignature,
             HirGenericConstraint, HirGenericConstraintKind, HirModuleSignature,
@@ -52,7 +52,8 @@ use crate::atlas_c::{
         syntax_lowering_pass::case::Case,
         ty::{HirGenericTy, HirNamedTy, HirTy},
         warning::{
-            HirWarning, NameShouldBeInDifferentCaseWarning, ThisTypeIsStillUnstableWarning,
+            CannotGenerateACopyConstructorForThisTypeWarning, HirWarning,
+            NameShouldBeInDifferentCaseWarning, ThisTypeIsStillUnstableWarning,
             UnionFieldCannotBeAutomaticallyDeletedWarning,
         },
     },
@@ -105,6 +106,10 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             let report: ErrReport = warning.into();
             eprintln!("{:?}", report);
         }
+
+        // Now we can generate all the copy constructors for the every structs
+        // Collect struct names and info first to avoid borrow checker conflicts
+        self.generate_all_copy_constructors()?;
 
         Ok(self.arena.intern(HirModule {
             body: self.module_body.clone(),
@@ -466,11 +471,13 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             );
         }
 
-        let constructor = self.visit_constructor(node.name_span, node.constructor, &fields)?;
+        let constructor =
+            self.visit_constructor(node.name_span, node.constructor, &fields, false)?;
         let had_user_defined_constructor = node.constructor.is_some();
+        let had_user_defined_destructor = node.destructor.is_some();
         let destructor = self.visit_destructor(name, node.name_span, node.destructor, &fields)?;
         let copy_constructor = if node.copy_constructor.is_some() {
-            Some(self.visit_constructor(node.name_span, node.copy_constructor, &fields)?)
+            Some(self.visit_constructor(node.name_span, node.copy_constructor, &fields, true)?)
         } else {
             None
         };
@@ -504,6 +511,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             copy_constructor: copy_constructor.as_ref().map(|c| c.signature.clone()),
             destructor: destructor.signature.clone(),
             had_user_defined_constructor,
+            had_user_defined_destructor,
         };
 
         Ok(HirStruct {
@@ -518,7 +526,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             constructor,
             copy_constructor,
             destructor,
-            had_user_defined_destructor: had_user_defined_constructor,
+            had_user_defined_destructor,
+            had_user_defined_constructor,
             vis: node.vis.into(),
             flag: node.flag.into(),
         })
@@ -555,6 +564,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             params: params.clone(),
             type_params: type_params.clone(),
             vis: HirVisibility::Public,
+            where_clause: None,
+            is_constraint_satisfied: true,
         };
 
         let mut statements = vec![];
@@ -642,6 +653,9 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             .collect::<HirResult<Vec<_>>>();
 
         let body = self.visit_block(node.body)?;
+        let (generics, where_clause) =
+            self.merge_generic_constraints(node.generics, node.where_clause);
+
         let signature = self.arena.intern(HirStructMethodSignature {
             modifier: match node.modifier {
                 AstMethodModifier::Const => HirStructMethodModifier::Const,
@@ -650,14 +664,15 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 AstMethodModifier::Consuming => HirStructMethodModifier::Consuming,
             },
             span: node.span,
-            //TODO: PLACEHOLDER FOR NOW. NEED TO HANDLE VISIBILITY MODIFIERS IN METHODS
             vis: node.vis.into(),
             params: parameters?,
-            //Generics aren't supported yet for normal functions
-            generics: None,
+            generics,
             type_params: type_parameters?,
             return_ty: ret_type,
             return_ty_span: Some(ret_type_span),
+            where_clause,
+            // Sets to true by default; monomorphization pass will update if needed
+            is_constraint_satisfied: true,
         });
         let method = HirStructMethod {
             span: node.span,
@@ -669,17 +684,174 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         Ok(method)
     }
 
+    /// Merges method-level generic constraints from the where clause into the method generics.
+    /// Constraints for method-level generics are moved into the generic bounds, while struct-level constraints remain in the where clause.
+    fn merge_generic_constraints(
+        &mut self,
+        method_generics: Option<&'ast [&'ast AstGeneric<'ast>]>,
+        where_clause: Option<&'ast [&'ast AstGeneric<'ast>]>,
+    ) -> (
+        Option<Vec<&'hir HirGenericConstraint<'hir>>>,
+        Option<Vec<&'hir HirGenericConstraint<'hir>>>,
+    ) {
+        // If no where clause, convert method generics to HIR and return
+        let where_clause = match where_clause {
+            Some(wc) => wc,
+            None => {
+                let method_hir = method_generics.map(|generics| {
+                    generics
+                        .iter()
+                        .map(|generic| {
+                            let constraints: Vec<&'hir HirGenericConstraintKind<'hir>> = generic
+                                .constraints
+                                .iter()
+                                .map(|constraint| {
+                                    self.arena
+                                        .intern(self.visit_constraint(constraint).unwrap())
+                                        as &'hir _
+                                })
+                                .collect();
+
+                            self.arena.intern(HirGenericConstraint {
+                                span: generic.span,
+                                generic_name: self.arena.names().get(generic.name.name),
+                                kind: constraints,
+                            }) as &'hir _
+                        })
+                        .collect::<Vec<&'hir HirGenericConstraint<'hir>>>()
+                });
+                return (method_hir, None);
+            }
+        };
+
+        // Build a set of method generic names for O(1) lookup
+        let method_generic_names: std::collections::HashSet<&str> = method_generics
+            .map(|generics| {
+                generics
+                    .iter()
+                    .map(|g| self.arena.names().get(g.name.name))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // Collect constraints from where clause, partitioned by generic name
+        let mut method_level_constraints: std::collections::BTreeMap<
+            &'hir str,
+            Vec<&'ast AstGenericConstraint<'ast>>,
+        > = std::collections::BTreeMap::new();
+        let mut struct_level_generics: Vec<&'ast AstGeneric<'ast>> = Vec::new();
+
+        for generic in where_clause {
+            let generic_name = self.arena.names().get(generic.name.name);
+
+            if method_generic_names.contains(generic_name) {
+                // This constraint belongs to a method generic - collect for merging
+                method_level_constraints
+                    .entry(generic_name)
+                    .or_insert_with(Vec::new)
+                    .extend(generic.constraints);
+            } else {
+                // This constraint belongs to a struct generic - keep in where clause
+                struct_level_generics.push(generic);
+            }
+        }
+
+        // Merge collected constraints into method generics
+        let updated_method_generics = if let Some(generics) = method_generics {
+            let merged_generics: Vec<&'hir HirGenericConstraint<'hir>> = generics
+                .iter()
+                .map(|generic| {
+                    let generic_name = self.arena.names().get(generic.name.name);
+                    let mut all_constraints: Vec<&'hir HirGenericConstraintKind<'hir>> = generic
+                        .constraints
+                        .iter()
+                        .map(|constraint| {
+                            self.arena
+                                .intern(self.visit_constraint(constraint).unwrap())
+                                as &'hir _
+                        })
+                        .collect();
+
+                    // Add constraints from where clause for this generic
+                    if let Some(extra_constraints) = method_level_constraints.get(generic_name) {
+                        for constraint in extra_constraints {
+                            all_constraints.push(
+                                self.arena
+                                    .intern(self.visit_constraint(constraint).unwrap()),
+                            );
+                        }
+                    }
+
+                    self.arena.intern(HirGenericConstraint {
+                        span: generic.span,
+                        generic_name,
+                        kind: all_constraints,
+                    }) as &'hir _
+                })
+                .collect();
+
+            if merged_generics.is_empty() {
+                None
+            } else {
+                Some(merged_generics)
+            }
+        } else {
+            None
+        };
+
+        // Convert struct-level generics to HIR
+        let updated_where_clause = if struct_level_generics.is_empty() {
+            None
+        } else {
+            let where_hir: Vec<&'hir HirGenericConstraint<'hir>> = struct_level_generics
+                .iter()
+                .map(|generic| {
+                    let constraints: Vec<&'hir HirGenericConstraintKind<'hir>> = generic
+                        .constraints
+                        .iter()
+                        .map(|constraint| {
+                            self.arena
+                                .intern(self.visit_constraint(constraint).unwrap())
+                                as &'hir _
+                        })
+                        .collect();
+
+                    self.arena.intern(HirGenericConstraint {
+                        span: generic.span,
+                        generic_name: self.arena.names().get(generic.name.name),
+                        kind: constraints,
+                    }) as &'hir _
+                })
+                .collect();
+
+            Some(where_hir)
+        };
+
+        (updated_method_generics, updated_where_clause)
+    }
+
     fn visit_constructor(
         &mut self,
         name_span: Span,
         constructor: Option<&'ast AstConstructor<'ast>>,
         fields: &[HirStructFieldSignature<'hir>],
+        is_copy_constructor: bool,
     ) -> HirResult<HirStructConstructor<'hir>> {
         if constructor.is_none() {
             let hir = self.make_default_constructor(name_span, fields);
             return Ok(hir);
         }
         let constructor = constructor.unwrap();
+        if !is_copy_constructor && constructor.where_clause.is_some() {
+            let path = constructor.span.path;
+            let src = utils::get_file_content(path).unwrap();
+            return Err(HirError::ConstructorCannotHaveAWhereClause(
+                ConstructorCannotHaveAWhereClauseError {
+                    span: constructor.span,
+                    src: NamedSource::new(path, src),
+                },
+            ));
+        }
         let mut params: Vec<HirFunctionParameterSignature<'hir>> = Vec::new();
         for param in constructor.args.iter() {
             let ty = self.visit_ty(param.ty)?;
@@ -702,11 +874,16 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             });
         }
 
+        let (_, where_clause) = self.merge_generic_constraints(None, constructor.where_clause);
+
         let constructor_signature = HirStructConstructorSignature {
             span: constructor.span,
             params: params.clone(),
             type_params: type_params.clone(),
             vis: constructor.vis.into(),
+            where_clause,
+            // Sets to true by default; monomorphization pass will update if needed
+            is_constraint_satisfied: true,
         };
 
         let hir = HirStructConstructor {
@@ -733,6 +910,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 params: Vec::new(),
                 type_params: Vec::new(),
                 vis: HirVisibility::Public,
+                where_clause: None,
+                is_constraint_satisfied: true,
             };
             let mut statements = vec![];
             for field in fields.iter() {
@@ -838,6 +1017,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             params: params.clone(),
             type_params: type_params.clone(),
             vis: destructor.vis.into(),
+            where_clause: None,
+            is_constraint_satisfied: true,
         };
         let hir = HirStructConstructor {
             span: destructor.span,
@@ -1546,6 +1727,224 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
         };
         Ok(ty)
+    }
+
+    fn generate_all_copy_constructors(&mut self) -> HirResult<()> {
+        let structs_to_process: Vec<_> = self
+            .module_body
+            .structs
+            .iter()
+            .filter(|(_, s)| {
+                s.copy_constructor.is_none()
+                    && !s.flag.is_non_copyable()
+                    // If the struct has a user-defined destructor AND no flag saying it's copyable,
+                    //  we cannot auto-generate a copy constructor
+                    && !(s.had_user_defined_destructor && s.flag.is_no_flag())
+            })
+            .map(|(name, s)| {
+                (
+                    ((*name).to_string(), s.name_span),
+                    self.arena.types().get_named_ty(s.name, s.name_span),
+                    s.signature
+                        .fields
+                        .values()
+                        .cloned()
+                        .collect::<Vec<HirStructFieldSignature>>(),
+                    s.flag.clone(),
+                )
+            })
+            .collect();
+
+        // Now assign copy constructors using the collected data
+        for ((struct_name, struct_span), ty, fields, flag) in structs_to_process {
+            let copy_ctor = self.make_copy_constructor(ty, &fields);
+            if copy_ctor.is_none() && flag.is_copyable() {
+                let path = flag.span().unwrap().path;
+                let src = utils::get_file_content(path).unwrap();
+                let report: ErrReport = HirWarning::CannotGenerateACopyConstructorForThisType(
+                    CannotGenerateACopyConstructorForThisTypeWarning {
+                        type_name: struct_name.clone(),
+                        flag_span: flag.span().unwrap(),
+                        name_span: struct_span,
+                        src: NamedSource::new(path, src),
+                    },
+                )
+                .into();
+                eprintln!("{:?}", report);
+            }
+            if let Some(strct) = self.module_body.structs.get_mut(struct_name.as_str()) {
+                strct.signature.copy_constructor = copy_ctor.as_ref().map(|c| c.signature.clone());
+                strct.copy_constructor = copy_ctor.clone();
+                if let Some(current_struct_sig) =
+                    self.module_signature.structs.get_mut(struct_name.as_str())
+                {
+                    *current_struct_sig = self.arena.intern(strct.signature.clone());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn make_copy_constructor(
+        &mut self,
+        ty: &'hir HirTy<'hir>,
+        fields: &[HirStructFieldSignature<'hir>],
+    ) -> Option<HirStructConstructor<'hir>> {
+        if self.can_be_copyable(ty) {
+            let (name, span) = match ty {
+                HirTy::Named(named) => (named.name, named.span),
+                HirTy::Generic(generic) => (
+                    MonomorphizationPass::generate_mangled_name(self.arena, generic, "struct"),
+                    generic.span,
+                ),
+                // Shouldn't happen
+                _ => ("hehehehehehe", Span::default()),
+            };
+            let params = vec![HirFunctionParameterSignature {
+                span,
+                name: self.arena.names().get("from"),
+                name_span: span,
+                ty: self.arena.types().get_readonly_reference_ty(ty),
+                ty_span: span,
+            }];
+
+            let type_params = vec![HirTypeParameterItemSignature {
+                span,
+                name: self.arena.names().get("from"),
+                name_span: span,
+            }];
+
+            let copy_ctor_signature = HirStructConstructorSignature {
+                span,
+                params: params.clone(),
+                type_params: type_params.clone(),
+                vis: HirVisibility::Public,
+                where_clause: None,
+                // Initially true; monomorphization pass will check constraints and update if needed
+                is_constraint_satisfied: true,
+            };
+            // each statement is of the form: this.field = *from.field;
+            let mut statements = vec![];
+            for field in fields.iter() {
+                let init_expr = HirExpr::Assign(HirAssignExpr {
+                    span: field.span,
+                    lhs: Box::new(HirExpr::FieldAccess(HirFieldAccessExpr {
+                        span: field.span,
+                        target: Box::new(HirExpr::ThisLiteral(HirThisLiteral {
+                            span: field.span,
+                            ty: self.arena.types().get_named_ty(name, span),
+                        })),
+                        field: Box::new(HirIdentExpr {
+                            span: field.span,
+                            name: field.name,
+                            ty: field.ty,
+                        }),
+                        ty: field.ty,
+                    })),
+                    rhs: Box::new(HirExpr::Unary(UnaryOpExpr {
+                        span: field.span,
+                        op: Some(HirUnaryOp::Deref),
+                        expr: Box::new(HirExpr::FieldAccess(HirFieldAccessExpr {
+                            span: field.span,
+                            target: Box::new(HirExpr::Ident(HirIdentExpr {
+                                span,
+                                name: self.arena.names().get("from"),
+                                ty: self.arena.types().get_readonly_reference_ty(ty),
+                            })),
+                            field: Box::new(HirIdentExpr {
+                                span: field.span,
+                                name: field.name,
+                                ty: field.ty,
+                            }),
+                            ty: field.ty,
+                        })),
+                        ty: field.ty,
+                    })),
+                    ty: field.ty,
+                });
+                statements.push(HirStatement::Expr(HirExprStmt {
+                    span: field.span,
+                    expr: init_expr,
+                }));
+            }
+            let hir = HirStructConstructor {
+                span,
+                signature: self.arena.intern(copy_ctor_signature),
+                params,
+                type_params,
+                body: HirBlock { span, statements },
+                //Copy constructor is public by default
+                vis: HirVisibility::Public,
+            };
+            return Some(hir);
+        }
+        None
+    }
+
+    /// A type can be copyable if:
+    /// - It's a primitive type (int, float, bool, char, uint, string)
+    /// - It's a reference type (&T, &const T) - references are pointers
+    /// - If it has a copy constructor defined AND no pre define destructor (to avoid double free)
+    /// - If all its fields are copyable
+    fn can_be_copyable(&self, ty: &'hir HirTy<'hir>) -> bool {
+        match ty {
+            HirTy::Int64(_)
+            | HirTy::Float64(_)
+            | HirTy::Boolean(_)
+            | HirTy::Char(_)
+            | HirTy::UInt64(_)
+            | HirTy::String(_)
+            | HirTy::Unit(_)
+            | HirTy::MutableReference(_)
+            | HirTy::ReadOnlyReference(_)
+            | HirTy::ExternTy(_)
+            | HirTy::Function(_) => true,
+            // TODO: Add support for list copy constructors
+            // HirTy::List(list) => self.can_be_copyable(list.inner, module),
+            HirTy::Named(named) => {
+                let obj_name = named.name;
+                if let Some(hir_struct) = self.module_signature.structs.get(obj_name) {
+                    // TODO: Add a check for the presence of a destructor in the struct
+                    if hir_struct.copy_constructor.is_some() {
+                        return true;
+                    }
+                    //Check all fields
+                    for field in hir_struct.fields.values() {
+                        if !self.can_be_copyable(field.ty) {
+                            return false;
+                        }
+                    }
+                    return true;
+                }
+                if let Some(hir_enum) = self.module_signature.enums.get(obj_name) {
+                    // Enums are just uint64 under the hood
+                    return true;
+                }
+                false
+            }
+            HirTy::Generic(generic) => {
+                let struct_name =
+                    MonomorphizationPass::generate_mangled_name(self.arena, generic, "struct");
+                // We only search in structs because unions can't be auto-copyable for safety reasons
+                if let Some(hir_struct) = self.module_signature.structs.get(struct_name) {
+                    // TODO: Add a check for the presence of a destructor in the struct
+                    if hir_struct.copy_constructor.is_some() {
+                        return true;
+                    }
+                    //Check all fields
+                    for field in hir_struct.fields.values() {
+                        if !self.can_be_copyable(field.ty) {
+                            return false;
+                        }
+                    }
+                    return true;
+                }
+                false
+            }
+            HirTy::Nullable(nullable) => self.can_be_copyable(nullable.inner),
+            // We just assume other types are not copyable for now
+            _ => false,
+        }
     }
 
     fn nullable_types_are_unstable_warning(span: &Span) {

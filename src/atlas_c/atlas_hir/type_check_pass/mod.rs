@@ -25,8 +25,8 @@ use crate::atlas_c::atlas_hir::{
         CallingNonConstMethodOnConstReferenceError, CallingNonConstMethodOnConstReferenceOrigin,
         CanOnlyConstructStructsError, EmptyListLiteralError, FieldKind, HirError, HirResult,
         IllegalOperationError, IllegalUnaryOperationError, InvalidSpecialMethodSignatureError,
-        NotEnoughArgumentsError, NotEnoughArgumentsOrigin, ReturningReferenceToLocalVariableError,
-        TryingToAccessFieldOnNonObjectTypeError,
+        MethodConstraintNotSatisfiedError, NotEnoughArgumentsError, NotEnoughArgumentsOrigin,
+        ReturningReferenceToLocalVariableError, TryingToAccessFieldOnNonObjectTypeError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin, TryingToIndexNonIndexableTypeError,
         TryingToMutateConstReferenceError, TypeMismatchActual, TypeMismatchError,
@@ -1086,6 +1086,29 @@ impl<'hir> TypeChecker<'hir> {
                 } else {
                     //Check copy constructor
                     if let Some(copy_ctor) = &struct_signature.copy_constructor {
+                        // Check if copy constructor's where_clause constraints are satisfied
+                        if !copy_ctor.is_constraint_satisfied {
+                            let path = obj.span.path;
+                            let src = utils::get_file_content(path).unwrap();
+                            return Err(HirError::MethodConstraintNotSatisfied(
+                                MethodConstraintNotSatisfiedError {
+                                    member_kind: "Copy constructor".to_string(),
+                                    member_name: if let Some(n) = struct_signature.pre_mangled_ty {
+                                        n.name.to_string()
+                                    } else {
+                                        struct_ty.name.to_string()
+                                    },
+                                    ty_name: if let Some(n) = struct_signature.pre_mangled_ty {
+                                        HirPrettyPrinter::generic_ty_str(n)
+                                    } else {
+                                        struct_ty.name.to_string()
+                                    },
+                                    span: obj.span,
+                                    src: NamedSource::new(path, src),
+                                },
+                            ));
+                        }
+
                         let param = &copy_ctor.params.first().unwrap();
                         let arg = obj.args.first_mut().unwrap();
                         let arg_ty = self.check_expr(arg)?;
@@ -1231,6 +1254,25 @@ impl<'hir> TypeChecker<'hir> {
                             .find(|m| *m.0 == field_access.field.name);
 
                         if let Some((_, method_signature)) = method {
+                            // Check if method's where_clause constraints are satisfied
+                            if !method_signature.is_constraint_satisfied {
+                                let path = field_access.span.path;
+                                let src = utils::get_file_content(path).unwrap();
+                                return Err(HirError::MethodConstraintNotSatisfied(
+                                    MethodConstraintNotSatisfiedError {
+                                        member_kind: "method".to_string(),
+                                        member_name: field_access.field.name.to_string(),
+                                        ty_name: if let Some(n) = class.pre_mangled_ty {
+                                            HirPrettyPrinter::generic_ty_str(n)
+                                        } else {
+                                            name.to_string()
+                                        },
+                                        span: field_access.span,
+                                        src: NamedSource::new(path, src),
+                                    },
+                                ));
+                            }
+
                             //Check if you're currently in the class, if not check is the method public
                             if self.current_class_name != Some(name)
                                 && method_signature.vis != HirVisibility::Public
@@ -1341,6 +1383,25 @@ impl<'hir> TypeChecker<'hir> {
                             .iter()
                             .find(|m| *m.0 == static_access.field.name);
                         if let Some((_, method_signature)) = func {
+                            // Check if method's where_clause constraints are satisfied
+                            if !method_signature.is_constraint_satisfied {
+                                let path = static_access.span.path;
+                                let src = utils::get_file_content(path).unwrap();
+                                return Err(HirError::MethodConstraintNotSatisfied(
+                                    MethodConstraintNotSatisfiedError {
+                                        member_kind: "method".to_string(),
+                                        member_name: static_access.field.name.to_string(),
+                                        ty_name: if let Some(n) = class.pre_mangled_ty {
+                                            HirPrettyPrinter::generic_ty_str(n)
+                                        } else {
+                                            name.to_string()
+                                        },
+                                        span: static_access.span,
+                                        src: NamedSource::new(path, src),
+                                    },
+                                ));
+                            }
+
                             if method_signature.modifier == HirStructMethodModifier::Consuming
                                 || method_signature.modifier == HirStructMethodModifier::Const
                             {

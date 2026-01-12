@@ -345,15 +345,23 @@ impl<'ast> Parser<'ast> {
             }
         }
         self.expect(TokenKind::RParen)?;
+        //where clause for constructor
+        let where_clause = if self.current().kind() == TokenKind::KwWhere {
+            Some(self.arena.alloc_vec(self.parse_where_clause()?))
+        } else {
+            None
+        };
         let body = self.parse_block()?;
         let node = AstConstructor {
             span: Span::union_span(&start_span, &body.span),
             args: self.arena.alloc_vec(params),
             body: self.arena.alloc(body),
             vis,
+            where_clause,
         };
         Ok(node)
     }
+
     fn parse_destructor(
         &mut self,
         class_name: String,
@@ -677,6 +685,11 @@ impl<'ast> Parser<'ast> {
             let _ = self.advance();
             ret_ty = self.parse_type()?;
         }
+        let where_clause = if self.current().kind() == TokenKind::KwWhere {
+            Some(self.arena.alloc_vec(self.parse_where_clause()?))
+        } else {
+            None
+        };
         let body = self.parse_block()?;
         let node = AstMethod {
             modifier,
@@ -691,8 +704,25 @@ impl<'ast> Parser<'ast> {
             ret: self.arena.alloc(ret_ty),
             body: self.arena.alloc(body),
             vis: AstVisibility::default(),
+            where_clause,
         };
         Ok(node)
+    }
+
+    fn parse_where_clause(&mut self) -> ParseResult<Vec<AstGeneric<'ast>>> {
+        self.expect(TokenKind::KwWhere)?;
+        let mut generics = vec![];
+        loop {
+            let generic = self.parse_generic()?;
+            generics.push(generic);
+            if self.current().kind() == TokenKind::Comma {
+                let _ = self.advance();
+            } else {
+                break;
+            }
+        }
+
+        Ok(generics)
     }
 
     fn parse_generic(&mut self) -> ParseResult<AstGeneric<'ast>> {

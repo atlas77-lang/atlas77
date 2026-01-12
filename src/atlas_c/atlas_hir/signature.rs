@@ -41,6 +41,7 @@ pub struct HirStructSignature<'hir> {
     pub copy_constructor: Option<HirStructConstructorSignature<'hir>>,
     pub destructor: HirStructConstructorSignature<'hir>,
     pub had_user_defined_constructor: bool,
+    pub had_user_defined_destructor: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -143,6 +144,10 @@ pub struct HirStructConstructorSignature<'hir> {
     pub params: Vec<HirFunctionParameterSignature<'hir>>,
     pub type_params: Vec<HirTypeParameterItemSignature<'hir>>,
     pub vis: HirVisibility,
+    pub where_clause: Option<Vec<&'hir HirGenericConstraint<'hir>>>,
+    /// Whether the constructor's where_clause constraints are satisfied by the concrete types.
+    /// Only used for copy constructors. Set to false during monomorphization if constraints aren't met.
+    pub is_constraint_satisfied: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -234,10 +239,15 @@ pub struct HirStructMethodSignature<'hir> {
     pub vis: HirVisibility,
     pub modifier: HirStructMethodModifier,
     pub params: Vec<HirFunctionParameterSignature<'hir>>,
-    pub generics: Option<Vec<&'hir HirTypeParameterItemSignature<'hir>>>,
+    pub generics: Option<Vec<&'hir HirGenericConstraint<'hir>>>,
     pub type_params: Vec<&'hir HirTypeParameterItemSignature<'hir>>,
     pub return_ty: HirTy<'hir>,
     pub return_ty_span: Option<Span>,
+    /// Optional where clause only containing constraints on struct generics.
+    pub where_clause: Option<Vec<&'hir HirGenericConstraint<'hir>>>,
+    /// Whether the method's where_clause constraints are satisfied by the concrete types.
+    /// Set to false during monomorphization if constraints aren't met.
+    pub is_constraint_satisfied: bool,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]

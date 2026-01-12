@@ -7,11 +7,12 @@ public:
         this.foo = foo;
         this.bar = bar;
     }
+    // The copy constructor can have a where clause
     TestWhereClause(from: &const TestWhereClause<T>) 
     where T: std::copyable 
     {
-        this.foo = from.foo;
-        this.bar = from.bar;
+        this.foo = *from.foo;
+        this.bar = *from.bar;
     }
     // This function requires T to be copyable
     fun get_bar(&this) -> T 
@@ -25,7 +26,7 @@ public:
 struct NonCopyable {
 public:
     data: int64;
-    NonCopyable(int64 data) {
+    NonCopyable(data: int64) {
         this.data = data;
     }
 }
