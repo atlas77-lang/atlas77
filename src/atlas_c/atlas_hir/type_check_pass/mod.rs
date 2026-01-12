@@ -7,7 +7,7 @@ use crate::atlas_c::atlas_hir::error::{
     CallingConsumingMethodOnMutableReferenceError, CallingConsumingMethodOnMutableReferenceOrigin,
     StdNonCopyableStructCannotHaveCopyConstructorError, StructCannotHaveAFieldOfItsOwnTypeError,
     ThisStructDoesNotHaveACopyConstructorError, UnionMustHaveAtLeastTwoVariantError,
-    UnionVariantDefinedMultipleTimesError,
+    UnionVariantDefinedMultipleTimesError, VariableNameAlreadyDefinedError,
 };
 use crate::atlas_c::atlas_hir::expr::HirNewObjExpr;
 use crate::atlas_c::atlas_hir::item::{HirStructConstructor, HirUnion};
@@ -203,11 +203,11 @@ impl<'hir> TypeChecker<'hir> {
                 .insert(
                     param.name,
                     ContextVariable {
-                        _name: param.name,
-                        _name_span: param.span,
+                        name: param.name,
+                        name_span: param.span,
                         ty: param.ty,
-                        _ty_span: param.ty_span,
-                        _is_mut: false,
+                        ty_span: param.ty_span,
+                        is_mut: false,
                         is_param: true,
                         refs_locals: vec![],
                     },
@@ -236,11 +236,11 @@ impl<'hir> TypeChecker<'hir> {
                 .insert(
                     param.name,
                     ContextVariable {
-                        _name: param.name,
-                        _name_span: param.span,
+                        name: param.name,
+                        name_span: param.span,
                         ty: param.ty,
-                        _ty_span: param.ty_span,
-                        _is_mut: false,
+                        ty_span: param.ty_span,
+                        is_mut: false,
                         is_param: true,
                         refs_locals: vec![],
                     },
@@ -269,11 +269,11 @@ impl<'hir> TypeChecker<'hir> {
                 .insert(
                     param.name,
                     ContextVariable {
-                        _name: param.name,
-                        _name_span: param.span,
+                        name: param.name,
+                        name_span: param.span,
                         ty: param.ty,
-                        _ty_span: param.ty_span,
-                        _is_mut: false,
+                        ty_span: param.ty_span,
+                        is_mut: false,
                         is_param: true,
                         refs_locals: vec![],
                     },
@@ -303,11 +303,11 @@ impl<'hir> TypeChecker<'hir> {
                 .insert(
                     param.name,
                     ContextVariable {
-                        _name: param.name,
-                        _name_span: param.span,
+                        name: param.name,
+                        name_span: param.span,
                         ty: param.ty,
-                        _ty_span: param.ty_span,
-                        _is_mut: false,
+                        ty_span: param.ty_span,
+                        is_mut: false,
                         is_param: true,
                         refs_locals: vec![],
                     },
@@ -354,11 +354,11 @@ impl<'hir> TypeChecker<'hir> {
                 .insert(
                     param.name,
                     ContextVariable {
-                        _name: param.name,
-                        _name_span: param.span,
+                        name: param.name,
+                        name_span: param.span,
                         ty: param.ty,
-                        _ty_span: param.ty_span,
-                        _is_mut: false,
+                        ty_span: param.ty_span,
+                        is_mut: false,
                         is_param: true,
                         refs_locals: vec![],
                     },
@@ -515,11 +515,11 @@ impl<'hir> TypeChecker<'hir> {
                     .insert(
                         c.name,
                         ContextVariable {
-                            _name: c.name,
-                            _name_span: c.name_span,
+                            name: c.name,
+                            name_span: c.name_span,
                             ty: const_ty,
-                            _ty_span: c.ty_span.unwrap_or(c.name_span),
-                            _is_mut: false,
+                            ty_span: c.ty_span.unwrap_or(c.name_span),
+                            is_mut: false,
                             is_param: false,
                             refs_locals,
                         },
@@ -551,23 +551,16 @@ impl<'hir> TypeChecker<'hir> {
                 // Check if the let is being assigned a reference to a local variable
                 let refs_locals = self.get_local_ref_targets(&l.value);
 
-                self.context_functions
-                    .last_mut()
-                    .unwrap()
-                    .get_mut(self.current_func_name.unwrap())
-                    .unwrap()
-                    .insert(
-                        l.name,
-                        ContextVariable {
-                            _name: l.name,
-                            _name_span: l.name_span,
-                            ty: var_ty,
-                            _ty_span: l.ty_span.unwrap_or(l.name_span),
-                            _is_mut: true,
-                            is_param: false,
-                            refs_locals,
-                        },
-                    );
+                self.insert_new_variable(ContextVariable {
+                    name: l.name,
+                    name_span: l.name_span,
+                    ty: var_ty,
+                    ty_span: l.ty_span.unwrap_or(l.name_span),
+                    is_mut: true,
+                    is_param: false,
+                    refs_locals,
+                })?;
+
                 self.is_equivalent_ty(
                     var_ty,
                     l.ty_span.unwrap_or(l.name_span),
@@ -2518,6 +2511,19 @@ impl<'hir> TypeChecker<'hir> {
 
         // If we can't determine, assume it's local (conservative)
         true
+    }
+
+    fn insert_new_variable(&mut self, var: ContextVariable<'hir>) -> HirResult<()> {
+        if let Some(context_map) = self.context_functions.last_mut()
+            && let Some(context_func) = context_map.get_mut(self.current_func_name.unwrap())
+        {
+            // we need to check if a variable with the same name already exists in the current context
+
+            context_func.insert(var.name, var);
+            Ok(())
+        } else {
+            Err(Self::unknown_identifier_err(var.name, &var.name_span))
+        }
     }
 
     /// + - * / %
