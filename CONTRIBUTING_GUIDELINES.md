@@ -1,25 +1,47 @@
-# Contributing to RedGear Studio
+# Contributing to Atlas77
 
-Thank you for considering contributing to our projects! We appreciate any and all contributions, and we are excited to see what the community can come up with to help us improve our projects.
+Thank you for considering contributing to Atlas77! Contributions are what make the open source community such an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
 
-## How to contribute
+## How to Contribute
 
-Here are some ways you can contribute to our projects:
-  - Report bugs or request features using the **Issue** section for each projects.
-  - Write and submit code changes using pull requests.
-  - Write documentation or help improve existing documentation.
-  - Test our projects and provide feedback.
+If you have a suggestion that would make this better, please fork the repo and create a pull request. You can also simply open an issue with the appropriate tag.
 
-Before contributing, please take a look at our [code of conduct]([https://github.com/RedGear-Studio/code-of-conduct](https://github.com/RedGear-Studio/RedGear-TOS/blob/main/CODE_OF_CONDUCT.md)) and make sure to follow it when interacting with our projects and community.
+Don't forget to give the project a star! Thanks again!
 
-## Tips for contributing
+### Ways to Contribute
 
-  - Write tests for your code changes to help us catch regressions.
-  - Make sure your code passes our automated tests by running make test before submitting your pull request.
-  - Write clear, concise commit messages and pull request titles.
+- **Report bugs** - Use the [bug report template](https://github.com/atlas77-lang/Atlas77/issues/new?labels=bug&template=bug-report---.md)
+- **Request features** - Use the [feature request template](https://github.com/atlas77-lang/Atlas77/issues/new?labels=enhancement&template=feature-request---.md)
+- **Submit code changes** - Fork the repo and create pull requests
+- **Improve documentation** - Help make the docs clearer and more comprehensive
+> The documentation repo is available at [https://github.com/atlas77-lang/atlas77-docs](https://github.com/atlas77-lang/atlas77-docs)
+- **Test the language** - Try Atlas77 in different scenarios and provide feedback
+
+### Contribution Process
+
+1. Fork the Project
+2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the Branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+## Guidelines
+
+### Code Quality
+
+- Write tests for your code changes to help catch regressions
+- Write clear, concise, [conventional](https://www.conventionalcommits.org/en/v1.0.0/) commit messages and pull request titles
+- Follow the existing code style and conventions (well, just `cargo fmt` and `cargo clippy` it!)
+
+### Code of Conduct
+
+Before contributing, please take a look at the [Code of Conduct](https://github.com/atlas77-lang/atlas77/blob/main/CODE_OF_CONDUCT.md) and make sure to follow it when interacting with the project and community.
 
 ## Questions?
 
-If you have any questions about contributing to our projects, feel free to reach out to us through our [Discord server](https://discord.gg/zQfaTBAXg4) or our [Twitter account](https://twitter.com/RedgearS). We are always happy to help!
+If you have any questions about contributing, feel free to reach out through:
+- [Discord server](https://discord.gg/zQfaTBAXg4)
+- [GitHub Issues](https://github.com/atlas77-lang/Atlas77/issues)
+- [Twitter](https://x.com/Gipson62_)
 
-Thank you for your contribution!
+I'm always happy to help!
