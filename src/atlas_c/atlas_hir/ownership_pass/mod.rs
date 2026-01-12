@@ -2251,7 +2251,12 @@ impl<'hir> OwnershipPass<'hir> {
             // Named types (structs) are copyable if they have a copy constructor
             HirTy::Named(named) => {
                 if let Some(s) = self.hir_signature.structs.get(named.name) {
-                    s.copy_constructor.is_some()
+                    if let Some(copy_ctor) = &s.copy_constructor {
+                        // It's only copyable if the copy constructor's constraints are satisfied
+                        copy_ctor.is_constraint_satisfied
+                    } else {
+                        false
+                    }
                 } else {
                     // This might be an enum
                     if let Some(e) = self.hir_signature.enums.get(named.name) {
@@ -2271,7 +2276,14 @@ impl<'hir> OwnershipPass<'hir> {
                 self.hir_signature
                     .structs
                     .get(mangled_name)
-                    .is_some_and(|s| s.copy_constructor.is_some())
+                    .is_some_and(|s| {
+                        if let Some(copy_ctor) = &s.copy_constructor {
+                            // It's only copyable if the copy constructor's constraints are satisfied
+                            copy_ctor.is_constraint_satisfied
+                        } else {
+                            false
+                        }
+                    })
             }
 
             // Other types are not copyable
