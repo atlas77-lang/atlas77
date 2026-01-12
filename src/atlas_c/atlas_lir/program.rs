@@ -1,23 +1,23 @@
 use std::collections::HashSet;
 
 use crate::atlas_c::atlas_hir::signature::ConstantValue;
-// TODO: Add Span info to LIR structures for better error reporting
+// TODO: Add Span info to Lir structures for better error reporting
 pub type Label = String;
 
 #[derive(Debug, Clone)]
-pub struct LIRProgram {
-    pub functions: Vec<LIRFunction>,
+pub struct LirProgram {
+    pub functions: Vec<LirFunction>,
 }
 
 #[derive(Debug, Clone)]
-pub struct LIRFunction {
+pub struct LirFunction {
     pub name: String,
-    pub args: Vec<LIRPrimitiveType>,
-    pub return_type: Option<LIRPrimitiveType>,
-    pub blocks: Vec<LIRBlock>,
+    pub args: Vec<LirPrimitiveType>,
+    pub return_type: Option<LirPrimitiveType>,
+    pub blocks: Vec<LirBlock>,
 }
 
-impl LIRFunction {
+impl LirFunction {
     /// Remove blocks that are empty (no instructions, no real terminator)
     /// and not referenced by any branch.
     pub fn remove_dead_blocks(&mut self) {
@@ -32,10 +32,10 @@ impl LIRFunction {
         // Collect all branch targets
         for block in &self.blocks {
             match &block.terminator {
-                LIRTerminator::Branch { target } => {
+                LirTerminator::Branch { target } => {
                     referenced_labels.insert(target.clone());
                 }
-                LIRTerminator::BranchIf {
+                LirTerminator::BranchIf {
                     then_label,
                     else_label,
                     ..
@@ -54,7 +54,7 @@ impl LIRFunction {
         self.blocks.retain(|block| {
             let is_referenced = referenced_labels.contains(&block.label);
             let is_empty =
-                block.instructions.is_empty() && matches!(block.terminator, LIRTerminator::None);
+                block.instructions.is_empty() && matches!(block.terminator, LirTerminator::None);
 
             // Keep if referenced OR not empty
             is_referenced || !is_empty
@@ -63,14 +63,14 @@ impl LIRFunction {
 }
 
 #[derive(Debug, Clone)]
-pub struct LIRBlock {
+pub struct LirBlock {
     pub label: String,
-    pub instructions: Vec<LIRInstr>,
-    pub terminator: LIRTerminator,
+    pub instructions: Vec<LirInstr>,
+    pub terminator: LirTerminator,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LIRPrimitiveType {
+pub enum LirPrimitiveType {
     // Signed Integers
     Int8,
     Int16,
@@ -92,101 +92,97 @@ pub enum LIRPrimitiveType {
 }
 
 #[derive(Debug, Clone)]
-pub enum LIRInstr {
+pub enum LirInstr {
     Add {
-        ty: LIRPrimitiveType,
-        dest: LIROperand,
-        a: LIROperand,
-        b: LIROperand,
+        ty: LirPrimitiveType,
+        dest: LirOperand,
+        a: LirOperand,
+        b: LirOperand,
     },
     Sub {
-        ty: LIRPrimitiveType,
-        dest: LIROperand,
-        a: LIROperand,
-        b: LIROperand,
+        ty: LirPrimitiveType,
+        dest: LirOperand,
+        a: LirOperand,
+        b: LirOperand,
     },
     Mul {
-        ty: LIRPrimitiveType,
-        dest: LIROperand,
-        a: LIROperand,
-        b: LIROperand,
+        ty: LirPrimitiveType,
+        dest: LirOperand,
+        a: LirOperand,
+        b: LirOperand,
     },
     Div {
-        ty: LIRPrimitiveType,
-        dest: LIROperand,
-        a: LIROperand,
-        b: LIROperand,
+        ty: LirPrimitiveType,
+        dest: LirOperand,
+        a: LirOperand,
+        b: LirOperand,
     },
     Mod {
-        ty: LIRPrimitiveType,
-        dest: LIROperand,
-        a: LIROperand,
-        b: LIROperand,
+        ty: LirPrimitiveType,
+        dest: LirOperand,
+        a: LirOperand,
+        b: LirOperand,
     },
     LessThan {
-        ty: LIRPrimitiveType,
-        dest: LIROperand,
-        a: LIROperand,
-        b: LIROperand,
+        ty: LirPrimitiveType,
+        dest: LirOperand,
+        a: LirOperand,
+        b: LirOperand,
     },
     LessThanOrEqual {
-        ty: LIRPrimitiveType,
-        dest: LIROperand,
-        a: LIROperand,
-        b: LIROperand,
+        ty: LirPrimitiveType,
+        dest: LirOperand,
+        a: LirOperand,
+        b: LirOperand,
     },
     GreaterThan {
-        ty: LIRPrimitiveType,
-        dest: LIROperand,
-        a: LIROperand,
-        b: LIROperand,
+        ty: LirPrimitiveType,
+        dest: LirOperand,
+        a: LirOperand,
+        b: LirOperand,
     },
     GreaterThanOrEqual {
-        ty: LIRPrimitiveType,
-        dest: LIROperand,
-        a: LIROperand,
-        b: LIROperand,
+        ty: LirPrimitiveType,
+        dest: LirOperand,
+        a: LirOperand,
+        b: LirOperand,
     },
     Equal {
-        ty: LIRPrimitiveType,
-        dest: LIROperand,
-        a: LIROperand,
-        b: LIROperand,
+        ty: LirPrimitiveType,
+        dest: LirOperand,
+        a: LirOperand,
+        b: LirOperand,
     },
     NotEqual {
-        ty: LIRPrimitiveType,
-        dest: LIROperand,
-        a: LIROperand,
-        b: LIROperand,
-    },
-    Copy {
-        dst: LIROperand,
-        src: LIROperand,
+        ty: LirPrimitiveType,
+        dest: LirOperand,
+        a: LirOperand,
+        b: LirOperand,
     },
     // Load immediate value into a temporary
     LoadImm {
-        dst: LIROperand,
-        value: LIROperand,
+        dst: LirOperand,
+        value: LirOperand,
     },
     // Load constant (from constant pool) into a temporary
     LoadConst {
-        dst: LIROperand,
-        value: LIROperand,
+        dst: LirOperand,
+        value: LirOperand,
     },
     Call {
-        dst: Option<LIROperand>,
+        dst: Option<LirOperand>,
         func_name: String,
-        args: Vec<LIROperand>,
+        args: Vec<LirOperand>,
     },
     ExternCall {
-        dst: Option<LIROperand>,
+        dst: Option<LirOperand>,
         func_name: String,
-        args: Vec<LIROperand>,
+        args: Vec<LirOperand>,
     },
 }
 
 #[derive(Debug, Clone)]
-pub enum LIROperand {
+pub enum LirOperand {
     /// A temporary variable
     ///
     /// e.g., t1, t2, etc.
@@ -201,16 +197,32 @@ pub enum LIROperand {
     ImmChar(char),
 }
 
+impl LirOperand {
+    pub fn is_temp(&self) -> bool {
+        matches!(self, LirOperand::Temp(_))
+    }
+    pub fn is_arg(&self) -> bool {
+        matches!(self, LirOperand::Arg(_))
+    }
+    pub fn get_temp_id(&self) -> Option<u32> {
+        if let LirOperand::Temp(id) = self {
+            Some(*id)
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
-pub enum LIRTerminator {
+pub enum LirTerminator {
     Return {
-        value: Option<LIROperand>,
+        value: Option<LirOperand>,
     },
     Branch {
         target: Label,
     },
     BranchIf {
-        condition: LIROperand,
+        condition: LirOperand,
         then_label: Label,
         else_label: Label,
     },
