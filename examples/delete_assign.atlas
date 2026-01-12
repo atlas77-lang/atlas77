@@ -1,0 +1,48 @@
+import "std/io";
+
+struct Test {
+public:
+    s: string;
+    Test(s: string) {
+        this.s = s;
+    }
+    fun set_s(&this, s: string) {
+        // this.s should be deleted here before reassignment
+        this.s = s;
+    }
+}
+
+union TempTest {
+    value: Test;
+    something: int64;
+}
+
+fun main() {
+    let s = "Hello, World!";
+    // s should be deleted here before reassignment
+    s = "Goodbye, World!"; 
+    println(s);
+
+    let t = new Test("Initial");
+    t.set_s("Updated");
+    println(t.s);
+
+    let arr = [new Test("One"), new Test("Two"), new Test("Three")];
+    let i = 0u;
+    while i < 3u {
+        // arr[i] should be deleted here before reassignment
+        arr[i] = arr[(i + 1u) % 3u];
+        arr[i] = new Test("Modified");
+        arr[i].set_s("Modified");
+        println(arr[i].s);
+        i = i + 1u;
+    }
+
+    let un = TempTest { 
+        .something =  42 
+    };
+    un = TempTest { 
+        .value = new Test("From Union") 
+    };
+
+}
