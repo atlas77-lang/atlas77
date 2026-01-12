@@ -56,6 +56,7 @@ declare_error_type! {
         TypeDoesNotImplementRequiredConstraint(TypeDoesNotImplementRequiredConstraintError),
         InvalidSpecialMethodSignature(InvalidSpecialMethodSignatureError),
         ReturningReferenceToLocalVariable(ReturningReferenceToLocalVariableError),
+        VariableNameAlreadyDefined(VariableNameAlreadyDefinedError),
         TryingToCopyNonCopyableType(TryingToCopyNonCopyableTypeError),
         DoubleMoveError(DoubleMoveError),
         UnknownIdentifier(UnknownIdentifierError),
@@ -74,6 +75,7 @@ declare_error_type! {
         ReturningValueWithLocalLifetimeDependency(ReturningValueWithLocalLifetimeDependencyError),
         ConstructorCannotHaveAWhereClause(ConstructorCannotHaveAWhereClauseError),
         MethodConstraintNotSatisfied(MethodConstraintNotSatisfiedError),
+        TooManyReferenceLevels(TooManyReferenceLevelsError),
     }
 }
 
@@ -113,6 +115,19 @@ impl HirError {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
+    code(sema::too_many_reference_levels),
+    help("reduce the number of reference levels")
+)]
+#[error("type has too many reference levels")]
+pub struct TooManyReferenceLevelsError {
+    #[label = "type has too many reference levels"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
     code(sema::returning_reference_to_local_variable),
     help(
         "references to local variables cannot be returned because the variable will be dropped when the function returns"
@@ -124,6 +139,19 @@ pub struct ReturningReferenceToLocalVariableError {
     pub span: Span,
     pub var_name: String,
     #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::variable_name_already_defined),
+    help("consider renaming one of the variables")
+)]
+#[error("variable name `{name}` is already defined")]
+pub struct VariableNameAlreadyDefinedError {
+    pub name: String,
+    pub first_definition_span: Span,
+    pub second_definition_span: Span,
     pub src: NamedSource<String>,
 }
 

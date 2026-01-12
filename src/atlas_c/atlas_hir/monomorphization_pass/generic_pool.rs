@@ -2,7 +2,8 @@ use miette::NamedSource;
 
 use crate::atlas_c::atlas_hir::arena::HirArena;
 use crate::atlas_c::atlas_hir::error::{
-    TypeDoesNotImplementRequiredConstraintError, TypeDoesNotImplementRequiredConstraintOrigin,
+    HirError, TooManyReferenceLevelsError, TypeDoesNotImplementRequiredConstraintError,
+    TypeDoesNotImplementRequiredConstraintOrigin,
 };
 use crate::atlas_c::atlas_hir::monomorphization_pass::MonomorphizationPass;
 use crate::atlas_c::atlas_hir::signature::{
@@ -63,6 +64,45 @@ impl<'hir> HirGenericPool<'hir> {
         //We need to check if it's an instantiated generics or a generic definition e.g.: Vector<T> or Vector<uint64>
         if !self.is_generic_instantiated(&generic, module) {
             return;
+        }
+        // Let's add a temporary check. References cannot be more than 2 levels deep (e.g.: &&T/&&const T/&const &T/&const &const T)
+        fn count_reference_levels<'hir>(ty: &'hir HirTy<'hir>, current: usize) -> Option<usize> {
+            if current > 2 {
+                //Failed the check
+                return None;
+            }
+            match ty {
+                HirTy::ReadOnlyReference(inner) => count_reference_levels(inner.inner, current + 1),
+                HirTy::MutableReference(inner) => count_reference_levels(inner.inner, current + 1),
+                _ => Some(0),
+            }
+        }
+        for node in generic.inner.iter() {
+            if let Some(levels) = count_reference_levels(node, 0) {
+                if levels > 2 {
+                    let path = generic.span.path;
+                    let src = crate::atlas_c::utils::get_file_content(path).unwrap();
+                    let report: miette::ErrReport =
+                        HirError::TooManyReferenceLevels(TooManyReferenceLevelsError {
+                            span: generic.span,
+                            src: NamedSource::new(path, src),
+                        })
+                        .into();
+                    eprintln!("{:?}", report);
+                    std::process::exit(1);
+                }
+            } else {
+                let path = generic.span.path;
+                let src = crate::atlas_c::utils::get_file_content(path).unwrap();
+                let report: miette::ErrReport =
+                    HirError::TooManyReferenceLevels(TooManyReferenceLevelsError {
+                        span: generic.span,
+                        src: NamedSource::new(path, src),
+                    })
+                    .into();
+                eprintln!("{:?}", report);
+                std::process::exit(1);
+            }
         }
 
         //TODO: Differentiate between struct and union here

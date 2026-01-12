@@ -22,8 +22,9 @@ use crate::atlas_c::{
         arena::HirArena,
         error::{
             ConstructorCannotHaveAWhereClauseError, HirError, HirResult, NonConstantValueError,
-            NullableTypeRequiresStdLibraryError, StructNameCannotBeOneLetterError, UnsupportedExpr,
-            UnsupportedItemError, UnsupportedStatement, UselessError,
+            NullableTypeRequiresStdLibraryError, StructNameCannotBeOneLetterError,
+            TooManyReferenceLevelsError, UnsupportedExpr, UnsupportedItemError,
+            UnsupportedStatement, UselessError,
         },
         expr::{
             HirAssignExpr, HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr,

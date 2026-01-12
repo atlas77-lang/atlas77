@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::atlas_c::{
     atlas_hir::{
         HirModule,
@@ -30,6 +32,9 @@ pub(crate) mod generic_pool;
 pub struct MonomorphizationPass<'hir> {
     arena: &'hir HirArena<'hir>,
     generic_pool: HirGenericPool<'hir>,
+    already_monomorphized_functions: HashSet<&'hir str>,
+    already_monomorphized_structs: HashSet<&'hir str>,
+    already_monomorphized_unions: HashSet<&'hir str>,
 }
 
 impl<'hir> MonomorphizationPass<'hir> {
@@ -37,6 +42,9 @@ impl<'hir> MonomorphizationPass<'hir> {
         Self {
             arena,
             generic_pool,
+            already_monomorphized_functions: HashSet::new(),
+            already_monomorphized_structs: HashSet::new(),
+            already_monomorphized_unions: HashSet::new(),
         }
     }
     /// Clears all the generic structs & functions from the module body and signature.
@@ -102,12 +110,16 @@ impl<'hir> MonomorphizationPass<'hir> {
             .body
             .functions
             .iter()
-            .filter(|(_, func)| func.signature.generics.is_empty())
+            .filter(|(_, func)| {
+                func.signature.generics.is_empty()
+                    && !func.signature.is_external
+                    && self.already_monomorphized_functions.contains(func.name)
+            })
             .map(|(_, func)| func.name)
             .collect();
 
         // Monomorphize each function's body
-        for func_name in non_generic_functions {
+        for func_name in non_generic_functions.iter() {
             // Extract and clone the statements so we can process them
             let statements = if let Some(func) = module.body.functions.get(func_name) {
                 func.body.statements.clone()
@@ -125,6 +137,10 @@ impl<'hir> MonomorphizationPass<'hir> {
             if let Some(func) = module.body.functions.get_mut(func_name) {
                 func.body.statements = processed_stmts;
             }
+        }
+
+        for processed_func in non_generic_functions.iter() {
+            self.already_monomorphized_functions.insert(processed_func);
         }
 
         let mut generic_pool_clone = self.generic_pool.structs.clone();
