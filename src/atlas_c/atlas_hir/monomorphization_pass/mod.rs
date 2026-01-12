@@ -88,61 +88,6 @@ impl<'hir> MonomorphizationPass<'hir> {
         //3. Generate the actual bodies of the structs & functions in the pool, if you encounter new instantiations while generating, register them too
         //4. Clear the generic structs & functions from the module body and signature
         self.clear_generic(module);
-        // Now we can generate all the copy constructors for the every structs
-        // Collect struct names and info first to avoid borrow checker conflicts
-        let structs_to_process: Vec<_> = module
-            .body
-            .structs
-            .iter()
-            .filter(|(_, s)| {
-                s.copy_constructor.is_none()
-                    && !s.flag.is_non_copyable()
-                    // If the struct has a user-defined destructor AND no flag saying it's copyable,
-                    //  we cannot auto-generate a copy constructor
-                    && !(s.had_user_defined_destructor && s.flag.is_no_flag())
-            })
-            .map(|(name, s)| {
-                (
-                    ((*name).to_string(), s.name_span),
-                    self.arena.types().get_named_ty(s.name, s.name_span),
-                    s.signature
-                        .fields
-                        .values()
-                        .cloned()
-                        .collect::<Vec<HirStructFieldSignature>>(),
-                    s.flag.clone(),
-                )
-            })
-            .collect();
-
-        // Now assign copy constructors using the collected data
-        for ((struct_name, struct_span), ty, fields, flag) in structs_to_process {
-            let copy_ctor = self.make_copy_constructor(ty, &fields, module);
-            if copy_ctor.is_none() && flag.is_copyable() {
-                let path = flag.span().unwrap().path;
-                let src = get_file_content(path).unwrap();
-                let report: ErrReport = HirWarning::CannotGenerateACopyConstructorForThisType(
-                    CannotGenerateACopyConstructorForThisTypeWarning {
-                        type_name: struct_name.clone(),
-                        flag_span: flag.span().unwrap(),
-                        name_span: struct_span,
-                        src: NamedSource::new(path, src),
-                    },
-                )
-                .into();
-                eprintln!("{:?}", report);
-            }
-            if let Some(current_struct) = module.body.structs.get_mut(struct_name.as_str()) {
-                current_struct.signature.copy_constructor =
-                    copy_ctor.as_ref().map(|c| c.signature.clone());
-                current_struct.copy_constructor = copy_ctor.clone();
-                if let Some(current_struct_sig) =
-                    module.signature.structs.get_mut(struct_name.as_str())
-                {
-                    *current_struct_sig = self.arena.intern(current_struct.signature.clone());
-                }
-            }
-        }
 
         Ok(module)
     }
@@ -189,6 +134,20 @@ impl<'hir> MonomorphizationPass<'hir> {
                     inner: instance.args.clone(),
                     span: instance.span,
                 });
+                // Check constraints before monomorphizing (copy constructors are now available)
+                if let Some(struct_sig) = module.signature.structs.get(instance.name) {
+                    let constraints = struct_sig.generics.clone();
+                    if !constraints.is_empty() {
+                        if !self.generic_pool.check_constraint_satisfaction(
+                            &module.signature,
+                            generic_ty,
+                            constraints,
+                            struct_sig.name_span,
+                        ) {
+                            std::process::exit(1);
+                        }
+                    }
+                }
                 self.monomorphize_object(module, generic_ty, instance.span)?;
                 instance.is_done = true;
                 is_done = false;
@@ -204,6 +163,20 @@ impl<'hir> MonomorphizationPass<'hir> {
                     inner: instance.args.clone(),
                     span: instance.span,
                 });
+                // Check constraints before monomorphizing (copy constructors are now available)
+                if let Some(union_sig) = module.signature.unions.get(instance.name) {
+                    let constraints = union_sig.generics.clone();
+                    if !constraints.is_empty() {
+                        if !self.generic_pool.check_constraint_satisfaction(
+                            &module.signature,
+                            generic_ty,
+                            constraints,
+                            union_sig.name_span,
+                        ) {
+                            std::process::exit(1);
+                        }
+                    }
+                }
                 self.monomorphize_object(module, generic_ty, instance.span)?;
                 instance.is_done = true;
                 is_done = false;
@@ -220,6 +193,20 @@ impl<'hir> MonomorphizationPass<'hir> {
                     inner: instance.args.clone(),
                     span: instance.span,
                 });
+                // Check constraints before monomorphizing (copy constructors are now available)
+                if let Some(func_sig) = module.signature.functions.get(instance.name) {
+                    let constraints = func_sig.generics.clone();
+                    if !constraints.is_empty() {
+                        if !self.generic_pool.check_constraint_satisfaction(
+                            &module.signature,
+                            generic_ty,
+                            constraints,
+                            func_sig.span,
+                        ) {
+                            std::process::exit(1);
+                        }
+                    }
+                }
                 self.monomorphize_function(module, generic_ty, instance.span)?;
                 instance.is_done = true;
                 is_done = false;
@@ -485,166 +472,6 @@ impl<'hir> MonomorphizationPass<'hir> {
         module.body.structs.insert(mangled_name, new_struct);
 
         Ok(self.arena.types().get_named_ty(mangled_name, span))
-    }
-
-    fn make_copy_constructor(
-        &mut self,
-        ty: &'hir HirTy<'hir>,
-        fields: &[HirStructFieldSignature<'hir>],
-        module: &HirModule<'hir>,
-    ) -> Option<HirStructConstructor<'hir>> {
-        if self.can_be_copyable(ty, module) {
-            let (name, span) = match ty {
-                HirTy::Named(named) => (named.name, named.span),
-                HirTy::Generic(generic) => (
-                    MonomorphizationPass::generate_mangled_name(self.arena, generic, "struct"),
-                    generic.span,
-                ),
-                // Shouldn't happen
-                _ => ("hehehehehehe", Span::default()),
-            };
-            let params = vec![HirFunctionParameterSignature {
-                span,
-                name: self.arena.names().get("from"),
-                name_span: span,
-                ty: self.arena.types().get_readonly_reference_ty(ty),
-                ty_span: span,
-            }];
-
-            let type_params = vec![HirTypeParameterItemSignature {
-                span,
-                name: self.arena.names().get("from"),
-                name_span: span,
-            }];
-
-            let copy_ctor_signature = HirStructConstructorSignature {
-                span,
-                params: params.clone(),
-                type_params: type_params.clone(),
-                vis: HirVisibility::Public,
-            };
-            // each statement is of the form: this.field = *from.field;
-            let mut statements = vec![];
-            for field in fields.iter() {
-                let init_expr = HirExpr::Assign(HirAssignExpr {
-                    span: field.span,
-                    lhs: Box::new(HirExpr::FieldAccess(HirFieldAccessExpr {
-                        span: field.span,
-                        target: Box::new(HirExpr::ThisLiteral(HirThisLiteral {
-                            span: field.span,
-                            ty: self.arena.types().get_named_ty(name, span),
-                        })),
-                        field: Box::new(HirIdentExpr {
-                            span: field.span,
-                            name: field.name,
-                            ty: field.ty,
-                        }),
-                        ty: field.ty,
-                    })),
-                    rhs: Box::new(HirExpr::Unary(UnaryOpExpr {
-                        span: field.span,
-                        op: Some(HirUnaryOp::Deref),
-                        expr: Box::new(HirExpr::FieldAccess(HirFieldAccessExpr {
-                            span: field.span,
-                            target: Box::new(HirExpr::Ident(HirIdentExpr {
-                                span,
-                                name: self.arena.names().get("from"),
-                                ty: self.arena.types().get_readonly_reference_ty(ty),
-                            })),
-                            field: Box::new(HirIdentExpr {
-                                span: field.span,
-                                name: field.name,
-                                ty: field.ty,
-                            }),
-                            ty: field.ty,
-                        })),
-                        ty: field.ty,
-                    })),
-                    ty: field.ty,
-                });
-                statements.push(HirStatement::Expr(HirExprStmt {
-                    span: field.span,
-                    expr: init_expr,
-                }));
-            }
-            let hir = HirStructConstructor {
-                span,
-                signature: self.arena.intern(copy_ctor_signature),
-                params,
-                type_params,
-                body: HirBlock { span, statements },
-                //Copy constructor is public by default
-                vis: HirVisibility::Public,
-            };
-            return Some(hir);
-        }
-        None
-    }
-
-    /// A type can be copyable if:
-    /// - It's a primitive type (int, float, bool, char, uint, string)
-    /// - It's a reference type (&T, &const T) - references are pointers
-    /// - If it has a copy constructor defined AND no pre define destructor (to avoid double free)
-    /// - If all its fields are copyable
-    fn can_be_copyable(&self, ty: &'hir HirTy<'hir>, module: &HirModule<'hir>) -> bool {
-        match ty {
-            HirTy::Int64(_)
-            | HirTy::Float64(_)
-            | HirTy::Boolean(_)
-            | HirTy::Char(_)
-            | HirTy::UInt64(_)
-            | HirTy::String(_)
-            | HirTy::Unit(_)
-            | HirTy::MutableReference(_)
-            | HirTy::ReadOnlyReference(_)
-            | HirTy::ExternTy(_)
-            | HirTy::Function(_) => true,
-            // TODO: Add support for list copy constructors
-            // HirTy::List(list) => self.can_be_copyable(list.inner, module),
-            HirTy::Named(named) => {
-                let obj_name = named.name;
-                if let Some(hir_struct) = module.signature.structs.get(obj_name) {
-                    // TODO: Add a check for the presence of a destructor in the struct
-                    if hir_struct.copy_constructor.is_some() {
-                        return true;
-                    }
-                    //Check all fields
-                    for field in hir_struct.fields.values() {
-                        if !self.can_be_copyable(field.ty, module) {
-                            return false;
-                        }
-                    }
-                    return true;
-                }
-                if let Some(hir_enum) = module.signature.enums.get(obj_name) {
-                    // Enums are just uint64 under the hood
-                    return true;
-                }
-                false
-            }
-            HirTy::Generic(generic) => {
-                let struct_name =
-                    MonomorphizationPass::generate_mangled_name(self.arena, generic, "struct");
-                // We only search in structs because unions can't be auto-copyable for safety reasons
-                if let Some(hir_struct) = module.signature.structs.get(struct_name) {
-                    // TODO: Add a check for the presence of a destructor in the struct
-                    if hir_struct.copy_constructor.is_some() {
-                        return true;
-                    }
-                    //Check all fields
-                    for field in hir_struct.fields.values() {
-                        if !self.can_be_copyable(field.ty, module) {
-                            return false;
-                        }
-                    }
-                    return true;
-                }
-                false
-            }
-            HirTy::Nullable(nullable) => self.can_be_copyable(nullable.inner, module),
-            // We just assume other types are not copyable for now
-            _ => false,
-        }
     }
 
     fn monomorphize_function(
