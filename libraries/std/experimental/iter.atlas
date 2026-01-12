@@ -1,0 +1,51 @@
+import "std/mem";
+import "std/optional";
+// experimental iterator library for Atlas77 standard library
+// Aimed to replace and extend the existing std/iter module
+// 
+// As of v0.7.3 it still doesn't work. 
+// closures/function pointers are not supported yet.
+struct Iter<T> {
+private:
+    fn_next: () -> optional<T>,
+    /// optional<T>::of(T) if there is a peeked value, else optional<T>::empty()
+    peeked: optional<T>,
+    Iter(fn_next: () -> optional<T>, peeked: optional<T>) {
+        this.fn_next = fn_next;
+        this.peeked = peeked;
+    }
+public:
+    fun next(&this) -> optional<T> {
+        if this.peeked.has_value() {
+            // we replace the value to move it out
+            let result = replace(&this.peeked, optional<T>::empty());
+            return result;
+        } else {
+            return this.fn_next();
+        }
+    }
+    fun has_next(&this) -> bool {
+        if this.peeked.has_value() {
+            return true;
+        } else {
+            let next_val = this.fn_next();
+            if next_val.has_value() {
+                this.peeked = next_val;
+                return true;
+            } else {
+                return false;
+            }
+        }
+    }
+    fun peek(&this) -> optional<&const T> {
+        if this.peeked.has_value() {
+            return this.peeked.as_ref();
+        } else {
+            let next_val = this.fn_next();
+            if next_val.has_value() {
+                this.peeked = next_val;
+            }
+            return this.peeked.as_ref();
+        }
+    }
+}
