@@ -138,15 +138,15 @@ impl<'hir> MonomorphizationPass<'hir> {
                 // Check constraints before monomorphizing (copy constructors are now available)
                 if let Some(struct_sig) = module.signature.structs.get(instance.name) {
                     let constraints = struct_sig.generics.clone();
-                    if !constraints.is_empty() {
-                        if !self.generic_pool.check_constraint_satisfaction(
+                    if !constraints.is_empty()
+                        && !self.generic_pool.check_constraint_satisfaction(
                             &module.signature,
                             generic_ty,
                             constraints,
                             struct_sig.name_span,
-                        ) {
-                            std::process::exit(1);
-                        }
+                        )
+                    {
+                        std::process::exit(1);
                     }
                 }
                 self.monomorphize_object(module, generic_ty, instance.span)?;
@@ -167,15 +167,15 @@ impl<'hir> MonomorphizationPass<'hir> {
                 // Check constraints before monomorphizing (copy constructors are now available)
                 if let Some(union_sig) = module.signature.unions.get(instance.name) {
                     let constraints = union_sig.generics.clone();
-                    if !constraints.is_empty() {
-                        if !self.generic_pool.check_constraint_satisfaction(
+                    if !constraints.is_empty()
+                        && !self.generic_pool.check_constraint_satisfaction(
                             &module.signature,
                             generic_ty,
                             constraints,
                             union_sig.name_span,
-                        ) {
-                            std::process::exit(1);
-                        }
+                        )
+                    {
+                        std::process::exit(1);
                     }
                 }
                 self.monomorphize_object(module, generic_ty, instance.span)?;
@@ -197,15 +197,15 @@ impl<'hir> MonomorphizationPass<'hir> {
                 // Check constraints before monomorphizing (copy constructors are now available)
                 if let Some(func_sig) = module.signature.functions.get(instance.name) {
                     let constraints = func_sig.generics.clone();
-                    if !constraints.is_empty() {
-                        if !self.generic_pool.check_constraint_satisfaction(
+                    if !constraints.is_empty()
+                        && !self.generic_pool.check_constraint_satisfaction(
                             &module.signature,
                             generic_ty,
                             constraints,
                             func_sig.span,
-                        ) {
-                            std::process::exit(1);
-                        }
+                        )
+                    {
+                        std::process::exit(1);
                     }
                 }
                 self.monomorphize_function(module, generic_ty, instance.span)?;
@@ -1023,16 +1023,17 @@ impl<'hir> MonomorphizationPass<'hir> {
                     match constraint_kind {
                         HirGenericConstraintKind::Std { name, .. } => {
                             // Check std::copyable constraint
-                            if *name == "copyable" {
-                                if !self
+                            if *name == "copyable"
+                                && !self
                                     .generic_pool
                                     .implements_std_copyable(module_sig, concrete_type)
-                                {
-                                    return false;
-                                }
+                            {
+                                return false;
                             }
-                            // Add more std constraints here as needed
                         }
+                        // Add more std constraints here as needed
+                        // Once there is more std constraints, consider refactoring to a match statement
+
                         // Handle other constraint kinds as needed
                         _ => {
                             // For now, unknown constraints pass

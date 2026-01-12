@@ -857,14 +857,13 @@ impl<'hir> OwnershipPass<'hir> {
                     _ => None,
                 };
 
-                if let Some(var_name) = var_name_to_check {
-                    if let Some(var_data) = self.scope_map.get(var_name) {
-                        // Check if this variable depends on any local origins
-                        if let Some(err) =
-                            self.check_return_with_local_dependencies(var_data, ret.span)
-                        {
-                            return Err(err);
-                        }
+                if let Some(var_name) = var_name_to_check
+                    && let Some(var_data) = self.scope_map.get(var_name)
+                {
+                    // Check if this variable depends on any local origins
+                    if let Some(err) = self.check_return_with_local_dependencies(var_data, ret.span)
+                    {
+                        return Err(err);
                     }
                 }
 
@@ -2259,11 +2258,7 @@ impl<'hir> OwnershipPass<'hir> {
                     }
                 } else {
                     // This might be an enum
-                    if let Some(e) = self.hir_signature.enums.get(named.name) {
-                        true
-                    } else {
-                        false
-                    }
+                    self.hir_signature.enums.contains_key(named.name)
                 }
             }
 
@@ -2392,20 +2387,20 @@ impl<'hir> OwnershipPass<'hir> {
             ReferenceOrigin::Union(origins) => {
                 // Check all origins in the union
                 for origin in origins {
-                    if let ReferenceOrigin::Variable(origin_name) = origin {
-                        if let Some(dep_span) = will_be_deleted(origin_name) {
-                            let path = return_span.path;
-                            let src = utils::get_file_content(path).unwrap_or_default();
-                            return Some(HirError::ReturningValueWithLocalLifetimeDependency(
-                                ReturningValueWithLocalLifetimeDependencyError {
-                                    value_name: var_data.name.to_string(),
-                                    origin_name: origin_name.to_string(),
-                                    origin_declaration_span: dep_span,
-                                    return_span,
-                                    src: NamedSource::new(path, src),
-                                },
-                            ));
-                        }
+                    if let ReferenceOrigin::Variable(origin_name) = origin
+                        && let Some(dep_span) = will_be_deleted(origin_name)
+                    {
+                        let path = return_span.path;
+                        let src = utils::get_file_content(path).unwrap_or_default();
+                        return Some(HirError::ReturningValueWithLocalLifetimeDependency(
+                            ReturningValueWithLocalLifetimeDependencyError {
+                                value_name: var_data.name.to_string(),
+                                origin_name: origin_name.to_string(),
+                                origin_declaration_span: dep_span,
+                                return_span,
+                                src: NamedSource::new(path, src),
+                            },
+                        ));
                     }
                 }
             }

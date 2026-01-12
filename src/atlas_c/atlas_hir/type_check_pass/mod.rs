@@ -329,11 +329,11 @@ impl<'hir> TypeChecker<'hir> {
         match name {
             "display" => {
                 // TODO: Implement display method signature checks
-                return Ok(());
+                Ok(())
             }
             "to_string" => {
                 // TODO: Implement to_string method signature checks
-                return Ok(());
+                Ok(())
             }
             _ => Ok(()),
         }

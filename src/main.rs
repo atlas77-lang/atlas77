@@ -1,3 +1,4 @@
+// TODO: We should remove those allow clippy directives one day
 #![deny(warnings)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::result_large_err)]

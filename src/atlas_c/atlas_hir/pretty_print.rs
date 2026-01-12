@@ -1,6 +1,9 @@
 use crate::atlas_c::atlas_hir::{
     item::HirUnion,
-    signature::{HirFlag, HirGenericConstraint, HirGenericConstraintKind, HirStructMethodModifier, HirStructMethodSignature},
+    signature::{
+        HirFlag, HirGenericConstraint, HirGenericConstraintKind, HirStructMethodModifier,
+        HirStructMethodSignature,
+    },
     ty::HirGenericTy,
 };
 
@@ -241,7 +244,7 @@ impl HirPrettyPrinter {
                 self.write(format!("std::{}", name).as_str());
             }
             HirGenericConstraintKind::Concept { name, .. } => {
-                self.write(format!("{}", name).as_str());
+                self.write(name);
             }
             HirGenericConstraintKind::Operator { op, .. } => {
                 self.write(format!("operator{}", op).as_str());
