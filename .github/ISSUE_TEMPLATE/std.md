@@ -2,7 +2,7 @@
 name: Standard Library
 about: Suggest improvements or report issues with the standard library
 title: '[STD] '
-labels: standard-library
+labels: std
 assignees: ''
 ---
 

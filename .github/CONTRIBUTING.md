@@ -13,7 +13,7 @@ Don't forget to give the project a star! Thanks again!
 - **Report bugs** - Use the [bug report template](https://github.com/atlas77-lang/Atlas77/issues/new?template=bug_report.md)
 - **Request features** - Use the [feature request template](https://github.com/atlas77-lang/Atlas77/issues/new?template=feature_request.md)
 - **Ask questions** - Use the [question template](https://github.com/atlas77-lang/Atlas77/issues/new?template=question.md)
-- **Improve the standard library** - Use the [standard library template](https://github.com/atlas77-lang/Atlas77/issues/new?template=documentation.md)
+- **Improve the standard library** - Use the [standard library template](https://github.com/atlas77-lang/Atlas77/issues/new?template=std.md)
 - **Submit code changes** - Fork the repo and create pull requests
 - **Test the language** - Try Atlas77 in different scenarios and provide feedback
 
