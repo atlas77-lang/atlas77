@@ -127,6 +127,16 @@ public:
             return default;
         }
     }
+    /// Because of an issue with nested references in generic
+    /// This method is currently disabled.
+    /// Tracked by https://github.com/atlas77-lang/atlas77/issues/153
+    // fun as_ref(&const this) -> optional<&const T> {
+    //     if (this.has_value) {
+    //         return optional<&const T>::of(&this.data.value);
+    //     } else {
+    //         return optional<&const T>::empty();
+    //     }
+    // }
     // Function pointers are not supported yet, so this is just a placeholder
     //fun map<U>(this, f: (T) -> U) -> optional<U> {
     //    if (this.has_value) {
