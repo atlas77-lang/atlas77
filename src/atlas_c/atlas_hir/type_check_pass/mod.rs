@@ -4,7 +4,8 @@ use super::{
     HirFunction, HirModule, HirModuleSignature, arena::HirArena, expr, stmt::HirStatement,
 };
 use crate::atlas_c::atlas_hir::error::{
-    CallingConsumingMethodOnMutableReferenceError, CallingConsumingMethodOnMutableReferenceOrigin,
+    AccessingPrivateUnionError, CallingConsumingMethodOnMutableReferenceError,
+    CallingConsumingMethodOnMutableReferenceOrigin,
     StdNonCopyableStructCannotHaveCopyConstructorError, StructCannotHaveAFieldOfItsOwnTypeError,
     ThisStructDoesNotHaveACopyConstructorError, UnionMustHaveAtLeastTwoVariantError,
     UnionVariantDefinedMultipleTimesError, VariableNameAlreadyDefinedError,
@@ -21,7 +22,7 @@ use crate::atlas_c::atlas_hir::{
     error::{
         AccessingClassFieldOutsideClassError, AccessingPrivateConstructorError,
         AccessingPrivateFieldError, AccessingPrivateFunctionError, AccessingPrivateFunctionOrigin,
-        AccessingPrivateStructError, AccessingPrivateStructOrigin,
+        AccessingPrivateObjectOrigin, AccessingPrivateStructError,
         CallingNonConstMethodOnConstReferenceError, CallingNonConstMethodOnConstReferenceOrigin,
         CanOnlyConstructStructsError, EmptyListLiteralError, FieldKind, HirError, HirResult,
         IllegalOperationError, IllegalUnaryOperationError, InvalidSpecialMethodSignatureError,
@@ -925,7 +926,10 @@ impl<'hir> TypeChecker<'hir> {
                     let tmp = match self.signature.unions.get(name) {
                         Some(c) => c,
                         None => {
-                            return Err(Self::unknown_type_err(name, &obj_lit.span));
+                            return Err(Self::unknown_type_err(
+                                &HirPrettyPrinter::generic_ty_str(g),
+                                &obj_lit.span,
+                            ));
                         }
                     };
                     *tmp
@@ -947,12 +951,16 @@ impl<'hir> TypeChecker<'hir> {
                     let origin_src = utils::get_file_content(origin_path).unwrap();
                     let obj_path = obj_lit.span.path;
                     let obj_src = utils::get_file_content(obj_path).unwrap();
-                    return Err(HirError::AccessingPrivateStruct(
-                        AccessingPrivateStructError {
-                            name: union_ty.name.to_owned(),
+                    return Err(HirError::AccessingPrivateUnion(
+                        AccessingPrivateUnionError {
+                            name: if let Some(n) = union_signature.pre_mangled_ty {
+                                HirPrettyPrinter::generic_ty_str(n)
+                            } else {
+                                union_ty.name.to_owned()
+                            },
                             span: obj_lit.span,
                             src: NamedSource::new(obj_path, obj_src),
-                            origin: AccessingPrivateStructOrigin {
+                            origin: AccessingPrivateObjectOrigin {
                                 span: union_signature.name_span,
                                 src: NamedSource::new(origin_path, origin_src),
                             },
@@ -1043,10 +1051,14 @@ impl<'hir> TypeChecker<'hir> {
                     let obj_src = utils::get_file_content(obj_path).unwrap();
                     return Err(HirError::AccessingPrivateStruct(
                         AccessingPrivateStructError {
-                            name: struct_ty.name.to_owned(),
+                            name: if let Some(n) = struct_signature.pre_mangled_ty {
+                                HirPrettyPrinter::generic_ty_str(n)
+                            } else {
+                                struct_ty.name.to_owned()
+                            },
                             span: obj.span,
                             src: NamedSource::new(obj_path, obj_src),
-                            origin: AccessingPrivateStructOrigin {
+                            origin: AccessingPrivateObjectOrigin {
                                 span: struct_signature.name_span,
                                 src: NamedSource::new(origin_path, origin_src),
                             },
@@ -1168,7 +1180,7 @@ impl<'hir> TypeChecker<'hir> {
                                 "function",
                             )
                         };
-                        let func = match self.signature.functions.get(name) {
+                        let func = match base_func {
                             Some(f) => *f,
                             None => {
                                 return Err(Self::unknown_type_err(name, &i.span));
@@ -1182,7 +1194,11 @@ impl<'hir> TypeChecker<'hir> {
                             let call_src = utils::get_file_content(call_path).unwrap();
                             return Err(HirError::AccessingPrivateFunction(
                                 AccessingPrivateFunctionError {
-                                    name: name.to_string(),
+                                    name: if let Some(n) = func.pre_mangled_ty {
+                                        HirPrettyPrinter::generic_ty_str(n)
+                                    } else {
+                                        name.to_string()
+                                    },
                                     span: func_expr.span,
                                     src: NamedSource::new(call_path, call_src),
                                     origin: AccessingPrivateFunctionOrigin {
@@ -1245,10 +1261,14 @@ impl<'hir> TypeChecker<'hir> {
                             let access_src = utils::get_file_content(access_path).unwrap();
                             return Err(HirError::AccessingPrivateStruct(
                                 AccessingPrivateStructError {
-                                    name: name.to_owned(),
+                                    name: if let Some(n) = class.pre_mangled_ty {
+                                        HirPrettyPrinter::generic_ty_str(n)
+                                    } else {
+                                        name.to_string()
+                                    },
                                     span: field_access.span,
                                     src: NamedSource::new(access_path, access_src),
-                                    origin: AccessingPrivateStructOrigin {
+                                    origin: AccessingPrivateObjectOrigin {
                                         span: class.declaration_span,
                                         src: NamedSource::new(origin_path, origin_src),
                                     },

@@ -288,6 +288,8 @@ impl<'hir> MonomorphizationPass<'hir> {
     ) -> HirResult<&'hir HirTy<'hir>> {
         let base_name = actual_type.name;
         let mut new_union = template.clone();
+        new_union.pre_mangled_ty = Some(actual_type);
+        new_union.signature.pre_mangled_ty = Some(actual_type);
         //Collect generic names
         let generic_constraints = template.signature.generics.clone();
         if generic_constraints.len() != actual_type.inner.len() {
@@ -581,6 +583,8 @@ impl<'hir> MonomorphizationPass<'hir> {
         let mut new_function = template.clone();
         let generics = new_function.signature.generics.clone();
 
+        new_function.pre_mangled_ty = Some(actual_type);
+
         if !generics.is_empty() {
             let generic_params = &generics;
             if generic_params.len() != actual_type.inner.len() {
@@ -635,6 +639,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             new_sig.params = new_params;
             new_sig.return_ty = new_return_ty.clone();
             new_sig.generics = vec![];
+            new_sig.pre_mangled_ty = Some(actual_type);
             new_function.signature = &*self.arena.intern(new_sig);
 
             // Monomorphize function body

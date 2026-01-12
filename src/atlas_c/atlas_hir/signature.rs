@@ -83,6 +83,8 @@ pub struct HirUnionSignature<'hir> {
     pub variants: BTreeMap<&'hir str, HirStructFieldSignature<'hir>>,
     /// Generic type parameter names
     pub generics: Vec<&'hir HirGenericConstraint<'hir>>,
+    /// If the union name is mangled, this contains the pre-mangled type
+    pub pre_mangled_ty: Option<&'hir HirGenericTy<'hir>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy, Default)]
@@ -275,21 +277,8 @@ pub struct HirFunctionSignature<'hir> {
     /// The span of the return type, if it exists.
     pub return_ty_span: Option<Span>,
     pub is_external: bool,
-}
-
-impl Default for HirFunctionSignature<'_> {
-    fn default() -> Self {
-        Self {
-            span: Span::default(),
-            vis: HirVisibility::Public,
-            params: Vec::new(),
-            generics: vec![],
-            type_params: Vec::new(),
-            return_ty: HirTy::Unit(HirUnitTy {}),
-            return_ty_span: None,
-            is_external: false,
-        }
-    }
+    /// If the function name is mangled, this contains the pre-mangled type
+    pub pre_mangled_ty: Option<&'hir HirGenericTy<'hir>>,
 }
 
 #[derive(Debug, Clone)]

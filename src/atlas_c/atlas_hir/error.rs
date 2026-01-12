@@ -39,6 +39,7 @@ declare_error_type! {
         StructNameCannotBeOneLetter(StructNameCannotBeOneLetterError),
         NoReturnInFunction(NoReturnInFunctionError),
         AccessingPrivateStruct(AccessingPrivateStructError),
+        AccessingPrivateUnion(AccessingPrivateUnionError),
         IllegalOperation(IllegalOperationError),
         IllegalUnaryOperation(IllegalUnaryOperationError),
         AccessingPrivateFunction(AccessingPrivateFunctionError),
@@ -455,10 +456,7 @@ pub struct IllegalOperationError {
 }
 
 #[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
-    code(sema::trying_to_access_private_struct),
-    help("Mark {name} the struct as public")
-)]
+#[diagnostic(code(sema::trying_to_access_private_struct))]
 #[error(
     "{name} is marked as private, so you cannot accessing it from outside of its declaration file."
 )]
@@ -470,12 +468,29 @@ pub struct AccessingPrivateStructError {
     pub span: Span,
     #[source]
     #[diagnostic_source]
-    pub origin: AccessingPrivateStructOrigin,
+    pub origin: AccessingPrivateObjectOrigin,
 }
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::trying_to_access_private_union))]
+#[error(
+    "{name} is marked as private, so you cannot accessing it from outside of its declaration file."
+)]
+pub struct AccessingPrivateUnionError {
+    pub name: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label = "trying to access a private union"]
+    pub span: Span,
+    #[source]
+    #[diagnostic_source]
+    pub origin: AccessingPrivateObjectOrigin,
+}
+
 #[derive(Error, Diagnostic, Debug)]
 #[error("")]
-pub struct AccessingPrivateStructOrigin {
-    #[label = "You marked it as private"]
+pub struct AccessingPrivateObjectOrigin {
+    #[label = "It's marked as private here"]
     pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,

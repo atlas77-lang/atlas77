@@ -26,6 +26,7 @@ pub struct HirFunction<'hir> {
     pub name_span: Span,
     pub signature: &'hir HirFunctionSignature<'hir>,
     pub body: HirBlock<'hir>,
+    pub pre_mangled_ty: Option<&'hir HirGenericTy<'hir>>,
 }
 
 /// Used by the type checker to import the API Signature of a module.
@@ -48,6 +49,8 @@ pub struct HirUnion<'hir> {
     pub variants: Vec<HirStructFieldSignature<'hir>>,
     pub signature: HirUnionSignature<'hir>,
     pub vis: HirVisibility,
+    /// If the union name is mangled, this contains the pre-mangled type
+    pub pre_mangled_ty: Option<&'hir HirGenericTy<'hir>>,
 }
 
 #[derive(Debug, Clone)]

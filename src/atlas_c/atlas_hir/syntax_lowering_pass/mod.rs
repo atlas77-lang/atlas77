@@ -269,6 +269,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 }
                 map
             },
+            // This is filled by the monomorphization pass if needed
+            pre_mangled_ty: None,
         };
         let hir = HirUnion {
             span: ast_union.span,
@@ -277,6 +279,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             vis: ast_union.vis.into(),
             variants,
             signature,
+            pre_mangled_ty: None,
         };
         Ok(hir)
     }
@@ -379,6 +382,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             return_ty: ty,
             return_ty_span: Some(ast_extern_func.ret_ty.span()),
             is_external: true,
+            pre_mangled_ty: None,
         });
         self.module_signature.functions.insert(name, hir);
         Ok(())
@@ -1603,6 +1607,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             return_ty: ret_type,
             return_ty_span: Some(ret_type_span),
             is_external: false,
+            pre_mangled_ty: None,
         });
         let fun = HirFunction {
             span: node.span,
@@ -1610,6 +1615,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             name_span: node.name.span,
             signature,
             body,
+            pre_mangled_ty: None,
         };
         Ok(fun)
     }
