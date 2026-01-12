@@ -154,6 +154,11 @@ impl<'hir> OwnershipPass<'hir> {
 
             // Process methods
             for method in struct_def.methods.iter_mut() {
+                // Skip methods with unsatisfied constraints (they won't be code generated)
+                if !method.signature.is_constraint_satisfied {
+                    continue;
+                }
+
                 self.scope_map = ScopeMap::new();
                 self.current_stmt_index = 0;
                 self.temp_var_counter = 0;
@@ -230,6 +235,11 @@ impl<'hir> OwnershipPass<'hir> {
 
             // Process copy constructor (if present)
             if let Some(copy_ctor) = struct_def.copy_constructor.as_mut() {
+                // Skip copy constructor with unsatisfied constraints (it won't be code generated)
+                if !copy_ctor.signature.is_constraint_satisfied {
+                    continue;
+                }
+
                 self.scope_map = ScopeMap::new();
                 self.current_stmt_index = 0;
                 self.temp_var_counter = 0;
