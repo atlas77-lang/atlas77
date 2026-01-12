@@ -30,7 +30,9 @@ public:
         delete_from_ref(&this.data);
     }
     /// TODO: Add a where T: std::copyable constraint here
-    Vector(from: &const Vector<T>) {
+    Vector(from: &const Vector<T>) 
+        where T: std::copyable
+    {
         this.length = *(from.length);
         this.capacity = *(from.capacity);
         // We only allocate the size we need

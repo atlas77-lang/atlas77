@@ -16,7 +16,9 @@ public:
     ~Iter() {
         delete this.data;
     }
-    Iter(from: &const Iter<T>) {
+    Iter(from: &const Iter<T>)
+        where T: std::copyable
+    {
         this.data = *from.data;
         this.index = *from.index;
     }

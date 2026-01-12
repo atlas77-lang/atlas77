@@ -31,6 +31,16 @@ public:
             delete this.data.unexpected_value;
         }
     }
+    expected(from: &const expected<T, E>) 
+        where T: std::copyable, E: std::copyable
+    {
+        this.has_expected_value = *(from.has_expected_value);
+        if (this.has_expected_value) {
+            this.data.expected_value = copy<>(*(from.data.expected_value));
+        } else {
+            this.data.unexpected_value = copy<>(*(from.data.unexpected_value));
+        }
+    }
     /// Construct a successful `expected` containing `data`.
     ///
     /// Example:

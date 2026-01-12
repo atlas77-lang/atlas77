@@ -44,8 +44,9 @@ public:
             delete this.data.value;
         }
     }
-    /// TODO: Add a where T: std::copyable constraint here
-    optional(from: &const optional<T>) {
+    optional(from: &const optional<T>)
+        where T: std::copyable
+    {
         this.has_value = *from.has_value;
         if (this.has_value) {
             this.data.value = *from.data.value;

@@ -748,7 +748,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 // This constraint belongs to a method generic - collect for merging
                 method_level_constraints
                     .entry(generic_name)
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .extend(generic.constraints);
             } else {
                 // This constraint belongs to a struct generic - keep in where clause

@@ -20,7 +20,9 @@ public:
         delete this.key;
         delete this.value;
     }
-    Pair(from: &const Pair<K, V>) {
+    Pair(from: &const Pair<K, V>) 
+        where K: std::copyable, V: std::copyable
+    {
         this.key = *from.key;
         this.value = *from.value;
     }
@@ -56,7 +58,9 @@ public:
         delete this.values;
     }
     /// Copy constructor - creates a deep copy of the map
-    Map(from: &const Map<K, V>) {
+    Map(from: &const Map<K, V>)
+        where K: std::copyable, V: std::copyable
+    {
         this.keys = *from.keys;
         this.values = *from.values;
     }

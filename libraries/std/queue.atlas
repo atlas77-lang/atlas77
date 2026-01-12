@@ -24,6 +24,33 @@ public:
         this.size = len(&items);
         this.items = items;
     }
+    ~Queue() {
+        // Let's cycle and delete each item in the queue
+        // We need to delete only the items between head and tail
+        let i: uint64 = 0u;
+        while i < *this.count {
+            let index = (this.head + i) % this.size;
+            delete this.items[index];
+            i = i + 1u;
+        }
+        // Finally, delete the underlying array
+        delete_from_ref(&this.items);
+    }
+    Queue(from: &const Queue<T>)
+        where T: std::copyable
+    {
+        this.head = *(from.head);
+        this.tail = *(from.tail);
+        this.count = *(from.count);
+        this.size = *(from.size);
+        // We need to copy each item in the queue
+        this.items = new [T; *this.size];
+        let i: uint64 = 0u;
+        while i < *this.size {
+            this.items[i] = *from.items[i];
+            i = i + 1u;
+        }
+    }
     /// Instantiates a queue with a predefined size.
     fun with_capacity(size: uint64) -> Queue<T> {
         return new Queue<T>(new [T; size]);
