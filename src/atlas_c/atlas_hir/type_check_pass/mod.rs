@@ -1180,7 +1180,7 @@ impl<'hir> TypeChecker<'hir> {
                                 "function",
                             )
                         };
-                        let func = match base_func {
+                        let func = match self.signature.functions.get(name) {
                             Some(f) => *f,
                             None => {
                                 return Err(Self::unknown_type_err(name, &i.span));

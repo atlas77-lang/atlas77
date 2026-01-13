@@ -32,9 +32,6 @@ pub(crate) mod generic_pool;
 pub struct MonomorphizationPass<'hir> {
     arena: &'hir HirArena<'hir>,
     generic_pool: HirGenericPool<'hir>,
-    already_monomorphized_functions: HashSet<&'hir str>,
-    already_monomorphized_structs: HashSet<&'hir str>,
-    already_monomorphized_unions: HashSet<&'hir str>,
 }
 
 impl<'hir> MonomorphizationPass<'hir> {
@@ -42,9 +39,6 @@ impl<'hir> MonomorphizationPass<'hir> {
         Self {
             arena,
             generic_pool,
-            already_monomorphized_functions: HashSet::new(),
-            already_monomorphized_structs: HashSet::new(),
-            already_monomorphized_unions: HashSet::new(),
         }
     }
     /// Clears all the generic structs & functions from the module body and signature.
@@ -110,10 +104,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             .body
             .functions
             .iter()
-            .filter(|(_, func)| {
-                func.signature.generics.is_empty() && !func.signature.is_external
-                //&& self.already_monomorphized_functions.contains(func.name)
-            })
+            .filter(|(_, func)| func.signature.generics.is_empty() && !func.signature.is_external)
             .map(|(_, func)| func.name)
             .collect();
 

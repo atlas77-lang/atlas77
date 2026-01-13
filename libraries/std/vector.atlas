@@ -111,7 +111,10 @@ public:
     /// Consumes the vector and returns an iterator over its elements.
     /// The vector cannot be used after calling this method.
     fun into_iter(this) -> Iter<T> {
-        return new Iter<T>(this);
+        let arr = replace(&this.data, new [T; 0u]);
+        this.length = 0u;
+        delete this;
+        return new Iter<T>(arr);
     }
     /// Takes an element out of the vector at the specified index,
     /// shifting subsequent elements to the left.

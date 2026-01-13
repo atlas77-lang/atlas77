@@ -34,10 +34,7 @@ public:
     }
     /// Consumes this pair and returns a new pair with swapped key and value
     fun swap(this) -> Pair<V, K> {
-        let value = this.value;
-        let key = this.key;
-        delete_from_ref(&this);
-        return new Pair<V, K>(value, key);
+        return new Pair<V, K>(this.value, this.key);
     }
 }
 /// A simple map implementation using two parallel arrays.
@@ -135,7 +132,7 @@ public:
 
     fun into_iter(this) -> Iter<Pair<K, V>> {
         let size = this.keys.length;
-        let pairs = Vector<Pair<K, V>>::with_capacity(size);
+        let pairs = new [Pair<K, V>; size];
         let i = 0u;
         while i < size {
             // Create pair directly from array access to avoid take() issues
@@ -145,7 +142,7 @@ public:
             let key = *key_ref;
             let value = *value_ref;
             let pair = new Pair<K, V>(key, value);
-            pairs.push(pair);
+            pairs[i] = pair;
             i = i + 1u;
         }
         delete this;
@@ -154,11 +151,11 @@ public:
 
     fun keys(&const this) -> Iter<&const K> {
         let size = *this.keys.length;
-        let keys_vec = Vector<&const K>::with_capacity(size);
+        let keys_vec = new [&const K; size];
         let i = 0u;
         while i < size {
             let key_ref = this.keys.get(i);
-            keys_vec.push(key_ref);
+            keys_vec[i] = key_ref;
             i = i + 1u;
         }
         return new Iter<&const K>(keys_vec);

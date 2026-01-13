@@ -6,62 +6,76 @@ import "std/mem";
 //TODO: Add Iter<T>::from_map(Map<K, V>)
 public struct Iter<T> {
 public:
-    data: Vector<T>;
+    data: [T];
     index: uint64;
 
-    Iter(data: Vector<T>) {
+    Iter(data: [T]) {
         this.data = data;
         this.index = 0u;
     }
     ~Iter() {
-        delete this.data;
+        let i = 0u;
+        while i < len(&this.data) {
+            delete this.data[i];
+            i = i + 1u;
+        }
+        delete_from_ref(&this.data);
     }
     Iter(from: &const Iter<T>)
         where T: std::copyable
     {
-        this.data = *from.data;
+        // Lists are not copyable yet, so we have to copy the elements one by one
+        let i = 0u;
+        while i < len(&from.data) {
+            this.data[i] = (*from.data)[i];
+            i = i + 1u;
+        }
         this.index = *from.index;
     }
     /// Returns the next item in the iterator, or None if the end is reached.
     /// Note: For non-copyable types, this will copy the element.
     fun next(&this) -> optional<T> {
-        if this.index >= this.data.length {
+        if this.index >= len(&this.data) {
             return optional<T>::empty();
         }
         
-        // We use take to move the first item (the next one) out of the vector
-        // This avoids copying for non-copyable types
-        let item: T = this.data.take(0u);
+        let item: T = memcpy(&this.data[this.index]);
+        this.index = this.index + 1u;
         return optional<T>::of(item);
     }
     /// Peeks at the next item without advancing the iterator
     fun peek(&this) -> optional<&const T> {
-        if this.index >= this.data.length {
+        if this.index >= len(&this.data) {
             return optional<&const T>::empty();
         }
         // 1 
-        let item = this.data.get(1u);
+        let item = &(this.data[this.index]);
         return optional<&const T>::of(item);
     }
 
     fun from_array(data: [T]) -> Iter<T> {
-        let vector = new Vector<T>(data);
-        return new Iter<T>(vector);
+        return new Iter<T>(data);
     }
 
     fun has_next(&this) -> bool {
-        return this.index < this.data.length;
+        return this.index < len(&this.data);
     }
     
     fun from_string(data: String) -> Iter<char> {
         let chars: [char] = to_chars(&data.s);
-        let vector = new Vector<char>(chars);
-        return new Iter<char>(vector);
+        return new Iter<char>(chars);
     }
 
     fun from_str(data: &const string) -> Iter<char> {
         let chars: [char] = to_chars(data);
-        let vector = new Vector<char>(chars);
-        return new Iter<char>(vector);
+        return new Iter<char>(chars);
+    }
+
+    fun from_vector(data: Vector<T>) -> Iter<T> {
+        return data.into_iter();
+    }
+
+    fun from_map<K, V>(data: Map<K, V>) -> Iter<Pair<K, V>> {
+        return data.into_iter();
     }
 }
