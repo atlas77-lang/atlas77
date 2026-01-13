@@ -42,9 +42,9 @@ use crate::atlas_c::{
         HirModule,
         arena::HirArena,
         error::{
-            CannotMoveOutOfContainerError, CannotMoveOutOfLoopError, CannotMoveOutOfReferenceError,
-            CannotTransferOwnershipInBorrowingMethodError, HirError, HirResult,
-            LifetimeDependencyViolationError, RecursiveCopyConstructorError,
+            CannotDeleteOutOfLoopError, CannotMoveOutOfContainerError, CannotMoveOutOfLoopError,
+            CannotMoveOutOfReferenceError, CannotTransferOwnershipInBorrowingMethodError, HirError,
+            HirResult, LifetimeDependencyViolationError, RecursiveCopyConstructorError,
             ReturningValueWithLocalLifetimeDependencyError, TryingToAccessADeletedValueError,
             TryingToAccessAMovedValueError, TryingToAccessAPotentiallyMovedValueError,
         },
@@ -1099,18 +1099,26 @@ impl<'hir> OwnershipPass<'hir> {
                 // 2. The loop might execute once (move is valid)
                 // 3. The loop might execute multiple times (would be use-after-move)
                 let mut moved_in_loop = Vec::new();
+                let mut deleted_in_loop = Vec::new();
                 for scope in &pre_loop_state.scopes {
                     for (name, var_data) in &scope.var_status {
                         let post_var = post_loop_state.get(name);
                         if let Some(post_v) = post_var {
                             let was_owned = matches!(var_data.status, VarStatus::Owned);
                             let is_moved = matches!(post_v.status, VarStatus::Moved { .. });
+                            let is_deleted = matches!(post_v.status, VarStatus::Deleted { .. });
 
                             if was_owned
                                 && is_moved
                                 && let VarStatus::Moved { move_span } = &post_v.status
                             {
                                 moved_in_loop.push((*name, *move_span));
+                            }
+                            if was_owned
+                                && is_deleted
+                                && let VarStatus::Deleted { delete_span } = &post_v.status
+                            {
+                                deleted_in_loop.push((*name, *delete_span));
                             }
                         }
                     }
@@ -1125,6 +1133,15 @@ impl<'hir> OwnershipPass<'hir> {
                     if let Some(var) = self.scope_map.get_mut(var_name) {
                         var.status = VarStatus::ConditionallyMoved {
                             move_span: *move_span,
+                        };
+                    }
+                }
+                // Mark deleted variables as ConditionallyDeleted
+                for (var_name, delete_span) in &deleted_in_loop {
+                    if let Some(var) = self.scope_map.get_mut(var_name) {
+                        // TODO: Add a ConditionallyDeleted status
+                        var.status = VarStatus::ConditionallyMoved {
+                            move_span: *delete_span,
                         };
                     }
                 }
@@ -1144,6 +1161,25 @@ impl<'hir> OwnershipPass<'hir> {
                         },
                         src: NamedSource::new(path, src),
                     }));
+                }
+
+                // If any variables were deleted inside the loop, that's an error
+                // because the loop could run multiple times, causing use-after-free
+                if let Some((var_name, delete_span)) = deleted_in_loop.first() {
+                    let path = delete_span.path;
+                    let src = utils::get_file_content(path).unwrap_or_default();
+                    return Err(HirError::CannotDeleteOutOfLoop(
+                        CannotDeleteOutOfLoopError {
+                            var_name: var_name.to_string(),
+                            delete_span: *delete_span,
+                            loop_span: Span {
+                                start: while_stmt.span.start,
+                                end: while_stmt.condition.span().end,
+                                path: while_stmt.span.path,
+                            },
+                            src: NamedSource::new(path, src),
+                        },
+                    ));
                 }
 
                 // Prepend any pending statements (temporary extractions from condition)
@@ -1536,6 +1572,9 @@ impl<'hir> OwnershipPass<'hir> {
                 };
 
                 if let HirExpr::Ident(ident) = inner_expr {
+                    // If the variable is already deleted or moved, emit an error
+                    //self.check_variable_valid(ident)?;
+
                     // Mark the variable itself as deleted
                     if let Some(var_data) = self.scope_map.get_mut(ident.name) {
                         var_data.status = VarStatus::Deleted {
@@ -1556,6 +1595,9 @@ impl<'hir> OwnershipPass<'hir> {
             }
             // Explicit move expression from user code: move<>(x)
             // This forces a move regardless of later uses
+            //
+            // NB: This is not yet implemented in the parser, so users can't write it directly
+            // Though I do plan to add a move expression in the future for explicit moves
             HirExpr::Move(move_expr) => {
                 // Transform the inner expression as ownership-consuming (will mark as moved)
                 let transformed_inner = self.transform_expr_ownership(&move_expr.expr, true)?;
@@ -1602,6 +1644,9 @@ impl<'hir> OwnershipPass<'hir> {
                 }
             }
             // Explicit copy expression from user code: copy<>(x)
+            //
+            // NB: This is not yet implemented in the parser, so users can't write it directly
+            // Though I do plan to add a copy expression in the future for explicit copies
             HirExpr::Copy(copy_expr) => {
                 // Transform the inner expression (not ownership-consuming since we're copying)
                 let transformed_inner = self.transform_expr_ownership(&copy_expr.expr, false)?;
@@ -1992,7 +2037,7 @@ impl<'hir> OwnershipPass<'hir> {
             _ => None,
         };
 
-        // keep optional ident for later updates (don't bail out; handle non-ident LHS too)
+        // keep optional ident for later updates
         let lhs_ident = lhs_ident_opt.clone();
 
         // Decide whether this LHS needs special handling. Use precise check:

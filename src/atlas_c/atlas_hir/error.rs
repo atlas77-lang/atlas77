@@ -50,6 +50,7 @@ declare_error_type! {
         TryingToAccessAPotentiallyMovedValue(TryingToAccessAPotentiallyMovedValueError),
         TryingToAccessADeletedValue(TryingToAccessADeletedValueError),
         CannotMoveOutOfLoop(CannotMoveOutOfLoopError),
+        CannotDeleteOutOfLoop(CannotDeleteOutOfLoopError),
         CallingNonConstMethodOnConstReference(CallingNonConstMethodOnConstReferenceError),
         CallingConsumingMethodOnMutableReference(CallingConsumingMethodOnMutableReferenceError),
         TryingToMutateConstReference(TryingToMutateConstReferenceError),
@@ -978,6 +979,24 @@ pub struct CannotMoveOutOfLoopError {
     pub loop_span: Span,
     #[label = "variable `{var_name}` is moved here"]
     pub move_span: Span,
+    pub var_name: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::cannot_delete_out_of_loop),
+    help(
+        "variables cannot be deleted inside loops because the loop could iterate multiple times, causing use-after-delete. Consider deleting the variable before the loop, or restructuring your code"
+    )
+)]
+#[error("cannot delete variable `{var_name}` inside loop")]
+pub struct CannotDeleteOutOfLoopError {
+    #[label = "loop starts here"]
+    pub loop_span: Span,
+    #[label = "variable `{var_name}` is deleted here"]
+    pub delete_span: Span,
     pub var_name: String,
     #[source_code]
     pub src: NamedSource<String>,
