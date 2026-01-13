@@ -18,7 +18,7 @@ use crate::atlas_c::atlas_frontend::parser::{
     },
 };
 use ast::{
-    AstAssignExpr, AstBinaryOp, AstBinaryOpExpr, AstBlock, AstBooleanLiteral, AstBooleanType,
+    AstAssignStmt, AstBinaryOp, AstBinaryOpExpr, AstBlock, AstBooleanLiteral, AstBooleanType,
     AstCallExpr, AstConst, AstExpr, AstExternFunction, AstFieldAccessExpr, AstFloatLiteral,
     AstFloatType, AstFunction, AstFunctionType, AstIdentifier, AstIfElseExpr, AstImport,
     AstIntegerLiteral, AstIntegerType, AstItem, AstLet, AstLiteral, AstMutableRefType,
@@ -960,6 +960,23 @@ impl<'ast> Parser<'ast> {
                 Ok(node)
             }
             _ => {
+                // Look ahead to see if this is an assignment statement at top level
+                if self.lookahead_is_assignment() {
+                    // Parse LHS allowing postfix/unary forms, so we can parse `arr[i] = ...`, `this.f = ...`, `*p = ...`
+                    let lhs = self.parse_primary()?;
+                    let lhs = self.parse_ident_access(lhs, true)?;
+                    // At this point, parse_ident_access should have consumed the OpAssign and returned an Assign expression
+                    if let AstExpr::Assign(assign) = lhs {
+                        self.expect(TokenKind::Semicolon)?;
+                        return Ok(AstStatement::Assign(assign));
+                    } else {
+                        // Fallback: treat as expression
+                        let expr = self.parse_expr()?;
+                        self.expect(TokenKind::Semicolon)?;
+                        return Ok(AstStatement::Expr(expr));
+                    }
+                }
+
                 let node = self.parse_expr()?;
                 self.expect(TokenKind::Semicolon)?;
                 Ok(AstStatement::Expr(node))
@@ -1183,11 +1200,7 @@ impl<'ast> Parser<'ast> {
 
                 Ok(node)
             }
-            // Handle assignment to unary expressions like `*ref_x = 100`
-            TokenKind::OpAssign => {
-                let node = AstExpr::Assign(self.parse_assign(left)?);
-                Ok(node)
-            }
+            // Assignment is not an expression anymore; do not parse it here.
             _ => Ok(left),
         }
     }
@@ -1342,7 +1355,8 @@ impl<'ast> Parser<'ast> {
     fn parse_primary(&mut self) -> ParseResult<AstExpr<'ast>> {
         let node = self.parse_primary_no_postfix()?;
         // Parse postfix operations (method calls, field access, indexing) on all primary expressions
-        self.parse_ident_access(node, true)
+        // Do NOT treat assignment as an expression here; assignments are statements.
+        self.parse_ident_access(node, false)
     }
 
     /// Parse primary expression with postfix operations but WITHOUT assignment handling.
@@ -1826,15 +1840,54 @@ impl<'ast> Parser<'ast> {
     }
 
     ///todo: add support for += -= *= /= %= etc.
-    fn parse_assign(&mut self, target: AstExpr<'ast>) -> ParseResult<AstAssignExpr<'ast>> {
+    fn parse_assign(&mut self, target: AstExpr<'ast>) -> ParseResult<AstAssignStmt<'ast>> {
         self.expect(TokenKind::OpAssign)?;
         let value = self.parse_expr()?;
-        let node = AstAssignExpr {
+        let node = AstAssignStmt {
             span: Span::union_span(&target.span(), &value.span()),
             target: self.arena.alloc(target),
             value: self.arena.alloc(value),
         };
         Ok(node)
+    }
+
+    /// Lookahead to determine if the current statement is an assignment at top-level.
+    /// This scans forward (without consuming parser state) until semicolon or end
+    /// and returns true if an `OpAssign` token is found at depth zero (not inside parentheses/brackets).
+    fn lookahead_is_assignment(&self) -> bool {
+        let mut depth_paren = 0isize;
+        let mut depth_brack = 0isize;
+        let mut depth_brace = 0isize;
+        let mut idx = self.pos;
+        while let Some(tok) = self.tokens.get(idx) {
+            match tok.kind() {
+                TokenKind::LParen => depth_paren += 1,
+                TokenKind::RParen => {
+                    if depth_paren > 0 {
+                        depth_paren -= 1
+                    }
+                }
+                TokenKind::LBracket => depth_brack += 1,
+                TokenKind::RBracket => {
+                    if depth_brack > 0 {
+                        depth_brack -= 1
+                    }
+                }
+                TokenKind::LBrace => depth_brace += 1,
+                TokenKind::RBrace => {
+                    if depth_brace > 0 {
+                        depth_brace -= 1
+                    }
+                }
+                TokenKind::OpAssign if depth_paren == 0 && depth_brack == 0 && depth_brace == 0 => {
+                    return true;
+                }
+                TokenKind::Semicolon | TokenKind::EoI => return false,
+                _ => {}
+            }
+            idx += 1;
+        }
+        false
     }
 
     fn parse_instantiated_generics(&mut self) -> ParseResult<Vec<AstType<'ast>>> {

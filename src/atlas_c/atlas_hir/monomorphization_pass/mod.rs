@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use crate::atlas_c::{
     atlas_hir::{
         HirModule,
@@ -8,24 +6,16 @@ use crate::atlas_c::{
             HirError::{self, UnknownType},
             HirResult, NotEnoughGenericsError, NotEnoughGenericsOrigin, UnknownTypeError,
         },
-        expr::{
-            HirAssignExpr, HirExpr, HirFieldAccessExpr, HirIdentExpr, HirThisLiteral, HirUnaryOp,
-            UnaryOpExpr,
-        },
+        expr::HirExpr,
         item::{HirStruct, HirStructConstructor, HirUnion},
         monomorphization_pass::generic_pool::HirGenericPool,
-        signature::{
-            HirFunctionParameterSignature, HirGenericConstraint, HirGenericConstraintKind,
-            HirModuleSignature, HirStructConstructorSignature, HirStructFieldSignature,
-            HirTypeParameterItemSignature, HirVisibility,
-        },
-        stmt::{HirBlock, HirExprStmt, HirStatement},
+        signature::{HirGenericConstraint, HirGenericConstraintKind, HirModuleSignature},
+        stmt::HirStatement,
         ty::{HirGenericTy, HirListTy, HirMutableReferenceTy, HirReadOnlyReferenceTy, HirTy},
-        warning::{CannotGenerateACopyConstructorForThisTypeWarning, HirWarning},
     },
-    utils::{self, Span, get_file_content},
+    utils::{self, Span},
 };
-use miette::{ErrReport, NamedSource};
+use miette::NamedSource;
 pub(crate) mod generic_pool;
 
 //Maybe all the passes should share a common trait? Or be linked to a common context struct?
@@ -558,7 +548,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             Some(func) => func.clone(),
             None => {
                 //Maybe it's an external function
-                if let Some(func) = module.signature.functions.get(base_name) {
+                if module.signature.functions.contains_key(base_name) {
                     return Ok(());
                 }
                 let path = span.path;
@@ -705,6 +695,14 @@ impl<'hir> MonomorphizationPass<'hir> {
                 }
                 self.monomorphize_expression(&mut let_stmt.value, types_to_change, module)?;
             }
+            HirStatement::Assign(assign_stmt) => {
+                self.monomorphize_expression(
+                    &mut assign_stmt.dst,
+                    types_to_change.clone(),
+                    module,
+                )?;
+                self.monomorphize_expression(&mut assign_stmt.val, types_to_change, module)?;
+            }
             HirStatement::While(while_stmt) => {
                 for stmt in while_stmt.body.statements.iter_mut() {
                     self.monomorphize_statement(stmt, types_to_change.clone(), module)?;
@@ -787,14 +785,6 @@ impl<'hir> MonomorphizationPass<'hir> {
                     module,
                 )?;
                 self.monomorphize_expression(&mut idx_expr.index, types_to_change, module)?;
-            }
-            HirExpr::Assign(assign_expr) => {
-                self.monomorphize_expression(
-                    &mut assign_expr.lhs,
-                    types_to_change.clone(),
-                    module,
-                )?;
-                self.monomorphize_expression(&mut assign_expr.rhs, types_to_change, module)?;
             }
             HirExpr::Unary(unary_expr) => {
                 self.monomorphize_expression(&mut unary_expr.expr, types_to_change, module)?;

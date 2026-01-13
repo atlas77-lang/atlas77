@@ -21,13 +21,12 @@ use crate::atlas_c::{
         HirImport, HirModule, HirModuleBody,
         arena::HirArena,
         error::{
-            ConstructorCannotHaveAWhereClauseError, HirError, HirResult, NonConstantValueError,
-            NullableTypeRequiresStdLibraryError, StructNameCannotBeOneLetterError,
-            TooManyReferenceLevelsError, UnsupportedExpr, UnsupportedItemError,
-            UnsupportedStatement, UselessError,
+            AssignmentCannotBeAnExpressionError, ConstructorCannotHaveAWhereClauseError, HirError,
+            HirResult, NonConstantValueError, NullableTypeRequiresStdLibraryError,
+            StructNameCannotBeOneLetterError, UnsupportedExpr, UnsupportedItemError, UselessError,
         },
         expr::{
-            HirAssignExpr, HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr,
+            HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr,
             HirCharLiteralExpr, HirDeleteExpr, HirExpr, HirFieldAccessExpr, HirFieldInit,
             HirFloatLiteralExpr, HirFunctionCallExpr, HirIdentExpr, HirIndexingExpr,
             HirIntegerLiteralExpr, HirListLiteralExpr, HirNewArrayExpr, HirNewObjExpr,
@@ -47,8 +46,8 @@ use crate::atlas_c::{
             HirTypeParameterItemSignature, HirUnionSignature, HirVisibility,
         },
         stmt::{
-            HirBlock, HirExprStmt, HirIfElseStmt, HirReturn, HirStatement, HirVariableStmt,
-            HirWhileStmt,
+            HirAssignStmt, HirBlock, HirExprStmt, HirIfElseStmt, HirReturn, HirStatement,
+            HirVariableStmt, HirWhileStmt,
         },
         syntax_lowering_pass::case::Case,
         ty::{HirGenericTy, HirNamedTy, HirTy},
@@ -575,9 +574,9 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
         let mut statements = vec![];
         for field in fields.iter() {
-            let init_expr = HirExpr::Assign(HirAssignExpr {
+            let init_stmt = HirStatement::Assign(HirAssignStmt {
                 span: field.span,
-                lhs: Box::new(HirExpr::FieldAccess(HirFieldAccessExpr {
+                dst: HirExpr::FieldAccess(HirFieldAccessExpr {
                     span: field.span,
                     target: Box::new(HirExpr::ThisLiteral(HirThisLiteral {
                         span: field.span,
@@ -589,18 +588,15 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         ty: field.ty,
                     }),
                     ty: field.ty,
-                })),
-                rhs: Box::new(HirExpr::Ident(HirIdentExpr {
+                }),
+                val: HirExpr::Ident(HirIdentExpr {
                     span: field.span,
                     name: field.name,
                     ty: field.ty,
-                })),
+                }),
                 ty: field.ty,
             });
-            statements.push(HirStatement::Expr(HirExprStmt {
-                span: field.span,
-                expr: init_expr,
-            }));
+            statements.push(init_stmt);
         }
 
         HirStructConstructor {
@@ -1169,6 +1165,17 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 });
                 Ok(hir)
             }
+            AstStatement::Assign(assign) => {
+                let target = self.visit_expr(assign.target)?;
+                let value = self.visit_expr(assign.value)?;
+                let hir = HirStatement::Assign(HirAssignStmt {
+                    span: node.span(),
+                    dst: target,
+                    val: value,
+                    ty: self.arena.types().get_uninitialized_ty(),
+                });
+                Ok(hir)
+            }
             AstStatement::IfElse(ast_if_else) => {
                 let condition = self.visit_expr(ast_if_else.condition)?;
                 let then_branch = self.visit_block(ast_if_else.body)?;
@@ -1203,16 +1210,17 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     expr,
                 });
                 Ok(hir)
-            }
-            _ => {
-                let path = node.span().path;
-                let src = crate::atlas_c::utils::get_file_content(path).unwrap();
-                Err(HirError::UnsupportedStatement(UnsupportedStatement {
-                    span: node.span(),
-                    stmt: format!("{:?}", node),
-                    src: NamedSource::new(path, src),
-                }))
-            }
+            } /*
+              _ => {
+                  let path = node.span().path;
+                  let src = crate::atlas_c::utils::get_file_content(path).unwrap();
+                  Err(HirError::UnsupportedStatement(UnsupportedStatement {
+                      span: node.span(),
+                      stmt: format!("{:?}", node),
+                      src: NamedSource::new(path, src),
+                  }))
+              }
+              */
         }
     }
 
@@ -1240,17 +1248,16 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
     fn visit_expr(&mut self, node: &'ast AstExpr<'ast>) -> HirResult<HirExpr<'hir>> {
         match node {
-            AstExpr::Assign(a) => {
-                let target = self.visit_expr(a.target)?;
-                let value = self.visit_expr(a.value)?;
-                let hir = HirExpr::Assign(HirAssignExpr {
+            AstExpr::Assign(_) => Err(HirError::AssignmentCannotBeAnExpression(
+                AssignmentCannotBeAnExpressionError {
                     span: node.span(),
-                    lhs: Box::new(target.clone()),
-                    rhs: Box::new(value.clone()),
-                    ty: self.arena.types().get_uninitialized_ty(),
-                });
-                Ok(hir)
-            }
+                    src: {
+                        let path = node.span().path;
+                        let src = crate::atlas_c::utils::get_file_content(path).unwrap();
+                        NamedSource::new(path, src)
+                    },
+                },
+            )),
             AstExpr::BinaryOp(b) => {
                 let lhs = self.visit_expr(b.lhs)?;
                 let rhs = self.visit_expr(b.rhs)?;
@@ -1833,9 +1840,9 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             // each statement is of the form: this.field = *from.field;
             let mut statements = vec![];
             for field in fields.iter() {
-                let init_expr = HirExpr::Assign(HirAssignExpr {
+                let init_stmt = HirStatement::Assign(HirAssignStmt {
                     span: field.span,
-                    lhs: Box::new(HirExpr::FieldAccess(HirFieldAccessExpr {
+                    dst: HirExpr::FieldAccess(HirFieldAccessExpr {
                         span: field.span,
                         target: Box::new(HirExpr::ThisLiteral(HirThisLiteral {
                             span: field.span,
@@ -1847,8 +1854,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                             ty: field.ty,
                         }),
                         ty: field.ty,
-                    })),
-                    rhs: Box::new(HirExpr::Unary(UnaryOpExpr {
+                    }),
+                    val: HirExpr::Unary(UnaryOpExpr {
                         span: field.span,
                         op: Some(HirUnaryOp::Deref),
                         expr: Box::new(HirExpr::FieldAccess(HirFieldAccessExpr {
@@ -1866,13 +1873,10 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                             ty: field.ty,
                         })),
                         ty: field.ty,
-                    })),
+                    }),
                     ty: field.ty,
                 });
-                statements.push(HirStatement::Expr(HirExprStmt {
-                    span: field.span,
-                    expr: init_expr,
-                }));
+                statements.push(init_stmt);
             }
             let hir = HirStructConstructor {
                 span,
@@ -1923,11 +1927,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     }
                     return true;
                 }
-                if let Some(hir_enum) = self.module_signature.enums.get(obj_name) {
-                    // Enums are just uint64 under the hood
-                    return true;
-                }
-                false
+                // enums are just uint64 under the hood
+                self.module_signature.enums.contains_key(obj_name)
             }
             HirTy::Generic(generic) => {
                 let struct_name =

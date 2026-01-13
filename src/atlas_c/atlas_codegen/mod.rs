@@ -524,28 +524,9 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                     self.generate_bytecode_stmt(stmt, bytecode)?;
                 }
             }
-            _ => {
-                let path = stmt.span().path;
-                let src = utils::get_file_content(path).unwrap();
-                return Err(HirError::UnsupportedStatement(UnsupportedStatement {
-                    span: stmt.span(),
-                    stmt: format!("{:?}", stmt),
-                    src: NamedSource::new(path, src),
-                }));
-            }
-        }
-        Ok(())
-    }
-
-    fn generate_bytecode_expr(
-        &mut self,
-        expr: &HirExpr<'hir>,
-        bytecode: &mut Vec<Instruction>,
-    ) -> HirResult<()> {
-        match expr {
-            HirExpr::Assign(a) => {
-                let lhs = a.lhs.as_ref();
-                match lhs {
+            HirStatement::Assign(assign) => {
+                let dst = &assign.dst;
+                match dst {
                     HirExpr::Indexing(idx_expr) => {
                         match idx_expr.target.ty() {
                             HirTy::List(_) => {
@@ -554,7 +535,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                 //Get the list pointer
                                 self.generate_bytecode_expr(&idx_expr.target, bytecode)?;
                                 //Get the value to store
-                                self.generate_bytecode_expr(&a.rhs, bytecode)?;
+                                self.generate_bytecode_expr(&assign.val, bytecode)?;
                                 //Store the value in the list at the given index
                                 bytecode.push(Instruction::IndexStore);
                             }
@@ -564,20 +545,20 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                 //Get the string pointer
                                 self.generate_bytecode_expr(&idx_expr.target, bytecode)?;
                                 //Get the value to store
-                                self.generate_bytecode_expr(&a.rhs, bytecode)?;
+                                self.generate_bytecode_expr(&assign.val, bytecode)?;
                                 //Store the value in the string at the given index
                                 bytecode.push(Instruction::StringStore);
                             }
                             _ => {
                                 return Err(Self::unsupported_expr_err(
-                                    expr,
-                                    format!("Indexing assignment for non-list type: {}", expr.ty()),
+                                    dst,
+                                    format!("Indexing assignment for non-list type: {}", dst.ty()),
                                 ));
                             }
                         }
                     }
                     HirExpr::Ident(ident) => {
-                        self.generate_bytecode_expr(&a.rhs, bytecode)?;
+                        self.generate_bytecode_expr(&assign.val, bytecode)?;
                         bytecode.push(Instruction::StoreVar(
                             self.local_variables.get_index(ident.name).unwrap(),
                         ));
@@ -586,13 +567,13 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         //Get the Struct pointer
                         self.generate_bytecode_expr(&field_access.target, bytecode)?;
                         //Get the value
-                        self.generate_bytecode_expr(&a.rhs, bytecode)?;
+                        self.generate_bytecode_expr(&assign.val, bytecode)?;
                         let struct_name =
                             match self.get_struct_name_of_type(field_access.target.ty()) {
                                 Some(n) => n,
                                 None => {
                                     return Err(Self::unsupported_expr_err(
-                                        expr,
+                                        dst,
                                         format!(
                                             "[CodeGen] No field access for: {}",
                                             field_access.target.ty()
@@ -613,7 +594,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                     Some(n) => n,
                                     None => {
                                         return Err(Self::unsupported_expr_err(
-                                            expr,
+                                            dst,
                                             format!(
                                                 "[CodeGen] No struct or union descriptor for: {}",
                                                 struct_name
@@ -621,12 +602,12 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                                         ));
                                     }
                                 };
-                                if let Some(un) = self.hir.signature.unions.get(union_name) {
+                                if self.hir.signature.unions.contains_key(union_name) {
                                     // No operation needed for union field access
                                     return Ok(());
                                 }
                                 return Err(Self::unsupported_expr_err(
-                                    expr,
+                                    dst,
                                     format!("[CodeGen] No struct descriptor for: {}", struct_name),
                                 ));
                             }
@@ -645,19 +626,38 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                         // First, get the reference (the address to store to)
                         self.generate_bytecode_expr(&u.expr, bytecode)?;
                         // Then, get the value to store
-                        self.generate_bytecode_expr(&a.rhs, bytecode)?;
+                        self.generate_bytecode_expr(&assign.val, bytecode)?;
                         // Store through the reference
                         bytecode.push(Instruction::StoreIndirect);
                     }
                     _ => {
                         return Err(Self::unsupported_expr_err(
-                            expr,
-                            format!("Unsupported type: {}", expr.ty()),
+                            dst,
+                            format!("Unsupported type: {}", dst.ty()),
                         ));
                     }
                 }
                 bytecode.push(Instruction::LoadConst(ConstantValue::Unit));
             }
+            _ => {
+                let path = stmt.span().path;
+                let src = utils::get_file_content(path).unwrap();
+                return Err(HirError::UnsupportedStatement(UnsupportedStatement {
+                    span: stmt.span(),
+                    stmt: format!("{:?}", stmt),
+                    src: NamedSource::new(path, src),
+                }));
+            }
+        }
+        Ok(())
+    }
+
+    fn generate_bytecode_expr(
+        &mut self,
+        expr: &HirExpr<'hir>,
+        bytecode: &mut Vec<Instruction>,
+    ) -> HirResult<()> {
+        match expr {
             HirExpr::HirBinaryOperation(b) => {
                 let mut lhs_bytecode: Vec<Instruction> = vec![];
                 let mut rhs_bytecode: Vec<Instruction> = vec![];

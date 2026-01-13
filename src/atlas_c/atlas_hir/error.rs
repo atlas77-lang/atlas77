@@ -1,3 +1,6 @@
+// For some reason I get unused assignment warnings in this file
+#![allow(unused_assignments)]
+
 use crate::atlas_c::utils::Span;
 use crate::declare_error_type;
 use miette::{Diagnostic, NamedSource};
@@ -78,6 +81,7 @@ declare_error_type! {
         ConstructorCannotHaveAWhereClause(ConstructorCannotHaveAWhereClauseError),
         MethodConstraintNotSatisfied(MethodConstraintNotSatisfiedError),
         TooManyReferenceLevels(TooManyReferenceLevelsError),
+        AssignmentCannotBeAnExpression(AssignmentCannotBeAnExpressionError),
     }
 }
 
@@ -1172,6 +1176,19 @@ pub struct ReturningValueWithLocalLifetimeDependencyError {
 #[error("constructors cannot have where clauses, they aren't conditionally defined")]
 pub struct ConstructorCannotHaveAWhereClauseError {
     #[label = "constructors cannot have where clauses"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::assignment_cannot_be_an_expression),
+    help("assignments are statements and do not produce a value")
+)]
+#[error("assignments cannot be used as expressions")]
+pub struct AssignmentCannotBeAnExpressionError {
+    #[label = "assignments cannot be used as expressions"]
     pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,

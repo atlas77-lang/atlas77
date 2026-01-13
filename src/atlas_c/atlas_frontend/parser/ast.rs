@@ -315,6 +315,7 @@ pub enum AstStatement<'ast> {
     While(AstWhileExpr<'ast>),
     Expr(AstExpr<'ast>),
     Return(AstReturnStmt<'ast>),
+    Assign(AstAssignStmt<'ast>),
 }
 
 impl AstStatement<'_> {
@@ -327,6 +328,7 @@ impl AstStatement<'_> {
             AstStatement::While(e) => e.span,
             AstStatement::Expr(e) => e.span(),
             AstStatement::Return(e) => e.span,
+            AstStatement::Assign(e) => e.span,
         }
     }
 }
@@ -347,7 +349,7 @@ pub struct AstWhileExpr<'ast> {
 }
 
 #[derive(Debug, Clone)]
-pub struct AstAssignExpr<'ast> {
+pub struct AstAssignStmt<'ast> {
     pub span: Span,
     pub target: &'ast AstExpr<'ast>,
     pub value: &'ast AstExpr<'ast>,
@@ -370,8 +372,8 @@ pub enum AstExpr<'ast> {
     ObjLiteral(AstObjLiteralExpr<'ast>),
     Delete(AstDeleteObjExpr<'ast>),
     NewArray(AstNewArrayExpr<'ast>),
-    _Block(AstBlock<'ast>),
-    Assign(AstAssignExpr<'ast>),
+    Block(AstBlock<'ast>),
+    Assign(AstAssignStmt<'ast>),
     Casting(AstCastingExpr<'ast>),
 }
 
@@ -393,7 +395,7 @@ impl AstExpr<'_> {
             AstExpr::ObjLiteral(e) => e.span,
             AstExpr::Delete(e) => e.span,
             AstExpr::NewArray(e) => e.span,
-            AstExpr::_Block(e) => e.span,
+            AstExpr::Block(e) => e.span,
             AstExpr::Assign(e) => e.span,
             AstExpr::Casting(e) => e.span,
         }
@@ -415,7 +417,7 @@ impl AstExpr<'_> {
             AstExpr::ObjLiteral(_) => "ObjLiteral",
             AstExpr::Delete(_) => "Delete",
             AstExpr::NewArray(_) => "NewArray",
-            AstExpr::_Block(_) => "Block",
+            AstExpr::Block(_) => "Block",
             AstExpr::Assign(_) => "Assign",
             AstExpr::Casting(_) => "Casting",
         }

@@ -337,7 +337,7 @@ impl<'hir> HirGenericPool<'hir> {
             // Maybe closures that capture environment shouldn't be copyable?
             | HirTy::Function(_) => true,
             // For now we consider lists as non-copyable until we have a better way to handle them
-            HirTy::List(l) => false /*self.implements_std_copyable(module, l.inner)*/,
+            HirTy::List(_l) => false /*self.implements_std_copyable(module, l.inner)*/,
             HirTy::Named(n) => match module.structs.get(n.name) {
                 Some(struct_sig) => {
                     struct_sig.copy_constructor.is_some()

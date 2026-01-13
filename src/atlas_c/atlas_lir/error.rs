@@ -1,3 +1,6 @@
+// For some reason I get unused assignment warnings in this file
+#![allow(unused_assignments)]
+
 use miette::{Diagnostic, NamedSource};
 use thiserror::Error;
 

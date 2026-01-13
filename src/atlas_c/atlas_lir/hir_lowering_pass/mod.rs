@@ -308,7 +308,7 @@ impl<'hir> HirLoweringPass<'hir> {
                 Ok(dest)
             }
 
-            HirExpr::UnitLiteral(lit) => {
+            HirExpr::UnitLiteral(_) => {
                 let dest = self.new_temp();
                 self.emit(LirInstr::LoadImm {
                     dst: dest.clone(),

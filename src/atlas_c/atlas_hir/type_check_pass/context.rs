@@ -85,8 +85,8 @@ pub struct ContextVariable<'hir> {
     pub name: &'hir str,
     pub name_span: Span,
     pub ty: &'hir HirTy<'hir>,
-    pub ty_span: Span,
-    pub is_mut: bool,
+    pub _ty_span: Span,
+    pub _is_mut: bool,
     /// Whether this variable is a function parameter (vs a local variable)
     pub is_param: bool,
     /// Local variables that this variable holds references to (directly or transitively).

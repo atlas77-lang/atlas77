@@ -49,16 +49,15 @@ use crate::atlas_c::{
             TryingToAccessAMovedValueError, TryingToAccessAPotentiallyMovedValueError,
         },
         expr::{
-            HirAssignExpr, HirBinaryOpExpr, HirCastExpr, HirCopyExpr, HirDeleteExpr, HirExpr,
-            HirFieldAccessExpr, HirFieldInit, HirFunctionCallExpr, HirIdentExpr, HirIndexingExpr,
-            HirListLiteralExpr, HirMoveExpr, HirNewObjExpr, HirObjLiteralExpr, HirUnaryOp,
-            UnaryOpExpr,
+            HirBinaryOpExpr, HirCastExpr, HirCopyExpr, HirDeleteExpr, HirExpr, HirFieldAccessExpr,
+            HirFieldInit, HirFunctionCallExpr, HirIdentExpr, HirIndexingExpr, HirListLiteralExpr,
+            HirMoveExpr, HirNewObjExpr, HirObjLiteralExpr, HirUnaryOp, UnaryOpExpr,
         },
         item::HirFunction,
         monomorphization_pass::MonomorphizationPass,
         pretty_print::HirPrettyPrinter,
         signature::{HirModuleSignature, HirStructMethodModifier, HirStructMethodSignature},
-        stmt::{HirBlock, HirExprStmt, HirStatement, HirVariableStmt},
+        stmt::{HirAssignStmt, HirBlock, HirExprStmt, HirStatement, HirVariableStmt},
         ty::HirTy,
         warning::{
             ConsumingMethodMayLeakThisWarning, HirWarning, UnnecessaryCopyDueToLaterBorrowsWarning,
@@ -462,6 +461,12 @@ impl<'hir> OwnershipPass<'hir> {
                     ),
                 );
             }
+            HirStatement::Assign(assign_stmt) => {
+                // LHS: don't consume ownership when evaluating LHS (we're writing to it)
+                self.collect_uses_in_expr(&assign_stmt.dst, false)?;
+                // RHS: ownership-consuming
+                self.collect_uses_in_expr(&assign_stmt.val, true)?;
+            }
             HirStatement::Expr(expr_stmt) => {
                 self.collect_uses_in_expr(&expr_stmt.expr, false)?;
             }
@@ -541,12 +546,7 @@ impl<'hir> OwnershipPass<'hir> {
                     },
                 );
             }
-            HirExpr::Assign(assign) => {
-                // LHS: if assigning to an existing variable, we need to track the old value
-                self.collect_uses_in_expr(&assign.lhs, false)?;
-                // RHS: ownership consuming
-                self.collect_uses_in_expr(&assign.rhs, true)?;
-            }
+
             HirExpr::Call(call) => {
                 // Check if this is a method call that consumes `this` (modifier == None)
                 // Methods with `&this` or `&const this` don't consume ownership
@@ -830,26 +830,37 @@ impl<'hir> OwnershipPass<'hir> {
                 result.push(new_stmt);
                 Ok(result)
             }
-            HirStatement::Expr(expr_stmt) => {
-                // Special-case assignment to insert delete for previous value when needed
-                let assign = match &expr_stmt.expr {
-                    HirExpr::Assign(assign_expr) => Some(assign_expr),
-                    HirExpr::Unary(unary_expr) => {
-                        if let HirExpr::Assign(assign_expr) = unary_expr.expr.as_ref() {
-                            Some(assign_expr)
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                };
-                if let Some(assign_expr) = assign
-                    && let Some(stmts) =
-                        self.handle_assignment_with_deletes(assign_expr, expr_stmt.span)?
-                {
+            HirStatement::Assign(assign_stmt) => {
+                // Let helper handle special assignment deletion/temporaries
+                if let Some(stmts) = self.handle_assignment_with_deletes(assign_stmt)? {
                     return Ok(stmts);
                 }
 
+                // Default handling: transform RHS (consuming) and LHS (non-consuming)
+                let transformed_val = self.transform_expr_ownership(&assign_stmt.val, true)?;
+                let transformed_dst = self.transform_expr_ownership(&assign_stmt.dst, false)?;
+
+                let new_assign = HirStatement::Assign(HirAssignStmt {
+                    span: assign_stmt.span,
+                    dst: transformed_dst,
+                    val: transformed_val,
+                    ty: assign_stmt.ty,
+                });
+
+                // Prepend pending temporaries
+                let mut result = self.pending_statements.clone();
+                result.push(new_assign);
+
+                // If LHS is a simple ident, mark it Owned now
+                if let HirExpr::Ident(ident) = &assign_stmt.dst
+                    && let Some(var) = self.scope_map.get_mut(ident.name)
+                {
+                    var.status = VarStatus::Owned;
+                }
+
+                Ok(result)
+            }
+            HirStatement::Expr(expr_stmt) => {
                 let transformed = self.transform_expr_ownership(&expr_stmt.expr, false)?;
                 let new_stmt = HirStatement::Expr(HirExprStmt {
                     span: expr_stmt.span,
@@ -1222,35 +1233,7 @@ impl<'hir> OwnershipPass<'hir> {
                     Ok(expr.clone())
                 }
             }
-            HirExpr::Assign(assign) => {
-                // For assignment to existing variable, we need to delete old value first
-                // This is handled at a higher level - here we just transform the RHS
-                let transformed_lhs = self.transform_expr_ownership(&assign.lhs, false)?;
 
-                // Special case: If LHS is an indexing expression (container slot), we allow
-                // moving from another container slot without the strict check. This enables
-                // reallocation patterns like: new_data[i] = this.data[i]
-                let lhs_is_container_slot = Self::is_indexing_expr(&assign.lhs);
-                let rhs_is_container_slot = Self::is_indexing_expr(&assign.rhs);
-
-                // If we're moving from one container slot to another, don't apply strict
-                // ownership checking on the RHS - this is a transfer, not an escape
-                let rhs_consumes_ownership = if lhs_is_container_slot && rhs_is_container_slot {
-                    false // Will just copy the reference, which is fine for reallocation
-                } else {
-                    true
-                };
-
-                let transformed_rhs =
-                    self.transform_expr_ownership(&assign.rhs, rhs_consumes_ownership)?;
-
-                Ok(HirExpr::Assign(HirAssignExpr {
-                    span: assign.span,
-                    lhs: Box::new(transformed_lhs),
-                    rhs: Box::new(transformed_rhs),
-                    ty: assign.ty,
-                }))
-            }
             HirExpr::Call(call) => {
                 // Check if this is a method call that consumes `this` (modifier == None)
                 let method_consumes_this = self.method_consumes_this(&call.callee);
@@ -1988,11 +1971,7 @@ impl<'hir> OwnershipPass<'hir> {
     }
 
     /// Create a delete statement for a general lvalue expression (field, indexing, deref, ident)
-    fn create_delete_for_expr(
-        expr: &HirExpr<'hir>,
-        var_ty: &'hir HirTy<'hir>,
-        span: Span,
-    ) -> HirStatement<'hir> {
+    fn create_delete_for_expr(expr: &HirExpr<'hir>, span: Span) -> HirStatement<'hir> {
         HirStatement::Expr(HirExprStmt {
             span,
             expr: HirExpr::Delete(HirDeleteExpr {
@@ -2020,12 +1999,11 @@ impl<'hir> OwnershipPass<'hir> {
     /// already produced), or `Ok(None)` to fall back to normal handling.
     fn handle_assignment_with_deletes(
         &mut self,
-        assign_expr: &HirAssignExpr<'hir>,
-        expr_span: Span,
+        assign_stmt: &HirAssignStmt<'hir>,
     ) -> HirResult<Option<Vec<HirStatement<'hir>>>> {
         // helper invoked
         // Extract simple ident from LHS, possibly wrapped in a no-op Unary
-        let lhs_ident_opt: Option<HirIdentExpr<'hir>> = match assign_expr.lhs.as_ref() {
+        let lhs_ident_opt: Option<HirIdentExpr<'hir>> = match &assign_stmt.dst {
             HirExpr::Ident(ident) => Some(ident.clone()),
             HirExpr::Unary(unary) if unary.op.is_none() => {
                 if let HirExpr::Ident(ident) = &*unary.expr {
@@ -2043,7 +2021,7 @@ impl<'hir> OwnershipPass<'hir> {
         // Decide whether this LHS needs special handling. Use precise check:
         // - The LHS type must need memory management, and
         // - The root variable(s) (if any) must be owned (so deleting makes sense)
-        let lhs_ty = assign_expr.lhs.ty();
+        let lhs_ty = assign_stmt.dst.ty();
         // Skip unions entirely - they're user-managed and must not be auto-deleted
         if self.type_is_union(lhs_ty) {
             return Ok(None);
@@ -2066,7 +2044,7 @@ impl<'hir> OwnershipPass<'hir> {
                 _ => {}
             }
         }
-        collect_roots(&assign_expr.lhs, &mut roots);
+        collect_roots(&assign_stmt.dst, &mut roots);
 
         // Ensure at least one root (if any roots exist) is currently owned; if there are no roots
         // (e.g., assignment into a temporary expression) we still proceed because the LHS type
@@ -2096,10 +2074,10 @@ impl<'hir> OwnershipPass<'hir> {
 
         // Collect vars used in RHS to see if it references any root of the LHS
         let mut used = Vec::new();
-        Self::collect_vars_used_in_expr(&assign_expr.rhs, &mut used);
+        Self::collect_vars_used_in_expr(&assign_stmt.val, &mut used);
 
         // Transform RHS first (it may consume ownership)
-        let transformed_rhs = self.transform_expr_ownership(&assign_expr.rhs, true)?;
+        let transformed_rhs = self.transform_expr_ownership(&assign_stmt.val, true)?;
 
         // Start with any pending temporaries
         let mut stmts: Vec<HirStatement<'hir>> = Vec::new();
@@ -2120,7 +2098,7 @@ impl<'hir> OwnershipPass<'hir> {
             let tmp_is_copyable = self.is_type_copyable(tmp_ty);
             let tmp_var = VarData::new(
                 tmp_name_intern,
-                assign_expr.span,
+                assign_stmt.span,
                 tmp_kind,
                 tmp_ty,
                 tmp_is_copyable,
@@ -2130,36 +2108,32 @@ impl<'hir> OwnershipPass<'hir> {
 
             // let __tmp = <transformed_rhs>;
             stmts.push(HirStatement::Const(HirVariableStmt {
-                span: assign_expr.span,
+                span: assign_stmt.span,
                 name: tmp_name_intern,
-                name_span: assign_expr.span,
+                name_span: assign_stmt.span,
                 ty: tmp_ty,
-                ty_span: Some(assign_expr.span),
+                ty_span: Some(assign_stmt.span),
                 value: transformed_rhs,
             }));
 
             // delete lhs (use expr-based delete so we can delete fields/indexes)
             stmts.push(Self::create_delete_for_expr(
-                &assign_expr.lhs,
-                lhs_ty,
-                assign_expr.span,
+                &assign_stmt.dst,
+                assign_stmt.span,
             ));
 
-            // lhs = __tmp
-            let assign_after = HirExpr::Assign(HirAssignExpr {
-                span: assign_expr.span,
-                lhs: assign_expr.lhs.clone(),
-                rhs: Box::new(HirExpr::Ident(HirIdentExpr {
-                    span: assign_expr.span,
+            // dst = __tmp
+            let assign_after = HirStatement::Assign(HirAssignStmt {
+                span: assign_stmt.span,
+                dst: assign_stmt.dst.clone(),
+                val: HirExpr::Ident(HirIdentExpr {
+                    span: assign_stmt.span,
                     name: tmp_name_intern,
                     ty: tmp_ty,
-                })),
-                ty: assign_expr.ty,
+                }),
+                ty: assign_stmt.ty,
             });
-            stmts.push(HirStatement::Expr(HirExprStmt {
-                span: expr_span,
-                expr: assign_after,
-            }));
+            stmts.push(assign_after);
 
             // After assignment, if LHS was a simple ident, mark it Owned again
             if let Some(lhs_simple) = &lhs_ident
@@ -2174,22 +2148,18 @@ impl<'hir> OwnershipPass<'hir> {
             let mut result = self.pending_statements.clone();
             // delete old value (use expr-based delete so we can delete fields/indexes)
             result.push(Self::create_delete_for_expr(
-                &assign_expr.lhs,
-                lhs_ty,
-                assign_expr.span,
+                &assign_stmt.dst,
+                assign_stmt.span,
             ));
 
             // Now create the transformed assignment using transformed_rhs
-            let new_assign = HirExpr::Assign(HirAssignExpr {
-                span: assign_expr.span,
-                lhs: assign_expr.lhs.clone(),
-                rhs: Box::new(transformed_rhs),
-                ty: assign_expr.ty,
+            let new_assign = HirStatement::Assign(HirAssignStmt {
+                span: assign_stmt.span,
+                dst: assign_stmt.dst.clone(),
+                val: transformed_rhs,
+                ty: assign_stmt.ty,
             });
-            result.push(HirStatement::Expr(HirExprStmt {
-                span: expr_span,
-                expr: new_assign,
-            }));
+            result.push(new_assign);
 
             // Re-establish ownership on LHS (assignment gives it ownership)
             if let Some(lhs_simple) = &lhs_ident
@@ -2321,11 +2291,11 @@ impl<'hir> OwnershipPass<'hir> {
 
     /// Check if an expression is (or contains) an indexing expression.
     /// Unwraps Unary wrappers since the parser sometimes wraps expressions.
-    fn is_indexing_expr(expr: &HirExpr<'hir>) -> bool {
+    fn _is_indexing_expr(expr: &HirExpr<'hir>) -> bool {
         match expr {
             HirExpr::Indexing(_) => true,
             // Unwrap unary wrappers (parser sometimes wraps expressions)
-            HirExpr::Unary(unary) if unary.op.is_none() => Self::is_indexing_expr(&unary.expr),
+            HirExpr::Unary(unary) if unary.op.is_none() => Self::_is_indexing_expr(&unary.expr),
             _ => false,
         }
     }

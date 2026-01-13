@@ -17,7 +17,6 @@ use crate::atlas_c::atlas_hir::signature::{
     HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier,
     HirStructSignature, HirVisibility,
 };
-use crate::atlas_c::atlas_hir::ty::HirReadOnlyReferenceTy;
 use crate::atlas_c::atlas_hir::{
     error::{
         AccessingClassFieldOutsideClassError, AccessingPrivateConstructorError,
@@ -25,9 +24,9 @@ use crate::atlas_c::atlas_hir::{
         AccessingPrivateObjectOrigin, AccessingPrivateStructError,
         CallingNonConstMethodOnConstReferenceError, CallingNonConstMethodOnConstReferenceOrigin,
         CanOnlyConstructStructsError, EmptyListLiteralError, FieldKind, HirError, HirResult,
-        IllegalOperationError, IllegalUnaryOperationError, InvalidSpecialMethodSignatureError,
-        MethodConstraintNotSatisfiedError, NotEnoughArgumentsError, NotEnoughArgumentsOrigin,
-        ReturningReferenceToLocalVariableError, TryingToAccessFieldOnNonObjectTypeError,
+        IllegalOperationError, IllegalUnaryOperationError, MethodConstraintNotSatisfiedError,
+        NotEnoughArgumentsError, NotEnoughArgumentsOrigin, ReturningReferenceToLocalVariableError,
+        TryingToAccessFieldOnNonObjectTypeError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin, TryingToIndexNonIndexableTypeError,
         TryingToMutateConstReferenceError, TypeMismatchActual, TypeMismatchError,
@@ -207,8 +206,8 @@ impl<'hir> TypeChecker<'hir> {
                         name: param.name,
                         name_span: param.span,
                         ty: param.ty,
-                        ty_span: param.ty_span,
-                        is_mut: false,
+                        _ty_span: param.ty_span,
+                        _is_mut: false,
                         is_param: true,
                         refs_locals: vec![],
                     },
@@ -240,8 +239,8 @@ impl<'hir> TypeChecker<'hir> {
                         name: param.name,
                         name_span: param.span,
                         ty: param.ty,
-                        ty_span: param.ty_span,
-                        is_mut: false,
+                        _ty_span: param.ty_span,
+                        _is_mut: false,
                         is_param: true,
                         refs_locals: vec![],
                     },
@@ -273,8 +272,8 @@ impl<'hir> TypeChecker<'hir> {
                         name: param.name,
                         name_span: param.span,
                         ty: param.ty,
-                        ty_span: param.ty_span,
-                        is_mut: false,
+                        _ty_span: param.ty_span,
+                        _is_mut: false,
                         is_param: true,
                         refs_locals: vec![],
                     },
@@ -307,8 +306,8 @@ impl<'hir> TypeChecker<'hir> {
                         name: param.name,
                         name_span: param.span,
                         ty: param.ty,
-                        ty_span: param.ty_span,
-                        is_mut: false,
+                        _ty_span: param.ty_span,
+                        _is_mut: false,
                         is_param: true,
                         refs_locals: vec![],
                     },
@@ -325,7 +324,7 @@ impl<'hir> TypeChecker<'hir> {
     fn check_special_method_signature(
         &mut self,
         name: &str,
-        method: &HirStructMethod<'hir>,
+        _method: &HirStructMethod<'hir>,
     ) -> HirResult<()> {
         match name {
             "display" => {
@@ -358,8 +357,8 @@ impl<'hir> TypeChecker<'hir> {
                         name: param.name,
                         name_span: param.span,
                         ty: param.ty,
-                        ty_span: param.ty_span,
-                        is_mut: false,
+                        _ty_span: param.ty_span,
+                        _is_mut: false,
                         is_param: true,
                         refs_locals: vec![],
                     },
@@ -519,8 +518,8 @@ impl<'hir> TypeChecker<'hir> {
                             name: c.name,
                             name_span: c.name_span,
                             ty: const_ty,
-                            ty_span: c.ty_span.unwrap_or(c.name_span),
-                            is_mut: false,
+                            _ty_span: c.ty_span.unwrap_or(c.name_span),
+                            _is_mut: false,
                             is_param: false,
                             refs_locals,
                         },
@@ -556,8 +555,8 @@ impl<'hir> TypeChecker<'hir> {
                     name: l.name,
                     name_span: l.name_span,
                     ty: var_ty,
-                    ty_span: l.ty_span.unwrap_or(l.name_span),
-                    is_mut: true,
+                    _ty_span: l.ty_span.unwrap_or(l.name_span),
+                    _is_mut: true,
                     is_param: false,
                     refs_locals,
                 })?;
@@ -568,6 +567,39 @@ impl<'hir> TypeChecker<'hir> {
                     expr_ty,
                     l.value.span(),
                 )
+            }
+            HirStatement::Assign(assign) => {
+                let dst_ty = self.check_expr(&mut assign.dst)?;
+                let val_ty = self.check_expr(&mut assign.val)?;
+                //Todo needs a special rule for `this.field = value`, because you can assign once to a const field
+
+                // Check if we are dereferencing a const reference (mutation through const ref)
+                // This catches: `*const_ref = value`
+                if let HirExpr::Unary(unary_expr) = &assign.dst
+                    && let Some(HirUnaryOp::Deref) = &unary_expr.op
+                {
+                    let deref_target_ty = self.check_expr(&mut unary_expr.expr.clone())?;
+                    if deref_target_ty.is_const() {
+                        // Allow mutation in constructor for field initialization
+                        if !(self.current_func_name == Some("constructor")
+                            && self.current_class_name.is_some())
+                        {
+                            return Err(Self::trying_to_mutate_const_reference(
+                                &assign.dst.span(),
+                                deref_target_ty,
+                            ));
+                        }
+                    }
+                }
+
+                // Note: We intentionally do NOT block assignments where lhs.is_const() is true
+                // but there's no dereference. For example:
+                //   let arr: [&const T] = ...;
+                //   arr[i] = some_const_ref;  // This is OK - storing a const ref value
+                // This is different from *const_ref = value (mutation through const ref)
+
+                self.is_equivalent_ty(val_ty, assign.dst.span(), dst_ty, assign.val.span())?;
+                Ok(())
             }
             HirStatement::Block(block) => {
                 // We need to add a new scope for the block
@@ -1350,8 +1382,6 @@ impl<'hir> TypeChecker<'hir> {
                                 // Here we can either auto deref if target_ty.inner is copyable
                                 // Or we can just error out and ask the user to deref manually
                                 // For simplicity, we error out for now
-                                let path = field_access.span.path;
-                                let src = utils::get_file_content(path).unwrap();
                                 return Err(
                                     Self::calling_consuming_method_on_mutable_reference_err(
                                         &method_signature.span,
@@ -1478,39 +1508,6 @@ impl<'hir> TypeChecker<'hir> {
                         src: NamedSource::new(path, utils::get_file_content(path).unwrap()),
                     })),
                 }
-            }
-            HirExpr::Assign(a) => {
-                let rhs = self.check_expr(&mut a.rhs)?;
-                let lhs = self.check_expr(&mut a.lhs)?;
-                //Todo needs a special rule for `this.field = value`, because you can assign once to a const field
-
-                // Check if we are dereferencing a const reference (mutation through const ref)
-                // This catches: `*const_ref = value`
-                if let HirExpr::Unary(unary_expr) = &*a.lhs
-                    && let Some(HirUnaryOp::Deref) = &unary_expr.op
-                {
-                    let deref_target_ty = self.check_expr(&mut unary_expr.expr.clone())?;
-                    if deref_target_ty.is_const() {
-                        // Allow mutation in constructor for field initialization
-                        if !(self.current_func_name == Some("constructor")
-                            && self.current_class_name.is_some())
-                        {
-                            return Err(Self::trying_to_mutate_const_reference(
-                                &a.lhs.span(),
-                                deref_target_ty,
-                            ));
-                        }
-                    }
-                }
-
-                // Note: We intentionally do NOT block assignments where lhs.is_const() is true
-                // but there's no dereference. For example:
-                //   let arr: [&const T] = ...;
-                //   arr[i] = some_const_ref;  // This is OK - storing a const ref value
-                // This is different from *const_ref = value (mutation through const ref)
-
-                self.is_equivalent_ty(lhs, a.lhs.span(), rhs, a.rhs.span())?;
-                Ok(lhs)
             }
             HirExpr::Ident(i) => {
                 let ctx_var = self.get_ident_ty(i)?;
@@ -2552,7 +2549,19 @@ impl<'hir> TypeChecker<'hir> {
             && let Some(context_func) = context_map.get_mut(self.current_func_name.unwrap())
         {
             // we need to check if a variable with the same name already exists in the current context
-
+            if let Some(map) = context_func.get_variable(var.name) {
+                return Err(HirError::VariableNameAlreadyDefined(
+                    VariableNameAlreadyDefinedError {
+                        name: var.name.to_string(),
+                        first_definition_span: map.name_span,
+                        second_definition_span: var.name_span,
+                        src: NamedSource::new(
+                            var.name_span.path,
+                            utils::get_file_content(var.name_span.path).unwrap(),
+                        ),
+                    },
+                ));
+            }
             context_func.insert(var.name, var);
             Ok(())
         } else {

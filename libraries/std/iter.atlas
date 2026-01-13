@@ -3,7 +3,6 @@ import "std/optional";
 import "std/string";
 import "std/mem";
 
-//TODO: Add Iter<T>::from_map(Map<K, V>)
 public struct Iter<T> {
 public:
     data: [T];

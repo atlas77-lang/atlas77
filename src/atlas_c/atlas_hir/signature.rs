@@ -1,4 +1,4 @@
-use super::ty::{HirTy, HirUnitTy};
+use super::ty::HirTy;
 use crate::atlas_c::atlas_frontend::parser::ast::{AstFlag, AstVisibility};
 use crate::atlas_c::atlas_hir::expr::HirUnaryOp;
 use crate::atlas_c::atlas_hir::expr::{HirBinaryOperator, HirExpr};

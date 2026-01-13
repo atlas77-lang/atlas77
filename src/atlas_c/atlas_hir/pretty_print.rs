@@ -400,6 +400,13 @@ impl HirPrettyPrinter {
                 self.print_expr(&var.value);
                 self.write(";\n");
             }
+            HirStatement::Assign(assign) => {
+                self.write_indent();
+                self.print_expr(&assign.dst);
+                self.write(" = ");
+                self.print_expr(&assign.val);
+                self.write(";\n");
+            }
             HirStatement::Const(var) => {
                 self.write_indent();
                 self.write(&format!(
@@ -504,11 +511,6 @@ impl HirPrettyPrinter {
                     self.print_expr(arg);
                 }
                 self.write(")");
-            }
-            HirExpr::Assign(assign) => {
-                self.print_expr(&assign.lhs);
-                self.write(" = ");
-                self.print_expr(&assign.rhs);
             }
             HirExpr::FieldAccess(field) => {
                 self.print_expr(&field.target);
