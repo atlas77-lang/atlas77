@@ -12,8 +12,3 @@ fun fib(n: int64) -> int64 {
     }
 }
 
-fun test() {
-    let s = "Hello, World!";
-    s = "Goodbye, World!";
-    println(s);
-}

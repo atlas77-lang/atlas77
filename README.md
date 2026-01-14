@@ -44,6 +44,8 @@ libraries rather than in the compiler itself.
 The 2 core philosophies are simple:
 - **Keep the core language tiny, make everything else userland.**
 - **Safety opt-in: you pay for what you use.**
+> Well... Now that's I have added full on move semantics, I am not sure about the second point anymore.
+> The language is now safe by default... ig, I could add some features to let you shoot yourself in the foot if you really want to.
 
 > [!Note] 
 > If you find the code to be messy, it's because it kinda is. I am sort of "speedrunning" the bootstrapping of the language, so the Rust implementation is not really the main focus right now.
@@ -262,6 +264,9 @@ Distributed under the MIT License. See `LICENSE.txt` for more information.
 Your Name - [@Gipson62_8015](https://twitter.com/Gipson62_8015) - J.H.Gipson62@gmail.com
 
 Project Link: [https://github.com/atlas77-lang/Atlas77](https://github.com/atlas77-lang/Atlas77)
+
+
+[![Star History Chart](https://api.star-history.com/svg?repos=atlas77-lang/Atlas77&type=Date)](https://star-history.com/#atlas77-lang/Atlas77&Date)
 
 
 <!-- MARKDOWN LINKS & IMAGES -->

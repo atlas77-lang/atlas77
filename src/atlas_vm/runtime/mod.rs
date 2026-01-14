@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 pub type CallBack = fn(VMState) -> RuntimeResult<VMData>;
 
 pub struct AtlasRuntime<'run> {
-    pub stack: Stack,
+    pub stack: Stack<'run>,
     pub heap: Heap,
     pub extern_fn: BTreeMap<&'run str, CallBack>,
     /// Program Counter
