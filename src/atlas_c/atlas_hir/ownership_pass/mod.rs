@@ -332,23 +332,29 @@ impl<'hir> OwnershipPass<'hir> {
                 self.scope_map = ScopeMap::new();
                 self.current_stmt_index = 0;
                 self.temp_var_counter = 0;
-
-                for param in struct_def.destructor.params.iter() {
-                    let kind = self.classify_type_kind(param.ty);
-                    let is_copyable = self.is_type_copyable(param.ty);
-                    self.scope_map.insert(
-                        param.name,
-                        VarData::new(param.name, param.span, kind, param.ty, is_copyable, 0),
-                    );
-                }
-
-                if let Err(e) = self.collect_uses_in_block(&struct_def.destructor.body) {
-                    self.errors.push(e);
-                } else {
-                    self.current_stmt_index = 0;
-                    if let Err(e) = self.transform_block(&mut struct_def.destructor.body) {
-                        self.errors.push(e);
+                if let Some(destructor) = struct_def.destructor.as_mut() {
+                    for param in destructor.params.iter() {
+                        let kind = self.classify_type_kind(param.ty);
+                        let is_copyable = self.is_type_copyable(param.ty);
+                        self.scope_map.insert(
+                            param.name,
+                            VarData::new(param.name, param.span, kind, param.ty, is_copyable, 0),
+                        );
                     }
+
+                    if let Err(e) = self.collect_uses_in_block(&destructor.body) {
+                        self.errors.push(e);
+                    } else {
+                        self.current_stmt_index = 0;
+                        if let Err(e) = self.transform_block(&mut destructor.body) {
+                            self.errors.push(e);
+                        }
+                    }
+                } else {
+                    unreachable!(
+                        "Struct destructor missing during ownership pass for struct {}",
+                        struct_def.signature.name
+                    );
                 }
             }
         }

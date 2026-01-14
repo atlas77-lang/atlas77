@@ -82,6 +82,7 @@ declare_error_type! {
         MethodConstraintNotSatisfied(MethodConstraintNotSatisfiedError),
         TooManyReferenceLevels(TooManyReferenceLevelsError),
         AssignmentCannotBeAnExpression(AssignmentCannotBeAnExpressionError),
+        CannotGenerateADestructorForThisType(CannotGenerateADestructorForThisTypeError),
     }
 }
 
@@ -1192,4 +1193,24 @@ pub struct AssignmentCannotBeAnExpressionError {
     pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::cannot_generate_a_destructor_for_this_type),
+    severity(error),
+    help(
+        "the type has a field that requires a custom destructor, but the type itself does not define one. \
+        Consider implementing a destructor for this type to properly clean up its resources."
+    )
+)]
+#[error("cannot automatically generate a destructor for type `{type_name}`")]
+pub struct CannotGenerateADestructorForThisTypeError {
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label = "field requiring custom destructor is defined here"]
+    pub conflicting_field: Span,
+    #[label("Type `{type_name}` declared here")]
+    pub name_span: Span,
+    pub type_name: String,
 }

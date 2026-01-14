@@ -184,7 +184,7 @@ impl<'hir> TypeChecker<'hir> {
             self.check_copy_ctor(copy_ctor)?;
         }
         self.current_func_name = Some("destructor");
-        self.check_destructor(&mut class.destructor)?;
+        self.check_destructor(class.destructor.as_mut().unwrap())?;
         Ok(())
     }
 
@@ -654,7 +654,7 @@ impl<'hir> TypeChecker<'hir> {
                         return Ok(self.arena.types().get_unit_ty());
                     }
                 };
-                if class.destructor.vis != HirVisibility::Public {
+                if class.destructor.as_ref().unwrap().vis != HirVisibility::Public {
                     Err(Self::accessing_private_constructor_err(
                         &del_expr.span,
                         "destructor",
@@ -2100,7 +2100,7 @@ impl<'hir> TypeChecker<'hir> {
             HirTy::Named(named) => {
                 // If it's the target struct, we found a cycle
                 if named.name == target_struct.name {
-                    let type_name = self.get_type_display_name(ty);
+                    let type_name = Self::get_type_display_name(ty);
                     cycle_path.push(miette::LabeledSpan::new_with_span(
                         Some(format!(
                             "field of type `{}` completes the cycle back to `{}`",
@@ -2118,7 +2118,7 @@ impl<'hir> TypeChecker<'hir> {
                 visited.insert(named.name);
 
                 // Add current field to the path
-                let type_name = self.get_type_display_name(ty);
+                let type_name = Self::get_type_display_name(ty);
                 let path_index = cycle_path.len();
                 cycle_path.push(miette::LabeledSpan::new_with_span(
                     Some(format!("→ field of type `{}`", type_name)),
@@ -2170,7 +2170,7 @@ impl<'hir> TypeChecker<'hir> {
 
                 // If the mangled name matches or resolves to the target struct, we found a cycle
                 if mangled_name == target_struct.name {
-                    let type_name = self.get_type_display_name(ty);
+                    let type_name = Self::get_type_display_name(ty);
                     cycle_path.push(miette::LabeledSpan::new_with_span(
                         Some(format!(
                             "field of type `{}` completes the cycle back to `{}`",
@@ -2193,7 +2193,7 @@ impl<'hir> TypeChecker<'hir> {
                 visited.insert(mangled_name);
 
                 // Add current field to the path
-                let type_name = self.get_type_display_name(ty);
+                let type_name = Self::get_type_display_name(ty);
                 let path_index = cycle_path.len();
                 cycle_path.push(miette::LabeledSpan::new_with_span(
                     Some(format!("→ field of type `{}`", type_name)),
@@ -2227,22 +2227,22 @@ impl<'hir> TypeChecker<'hir> {
     }
 
     /// Get a human-readable display name for a type (for error messages)
-    fn get_type_display_name(&self, ty: &HirTy<'hir>) -> String {
+    fn get_type_display_name(ty: &HirTy<'hir>) -> String {
         match ty {
             HirTy::Named(n) => n.name.to_string(),
             HirTy::Generic(g) => {
                 let args = g
                     .inner
                     .iter()
-                    .map(|t| self.get_type_display_name(t))
+                    .map(Self::get_type_display_name)
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("{}<{}>", g.name, args)
             }
             HirTy::ReadOnlyReference(r) => {
-                format!("&const {}", self.get_type_display_name(r.inner))
+                format!("&const {}", Self::get_type_display_name(r.inner))
             }
-            HirTy::MutableReference(m) => format!("&{}", self.get_type_display_name(m.inner)),
+            HirTy::MutableReference(m) => format!("&{}", Self::get_type_display_name(m.inner)),
             HirTy::Boolean(_) => "bool".to_string(),
             HirTy::Int64(_) => "int64".to_string(),
             HirTy::Float64(_) => "float64".to_string(),
@@ -2250,7 +2250,7 @@ impl<'hir> TypeChecker<'hir> {
             HirTy::UInt64(_) => "uint64".to_string(),
             HirTy::String(_) => "string".to_string(),
             HirTy::Unit(_) => "unit".to_string(),
-            HirTy::List(l) => format!("[{}]", self.get_type_display_name(l.inner)),
+            HirTy::List(l) => format!("[{}]", Self::get_type_display_name(l.inner)),
             _ => "<unknown>".to_string(),
         }
     }

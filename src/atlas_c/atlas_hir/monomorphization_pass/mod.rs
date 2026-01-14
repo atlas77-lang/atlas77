@@ -348,7 +348,14 @@ impl<'hir> MonomorphizationPass<'hir> {
             types_to_change.clone(),
             module,
         )?;
-        self.monomorphize_constructor(&mut new_struct.destructor, types_to_change.clone(), module)?;
+        if let Some(destructor) = new_struct.destructor.as_mut() {
+            self.monomorphize_constructor(destructor, types_to_change.clone(), module)?;
+        } else {
+            unreachable!(
+                "Struct destructor missing during monomorphization for struct {}",
+                new_struct.signature.name
+            );
+        }
 
         // Monomorphize copy constructor signature params first, then sync body params
         if let Some(copy_ctor_sig) = new_struct.signature.copy_constructor.as_mut() {

@@ -160,7 +160,7 @@ fun main() {
     ];
     let vec_gen_tuple = new Vector<GenericTuple<int64, string>>(arr_gen_tuple);
     let iter_over_gen_tuple = vec_gen_tuple.into_iter();
-    print("Iterator over GenericTuple:");
+    println("Iterator over GenericTuple:");
     while iter_over_gen_tuple.has_next() {
         print("Iteration - ");
         let val: optional<GenericTuple<int64, string>> = iter_over_gen_tuple.next();

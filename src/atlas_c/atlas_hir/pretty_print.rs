@@ -149,11 +149,9 @@ impl HirPrettyPrinter {
         }
 
         // Constructor
-        if !struct_def.constructor.body.statements.is_empty() {
-            self.writeln("// Constructor");
-            self.print_constructor(&struct_name, &struct_def.constructor);
-            self.writeln("");
-        }
+        self.writeln("// Constructor");
+        self.print_constructor(&struct_name, &struct_def.constructor);
+        self.writeln("");
 
         if let Some(copy_ctor) = &struct_def.copy_constructor {
             self.writeln("// Copy Constructor");
@@ -162,9 +160,9 @@ impl HirPrettyPrinter {
         }
 
         // Destructor
-        if !struct_def.destructor.body.statements.is_empty() {
+        if let Some(destructor) = &struct_def.destructor {
             self.writeln("// Destructor");
-            self.print_constructor(&format!("~{}", struct_name), &struct_def.destructor);
+            self.print_constructor(&format!("~{}", struct_name), destructor);
             self.writeln("");
         }
 

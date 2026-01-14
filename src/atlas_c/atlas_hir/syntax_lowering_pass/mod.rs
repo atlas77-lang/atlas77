@@ -21,9 +21,10 @@ use crate::atlas_c::{
         HirImport, HirModule, HirModuleBody,
         arena::HirArena,
         error::{
-            AssignmentCannotBeAnExpressionError, ConstructorCannotHaveAWhereClauseError, HirError,
-            HirResult, NonConstantValueError, NullableTypeRequiresStdLibraryError,
-            StructNameCannotBeOneLetterError, UnsupportedExpr, UnsupportedItemError, UselessError,
+            AssignmentCannotBeAnExpressionError, CannotGenerateADestructorForThisTypeError,
+            ConstructorCannotHaveAWhereClauseError, HirError, HirResult, NonConstantValueError,
+            NullableTypeRequiresStdLibraryError, StructNameCannotBeOneLetterError, UnsupportedExpr,
+            UnsupportedItemError, UselessError,
         },
         expr::{
             HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr,
@@ -110,6 +111,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         // Now we can generate all the copy constructors for the every structs
         // Collect struct names and info first to avoid borrow checker conflicts
         self.generate_all_copy_constructors()?;
+        self.generate_all_destructors()?;
 
         Ok(self.arena.intern(HirModule {
             body: self.module_body.clone(),
@@ -479,7 +481,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             self.visit_constructor(node.name_span, node.constructor, &fields, false)?;
         let had_user_defined_constructor = node.constructor.is_some();
         let had_user_defined_destructor = node.destructor.is_some();
-        let destructor = self.visit_destructor(name, node.name_span, node.destructor, &fields)?;
+        let destructor = if let Some(destructor) = node.destructor {
+            Some(self.visit_destructor(destructor)?)
+        } else {
+            None
+        };
         let copy_constructor = if node.copy_constructor.is_some() {
             Some(self.visit_constructor(node.name_span, node.copy_constructor, &fields, true)?)
         } else {
@@ -513,7 +519,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             generics,
             constructor: constructor.signature.clone(),
             copy_constructor: copy_constructor.as_ref().map(|c| c.signature.clone()),
-            destructor: destructor.signature.clone(),
+            destructor: destructor.as_ref().map(|d| d.signature.clone()),
             had_user_defined_constructor,
             had_user_defined_destructor,
         };
@@ -898,100 +904,35 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         Ok(hir)
     }
 
+    fn find_conflicting_destructor_field(
+        &self,
+        fields: &[HirStructFieldSignature<'hir>],
+    ) -> Option<Span> {
+        for field in fields.iter() {
+            match field.ty {
+                HirTy::Named(HirNamedTy { name, .. })
+                | HirTy::Generic(HirGenericTy { name, .. }) => {
+                    if self.module_signature.unions.contains_key(name) {
+                        return Some(field.span);
+                    }
+                }
+                _ => continue,
+            }
+            if self
+                .module_signature
+                .unions
+                .contains_key(format!("{}", field.ty).as_str())
+            {
+                return Some(field.span);
+            }
+        }
+        None
+    }
+
     fn visit_destructor(
         &mut self,
-        struct_name: &str,
-        name_span: Span,
-        destructor: Option<&'ast AstDestructor<'ast>>,
-        fields: &[HirStructFieldSignature<'hir>],
+        destructor: &'ast AstDestructor<'ast>,
     ) -> HirResult<HirStructConstructor<'hir>> {
-        if destructor.is_none() {
-            let signature = HirStructConstructorSignature {
-                span: name_span,
-                params: Vec::new(),
-                type_params: Vec::new(),
-                vis: HirVisibility::Public,
-                where_clause: None,
-                is_constraint_satisfied: true,
-            };
-            let mut statements = vec![];
-            for field in fields.iter() {
-                if field.ty.is_primitive() {
-                    // No need to delete primitive types
-                    continue;
-                }
-                // TODO: Handle unions properly
-                // It's very messy to use the AST for the check here, but for now it works
-                if let Some(name) = self.get_union_name(field.ty)
-                    && self.ast.items.iter().any(|item| {
-                        if let AstItem::Union(ast_union) = item {
-                            let union_name = self.arena.names().get(ast_union.name.name);
-                            return union_name == name;
-                        }
-                        false
-                    })
-                {
-                    // Deleting union causes Undefined Behavior, so we skip it
-                    let path = field.span.path;
-                    let src = utils::get_file_content(path).unwrap();
-                    let warning: ErrReport = HirWarning::UnionFieldCannotBeAutomaticallyDeleted(
-                        UnionFieldCannotBeAutomaticallyDeletedWarning {
-                            span: field.span,
-                            field_name: field.name.to_string(),
-                            struct_name: struct_name.to_string(),
-                            src: NamedSource::new(path, src),
-                        },
-                    )
-                    .into();
-                    eprintln!("{:?}", warning);
-                    continue;
-                }
-                if self.ast.items.iter().any(|item| {
-                    if let AstItem::Enum(ast_enum) = item {
-                        let enum_name = self.arena.names().get(ast_enum.name.name);
-                        return enum_name == field.ty.to_string();
-                    }
-                    false
-                }) {
-                    // No need to delete enums
-                    continue;
-                }
-                let delete_expr = HirExpr::Delete(HirDeleteExpr {
-                    span: field.span,
-                    expr: Box::new(HirExpr::FieldAccess(HirFieldAccessExpr {
-                        span: field.span,
-                        target: Box::new(HirExpr::ThisLiteral(HirThisLiteral {
-                            span: field.span,
-                            ty: self.arena.types().get_uninitialized_ty(),
-                        })),
-                        field: Box::new(HirIdentExpr {
-                            span: field.span,
-                            name: field.name,
-                            ty: field.ty,
-                        }),
-                        ty: field.ty,
-                    })),
-                });
-                statements.push(HirStatement::Expr(HirExprStmt {
-                    span: field.span,
-                    expr: delete_expr,
-                }));
-            }
-            let hir = HirStructConstructor {
-                span: name_span,
-                signature: self.arena.intern(signature),
-                params: Vec::new(),
-                type_params: Vec::new(),
-                body: HirBlock {
-                    span: name_span,
-                    statements,
-                },
-                //Destructor is public by default
-                vis: HirVisibility::Public,
-            };
-            return Ok(hir);
-        }
-        let destructor = destructor.unwrap();
         let mut params: Vec<HirFunctionParameterSignature<'hir>> = Vec::new();
         for param in destructor.args.iter() {
             let ty = self.visit_ty(param.ty)?;
@@ -1741,6 +1682,136 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
         };
         Ok(ty)
+    }
+
+    fn generate_all_destructors(&mut self) -> HirResult<()> {
+        let structs_to_process: Vec<_> = self
+            .module_body
+            .structs
+            .iter()
+            .filter(|(_, s)| s.destructor.is_none())
+            .map(|(name, s)| {
+                (
+                    ((*name).to_string(), s.name_span),
+                    s.signature
+                        .fields
+                        .values()
+                        .cloned()
+                        .collect::<Vec<HirStructFieldSignature>>(),
+                )
+            })
+            .collect();
+
+        for ((struct_name, struct_span), fields) in structs_to_process {
+            if let Some(conflicting_field) = self.find_conflicting_destructor_field(&fields) {
+                let path = struct_span.path;
+                let src = utils::get_file_content(path).unwrap();
+                return Err(HirError::CannotGenerateADestructorForThisType(
+                    CannotGenerateADestructorForThisTypeError {
+                        conflicting_field,
+                        name_span: struct_span,
+                        type_name: struct_name.to_string(),
+                        src: NamedSource::new(path, src),
+                    },
+                ));
+            }
+            let signature = HirStructConstructorSignature {
+                span: struct_span,
+                params: Vec::new(),
+                type_params: Vec::new(),
+                vis: HirVisibility::Public,
+                where_clause: None,
+                is_constraint_satisfied: true,
+            };
+            let mut statements = vec![];
+            for field in fields.iter() {
+                if field.ty.is_primitive() {
+                    // No need to delete primitive types
+                    continue;
+                }
+                // TODO: Handle unions properly
+                // It's very messy to use the AST for the check here, but for now it works
+                if let Some(name) = self.get_union_name(field.ty)
+                    && self.ast.items.iter().any(|item| {
+                        if let AstItem::Union(ast_union) = item {
+                            let union_name = self.arena.names().get(ast_union.name.name);
+                            return union_name == name;
+                        }
+                        false
+                    })
+                {
+                    // Deleting union causes Undefined Behavior, so we skip it
+                    let path = field.span.path;
+                    let src = utils::get_file_content(path).unwrap();
+                    let warning: ErrReport = HirWarning::UnionFieldCannotBeAutomaticallyDeleted(
+                        UnionFieldCannotBeAutomaticallyDeletedWarning {
+                            span: field.span,
+                            field_name: field.name.to_string(),
+                            struct_name: struct_name.to_string(),
+                            src: NamedSource::new(path, src),
+                        },
+                    )
+                    .into();
+                    eprintln!("{:?}", warning);
+                    continue;
+                }
+                if self.ast.items.iter().any(|item| {
+                    if let AstItem::Enum(ast_enum) = item {
+                        let enum_name = self.arena.names().get(ast_enum.name.name);
+                        return enum_name == field.ty.to_string();
+                    }
+                    false
+                }) {
+                    // No need to delete enums
+                    continue;
+                }
+                let delete_expr = HirExpr::Delete(HirDeleteExpr {
+                    span: field.span,
+                    expr: Box::new(HirExpr::FieldAccess(HirFieldAccessExpr {
+                        span: field.span,
+                        target: Box::new(HirExpr::ThisLiteral(HirThisLiteral {
+                            span: field.span,
+                            ty: self.arena.types().get_uninitialized_ty(),
+                        })),
+                        field: Box::new(HirIdentExpr {
+                            span: field.span,
+                            name: field.name,
+                            ty: field.ty,
+                        }),
+                        ty: field.ty,
+                    })),
+                });
+                statements.push(HirStatement::Expr(HirExprStmt {
+                    span: field.span,
+                    expr: delete_expr,
+                }));
+            }
+            let hir = HirStructConstructor {
+                span: struct_span,
+                signature: self.arena.intern(signature),
+                params: Vec::new(),
+                type_params: Vec::new(),
+                body: HirBlock {
+                    span: struct_span,
+                    statements,
+                },
+                //Destructor is public by default
+                vis: HirVisibility::Public,
+            };
+            let strct = self
+                .module_body
+                .structs
+                .get_mut(struct_name.as_str())
+                .unwrap();
+            strct.signature.destructor = Some(hir.signature.clone());
+            strct.destructor = Some(hir);
+            if let Some(current_struct_sig) =
+                self.module_signature.structs.get_mut(struct_name.as_str())
+            {
+                *current_struct_sig = self.arena.intern(strct.signature.clone());
+            }
+        }
+        Ok(())
     }
 
     fn generate_all_copy_constructors(&mut self) -> HirResult<()> {

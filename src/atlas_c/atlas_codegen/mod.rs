@@ -170,7 +170,14 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
         self.generate_bytecode_constructor(struct_name, &hir_struct.constructor, labels)?;
         self.local_variables.clear();
         //generate destructor
-        self.generate_bytecode_destructor(struct_name, &hir_struct.destructor, labels)?;
+        if let Some(destructor) = &hir_struct.destructor {
+            self.generate_bytecode_destructor(struct_name, destructor, labels)?;
+        } else {
+            unreachable!(
+                "Struct destructor missing during codegen for struct {}",
+                struct_name
+            );
+        }
         self.local_variables.clear();
 
         //generate copy constructor
