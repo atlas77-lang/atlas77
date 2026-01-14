@@ -4,8 +4,9 @@ import "std/string";
 import "std/mem";
 
 public struct Iter<T> {
-public:
+private:
     data: [T];
+public:
     index: uint64;
 
     Iter(data: [T]) {

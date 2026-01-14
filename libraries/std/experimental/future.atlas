@@ -1,5 +1,8 @@
 import "std/optional";
 
+private extern fun __builtin_future_create() -> uint64;
+private extern async fun __builtin_future_wait<T>(future_id: uint64) -> T;
+
 public enum FutureState {
     Pending,
     Completed,
@@ -9,20 +12,23 @@ public enum FutureState {
 public struct Future<T> {
 private:
     state: FutureState;
-    result: T?;
+    value: optional<T>;
+    id: uint64;
     Future() {
+        this.id = __builtin_future_create();
         this.state = FutureState::Pending;
-        this.result = optional<T>::empty();
+        this.value = optional<T>::empty();
     }
+    // Private destructor to avoid users deleting futures directly
     ~Future() {
         if this.state == FutureState::Completed {
-            delete this.result;
+            delete this.value;
         }
     }
 public:
-    fun set_result(&this, result: T) {
+    fun set_result(&this, value: T) {
         this.state = FutureState::Completed;
-        this.result = optional<T>::of(result);
+        this.value = optional<T>::of(value);
     }
 
     fun set_failed(&this) {
@@ -38,6 +44,10 @@ public:
     }
 
     fun get_result(&this) -> T? {
-        return this.result;
+        return this.value;
+    }
+
+    async fun await(&this) -> T {
+        return __builtin_future_wait<T>(this.id);
     }
 }
