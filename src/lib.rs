@@ -3,6 +3,21 @@
 #![allow(clippy::new_without_default)]
 #![allow(clippy::unusual_byte_groupings)]
 
+//! Atlas77 — an experimental statically-typed wannabe systems programming language.
+//!
+//! This crate provides the Atlas77 compiler and runtime: lexer/parser, HIR passes,
+//! code generation, assembler, and a VM. It exposes small helper functions such
+//! as `build`, `run`, and `init` (see `DEFAULT_INIT_CODE`) for working with
+//! Atlas projects programmatically.
+//!
+//! Current focus: the v0.7.x "Covenant" series (ownership & move/copy semantics).
+//! Upcoming work includes a VM redesign and LIR-based pipeline in the v0.8.x
+//! series (typed/register VM, async/await, improved performance).
+//!
+//! See the repository README and ROADMAP for details and the online docs:
+//! https://atlas77-lang.github.io/atlas77-docs/docs/latest/index.html
+
+
 pub mod atlas_c;
 pub mod atlas_lib;
 pub mod atlas_vm;

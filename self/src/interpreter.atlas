@@ -62,7 +62,9 @@ public:
                 // Go back to the matching LOOP_START
                 if this.cells[this.pointer] != 0u {
                     let loop_counter: uint64 = 1u;
-                    // Copy and reverse the iterator to go backwards
+                    // Well, we can't actually do that with the current iterator design.
+                    // This will only reverse the remaining elements, not move back.
+                    // So we need to create a new reversed iterator from the current position.
                     let reverse_iterator = iterator.reversed();
                     while loop_counter > 0u && reverse_iterator.has_next() {
                         let prev_token = reverse_iterator.next();
