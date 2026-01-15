@@ -6,7 +6,7 @@
 #![allow(clippy::new_without_default)]
 #![allow(clippy::unusual_byte_groupings)]
 
-use atlas_77::{CompilationFlag, build, run};
+use atlas_77::{CompilationFlag, build, generate_docs, run};
 use clap::Parser;
 
 #[derive(Parser)] // requires `derive` feature
@@ -75,6 +75,13 @@ enum AtlasRuntimeCLI {
         #[arg(short = 'r', long)]
         /// Check in release mode
         release: bool,
+    },
+    //#[cfg(feature = "docs")]
+    Docs {
+        #[arg(short = 'o', long, default_value = "docs")]
+        /// Output directory for the generated documentation
+        output: String,
+        file_path: Option<String>,
     },
 }
 
@@ -149,6 +156,10 @@ fn main() -> miette::Result<()> {
                 false,
             )
             .map(|_| ())
+        }
+        AtlasRuntimeCLI::Docs { output, file_path } => {
+            generate_docs(output, file_path.as_deref());
+            Ok(())
         }
     }
 }

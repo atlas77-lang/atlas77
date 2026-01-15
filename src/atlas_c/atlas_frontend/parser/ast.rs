@@ -1,4 +1,5 @@
 use crate::atlas_c::atlas_frontend::lexer::token::TokenKind;
+use crate::atlas_c::atlas_frontend::parser::arena::AstArena;
 use crate::atlas_c::utils::Span;
 
 /// An `AstProgram` is the top-level node of the AST and contains all the items.
@@ -54,6 +55,60 @@ impl AstItem<'_> {
     }
 }
 
+impl<'ast> AstItem<'ast> {
+    // If there is already a docstring, we need to push the new one before it
+    pub fn set_docstring(&mut self, docstring: &'ast str, arena: &'ast AstArena<'ast>) {
+        match self {
+            AstItem::Struct(v) => match v.docstring {
+                Some(existing) => {
+                    let combined = format!("{}\n{}", docstring, existing);
+                    v.docstring = Some(arena.alloc(combined));
+                }
+                None => {
+                    v.docstring = Some(docstring);
+                }
+            },
+            AstItem::Function(v) => match v.docstring {
+                Some(existing) => {
+                    let combined = format!("{}\n{}", docstring, existing);
+                    v.docstring = Some(arena.alloc(combined));
+                }
+                None => {
+                    v.docstring = Some(docstring);
+                }
+            },
+            AstItem::ExternFunction(v) => match v.docstring {
+                Some(existing) => {
+                    let combined = format!("{}\n{}", docstring, existing);
+                    v.docstring = Some(arena.alloc(combined));
+                }
+                None => {
+                    v.docstring = Some(docstring);
+                }
+            },
+            AstItem::Enum(e) => match e.docstring {
+                Some(existing) => {
+                    let combined = format!("{}\n{}", docstring, existing);
+                    e.docstring = Some(arena.alloc(combined));
+                }
+                None => {
+                    e.docstring = Some(docstring);
+                }
+            },
+            AstItem::Union(u) => match u.docstring {
+                Some(existing) => {
+                    let combined = format!("{}\n{}", docstring, existing);
+                    u.docstring = Some(arena.alloc(combined));
+                }
+                None => {
+                    u.docstring = Some(docstring);
+                }
+            },
+            _ => {}
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 /// Flags that can be applied to AST nodes
 /// Currently used for marking structs as copyable or non-copyable
@@ -95,6 +150,7 @@ pub struct AstUnion<'ast> {
     pub name_span: Span,
     pub vis: AstVisibility,
     pub variants: &'ast [&'ast AstObjField<'ast>],
+    pub docstring: Option<&'ast str>,
 }
 
 #[derive(Debug, Clone)]
@@ -104,6 +160,7 @@ pub struct AstEnum<'ast> {
     pub name_span: Span,
     pub vis: AstVisibility,
     pub variants: &'ast [&'ast AstEnumVariant<'ast>],
+    pub docstring: Option<&'ast str>,
 }
 #[derive(Debug, Clone)]
 pub struct AstEnumVariant<'ast> {
@@ -111,6 +168,7 @@ pub struct AstEnumVariant<'ast> {
     pub name: &'ast AstIdentifier<'ast>,
     /// Currently, enum variants can only have a single unsigned integer value
     pub value: u64,
+    pub docstring: Option<&'ast str>,
 }
 
 /// And ASTGeneric carries the name of the generic type as well as the constraints
@@ -169,6 +227,7 @@ pub struct AstStruct<'ast> {
     pub methods: &'ast [&'ast AstMethod<'ast>],
     // Currently only one flag supported: copyable or non-copyable
     pub flag: AstFlag,
+    pub docstring: Option<&'ast str>,
 }
 
 #[derive(Debug, Clone, Default, Copy)]
@@ -242,6 +301,7 @@ pub struct AstConstructor<'ast> {
     /// Allows adding constraints on struct generics in the copy constructor
     /// TODO: Maybe it's time to separate the copy constructor from the regular one
     pub where_clause: Option<&'ast [&'ast AstGeneric<'ast>]>,
+    pub docstring: Option<&'ast str>,
 }
 
 #[derive(Debug, Clone)]
@@ -250,6 +310,7 @@ pub struct AstDestructor<'ast> {
     pub args: &'ast [&'ast AstObjField<'ast>],
     pub body: &'ast AstBlock<'ast>,
     pub vis: AstVisibility,
+    pub docstring: Option<&'ast str>,
 }
 
 #[derive(Debug, Clone)]
@@ -265,6 +326,7 @@ pub struct AstMethod<'ast> {
     /// Optional where clause containing constraints on struct and method generics.
     /// During syntax lowering, method-level generic constraints are moved into the `generics` field as bounds.
     pub where_clause: Option<&'ast [&'ast AstGeneric<'ast>]>,
+    pub docstring: Option<&'ast str>,
 }
 
 #[derive(Debug, Clone)]
@@ -276,6 +338,7 @@ pub struct AstFunction<'ast> {
     pub ret: &'ast AstType<'ast>,
     pub body: &'ast AstBlock<'ast>,
     pub vis: AstVisibility,
+    pub docstring: Option<&'ast str>,
 }
 
 #[derive(Debug, Clone)]
@@ -286,6 +349,7 @@ pub struct AstObjField<'ast> {
     pub name: &'ast AstIdentifier<'ast>,
     pub ty: &'ast AstType<'ast>,
     pub vis: AstVisibility,
+    pub docstring: Option<&'ast str>,
 }
 
 #[derive(Debug, Clone)]
@@ -297,6 +361,7 @@ pub struct AstExternFunction<'ast> {
     pub args_ty: &'ast [&'ast AstType<'ast>],
     pub ret_ty: &'ast AstType<'ast>,
     pub vis: AstVisibility,
+    pub docstring: Option<&'ast str>,
 }
 
 #[derive(Debug, Clone)]

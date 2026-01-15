@@ -17,8 +17,8 @@
 //! See the repository README and ROADMAP for details and the online docs:
 //! https://atlas77-lang.github.io/atlas77-docs/docs/latest/index.html
 
-
 pub mod atlas_c;
+pub mod atlas_docs;
 pub mod atlas_lib;
 pub mod atlas_vm;
 
@@ -220,5 +220,40 @@ pub fn init(name: String) {
     if !main_file_path.exists() {
         let mut file = std::fs::File::create(&main_file_path).unwrap();
         file.write_all(DEFAULT_INIT_CODE.as_bytes()).unwrap();
+    }
+}
+
+/// Compile up to the AST, then generate documentation in the specified output directory.
+pub fn generate_docs(output_dir: String, path: Option<&str>) {
+    // Ensure output directory exists
+    let output_path = get_path(&output_dir);
+    std::fs::create_dir_all(&output_path).unwrap();
+
+    // This should find and do it for every .atlas file in the project, but for now we just do src/main.atlas
+    let source_path = get_path(path.unwrap_or_else(|| "src/main.atlas"));
+    let source = std::fs::read_to_string(&source_path).unwrap_or_else(|_| {
+        eprintln!(
+            "Failed to read source file at path: {}",
+            source_path.display()
+        );
+        std::process::exit(1);
+    });
+    let bump = Bump::new();
+    let ast_arena = AstArena::new(&bump);
+    let file_path = atlas_c::utils::string_to_static_str(source_path.to_str().unwrap().to_owned());
+    let program = match parse(file_path, &ast_arena, source) {
+        Ok(prog) => prog,
+        Err(e) => {
+            eprintln!("Parsing error: {:?}", e);
+            return;
+        }
+    };
+    // Generate documentation using the AST
+    let out_path = output_path.clone();
+    #[allow(clippy::unit_arg)]
+    {
+        if let Err(e) = crate::atlas_docs::generate_docs(program, &out_path) {
+            eprintln!("atlas_docs error: {}", e);
+        }
     }
 }

@@ -1,12 +1,12 @@
-/// Copies the memory of a value of type T and returns a new instance with the same data.
-/// Only does a shallow copy; for deep copies, implement the copy constructor on the type T.
+//! Copies the memory of a value of type T and returns a new instance with the same data.
+//! Only does a shallow copy; for deep copies, implement the copy constructor on the type T.
 public extern memcpy<T>(data: &const T) -> T;
 public extern take<T>(data: T) -> T;
-/// Deletes the memory of a value of type T referenced by a reference.
-/// Use with caution, as deleting a reference might lead to undefined behavior.
+//! Deletes the memory of a value of type T referenced by a reference.
+//! Use with caution, as deleting a reference might lead to undefined behavior.
 public extern delete_from_ref<T>(data: &const T);
-/// Swaps the memory of two values of type T.
+//! Swaps the memory of two values of type T.
 public extern swap<T>(a: &T, b: &T);
-/// Replaces the memory of the destination value with that of the source value.
-/// Returns the old value that was in the destination.
+//! Replaces the memory of the destination value with that of the source value.
+//! Returns the old value that was in the destination.
 public extern replace<T>(dest: &T, src: T) -> T;

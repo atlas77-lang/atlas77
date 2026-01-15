@@ -234,6 +234,12 @@ impl<'ast> Parser<'ast> {
                 item.set_flag(flag);
                 Ok(item)
             }
+            TokenKind::Docs(doc) => {
+                let _ = self.advance();
+                let mut item = self.parse_item()?;
+                item.set_docstring(self.arena.alloc(doc), self.arena);
+                Ok(item)
+            }
             //Handling comments
             _ => Err(self.unexpected_token_error(
                 TokenVec(vec![TokenKind::Identifier("Item".to_string())]),
@@ -313,6 +319,7 @@ impl<'ast> Parser<'ast> {
                 span: variant_name.span,
                 name: self.arena.alloc(variant_name),
                 value,
+                docstring: None,
             };
             variants.push(variant);
             if self.current().kind() == TokenKind::Semicolon {
@@ -326,6 +333,7 @@ impl<'ast> Parser<'ast> {
             name: self.arena.alloc(enum_identifier),
             variants: self.arena.alloc_vec(variants),
             vis: AstVisibility::default(),
+            docstring: None,
         };
         Ok(node)
     }
@@ -358,6 +366,7 @@ impl<'ast> Parser<'ast> {
             body: self.arena.alloc(body),
             vis,
             where_clause,
+            docstring: None,
         };
         Ok(node)
     }
@@ -396,6 +405,7 @@ impl<'ast> Parser<'ast> {
             args: self.arena.alloc_vec(params),
             body: self.arena.alloc(body),
             vis,
+            docstring: None,
         };
         Ok(node)
     }
@@ -449,6 +459,7 @@ impl<'ast> Parser<'ast> {
             name: self.arena.alloc(union_identifier),
             variants: self.arena.alloc_vec(variants),
             vis: AstVisibility::default(),
+            docstring: None,
         };
         Ok(node)
     }
@@ -479,6 +490,8 @@ impl<'ast> Parser<'ast> {
         let mut operators = vec![];
         let mut constants = vec![];
         let mut curr_vis = self.parse_current_vis(AstVisibility::Private)?;
+        // Empty if there is none
+        let mut docs = String::new();
         while self.current().kind() != TokenKind::RBrace {
             curr_vis = self.parse_current_vis(curr_vis)?;
             match self.current().kind() {
@@ -493,14 +506,26 @@ impl<'ast> Parser<'ast> {
                 TokenKind::KwFunc => {
                     let mut method = self.parse_method()?;
                     method.vis = curr_vis;
+                    method.docstring = if !docs.is_empty() {
+                        Some(self.arena.alloc(docs.clone()))
+                    } else {
+                        None
+                    };
+                    docs.clear();
                     methods.push(method);
                 }
                 TokenKind::Identifier(s) => {
                     curr_vis = self.parse_current_vis(curr_vis)?;
                     if s == struct_identifier.name {
                         // This can be either a constructor or a copy constructor
-                        let ctor =
+                        let mut ctor =
                             self.parse_constructor(struct_identifier.name.to_owned(), curr_vis)?;
+                        ctor.docstring = if !docs.is_empty() {
+                            Some(self.arena.alloc(docs.clone()))
+                        } else {
+                            None
+                        };
+                        docs.clear();
                         let kind = self.constructor_kind(struct_identifier.name, &ctor);
                         match kind {
                             ConstructorKind::Regular => {
@@ -527,6 +552,12 @@ impl<'ast> Parser<'ast> {
                     } else {
                         let mut obj_field = self.parse_obj_field()?;
                         obj_field.vis = curr_vis;
+                        obj_field.docstring = if !docs.is_empty() {
+                            Some(self.arena.alloc(docs.clone()))
+                        } else {
+                            None
+                        };
+                        docs.clear();
                         fields.push(obj_field);
                         self.expect(TokenKind::Semicolon)?;
                     }
@@ -534,9 +565,15 @@ impl<'ast> Parser<'ast> {
                 TokenKind::Tilde => {
                     curr_vis = self.parse_current_vis(curr_vis)?;
                     if destructor.is_none() {
-                        destructor = Some(self.arena.alloc(
-                            self.parse_destructor(struct_identifier.name.to_owned(), curr_vis)?,
-                        ));
+                        let mut dtor =
+                            self.parse_destructor(struct_identifier.name.to_owned(), curr_vis)?;
+                        dtor.docstring = if !docs.is_empty() {
+                            Some(self.arena.alloc(docs.clone()))
+                        } else {
+                            None
+                        };
+                        docs.clear();
+                        destructor = Some(self.arena.alloc(dtor));
                     } else {
                         //We still parse it so we can give a better error message and recover later
                         let bad_destructor =
@@ -545,6 +582,15 @@ impl<'ast> Parser<'ast> {
                             &bad_destructor.span,
                             "destructor".to_string(),
                         ));
+                    }
+                }
+                TokenKind::Docs(doc) => {
+                    let _ = self.advance();
+                    if docs.is_empty() {
+                        docs = doc;
+                    } else {
+                        docs.push('\n');
+                        docs.push_str(&doc);
                     }
                 }
                 _ => {
@@ -590,6 +636,7 @@ impl<'ast> Parser<'ast> {
             constants: self.arena.alloc_vec(constants),
             vis: AstVisibility::default(),
             flag: AstFlag::default(),
+            docstring: None,
         };
         Ok(node)
     }
@@ -705,6 +752,7 @@ impl<'ast> Parser<'ast> {
             body: self.arena.alloc(body),
             vis: AstVisibility::default(),
             where_clause,
+            docstring: None,
         };
         Ok(node)
     }
@@ -903,6 +951,7 @@ impl<'ast> Parser<'ast> {
             ret: self.arena.alloc(ret_ty),
             body: self.arena.alloc(body),
             vis: AstVisibility::default(),
+            docstring: None,
         };
         Ok(node)
     }
@@ -1703,6 +1752,7 @@ impl<'ast> Parser<'ast> {
             args_ty: self.arena.alloc_vec(args_ty),
             ret_ty: self.arena.alloc(ret_ty),
             vis: AstVisibility::default(),
+            docstring: None,
         };
         Ok(node)
     }
@@ -1754,6 +1804,7 @@ impl<'ast> Parser<'ast> {
                 ty: self
                     .arena
                     .alloc(AstType::ThisTy(AstThisType { span: name.span })),
+                docstring: None,
             };
             return Ok(node);
         } else if self.current().kind == TokenKind::Ampersand {
@@ -1780,6 +1831,7 @@ impl<'ast> Parser<'ast> {
                             .arena
                             .alloc(AstType::ThisTy(AstThisType { span: name.span })),
                     })),
+                    docstring: None,
                 };
                 return Ok(node);
             } else if self.current().kind == TokenKind::KwThis {
@@ -1799,6 +1851,7 @@ impl<'ast> Parser<'ast> {
                             .arena
                             .alloc(AstType::ThisTy(AstThisType { span: name.span })),
                     })),
+                    docstring: None,
                 };
                 return Ok(node);
             }
@@ -1815,6 +1868,7 @@ impl<'ast> Parser<'ast> {
             span: Span::union_span(&name.span, &ty.span()),
             name: self.arena.alloc(name),
             ty: self.arena.alloc(ty),
+            docstring: None,
         };
 
         Ok(node)

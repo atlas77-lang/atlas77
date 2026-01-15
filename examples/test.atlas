@@ -1,7 +1,6 @@
 // Used internally by the compiler to test every features
 // It doesn't have any specific meaning
 
-import "std/box";
 import "std/fs";
 import "std/io";
 import "std/iter";

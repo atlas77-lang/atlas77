@@ -13,8 +13,8 @@ private:
 public:
     path: string;
 public:
-    /// Creates a new File object with the given path
-    /// Note: The file is not opened until the open() method is called
+    //! Creates a new File object with the given path
+    //! Note: The file is not opened until the open() method is called
     File(path: string) {
         this.content = "";
         this.path = path;
@@ -25,7 +25,7 @@ public:
         close_file(this.path);
     }
 
-    /// Not sure if this is a good idea to have a copy constructor for File
+    //! Not sure if this is a good idea to have a copy constructor for File
     File(from: &const File) {
         this.path = *from.path;
         this.content = *from.content;
@@ -42,8 +42,8 @@ public:
         return;
     }
 
-    /// Closes the file
-    /// NB: Takes ownership of the File object 
+    //! Closes the file
+    //! NB: Takes ownership of the File object 
     fun close(this) {
         delete this;
     }

@@ -29,7 +29,7 @@ public:
         // This doesn't call the destructor of the elements again
         delete_from_ref(&this.data);
     }
-    /// TODO: Add a where T: std::copyable constraint here
+    //! TODO: Add a where T: std::copyable constraint here
     Vector(from: &const Vector<T>) 
         where T: std::copyable
     {
@@ -43,7 +43,7 @@ public:
             i = i + 1u;
         }
     }
-    /// Creates a new Vector with the specified capacity.
+    //! Creates a new Vector with the specified capacity.
     fun with_capacity(capacity: uint64) -> Vector<T> {
         let vec = new Vector<T>(new [T; capacity]);
         vec.length = 0u;
@@ -75,8 +75,8 @@ public:
         this.data[index] = val;
     }
 
-    /// A function that has a "self" parameter is a method of the struct
-    /// and is called like this: "vector_instance.function_name()"
+    //! A function that has a "self" parameter is a method of the struct
+    //! and is called like this: "vector_instance.function_name()"
     fun push(&this, val: T) {
         if this.length >= this.capacity {
             // Resize
@@ -108,16 +108,16 @@ public:
         return popped;
     }
 
-    /// Consumes the vector and returns an iterator over its elements.
-    /// The vector cannot be used after calling this method.
+    //! Consumes the vector and returns an iterator over its elements.
+    //! The vector cannot be used after calling this method.
     fun into_iter(this) -> Iter<T> {
         let arr = replace(&this.data, new [T; 0u]);
         this.length = 0u;
         delete this;
         return new Iter<T>(arr);
     }
-    /// Takes an element out of the vector at the specified index,
-    /// shifting subsequent elements to the left.
+    //! Takes an element out of the vector at the specified index,
+    //! shifting subsequent elements to the left.
     fun take(&this, index: uint64) -> T {
         // Public method to take an element out of the vector
         let result = this.try_take(index);

@@ -1,0 +1,17 @@
+{% extends "layout.html" %}
+
+{% block title %}Index - Atlas77 Docs{% endblock title %}
+
+{% block content %}
+  <section class="toc">
+    <h2>Contents</h2>
+    <ul>
+    {% for item in items %}
+      <li class="toc-item {{ item.kind|lower }}">
+        <a href="{{ item.file }}">{{ item.title }}</a>
+        <span class="kind">{{ item.kind }}</span>
+      </li>
+    {% endfor %}
+    </ul>
+  </section>
+{% endblock content %}

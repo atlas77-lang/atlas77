@@ -2,7 +2,8 @@ import "std/vector";
 import "std/optional";
 import "std/string";
 import "std/mem";
-
+//! An iterator over an array of `T`.
+//! Note: For non-copyable types, calling next() will copy the element.
 public struct Iter<T> {
 private:
     data: [T];
@@ -34,8 +35,8 @@ public:
         }
         this.index = *from.index;
     }
-    /// Returns the next item in the iterator, or None if the end is reached.
-    /// Note: For non-copyable types, this will copy the element.
+    //! Returns the next item in the iterator, or None if the end is reached.
+    //! Note: For non-copyable types, this will copy the element.
     fun next(&this) -> optional<T> {
         if this.index >= len(&this.data) {
             return optional<T>::empty();
@@ -45,7 +46,7 @@ public:
         this.index = this.index + 1u;
         return optional<T>::of(item);
     }
-    /// Peeks at the next item without advancing the iterator
+    //! Peeks at the next item without advancing the iterator
     fun peek(&this) -> optional<&const T> {
         if this.index >= len(&this.data) {
             return optional<&const T>::empty();
@@ -55,7 +56,7 @@ public:
         return optional<&const T>::of(item);
     }
 
-    /// Reverses the iterator in place by mutating its internal data array
+    //! Reverses the iterator in place by mutating its internal data array
     fun reverse_inplace(&this) {
         let n: uint64 = len(&this.data);
         if this.index >= n {
@@ -71,8 +72,8 @@ public:
         // No need to change index, as we only reversed the data this.index..len(data)-1
     }
 
-    /// Create a new iterator that yields elements in reverse order
-    /// T must be copyable
+    //! Create a new iterator that yields elements in reverse order
+    //! T must be copyable
     fun reversed(&const this) -> Iter<T> 
         where T: std::copyable
     {
@@ -95,8 +96,8 @@ public:
         return new Iter<T>(rev_data);
     }
 
-    /// Consume the iterator and return a new one that yields elements in reverse order
-    /// Delete the old one
+    //! Consume the iterator and return a new one that yields elements in reverse order
+    //! Delete the old one
     fun rev(this) -> Iter<T> {
         // Consume and reverse only the remaining elements, then return owned iterator
         this.reverse_inplace();
@@ -125,8 +126,8 @@ public:
         return data.into_iter();
     }
 
-    /// Mostly for consistency, though it's useless 
-    /// because the constructor does the same
+    //! Mostly for consistency, though it's useless 
+    //! because the constructor does the same
     fun from_array(data: [T]) -> Iter<T> {
         return new Iter<T>(data);
     }

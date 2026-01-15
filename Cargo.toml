@@ -53,7 +53,10 @@ time = { version = "0.3.44", features = ["formatting"] }
 pulldown-cmark = { version = "0.13", optional = true } # markdown parsing(optional)
 tera = { version = "1.20", optional = true }           # HTML templating
 syntect = { version = "5.3", optional = true }         # code highlighting 
+serde = { version = "1.0", features = ["derive"], optional = true }  # for serializing the table of contents
+serde_json = { version = "1.0", optional = true }                              # for serializing the table of contents
 
 # Let's put that under the docs feature
 [features]
-docs = ["pulldown-cmark", "tera", "syntect"]
+default = ["pulldown-cmark", "tera", "syntect", "serde", "serde_json"]
+docs = ["pulldown-cmark", "tera", "syntect", "serde", "serde_json"]

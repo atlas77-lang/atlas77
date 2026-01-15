@@ -1,0 +1,98 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>iter.atlas</title>
+<link rel="stylesheet" href="style.css">
+</head><body>
+<h1 style="margin:16px">Documentation for C:\Users\JHGip\Documents\Project\atlas77\.\libraries\std\iter.atlas</h1>
+<div id="wrap">
+<nav id="toc">
+<h3>Contents</h3>
+<ul>
+<li><a href="#struct-iter">Struct: Iter</a></li>
+</ul>
+</nav>
+<main id="main">
+<h1>Documentation</code></pre>
+<h2>Imports</code></pre>
+<ul>
+<li>std/vector</code></pre>
+<li>std/optional</code></pre>
+<li>std/string</code></pre>
+<li>std/mem</code></pre>
+</code></pre>
+<p><a id="struct-iter"></a></code></pre>
+<h2>Struct: Iter</code></pre>
+<p>An iterator over an array of <code>T</code>.
+Note: For non-copyable types, calling next() will copy the element.</code></pre>
+<p><strong>Fields</code></pre>
+</code></pre>
+<ul>
+<li>data: [T]</code></pre>
+<li>index: uint64</code></pre>
+</code></pre>
+<p><strong>Constructor</code></pre>
+</code></pre>
+<p><strong>Copy Constructor</code></pre>
+</code></pre>
+<p><strong>Destructor</code></pre>
+</code></pre>
+<p><strong>Methods</code></pre>
+</code></pre>
+<ul>
+<li><strong>Mutable</code></pre>
+ next</code></pre>
+</code></pre>
+<p>Returns the next item in the iterator, or None if the end is reached.
+Note: For non-copyable types, this will copy the element.</code></pre>
+<ul>
+<li><strong>Mutable</code></pre>
+ peek</code></pre>
+</code></pre>
+<p>Peeks at the next item without advancing the iterator</code></pre>
+<ul>
+<li><strong>Mutable</code></pre>
+ reverse_inplace</code></pre>
+</code></pre>
+<p>Reverses the iterator in place by mutating its internal data array</code></pre>
+<ul>
+<li><strong>Const</code></pre>
+ reversed</code></pre>
+</code></pre>
+<p>Create a new iterator that yields elements in reverse order
+T must be copyable</code></pre>
+<ul>
+<li><strong>Consuming</code></pre>
+ rev</code></pre>
+</code></pre>
+<p>Consume the iterator and return a new one that yields elements in reverse order
+Delete the old one</code></pre>
+<ul>
+<li>
+<p><strong>Mutable</code></pre>
+ has_next</code></pre>
+</code></pre>
+<li>
+<p><strong>Static</code></pre>
+ from_string</code></pre>
+</code></pre>
+<li>
+<p><strong>Static</code></pre>
+ from_str</code></pre>
+</code></pre>
+<li>
+<p><strong>Static</code></pre>
+ from_vector</code></pre>
+</code></pre>
+<li>
+<p><strong>Static</code></pre>
+ from_map</code></pre>
+</code></pre>
+<li>
+<p><strong>Static</code></pre>
+ from_array</code></pre>
+</code></pre>
+</code></pre>
+<p>Mostly for consistency, though it’s useless
+because the constructor does the same</code></pre>
+</main>
+</div>
+</body></html>

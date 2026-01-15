@@ -1,0 +1,42 @@
+{% extends "layout.html" %}
+
+{% block title %}{{ title }} - Atlas77 Docs{% endblock title %}
+
+{% block content %}
+  <article class="item">
+    <h2>{{ title }}</h2>
+    <div class="meta">
+      <span class="kind">{{ kind }}</span>
+      <span class="vis">{{ vis }}</span>
+    </div>
+    {% if signature %}
+      <pre class="signature">{{ signature }}</pre>
+    {% endif %}
+
+    <section class="docs">
+      {{ doc | safe }}
+    </section>
+
+    {% if fields %}
+      <section class="fields">
+        <h3>Fields</h3>
+        <ul>
+        {% for f in fields %}
+          <li><strong>{{ f.name }}</strong>: {{ f.ty }}</li>
+        {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+
+    {% if variants %}
+      <section class="variants">
+        <h3>Variants</h3>
+        <ul>
+        {% for v in variants %}
+          <li><strong>{{ v.name }}</strong> = {{ v.value }}</li>
+        {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+  </article>
+{% endblock content %}

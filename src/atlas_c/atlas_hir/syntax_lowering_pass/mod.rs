@@ -23,8 +23,8 @@ use crate::atlas_c::{
         error::{
             AssignmentCannotBeAnExpressionError, CannotGenerateADestructorForThisTypeError,
             ConstructorCannotHaveAWhereClauseError, HirError, HirResult, NonConstantValueError,
-            NullableTypeRequiresStdLibraryError, StructNameCannotBeOneLetterError, UnsupportedExpr,
-            UnsupportedItemError, UselessError,
+            NullableTypeRequiresStdLibraryError, StructNameCannotBeOneLetterError,
+            UnknownFileImportError, UnsupportedExpr, UnsupportedItemError, UselessError,
         },
         expr::{
             HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr,
@@ -981,7 +981,22 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         if !self.already_imported.contains_key(node.path) {
             self.already_imported
                 .insert(self.arena.intern(node.path.to_owned()), ());
-            let src = crate::atlas_c::utils::get_file_content(node.path).unwrap();
+            let src = match crate::atlas_c::utils::get_file_content(node.path) {
+                Ok(src) => src,
+                Err(_) => {
+                    let report: ErrReport = HirError::UnknownFileImport(UnknownFileImportError {
+                        span: node.span,
+                        src: NamedSource::new(
+                            node.span.path,
+                            utils::get_file_content(node.span.path).unwrap(),
+                        ),
+                        file_name: node.path.to_string(),
+                    })
+                    .into();
+                    eprintln!("{:?}", report);
+                    std::process::exit(1);
+                }
+            };
             let path = crate::atlas_c::utils::string_to_static_str(node.path.to_owned());
             let ast: AstProgram<'ast> = match parse(path, self.ast_arena, src) {
                 Ok(ast) => ast,
