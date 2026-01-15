@@ -24,9 +24,11 @@ public:
     Iter(from: &const Iter<T>)
         where T: std::copyable
     {
-        // Lists are not copyable yet, so we have to copy the elements one by one
+        // Allocate destination array and copy elements one by one
+        let n: uint64 = len(&from.data);
+        this.data = new [T; n];
         let i = 0u;
-        while i < len(&from.data) {
+        while i < n {
             this.data[i] = (*from.data)[i];
             i = i + 1u;
         }
@@ -53,8 +55,52 @@ public:
         return optional<&const T>::of(item);
     }
 
-    fun from_array(data: [T]) -> Iter<T> {
-        return new Iter<T>(data);
+    /// Reverses the iterator in place by mutating its internal data array
+    fun reverse_inplace(&this) {
+        let n: uint64 = len(&this.data);
+        if this.index >= n {
+            return;
+        }
+        let i: uint64 = this.index;
+        let j: uint64 = n - 1u;
+        while i < j {
+            swap<T>(&this.data[i], &this.data[j]);
+            i = i + 1u;
+            j = j - 1u;
+        }
+        // No need to change index, as we only reversed the data this.index..len(data)-1
+    }
+
+    /// Create a new iterator that yields elements in reverse order
+    /// T must be copyable
+    fun reversed(&const this) -> Iter<T> 
+        where T: std::copyable
+    {
+        let n: uint64 = len(&this.data);
+        if *this.index >= n {
+            // No remaining elements
+            let empty: [T] = new [T; 0u];
+            return new Iter<T>(empty);
+        }
+        let m: uint64 = n - *this.index;
+        let rev_data: [T] = new [T; m];
+        let i: uint64 = 0u;
+        while i < m {
+            let a: uint64 = m - 1u;
+            let b: uint64 = a - i;
+            let idx: uint64 = *this.index + b;
+            rev_data[i] = (*this.data)[idx];
+            i = i + 1u;
+        }
+        return new Iter<T>(rev_data);
+    }
+
+    /// Consume the iterator and return a new one that yields elements in reverse order
+    /// Delete the old one
+    fun rev(this) -> Iter<T> {
+        // Consume and reverse only the remaining elements, then return owned iterator
+        this.reverse_inplace();
+        return this;
     }
 
     fun has_next(&this) -> bool {
@@ -77,5 +123,11 @@ public:
 
     fun from_map<K, V>(data: Map<K, V>) -> Iter<Pair<K, V>> {
         return data.into_iter();
+    }
+
+    /// Mostly for consistency, though it's useless 
+    /// because the constructor does the same
+    fun from_array(data: [T]) -> Iter<T> {
+        return new Iter<T>(data);
     }
 }
