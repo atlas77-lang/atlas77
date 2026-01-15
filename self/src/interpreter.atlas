@@ -47,12 +47,13 @@ public:
                 // Let's implement loops handling now
                 if this.cells[this.pointer] == 0u {
                     // Skip to the matching LOOP_END
-                    let mut loop_counter: uint64 = 1u;
+                    let loop_counter: uint64 = 1u;
                     while loop_counter > 0u && iterator.has_next() {
                         let next_token = iterator.next();
-                        if next_token.value().kind == TokenKind::LOOP_START {
+                        let kind = next_token.value().kind;
+                        if kind == TokenKind::LOOP_START {
                             loop_counter = loop_counter + 1u;
-                        } else if next_token.value().kind == TokenKind::LOOP_END {
+                        } else if kind == TokenKind::LOOP_END {
                             loop_counter = loop_counter - 1u;
                         }
                     }
@@ -60,13 +61,15 @@ public:
             } else if token.kind == TokenKind::LOOP_END {
                 // Go back to the matching LOOP_START
                 if this.cells[this.pointer] != 0u {
-                    let mut loop_counter: uint64 = 1u;
-                    let mut reverse_iterator = iterator.clone().rev();
+                    let loop_counter: uint64 = 1u;
+                    // Copy and reverse the iterator to go backwards
+                    let reverse_iterator = iterator.reversed();
                     while loop_counter > 0u && reverse_iterator.has_next() {
                         let prev_token = reverse_iterator.next();
-                        if prev_token.value().kind == TokenKind::LOOP_END {
+                        let kind = prev_token.value().kind;
+                        if kind == TokenKind::LOOP_END {
                             loop_counter = loop_counter + 1u;
-                        } else if prev_token.value().kind == TokenKind::LOOP_START {
+                        } else if kind == TokenKind::LOOP_START {
                             loop_counter = loop_counter - 1u;
                         }
                     }
