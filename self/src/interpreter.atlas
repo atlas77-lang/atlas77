@@ -44,9 +44,35 @@ public:
                 let input_char = input as char;
                 this.cells[this.pointer] = input_char as uint64;
             } else if token.kind == TokenKind::LOOP_START {
-                // Loop handling not implemented yet
+                // Let's implement loops handling now
+                if this.cells[this.pointer] == 0u {
+                    // Skip to the matching LOOP_END
+                    let mut loop_counter: uint64 = 1u;
+                    while loop_counter > 0u && iterator.has_next() {
+                        let next_token = iterator.next();
+                        if next_token.value().kind == TokenKind::LOOP_START {
+                            loop_counter = loop_counter + 1u;
+                        } else if next_token.value().kind == TokenKind::LOOP_END {
+                            loop_counter = loop_counter - 1u;
+                        }
+                    }
+                }
             } else if token.kind == TokenKind::LOOP_END {
-                // Loop handling not implemented yet
+                // Go back to the matching LOOP_START
+                if this.cells[this.pointer] != 0u {
+                    let mut loop_counter: uint64 = 1u;
+                    let mut reverse_iterator = iterator.clone().rev();
+                    while loop_counter > 0u && reverse_iterator.has_next() {
+                        let prev_token = reverse_iterator.next();
+                        if prev_token.value().kind == TokenKind::LOOP_END {
+                            loop_counter = loop_counter + 1u;
+                        } else if prev_token.value().kind == TokenKind::LOOP_START {
+                            loop_counter = loop_counter - 1u;
+                        }
+                    }
+                    // Move the main iterator to the position after LOOP_START
+                    iterator = reverse_iterator.rev();
+                }                
             }
         }
         println("    <= Output complete.");
