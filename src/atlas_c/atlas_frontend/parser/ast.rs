@@ -104,6 +104,15 @@ impl<'ast> AstItem<'ast> {
                     u.docstring = Some(docstring);
                 }
             },
+            AstItem::Constant(c) => match c.docstring {
+                Some(existing) => {
+                    let combined = format!("{}\n{}", docstring, existing);
+                    c.docstring = Some(arena.alloc(combined));
+                }
+                None => {
+                    c.docstring = Some(docstring);
+                }
+            },
             _ => {}
         }
     }
@@ -140,6 +149,7 @@ pub struct AstGlobalConst<'ast> {
     pub ty: &'ast AstType<'ast>,
     pub value: &'ast AstExpr<'ast>,
     pub vis: AstVisibility,
+    pub docstring: Option<&'ast str>,
 }
 
 #[derive(Debug, Clone)]
@@ -404,6 +414,7 @@ pub struct AstConst<'ast> {
     pub name: &'ast AstIdentifier<'ast>,
     pub ty: &'ast AstType<'ast>,
     pub value: &'ast AstExpr<'ast>,
+    pub docstring: Option<&'ast str>,
 }
 
 #[derive(Debug, Clone)]

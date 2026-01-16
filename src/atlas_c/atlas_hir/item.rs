@@ -81,6 +81,7 @@ pub struct HirEnum<'hir> {
     pub name_span: Span,
     pub variants: Vec<HirEnumVariant<'hir>>,
     pub vis: HirVisibility,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone)]

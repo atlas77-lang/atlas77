@@ -44,6 +44,7 @@ pub struct HirStructSignature<'hir> {
     pub destructor: Option<HirStructConstructorSignature<'hir>>,
     pub had_user_defined_constructor: bool,
     pub had_user_defined_destructor: bool,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone)]
@@ -87,6 +88,7 @@ pub struct HirUnionSignature<'hir> {
     pub generics: Vec<&'hir HirGenericConstraint<'hir>>,
     /// If the union name is mangled, this contains the pre-mangled type
     pub pre_mangled_ty: Option<&'hir HirGenericTy<'hir>>,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy, Default)]
@@ -152,6 +154,7 @@ pub struct HirStructConstructorSignature<'hir> {
     /// Whether the constructor's where_clause constraints are satisfied by the concrete types.
     /// Only used for copy constructors. Set to false during monomorphization if constraints aren't met.
     pub is_constraint_satisfied: bool,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone)]
@@ -163,6 +166,7 @@ pub struct HirStructConstantSignature<'hir> {
     pub ty: &'hir HirTy<'hir>,
     pub ty_span: Span,
     pub value: &'hir ConstantValue,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
@@ -235,6 +239,7 @@ pub struct HirStructFieldSignature<'hir> {
     pub name_span: Span,
     pub ty: &'hir HirTy<'hir>,
     pub ty_span: Span,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone)]
@@ -252,6 +257,7 @@ pub struct HirStructMethodSignature<'hir> {
     /// Whether the method's where_clause constraints are satisfied by the concrete types.
     /// Set to false during monomorphization if constraints aren't met.
     pub is_constraint_satisfied: bool,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -281,6 +287,7 @@ pub struct HirFunctionSignature<'hir> {
     pub is_external: bool,
     /// If the function name is mangled, this contains the pre-mangled type
     pub pre_mangled_ty: Option<&'hir HirGenericTy<'hir>>,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone)]

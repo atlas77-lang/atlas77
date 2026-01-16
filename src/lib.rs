@@ -238,21 +238,33 @@ pub fn generate_docs(output_dir: String, path: Option<&str>) {
         );
         std::process::exit(1);
     });
-    let bump = Bump::new();
-    let ast_arena = AstArena::new(&bump);
+    let ast_arena = Bump::new();
+    let ast_arena = AstArena::new(&ast_arena);
     let file_path = atlas_c::utils::string_to_static_str(source_path.to_str().unwrap().to_owned());
     let program = match parse(file_path, &ast_arena, source) {
         Ok(prog) => prog,
         Err(e) => {
-            eprintln!("Parsing error: {:?}", e);
-            return;
+            let report: miette::Report = (*e).into();
+            eprintln!("{:?}", report);
+            std::process::exit(1);
+        }
+    };
+
+    let hir_arena = HirArena::new();
+    let mut lower = AstSyntaxLoweringPass::new(&hir_arena, &program, &ast_arena, true);
+    let hir = match lower.lower() {
+        Ok(hir) => hir,
+        Err(e) => {
+            let report: miette::Report = e.into();
+            eprintln!("{:?}", report);
+            std::process::exit(1);
         }
     };
     // Generate documentation using the AST
     let out_path = output_path.clone();
     #[allow(clippy::unit_arg)]
     {
-        if let Err(e) = crate::atlas_docs::generate_docs(program, &out_path) {
+        if let Err(e) = crate::atlas_docs::generate_docs(&hir.signature, &out_path) {
             eprintln!("atlas_docs error: {}", e);
         }
     }

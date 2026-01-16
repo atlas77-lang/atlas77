@@ -1,6 +1,12 @@
 //! Copies the memory of a value of type T and returns a new instance with the same data.
 //! Only does a shallow copy; for deep copies, implement the copy constructor on the type T.
+//! 
+//! > [!Note]
+//! > Often used to move out an element from a data structure.
+//! > It is very unsafe to use, because it can lead to double-free/use-after-free errors if not used carefully.
 public extern memcpy<T>(data: &const T) -> T;
+//! > [!Warning]
+//! > This function doesn't actually exist yet. It is a placeholder for future functionality.
 public extern take<T>(data: T) -> T;
 //! Deletes the memory of a value of type T referenced by a reference.
 //! Use with caution, as deleting a reference might lead to undefined behavior.

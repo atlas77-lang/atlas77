@@ -213,6 +213,7 @@ impl<'ast> Parser<'ast> {
                     ty: c.ty,
                     value: c.value,
                     vis: AstVisibility::default(),
+                    docstring: None,
                 });
                 Ok(c)
             }
@@ -1092,6 +1093,7 @@ impl<'ast> Parser<'ast> {
             name: self.arena.alloc(name),
             ty: self.arena.alloc(ty),
             value: self.arena.alloc(value),
+            docstring: None,
         };
         Ok(node)
     }

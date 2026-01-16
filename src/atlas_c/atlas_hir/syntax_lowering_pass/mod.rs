@@ -239,6 +239,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 name_span: v.name.span,
                 ty: self.visit_ty(v.ty)?,
                 ty_span: v.ty.span(),
+                docstring: if let Some(docstring) = v.docstring {
+                    Some(self.arena.names().get(docstring))
+                } else {
+                    None
+                },
             });
         }
         let mut generics: Vec<&HirGenericConstraint<'_>> = Vec::new();
@@ -272,6 +277,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             },
             // This is filled by the monomorphization pass if needed
             pre_mangled_ty: None,
+            docstring: if let Some(docstring) = ast_union.docstring {
+                Some(self.arena.names().get(docstring))
+            } else {
+                None
+            },
         };
         let hir = HirUnion {
             span: ast_union.span,
@@ -315,6 +325,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             name_span: ast_enum.name.span,
             variants,
             vis: ast_enum.vis.into(),
+            docstring: if let Some(docstring) = ast_enum.docstring {
+                Some(self.arena.names().get(docstring))
+            } else {
+                None
+            },
         };
         Ok(hir)
     }
@@ -384,6 +399,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             return_ty_span: Some(ast_extern_func.ret_ty.span()),
             is_external: true,
             pre_mangled_ty: None,
+            docstring: if let Some(docstring) = ast_extern_func.docstring {
+                Some(self.arena.names().get(docstring))
+            } else {
+                None
+            },
         });
         self.module_signature.functions.insert(name, hir);
         Ok(())
@@ -438,6 +458,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 name_span: field.name.span,
                 ty,
                 ty_span: field.ty.span(),
+                docstring: if let Some(docstring) = field.docstring {
+                    Some(self.arena.names().get(docstring))
+                } else {
+                    None
+                },
             });
         }
 
@@ -473,6 +498,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     ty,
                     ty_span: constant.ty.span(),
                     value: self.arena.intern(value),
+                    docstring: if let Some(docstring) = constant.docstring {
+                        Some(self.arena.names().get(docstring))
+                    } else {
+                        None
+                    },
                 }),
             );
         }
@@ -522,6 +552,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             destructor: destructor.as_ref().map(|d| d.signature.clone()),
             had_user_defined_constructor,
             had_user_defined_destructor,
+            docstring: if let Some(docstring) = node.docstring {
+                Some(self.arena.names().get(docstring))
+            } else {
+                None
+            },
         };
 
         Ok(HirStruct {
@@ -576,6 +611,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             vis: HirVisibility::Public,
             where_clause: None,
             is_constraint_satisfied: true,
+            docstring: None,
         };
 
         let mut statements = vec![];
@@ -680,6 +716,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             where_clause,
             // Sets to true by default; monomorphization pass will update if needed
             is_constraint_satisfied: true,
+            docstring: if let Some(docstring) = node.docstring {
+                Some(self.arena.names().get(docstring))
+            } else {
+                None
+            },
         });
         let method = HirStructMethod {
             span: node.span,
@@ -891,6 +932,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             where_clause,
             // Sets to true by default; monomorphization pass will update if needed
             is_constraint_satisfied: true,
+            docstring: if let Some(docstring) = constructor.docstring {
+                Some(self.arena.names().get(docstring))
+            } else {
+                None
+            },
         };
 
         let hir = HirStructConstructor {
@@ -961,6 +1007,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             vis: destructor.vis.into(),
             where_clause: None,
             is_constraint_satisfied: true,
+            docstring: if let Some(docstring) = destructor.docstring {
+                Some(self.arena.names().get(docstring))
+            } else {
+                None
+            },
         };
         let hir = HirStructConstructor {
             span: destructor.span,
@@ -1571,6 +1622,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             return_ty_span: Some(ret_type_span),
             is_external: false,
             pre_mangled_ty: None,
+            docstring: if let Some(docstring) = node.docstring {
+                Some(self.arena.names().get(docstring))
+            } else {
+                None
+            },
         });
         let fun = HirFunction {
             span: node.span,
@@ -1737,6 +1793,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 vis: HirVisibility::Public,
                 where_clause: None,
                 is_constraint_satisfied: true,
+                docstring: None,
             };
             let mut statements = vec![];
             for field in fields.iter() {
@@ -1922,6 +1979,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 where_clause: None,
                 // Initially true; monomorphization pass will check constraints and update if needed
                 is_constraint_satisfied: true,
+                docstring: None,
             };
             // each statement is of the form: this.field = *from.field;
             let mut statements = vec![];
