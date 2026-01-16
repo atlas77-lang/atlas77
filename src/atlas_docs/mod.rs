@@ -4,7 +4,7 @@ use crate::atlas_c::atlas_frontend::parser::ast::AstProgram;
 mod inner {
     use super::AstProgram;
     use pulldown_cmark::html;
-    use pulldown_cmark::{CodeBlockKind, Event, Options, Parser as MdParser, Tag};
+    use pulldown_cmark::{CodeBlockKind, Event, Options, Parser as MdParser, Tag, TagEnd};
     use std::path::{Path, PathBuf};
     use tera::{Context, Tera};
 
@@ -29,35 +29,37 @@ mod inner {
                         CodeBlockKind::Indented => code_lang = None,
                     }
                 }
-                Event::End(_) => {
-                    if in_code {
-                        // highlight
-                        let lang = code_lang.clone().unwrap_or_default();
-                        let highlighted = if !lang.is_empty() {
-                            // try to find syntax reference
-                            let syntax = ss
-                                .find_syntax_by_token(&lang)
-                                .unwrap_or_else(|| ss.find_syntax_plain_text());
-                            let theme = ts
-                                .themes
-                                .get("InspiredGitHub")
-                                .unwrap_or_else(|| ts.themes.values().next().unwrap());
-                            match highlighted_html_for_string(&code_acc, &ss, syntax, theme) {
-                                Ok(h) => h,
-                                Err(_) => {
+                        Event::End(TagEnd::CodeBlock) => {
+                            if in_code {
+                                // highlight accumulated code
+                                let lang = code_lang.clone().unwrap_or_default();
+                                let highlighted = if !lang.is_empty() {
+                                    // try to find syntax reference
+                                    let syntax = ss
+                                        .find_syntax_by_token(&lang)
+                                        .unwrap_or_else(|| ss.find_syntax_plain_text());
+                                    let theme = ts
+                                        .themes
+                                        .get("InspiredGitHub")
+                                        .unwrap_or_else(|| ts.themes.values().next().unwrap());
+                                    match highlighted_html_for_string(&code_acc, &ss, syntax, theme) {
+                                        Ok(h) => h,
+                                        Err(_) => format!("<pre><code>{}</code></pre>", escape_html(&code_acc)),
+                                    }
+                                } else {
                                     format!("<pre><code>{}</code></pre>", escape_html(&code_acc))
-                                }
+                                };
+                                events.push(Event::Html(highlighted.into()));
+                                in_code = false;
+                                code_lang = None;
+                            } else {
+                                // This is an actual codeblock end but we weren't tracking one; emit the end
+                                events.push(Event::End(TagEnd::CodeBlock));
                             }
-                        } else {
-                            format!("<pre><code>{}</code></pre>", escape_html(&code_acc))
-                        };
-                        events.push(Event::Html(highlighted.into()));
-                        in_code = false;
-                        code_lang = None;
-                    } else {
-                        events.push(Event::End(Tag::CodeBlock(CodeBlockKind::Indented).into()));
-                    }
-                }
+                        }
+                        Event::End(tag) => {
+                            events.push(Event::End(tag));
+                        }
                 Event::Text(t) => {
                     if in_code {
                         code_acc.push_str(&t);
@@ -273,12 +275,12 @@ fun {}({}) -> {}
                             md.push_str("**Methods**\n\n");
                             for m in s.methods.iter() {
                                 let modifier = match m.modifier {
-                                    crate::atlas_c::atlas_frontend::parser::ast::AstMethodModifier::Static => "Static",
-                                    crate::atlas_c::atlas_frontend::parser::ast::AstMethodModifier::Const => "Const",
-                                    crate::atlas_c::atlas_frontend::parser::ast::AstMethodModifier::Mutable => "Mutable",
-                                    crate::atlas_c::atlas_frontend::parser::ast::AstMethodModifier::Consuming => "Consuming",
+                                    crate::atlas_c::atlas_frontend::parser::ast::AstMethodModifier::Static => "",
+                                    crate::atlas_c::atlas_frontend::parser::ast::AstMethodModifier::Const => "&const this",
+                                    crate::atlas_c::atlas_frontend::parser::ast::AstMethodModifier::Mutable => "&this",
+                                    crate::atlas_c::atlas_frontend::parser::ast::AstMethodModifier::Consuming => "this",
                                 };
-                                md.push_str(&format!("- **{}** {}\n\n", modifier, m.name.name));
+                                md.push_str(&format!("- {}({})\n\n", m.name.name, modifier));
                                 if let Some(d) = m.docstring {
                                     md.push_str(d);
                                     md.push_str("\n\n");

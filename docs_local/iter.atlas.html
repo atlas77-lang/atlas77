@@ -2,7 +2,7 @@
 <title>iter.atlas</title>
 <link rel="stylesheet" href="style.css">
 </head><body>
-<h1 style="margin:16px">Documentation for C:\Users\JHGip\Documents\Project\atlas77\.\libraries\std\iter.atlas</h1>
+<h1 style="margin:16px">Documentation for C:\Users\JHGip\RustroverProjects\atlas77\.\libraries\std\iter.atlas</h1>
 <div id="wrap">
 <nav id="toc">
 <h3>Contents</h3>
@@ -11,88 +11,72 @@
 </ul>
 </nav>
 <main id="main">
-<h1>Documentation</code></pre>
-<h2>Imports</code></pre>
+<h1>Documentation</h1>
+<h2>Imports</h2>
 <ul>
-<li>std/vector</code></pre>
-<li>std/optional</code></pre>
-<li>std/string</code></pre>
-<li>std/mem</code></pre>
-</code></pre>
-<p><a id="struct-iter"></a></code></pre>
-<h2>Struct: Iter</code></pre>
+<li>std/vector</li>
+<li>std/optional</li>
+<li>std/string</li>
+<li>std/mem</li>
+</ul>
+<p><a id="struct-iter"></a></p>
+<h2>Struct: Iter</h2>
 <p>An iterator over an array of <code>T</code>.
-Note: For non-copyable types, calling next() will copy the element.</code></pre>
-<p><strong>Fields</code></pre>
-</code></pre>
+Note: For non-copyable types, calling next() will copy the element.</p>
+<p><strong>Fields</strong></p>
 <ul>
-<li>data: [T]</code></pre>
-<li>index: uint64</code></pre>
-</code></pre>
-<p><strong>Constructor</code></pre>
-</code></pre>
-<p><strong>Copy Constructor</code></pre>
-</code></pre>
-<p><strong>Destructor</code></pre>
-</code></pre>
-<p><strong>Methods</code></pre>
-</code></pre>
+<li>data: [T]</li>
+<li>index: uint64</li>
+</ul>
+<p><strong>Constructor</strong></p>
+<p><strong>Copy Constructor</strong></p>
+<p><strong>Destructor</strong></p>
+<p><strong>Methods</strong></p>
 <ul>
-<li><strong>Mutable</code></pre>
- next</code></pre>
-</code></pre>
+<li>next(&amp;this)</li>
+</ul>
 <p>Returns the next item in the iterator, or None if the end is reached.
-Note: For non-copyable types, this will copy the element.</code></pre>
+Note: For non-copyable types, this will copy the element.</p>
 <ul>
-<li><strong>Mutable</code></pre>
- peek</code></pre>
-</code></pre>
-<p>Peeks at the next item without advancing the iterator</code></pre>
+<li>peek(&amp;this)</li>
+</ul>
+<p>Peeks at the next item without advancing the iterator</p>
 <ul>
-<li><strong>Mutable</code></pre>
- reverse_inplace</code></pre>
-</code></pre>
-<p>Reverses the iterator in place by mutating its internal data array</code></pre>
+<li>reverse_inplace(&amp;this)</li>
+</ul>
+<p>Reverses the iterator in place by mutating its internal data array</p>
 <ul>
-<li><strong>Const</code></pre>
- reversed</code></pre>
-</code></pre>
+<li>reversed(&amp;const this)</li>
+</ul>
 <p>Create a new iterator that yields elements in reverse order
-T must be copyable</code></pre>
+T must be copyable</p>
 <ul>
-<li><strong>Consuming</code></pre>
- rev</code></pre>
-</code></pre>
+<li>rev(this)</li>
+</ul>
 <p>Consume the iterator and return a new one that yields elements in reverse order
-Delete the old one</code></pre>
+Delete the old one</p>
 <ul>
 <li>
-<p><strong>Mutable</code></pre>
- has_next</code></pre>
-</code></pre>
+<p>has_next(&amp;this)</p>
+</li>
 <li>
-<p><strong>Static</code></pre>
- from_string</code></pre>
-</code></pre>
+<p>from_string()</p>
+</li>
 <li>
-<p><strong>Static</code></pre>
- from_str</code></pre>
-</code></pre>
+<p>from_str()</p>
+</li>
 <li>
-<p><strong>Static</code></pre>
- from_vector</code></pre>
-</code></pre>
+<p>from_vector()</p>
+</li>
 <li>
-<p><strong>Static</code></pre>
- from_map</code></pre>
-</code></pre>
+<p>from_map()</p>
+</li>
 <li>
-<p><strong>Static</code></pre>
- from_array</code></pre>
-</code></pre>
-</code></pre>
+<p>from_array()</p>
+</li>
+</ul>
 <p>Mostly for consistency, though it’s useless
-because the constructor does the same</code></pre>
+because the constructor does the same</p>
 </main>
 </div>
 </body></html>
