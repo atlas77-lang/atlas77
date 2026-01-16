@@ -120,10 +120,14 @@ pub enum TokenKind {
     Bool(bool),
     #[regex(r"//.*", |lex| lex.slice().to_string(), allow_greedy = true)]
     Comments(String),
-    // //! This is a doc comment
-    // we need to remove the //! part when storing the content
+    /// ``//! This is a doc comment``
     #[regex(r"//!.*", |lex| {
-        lex.slice()[3..].to_string()
+        let slice = lex.slice();
+        if slice.len() > 4 && &slice[3..4] == " " {
+            slice[4..].to_string()
+        } else {
+            slice[3..].to_string()
+        }
     }, allow_greedy = true)]
     Docs(String),
     #[token("(")]
