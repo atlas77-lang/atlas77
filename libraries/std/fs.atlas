@@ -1,3 +1,7 @@
+//! Filesystem helpers used by the standard library.
+//!
+//! Low-level file and directory operations. Higher-level convenience APIs are
+//! provided through the `File` struct below.
 private extern read_dir(path: string) -> [string];
 private extern read_file(path: string) -> string;
 private extern write_file(path: string, content: string);

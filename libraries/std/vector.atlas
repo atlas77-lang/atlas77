@@ -49,25 +49,28 @@ public:
         vec.length = 0u;
         return vec;
     }
-
+    //! Returns the number of elements in the vector.
     fun len(&const this) -> uint64 {
         return *this.length;
     }
-
+    //! Returns a const reference to the element at `index`.
+    //! Panics on out-of-bounds access.
     fun get(&const this, index: uint64) -> &const T {
         if index >= *this.length {
             panic("Index out of bounds");
         }
         return &((*this.data)[index]);
     }
-
+    //! Returns a mutable reference to the element at `index`.
+    //! Panics on out-of-bounds access.
     fun get_mut(&this, index: uint64) -> &T {
         if index >= this.length {
             panic("Index out of bounds");
         }
         return &(this.data[index]);
     }
-
+    //! Sets the element at `index` to `val`.
+    //! Panics on out-of-bounds access.
     fun set(&this, index: uint64, val: T) {
         if index >= this.length {
             panic("Index out of bounds");
@@ -75,8 +78,7 @@ public:
         this.data[index] = val;
     }
 
-    //! A function that has a "self" parameter is a method of the struct
-    //! and is called like this: "vector_instance.function_name()"
+    //! Appends `val` to the end of the vector, resizing if necessary.
     fun push(&this, val: T) {
         if this.length >= this.capacity {
             // Resize
@@ -99,6 +101,8 @@ public:
         this.length = this.length + 1u;
     }
     
+    //! Removes and returns the last element of the vector.
+    //! Panics when the vector is empty.
     fun pop(&this) -> T {
         if this.length == 0u {
             panic("Cannot pop from an empty vector");
@@ -127,6 +131,7 @@ public:
         return result.value();
     }
 
+    //! Returns a slice of the underlying array from `start` to `end`.
     fun get_slice(&this, start: uint64, end: uint64) -> [T] {
         if start > end || end > this.length {
             panic("Slice indices out of bounds");
@@ -135,6 +140,7 @@ public:
     }
 
 private:
+    //! Internal: tries to take an element at `index`, returning an optional.
     fun try_take(&this, index: uint64) -> optional<T> {
         if index >= this.length {
             return optional<T>::empty();

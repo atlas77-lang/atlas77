@@ -1,12 +1,19 @@
 import "std/optional";
 
-private extern fun __builtin_future_create() -> uint64;
-private extern async fun __builtin_future_wait<T>(future_id: uint64) -> T;
+//! Experimental: lightweight futures and async primitives.
+//!
+//! These APIs are experimental and may change; they provide low-level runtime
+//! bindings for async/future support used by higher-level libraries.
+//! Create a new runtime future and return its id.
+private extern __builtin_future_create() -> uint64;
+//! Wait for the future identified by `future_id` and return its resolved value.
+// TODO: Add async support
+private extern __builtin_future_wait<T>(future_id: uint64) -> T;
 
 public enum FutureState {
-    Pending,
-    Completed,
-    Failed,
+    Pending;
+    Completed;
+    Failed;
 }
 
 public struct Future<T> {
@@ -39,15 +46,15 @@ public:
         return *this.state == FutureState::Completed;
     }
 
-    fun get_state(&const this): FutureState {
+    fun get_state(&const this) -> FutureState {
         return *this.state;
     }
 
     fun get_result(&this) -> T? {
         return this.value;
     }
-
-    async fun await(&this) -> T {
+    // Async function, but we don't have async support yet
+    fun await(&this) -> T {
         return __builtin_future_wait<T>(this.id);
     }
 }

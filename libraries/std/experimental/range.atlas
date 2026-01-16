@@ -1,17 +1,24 @@
+//! A simple numeric range [start, end).
 public struct Range<T> {
 public:
-    start: T,
-    end: T,
+    //! Inclusive start of range.
+    start: T;
+    //! Exclusive end of range.
+    end: T;
+    //! Construct a range from `start` to `end`.
     Range(start: T, end: T) {
         this.start = start;
         this.end = end;
     }
+    //! Returns the length of the range (end - start).
     fun length(&this) -> T {
         return this.end - this.start;
     }
+    //! Returns true if `value` is inside the range.
     fun contains(&this, value: T) -> bool {
         return value >= this.start && value < this.end;
     }
+    //! Returns true if the range is empty.
     fun is_empty(&this) -> bool {
         return this.start >= this.end;
     }

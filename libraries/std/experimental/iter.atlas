@@ -1,20 +1,20 @@
 import "std/mem";
 import "std/optional";
-// experimental iterator library for Atlas77 standard library
-// Aimed to replace and extend the existing std/iter module
-// 
-// As of v0.7.3 it still doesn't work. 
-// closures/function pointers are not supported yet.
-struct Iter<T> {
+//! Experimental iterator implementation (unstable).
+//!
+//! Provides a lazy iterator abstraction used for experimental APIs.
+//! Methods below implement the minimal iterator protocol: `next`, `has_next` and `peek`.
+struct IterTest<T> {
 private:
-    fn_next: () -> optional<T>,
-    /// optional<T>::of(T) if there is a peeked value, else optional<T>::empty()
-    peeked: optional<T>,
-    Iter(fn_next: () -> optional<T>, peeked: optional<T>) {
+    fn_next: () -> optional<T>;
+    //! `optional<T>::of(value)` if a peeked value exists, else `optional<T>::empty()`.
+    peeked: optional<T>;
+    IterTest(fn_next: () -> optional<T>, peeked: optional<T>) {
         this.fn_next = fn_next;
         this.peeked = peeked;
     }
 public:
+    //! Return the next element of the iterator, if any.
     fun next(&this) -> optional<T> {
         if this.peeked.has_value() {
             // we replace the value to move it out
@@ -24,6 +24,7 @@ public:
             return this.fn_next();
         }
     }
+    //! Returns true if the iterator has another element.
     fun has_next(&this) -> bool {
         if this.peeked.has_value() {
             return true;
@@ -37,6 +38,7 @@ public:
             }
         }
     }
+    //! Returns a reference to the next element without consuming it.
     fun peek(&this) -> optional<&const T> {
         if this.peeked.has_value() {
             return this.peeked.as_ref();

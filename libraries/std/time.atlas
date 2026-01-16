@@ -1,6 +1,8 @@
-//package std::time;
-
-//Private functions, you can only use "Time" related functions through the public interface (Time class)
+//! Time utilities and `Time` struct.
+//!
+//! Provides `Time` values, formatting helpers and sleeping primitives.
+//! Use `Time::now()` to obtain the current time and `Time::format()` / `to_iso_string()` to format it.
+// Private functions, you can only use `Time` related functions through the public interface (Time class)
 private extern now() -> Time;
 private extern format_time(t: Time, fmt: string) -> string;
 private extern sleep(t: Time);

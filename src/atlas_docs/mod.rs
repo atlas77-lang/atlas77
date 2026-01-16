@@ -163,6 +163,9 @@ pub mod inner {
 
         // Unions
         for (name, u) in hir.unions.iter() {
+            if u.vis == HirVisibility::Private {
+                continue;
+            }
             let path = u.declaration_span.path;
             all_paths.push(path.to_string());
             let entry = files_md
@@ -218,14 +221,20 @@ pub mod inner {
             } else {
                 norm.clone()
             };
-            // Use just the source file basename (without extension) for the output filename.
+            // Use the source-relative parent directory to preserve layout, and the file stem for name.
             let rel_path = Path::new(&rel);
+            let parent_dir = rel_path.parent().and_then(|p| p.to_str()).unwrap_or("");
             let base_name = rel_path
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("doc")
                 .replace(':', "_");
-            let dst_dir = out_dir.to_path_buf();
+            // Create destination subdirectory under the output dir mirroring source layout.
+            let dst_dir = if parent_dir.is_empty() {
+                out_dir.to_path_buf()
+            } else {
+                out_dir.join(parent_dir)
+            };
             std::fs::create_dir_all(&dst_dir)?;
             let md_file = dst_dir.join(format!("{}.md", base_name));
             std::fs::write(&md_file, md)?;
@@ -267,14 +276,43 @@ pub mod inner {
             std::fs::write(&out_file, html)?;
             println!("[atlas_docs] wrote {}", out_file.display());
 
-            let rel_link = format!("{}.html", base_name);
+            // Build a relative link from the output dir root to the generated HTML file.
+            let rel_link = if parent_dir.is_empty() {
+                format!("{}.html", base_name)
+            } else {
+                format!("{}/{}.html", parent_dir, base_name)
+            };
             generated_files.push((rel_link, base_name.to_string()));
+        }
+
+        use std::collections::BTreeMap;
+
+        // Group generated files by their parent directory so the index reflects layout.
+        let mut groups: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+        for (rel, title) in &generated_files {
+            let parent = std::path::Path::new(rel)
+                .parent()
+                .and_then(|p| p.to_str())
+                .unwrap_or("")
+                .to_string();
+            groups
+                .entry(parent)
+                .or_default()
+                .push((rel.clone(), title.clone()));
         }
 
         let mut index_md = String::new();
         index_md.push_str("# Index\n\n");
-        for (rel, title) in &generated_files {
-            index_md.push_str(&format!("- [{}]({})\n", title, rel));
+        for (dir, items) in &groups {
+            if dir.is_empty() {
+                index_md.push_str("## Root\n\n");
+            } else {
+                index_md.push_str(&format!("## {}/\n\n", dir));
+            }
+            for (rel, title) in items {
+                index_md.push_str(&format!("- [{}]({})\n", title, rel));
+            }
+            index_md.push_str("\n");
         }
         let index_md_file = out_dir.join("index.md");
         std::fs::write(&index_md_file, &index_md)?;

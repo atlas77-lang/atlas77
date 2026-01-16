@@ -1,4 +1,3 @@
-//TODO: all those functions should only takes reference to avoid copying datas.
 //! Print a value followed by a newline
 //! Example: println("Hello, World!")
 public extern println<T>(s: T);

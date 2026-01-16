@@ -1,4 +1,12 @@
+//! Experimental: casting helpers.
+//!
+//! Contains helper functions to cast values between primitive types.
+//!
+//! APIs in this module are unstable and subject to change.
+
 /// This entire module is only experimental. I want to gather my thoughts
 /// on how to implement all the various cast operations.
+//! Cast `value` to `T` using a static/unchecked cast (experimental).
 public extern static_cast<T>(value: U) -> T;
+//! Remove constness from a `&const T`, returning a mutable reference (unsafe).
 public extern const_cast<T>(value: &const T) -> &T;
