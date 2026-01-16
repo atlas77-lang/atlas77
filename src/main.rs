@@ -97,7 +97,7 @@ fn main() -> miette::Result<()> {
                 eprintln!("Cannot run in both release and debug mode");
                 std::process::exit(1);
             }
-            let path = file_path.unwrap_or_else(|| "src/main.atlas".to_string());
+            let path = file_path.unwrap_or("src/main.atlas".to_string());
             run(
                 path,
                 if release {
@@ -119,7 +119,7 @@ fn main() -> miette::Result<()> {
                 eprintln!("Cannot build in both release and debug mode");
                 std::process::exit(1);
             }
-            let path = file_path.unwrap_or_else(|| "src/main.atlas".to_string());
+            let path = file_path.unwrap_or("src/main.atlas".to_string());
             build(
                 path,
                 if release {
@@ -144,7 +144,7 @@ fn main() -> miette::Result<()> {
             Ok(())
         }
         AtlasRuntimeCLI::Check { file_path, release } => {
-            let path = file_path.unwrap_or_else(|| "src/main.atlas".to_string());
+            let path = file_path.unwrap_or("src/main.atlas".to_string());
             build(
                 path,
                 if release {

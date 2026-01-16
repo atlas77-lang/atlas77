@@ -230,7 +230,7 @@ pub fn generate_docs(output_dir: String, path: Option<&str>) {
     std::fs::create_dir_all(&output_path).unwrap();
 
     // This should find and do it for every .atlas file in the project, but for now we just do src/main.atlas
-    let source_path = get_path(path.unwrap_or_else(|| "src/main.atlas"));
+    let source_path = get_path(path.unwrap_or("src/main.atlas"));
     let source = std::fs::read_to_string(&source_path).unwrap_or_else(|_| {
         eprintln!(
             "Failed to read source file at path: {}",

@@ -59,8 +59,7 @@ pub mod inner {
             let entry = files_md
                 .entry(path.to_string())
                 .or_insert_with(|| String::from("# Documentation\n\n"));
-            let toc: &mut Vec<(String, String)> =
-                files_toc.entry(path.to_string()).or_insert_with(Vec::new);
+            let toc: &mut Vec<(String, String)> = files_toc.entry(path.to_string()).or_default();
             let kind = "Function";
             let id = slugify(kind, name);
             toc.push((id.clone(), format!("{}: {}", kind, name)));
@@ -93,7 +92,7 @@ pub mod inner {
             let entry = files_md
                 .entry(path.to_string())
                 .or_insert_with(|| String::from("# Documentation\n\n"));
-            let toc = files_toc.entry(path.to_string()).or_insert_with(Vec::new);
+            let toc = files_toc.entry(path.to_string()).or_default();
             let kind = "Struct";
             let id = slugify(kind, name);
             toc.push((id.clone(), format!("{}: {}", kind, name)));
@@ -108,7 +107,7 @@ pub mod inner {
                 for (_k, f) in s.fields.iter() {
                     entry.push_str(&format!("- {}: {}\n", f.name, f.ty));
                 }
-                entry.push_str("\n");
+                entry.push('\n');
             }
 
             // Methods (render signatures using HirPrettyPrinter)
@@ -142,7 +141,7 @@ pub mod inner {
             let entry = files_md
                 .entry(path.to_string())
                 .or_insert_with(|| String::from("# Documentation\n\n"));
-            let toc = files_toc.entry(path.to_string()).or_insert_with(Vec::new);
+            let toc = files_toc.entry(path.to_string()).or_default();
             let kind = "Enum";
             let id = slugify(kind, name);
             toc.push((id.clone(), format!("{}: {}", kind, name)));
@@ -157,7 +156,7 @@ pub mod inner {
                 for v in e.variants.iter() {
                     entry.push_str(&format!("- {} = {}\n", v.name, v.value));
                 }
-                entry.push_str("\n");
+                entry.push('\n');
             }
         }
 
@@ -171,7 +170,7 @@ pub mod inner {
             let entry = files_md
                 .entry(path.to_string())
                 .or_insert_with(|| String::from("# Documentation\n\n"));
-            let toc = files_toc.entry(path.to_string()).or_insert_with(Vec::new);
+            let toc = files_toc.entry(path.to_string()).or_default();
             let kind = "Union";
             let id = slugify(kind, name);
             toc.push((id.clone(), format!("{}: {}", kind, name)));
@@ -312,7 +311,7 @@ pub mod inner {
             for (rel, title) in items {
                 index_md.push_str(&format!("- [{}]({})\n", title, rel));
             }
-            index_md.push_str("\n");
+            index_md.push('\n');
         }
         let index_md_file = out_dir.join("index.md");
         std::fs::write(&index_md_file, &index_md)?;
