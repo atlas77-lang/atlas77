@@ -44,7 +44,7 @@ libraries rather than in the compiler itself.
 The 2 core philosophies are simple:
 - **Keep the core language tiny, make everything else userland.**
 - **Safety opt-in: you pay for what you use.**
-> Well... Now that's I have added full on move semantics, I am not sure about the second point anymore.
+> Well... Now that I have added full on move semantics, I am not sure about the second point anymore.
 > The language is now safe by default... ig, I could add some features to let you shoot yourself in the foot if you really want to.
 
 > [!Note] 

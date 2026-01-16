@@ -2,7 +2,7 @@
 name = "atlas_77"
 version = "0.7.3"
 edition = "2024"
-description = "Programming language with strong interoperability with Rust (WIP)"
+description = "Wannabe systems programming language on a custom VM (for now)."
 authors = ["Gipson62"]
 license = "MIT"
 repository = "https://github.com/atlas77-lang/Atlas77"
