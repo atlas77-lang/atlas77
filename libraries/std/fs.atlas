@@ -1,3 +1,7 @@
+//! Filesystem helpers used by the standard library.
+//!
+//! Low-level file and directory operations. Higher-level convenience APIs are
+//! provided through the `File` struct below.
 private extern read_dir(path: string) -> [string];
 private extern read_file(path: string) -> string;
 private extern write_file(path: string, content: string);
@@ -13,8 +17,8 @@ private:
 public:
     path: string;
 public:
-    /// Creates a new File object with the given path
-    /// Note: The file is not opened until the open() method is called
+    //! Creates a new File object with the given path
+    //! Note: The file is not opened until the open() method is called
     File(path: string) {
         this.content = "";
         this.path = path;
@@ -25,7 +29,7 @@ public:
         close_file(this.path);
     }
 
-    /// Not sure if this is a good idea to have a copy constructor for File
+    //! Not sure if this is a good idea to have a copy constructor for File
     File(from: &const File) {
         this.path = *from.path;
         this.content = *from.content;
@@ -42,8 +46,8 @@ public:
         return;
     }
 
-    /// Closes the file
-    /// NB: Takes ownership of the File object 
+    //! Closes the file
+    //! NB: Takes ownership of the File object 
     fun close(this) {
         delete this;
     }

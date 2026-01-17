@@ -13,27 +13,27 @@ use crate::atlas_c::{
     },
     atlas_lir::{
         error::{
-            CurrentFunctionDoesntExistError, LIRLoweringError, LIRResult, NoReturnInFunctionError,
+            CurrentFunctionDoesntExistError, LirLoweringError, LirResult, NoReturnInFunctionError,
             UnsupportedHirExprError,
         },
         program::{
-            LIRBlock, LIRFunction, LIRInstr, LIROperand, LIRPrimitiveType, LIRProgram,
-            LIRTerminator,
+            LirBlock, LirFunction, LirInstr, LirOperand, LirPrimitiveType, LirProgram,
+            LirTerminator,
         },
     },
     utils,
 };
 
-/// HIR to LIR lowering pass
+/// Hir to Lir lowering pass
 ///
-/// This pass converts the HIR (after ownership analysis) into a simple SSA-like
-/// LIR form suitable for optimization and final code generation.
+/// This pass converts the Hir (after ownership analysis) into a simple SSA-like
+/// Lir form suitable for optimization and final code generation.
 ///
 /// Currently supports: fib example (arithmetic, comparisons, if-else, calls, return)
 pub struct HirLoweringPass<'hir> {
     hir_module: &'hir HirModule<'hir>,
     /// The function currently being lowered
-    current_function: Option<LIRFunction>,
+    current_function: Option<LirFunction>,
     /// Counter for generating unique temp variable IDs
     temp_counter: u32,
     /// Counter for generating unique block labels
@@ -56,8 +56,8 @@ impl<'hir> HirLoweringPass<'hir> {
         }
     }
 
-    /// Lower the entire HIR module to LIR
-    pub fn lower(&mut self) -> LIRResult<LIRProgram> {
+    /// Lower the entire Hir module to Lir
+    pub fn lower(&mut self) -> LirResult<LirProgram> {
         let mut functions = Vec::new();
 
         for func in self.hir_module.body.functions.values() {
@@ -65,14 +65,14 @@ impl<'hir> HirLoweringPass<'hir> {
             functions.push(lir_func);
         }
 
-        Ok(LIRProgram { functions })
+        Ok(LirProgram { functions })
     }
 
     /// Generate a new unique temp variable
-    fn new_temp(&mut self) -> LIROperand {
+    fn new_temp(&mut self) -> LirOperand {
         let id = self.temp_counter;
         self.temp_counter += 1;
-        LIROperand::Temp(id)
+        LirOperand::Temp(id)
     }
 
     /// Generate a new unique block label
@@ -83,58 +83,58 @@ impl<'hir> HirLoweringPass<'hir> {
     }
 
     /// Creates a new block and returns its label
-    fn create_block(&mut self, label: String) -> LIRResult<String> {
+    fn create_block(&mut self, label: String) -> LirResult<String> {
         if let Some(func) = &mut self.current_function {
-            func.blocks.push(LIRBlock {
+            func.blocks.push(LirBlock {
                 label: label.clone(),
                 instructions: Vec::new(),
-                terminator: LIRTerminator::None,
+                terminator: LirTerminator::None,
             });
             Ok(label)
         } else {
-            Err(Box::new(LIRLoweringError::CurrentFunctionDoesntExist(
+            Err(Box::new(LirLoweringError::CurrentFunctionDoesntExist(
                 CurrentFunctionDoesntExistError,
             )))
         }
     }
 
     /// Push an instruction to the current (last) block
-    fn emit(&mut self, instr: LIRInstr) -> LIRResult<()> {
+    fn emit(&mut self, instr: LirInstr) -> LirResult<()> {
         if let Some(func) = &mut self.current_function {
             if let Some(block) = func.blocks.last_mut() {
                 block.instructions.push(instr);
                 Ok(())
             } else {
-                Err(Box::new(LIRLoweringError::CurrentFunctionDoesntExist(
+                Err(Box::new(LirLoweringError::CurrentFunctionDoesntExist(
                     CurrentFunctionDoesntExistError,
                 )))
             }
         } else {
-            Err(Box::new(LIRLoweringError::CurrentFunctionDoesntExist(
+            Err(Box::new(LirLoweringError::CurrentFunctionDoesntExist(
                 CurrentFunctionDoesntExistError,
             )))
         }
     }
 
-    fn emit_terminator(&mut self, terminator: LIRTerminator) -> LIRResult<()> {
+    fn emit_terminator(&mut self, terminator: LirTerminator) -> LirResult<()> {
         if let Some(func) = &mut self.current_function {
             if let Some(block) = func.blocks.last_mut() {
                 block.terminator = terminator;
                 Ok(())
             } else {
-                Err(Box::new(LIRLoweringError::CurrentFunctionDoesntExist(
+                Err(Box::new(LirLoweringError::CurrentFunctionDoesntExist(
                     CurrentFunctionDoesntExistError,
                 )))
             }
         } else {
-            Err(Box::new(LIRLoweringError::CurrentFunctionDoesntExist(
+            Err(Box::new(LirLoweringError::CurrentFunctionDoesntExist(
                 CurrentFunctionDoesntExistError,
             )))
         }
     }
 
     /// Lower a single function
-    fn lower_function(&mut self, func: &'hir HirFunction<'hir>) -> LIRResult<LIRFunction> {
+    fn lower_function(&mut self, func: &'hir HirFunction<'hir>) -> LirResult<LirFunction> {
         // Reset state for new function
         self.temp_counter = 0;
         self.block_counter = 0;
@@ -147,7 +147,7 @@ impl<'hir> HirLoweringPass<'hir> {
         }
 
         // Initialize current function with entry block
-        self.current_function = Some(LIRFunction {
+        self.current_function = Some(LirFunction {
             name: func.name.to_string(),
             args: func
                 .signature
@@ -157,16 +157,16 @@ impl<'hir> HirLoweringPass<'hir> {
                 .collect(),
             return_type: {
                 let lir_ty = self.hir_ty_to_lir_primitive(&func.signature.return_ty);
-                if lir_ty == LIRPrimitiveType::Unit {
+                if lir_ty == LirPrimitiveType::Unit {
                     None
                 } else {
                     Some(lir_ty)
                 }
             },
-            blocks: vec![LIRBlock {
+            blocks: vec![LirBlock {
                 label: "entry".to_string(),
                 instructions: Vec::new(),
-                terminator: LIRTerminator::None,
+                terminator: LirTerminator::None,
             }],
         });
 
@@ -182,23 +182,23 @@ impl<'hir> HirLoweringPass<'hir> {
         self.current_function = Some(result);
         if let Some(b) = self.current_function.as_ref().unwrap().blocks.last() {
             if func.signature.return_ty.is_unit() {
-                if matches!(b.terminator, LIRTerminator::None) {
+                if matches!(b.terminator, LirTerminator::None) {
                     // For functions returning unit, ensure there's a return at the end
                     if func.name == "main" {
-                        self.emit_terminator(LIRTerminator::Halt)?;
+                        self.emit_terminator(LirTerminator::Halt)?;
                     } else {
-                        self.emit_terminator(LIRTerminator::Return { value: None })?;
+                        self.emit_terminator(LirTerminator::Return { value: None })?;
                     }
                 }
             } else if !matches!(
                 b.terminator,
-                LIRTerminator::Return { value: Some(_) } | LIRTerminator::Halt
+                LirTerminator::Return { value: Some(_) } | LirTerminator::Halt
             ) {
                 // It should return something, but doesn't
                 // TODO: Add a ! type so if the last statement is a call to a function returning !, we don't error
                 // TODO: Add CFG analysis to check all paths because right now only the else branch has to return,
                 //  the if branch can just fallthrough
-                return Err(Box::new(LIRLoweringError::NoReturnInFunction(
+                return Err(Box::new(LirLoweringError::NoReturnInFunction(
                     NoReturnInFunctionError {
                         name: func.name.to_string(),
                     },
@@ -210,11 +210,11 @@ impl<'hir> HirLoweringPass<'hir> {
     }
 
     /// Lower a statement
-    fn lower_stmt(&mut self, stmt: &'hir HirStatement<'hir>) -> LIRResult<()> {
+    fn lower_stmt(&mut self, stmt: &'hir HirStatement<'hir>) -> LirResult<()> {
         match stmt {
             HirStatement::Return(ret) => {
                 let value = self.lower_expr(&ret.value)?;
-                self.emit_terminator(LIRTerminator::Return { value: Some(value) })?;
+                self.emit_terminator(LirTerminator::Return { value: Some(value) })?;
             }
 
             HirStatement::IfElse(if_else) => {
@@ -227,7 +227,7 @@ impl<'hir> HirLoweringPass<'hir> {
                 let merge_label = self.new_block_label("merge");
 
                 // Emit branch
-                self.emit_terminator(LIRTerminator::BranchIf {
+                self.emit_terminator(LirTerminator::BranchIf {
                     condition: cond,
                     then_label: then_label.clone(),
                     else_label: else_label.clone(),
@@ -261,14 +261,10 @@ impl<'hir> HirLoweringPass<'hir> {
             HirStatement::Let(let_stmt) => {
                 let value = self.lower_expr(&let_stmt.value)?;
                 // Allocate a temp for this local variable
-                let local_temp = self.new_temp();
-                if let LIROperand::Temp(id) = local_temp {
+                //let local_temp = self.new_temp();
+                if let LirOperand::Temp(id) = value {
                     self.local_map.insert(let_stmt.name, id);
                 }
-                self.emit(LIRInstr::Copy {
-                    dst: local_temp,
-                    src: value,
-                })?;
             }
 
             _ => {
@@ -280,34 +276,43 @@ impl<'hir> HirLoweringPass<'hir> {
     }
 
     /// Lower an expression, returning the operand holding the result
-    fn lower_expr(&mut self, expr: &'hir HirExpr<'hir>) -> LIRResult<LIROperand> {
+    fn lower_expr(&mut self, expr: &'hir HirExpr<'hir>) -> LirResult<LirOperand> {
         match expr {
             // === Literals ===
             HirExpr::IntegerLiteral(lit) => {
                 let dest = self.new_temp();
                 // For simplicity, we store the constant value directly
                 // A real impl would use a constant pool
-                self.emit(LIRInstr::LoadImm {
+                self.emit(LirInstr::LoadImm {
                     dst: dest.clone(),
-                    value: LIROperand::ImmInt(lit.value),
+                    value: LirOperand::ImmInt(lit.value),
                 })?;
                 Ok(dest)
             }
 
             HirExpr::BooleanLiteral(lit) => {
                 let dest = self.new_temp();
-                self.emit(LIRInstr::LoadImm {
+                self.emit(LirInstr::LoadImm {
                     dst: dest.clone(),
-                    value: LIROperand::ImmBool(lit.value),
+                    value: LirOperand::ImmBool(lit.value),
                 })?;
                 Ok(dest)
             }
 
             HirExpr::StringLiteral(lit) => {
                 let dest = self.new_temp();
-                self.emit(LIRInstr::LoadConst {
+                self.emit(LirInstr::LoadConst {
                     dst: dest.clone(),
-                    value: LIROperand::Const(ConstantValue::String(String::from(lit.value))),
+                    value: LirOperand::Const(ConstantValue::String(String::from(lit.value))),
+                })?;
+                Ok(dest)
+            }
+
+            HirExpr::UnitLiteral(_) => {
+                let dest = self.new_temp();
+                self.emit(LirInstr::LoadImm {
+                    dst: dest.clone(),
+                    value: LirOperand::ImmUnit,
                 })?;
                 Ok(dest)
             }
@@ -316,11 +321,11 @@ impl<'hir> HirLoweringPass<'hir> {
             HirExpr::Ident(ident) => {
                 // Check if it's a parameter
                 if let Some(&arg_idx) = self.param_map.get(ident.name) {
-                    Ok(LIROperand::Arg(arg_idx))
+                    Ok(LirOperand::Arg(arg_idx))
                 }
                 // Check if it's a local variable
                 else if let Some(&temp_id) = self.local_map.get(ident.name) {
-                    Ok(LIROperand::Temp(temp_id))
+                    Ok(LirOperand::Temp(temp_id))
                 } else {
                     // Unknown identifier - shouldn't happen after type checking
                     panic!("Unknown identifier: {}", ident.name);
@@ -341,67 +346,67 @@ impl<'hir> HirLoweringPass<'hir> {
                 let ty = self.hir_ty_to_lir_primitive(binop.ty);
 
                 let instr = match binop.op {
-                    HirBinaryOperator::Add => LIRInstr::Add {
+                    HirBinaryOperator::Add => LirInstr::Add {
                         ty,
                         dest: dest.clone(),
                         a: lhs,
                         b: rhs,
                     },
-                    HirBinaryOperator::Sub => LIRInstr::Sub {
+                    HirBinaryOperator::Sub => LirInstr::Sub {
                         ty,
                         dest: dest.clone(),
                         a: lhs,
                         b: rhs,
                     },
-                    HirBinaryOperator::Mul => LIRInstr::Mul {
+                    HirBinaryOperator::Mul => LirInstr::Mul {
                         ty,
                         dest: dest.clone(),
                         a: lhs,
                         b: rhs,
                     },
-                    HirBinaryOperator::Div => LIRInstr::Div {
+                    HirBinaryOperator::Div => LirInstr::Div {
                         ty,
                         dest: dest.clone(),
                         a: lhs,
                         b: rhs,
                     },
-                    HirBinaryOperator::Mod => LIRInstr::Mod {
+                    HirBinaryOperator::Mod => LirInstr::Mod {
                         ty,
                         dest: dest.clone(),
                         a: lhs,
                         b: rhs,
                     },
-                    HirBinaryOperator::Lt => LIRInstr::LessThan {
+                    HirBinaryOperator::Lt => LirInstr::LessThan {
                         ty,
                         dest: dest.clone(),
                         a: lhs,
                         b: rhs,
                     },
-                    HirBinaryOperator::Lte => LIRInstr::LessThanOrEqual {
+                    HirBinaryOperator::Lte => LirInstr::LessThanOrEqual {
                         ty,
                         dest: dest.clone(),
                         a: lhs,
                         b: rhs,
                     },
-                    HirBinaryOperator::Gt => LIRInstr::GreaterThan {
+                    HirBinaryOperator::Gt => LirInstr::GreaterThan {
                         ty,
                         dest: dest.clone(),
                         a: lhs,
                         b: rhs,
                     },
-                    HirBinaryOperator::Gte => LIRInstr::GreaterThanOrEqual {
+                    HirBinaryOperator::Gte => LirInstr::GreaterThanOrEqual {
                         ty,
                         dest: dest.clone(),
                         a: lhs,
                         b: rhs,
                     },
-                    HirBinaryOperator::Eq => LIRInstr::Equal {
+                    HirBinaryOperator::Eq => LirInstr::Equal {
                         ty,
                         dest: dest.clone(),
                         a: lhs,
                         b: rhs,
                     },
-                    HirBinaryOperator::Neq => LIRInstr::NotEqual {
+                    HirBinaryOperator::Neq => LirInstr::NotEqual {
                         ty,
                         dest: dest.clone(),
                         a: lhs,
@@ -410,7 +415,7 @@ impl<'hir> HirLoweringPass<'hir> {
                     _ => {
                         let path = expr.span().path;
                         let src = utils::get_file_content(path).unwrap();
-                        return Err(Box::new(LIRLoweringError::UnsupportedHirExpr(
+                        return Err(Box::new(LirLoweringError::UnsupportedHirExpr(
                             UnsupportedHirExprError {
                                 span: expr.span(),
                                 src: NamedSource::new(path, src),
@@ -437,7 +442,7 @@ impl<'hir> HirLoweringPass<'hir> {
                     _ => {
                         let path = expr.span().path;
                         let src = utils::get_file_content(path).unwrap();
-                        return Err(Box::new(LIRLoweringError::UnsupportedHirExpr(
+                        return Err(Box::new(LirLoweringError::UnsupportedHirExpr(
                             UnsupportedHirExprError {
                                 span: expr.span(),
                                 src: NamedSource::new(path, src),
@@ -461,13 +466,13 @@ impl<'hir> HirLoweringPass<'hir> {
                 };
 
                 let instr = if is_extern {
-                    LIRInstr::ExternCall {
+                    LirInstr::ExternCall {
                         dst: dest.clone(),
                         func_name,
                         args,
                     }
                 } else {
-                    LIRInstr::Call {
+                    LirInstr::Call {
                         dst: dest.clone(),
                         func_name,
                         args,
@@ -475,12 +480,12 @@ impl<'hir> HirLoweringPass<'hir> {
                 };
 
                 self.emit(instr)?;
-                Ok(dest.unwrap_or(LIROperand::ImmInt(0))) // unit value
+                Ok(dest.unwrap_or(LirOperand::ImmInt(0))) // unit value
             }
 
             // === Move/Copy (ownership pass artifacts) ===
             HirExpr::Move(move_expr) => {
-                // Move is just a value use in LIR (no runtime work)
+                // Move is just a value use in Lir (no runtime work)
                 self.lower_expr(&move_expr.expr)
             }
 
@@ -494,7 +499,7 @@ impl<'hir> HirLoweringPass<'hir> {
             _ => {
                 let path = expr.span().path;
                 let src = utils::get_file_content(path).unwrap();
-                Err(Box::new(LIRLoweringError::UnsupportedHirExpr(
+                Err(Box::new(LirLoweringError::UnsupportedHirExpr(
                     UnsupportedHirExprError {
                         span: expr.span(),
                         src: NamedSource::new(path, src),
@@ -504,17 +509,17 @@ impl<'hir> HirLoweringPass<'hir> {
         }
     }
 
-    /// Convert HIR type to LIR primitive type
-    fn hir_ty_to_lir_primitive(&self, ty: &HirTy) -> LIRPrimitiveType {
+    /// Convert HIR type to Lir primitive type
+    fn hir_ty_to_lir_primitive(&self, ty: &HirTy) -> LirPrimitiveType {
         match ty {
-            HirTy::Int64(_) => LIRPrimitiveType::Int64,
-            HirTy::UInt64(_) => LIRPrimitiveType::UInt64,
-            HirTy::Float64(_) => LIRPrimitiveType::Float64,
-            HirTy::Boolean(_) => LIRPrimitiveType::Boolean,
-            HirTy::Char(_) => LIRPrimitiveType::Char,
-            HirTy::String(_) => LIRPrimitiveType::Str,
-            HirTy::Unit(_) => LIRPrimitiveType::Unit,
-            _ => LIRPrimitiveType::Int64, // Default fallback
+            HirTy::Int64(_) => LirPrimitiveType::Int64,
+            HirTy::UInt64(_) => LirPrimitiveType::UInt64,
+            HirTy::Float64(_) => LirPrimitiveType::Float64,
+            HirTy::Boolean(_) => LirPrimitiveType::Boolean,
+            HirTy::Char(_) => LirPrimitiveType::Char,
+            HirTy::String(_) => LirPrimitiveType::Str,
+            HirTy::Unit(_) => LirPrimitiveType::Unit,
+            _ => LirPrimitiveType::Int64, // Default fallback
         }
     }
 }
@@ -523,7 +528,7 @@ impl<'hir> HirLoweringPass<'hir> {
 // Pretty printing for debugging
 // ============================================================================
 
-impl std::fmt::Display for LIRProgram {
+impl std::fmt::Display for LirProgram {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for func in &self.functions {
             writeln!(f, "{}", func)?;
@@ -532,7 +537,7 @@ impl std::fmt::Display for LIRProgram {
     }
 }
 
-impl std::fmt::Display for LIRFunction {
+impl std::fmt::Display for LirFunction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(
             f,
@@ -555,66 +560,63 @@ impl std::fmt::Display for LIRFunction {
     }
 }
 
-impl std::fmt::Display for LIRBlock {
+impl std::fmt::Display for LirBlock {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "\t{}:", self.label)?;
         for instr in &self.instructions {
             writeln!(f, "\t\t{}", instr)?;
         }
         // Print the terminator (unless it's None)
-        if !matches!(self.terminator, LIRTerminator::None) {
+        if !matches!(self.terminator, LirTerminator::None) {
             writeln!(f, "\t\t{}", self.terminator)?;
         }
         Ok(())
     }
 }
 
-impl std::fmt::Display for LIRInstr {
+impl std::fmt::Display for LirInstr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LIRInstr::Add { dest, a, b, ty } => {
+            LirInstr::Add { dest, a, b, ty } => {
                 write!(f, "{} = add.{} {}, {}", dest, ty, a, b)
             }
-            LIRInstr::Sub { dest, a, b, ty } => {
+            LirInstr::Sub { dest, a, b, ty } => {
                 write!(f, "{} = sub.{} {}, {}", dest, ty, a, b)
             }
-            LIRInstr::Mul { dest, a, b, ty } => {
+            LirInstr::Mul { dest, a, b, ty } => {
                 write!(f, "{} = mul.{} {}, {}", dest, ty, a, b)
             }
-            LIRInstr::Div { dest, a, b, ty } => {
+            LirInstr::Div { dest, a, b, ty } => {
                 write!(f, "{} = div.{} {}, {}", dest, ty, a, b)
             }
-            LIRInstr::Mod { dest, a, b, ty } => {
+            LirInstr::Mod { dest, a, b, ty } => {
                 write!(f, "{} = mod.{} {}, {}", dest, ty, a, b)
             }
-            LIRInstr::LessThan { dest, a, b, ty } => {
+            LirInstr::LessThan { dest, a, b, ty } => {
                 write!(f, "{} = lt.{} {}, {}", dest, ty, a, b)
             }
-            LIRInstr::LessThanOrEqual { dest, a, b, ty } => {
+            LirInstr::LessThanOrEqual { dest, a, b, ty } => {
                 write!(f, "{} = le.{} {}, {}", dest, ty, a, b)
             }
-            LIRInstr::GreaterThan { dest, a, b, ty } => {
+            LirInstr::GreaterThan { dest, a, b, ty } => {
                 write!(f, "{} = gt.{} {}, {}", dest, ty, a, b)
             }
-            LIRInstr::GreaterThanOrEqual { dest, a, b, ty } => {
+            LirInstr::GreaterThanOrEqual { dest, a, b, ty } => {
                 write!(f, "{} = ge.{} {}, {}", dest, ty, a, b)
             }
-            LIRInstr::Equal { dest, a, b, ty } => {
+            LirInstr::Equal { dest, a, b, ty } => {
                 write!(f, "{} = eq.{} {}, {}", dest, ty, a, b)
             }
-            LIRInstr::NotEqual { dest, a, b, ty } => {
+            LirInstr::NotEqual { dest, a, b, ty } => {
                 write!(f, "{} = ne.{} {}, {}", dest, ty, a, b)
             }
-            LIRInstr::Copy { dst, src } => {
-                write!(f, "{} = copy {}", dst, src)
-            }
-            LIRInstr::LoadConst { dst, value } => {
+            LirInstr::LoadConst { dst, value } => {
                 write!(f, "{} = ld_const {}", dst, value)
             }
-            LIRInstr::LoadImm { dst, value } => {
+            LirInstr::LoadImm { dst, value } => {
                 write!(f, "{} = ld_imm {}", dst, value)
             }
-            LIRInstr::Call {
+            LirInstr::Call {
                 dst,
                 func_name,
                 args,
@@ -630,7 +632,7 @@ impl std::fmt::Display for LIRInstr {
                     write!(f, "call @{}({})", func_name, args_str)
                 }
             }
-            LIRInstr::ExternCall {
+            LirInstr::ExternCall {
                 dst,
                 func_name,
                 args,
@@ -650,66 +652,67 @@ impl std::fmt::Display for LIRInstr {
     }
 }
 
-impl std::fmt::Display for LIROperand {
+impl std::fmt::Display for LirOperand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LIROperand::Temp(id) => write!(f, "%t{}", id),
-            LIROperand::Arg(idx) => write!(f, "%arg{}", idx),
-            LIROperand::Const(val) => write!(f, "#{}", val),
-            LIROperand::ImmInt(i) => write!(f, "%imm{}", i),
-            LIROperand::ImmUInt(u) => write!(f, "%imm{}", u),
-            LIROperand::ImmFloat(fl) => write!(f, "%imm{}", fl),
-            LIROperand::ImmBool(b) => write!(f, "%imm{}", b),
-            LIROperand::ImmChar(c) => write!(f, "%imm{}", c),
+            LirOperand::Temp(id) => write!(f, "%t{}", id),
+            LirOperand::Arg(idx) => write!(f, "%arg{}", idx),
+            LirOperand::Const(val) => write!(f, "#{}", val),
+            LirOperand::ImmInt(i) => write!(f, "%imm{}", i),
+            LirOperand::ImmUInt(u) => write!(f, "%imm{}", u),
+            LirOperand::ImmFloat(fl) => write!(f, "%imm{}", fl),
+            LirOperand::ImmBool(b) => write!(f, "%imm{}", b),
+            LirOperand::ImmChar(c) => write!(f, "%imm{}", c),
+            LirOperand::ImmUnit => write!(f, "%imm()"),
         }
     }
 }
 
-impl std::fmt::Display for LIRPrimitiveType {
+impl std::fmt::Display for LirPrimitiveType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LIRPrimitiveType::Int8 => write!(f, "int8"),
-            LIRPrimitiveType::UInt8 => write!(f, "uint8"),
-            LIRPrimitiveType::Int16 => write!(f, "int16"),
-            LIRPrimitiveType::UInt16 => write!(f, "uint16"),
-            LIRPrimitiveType::Int32 => write!(f, "int32"),
-            LIRPrimitiveType::UInt32 => write!(f, "uint32"),
-            LIRPrimitiveType::Int64 => write!(f, "int64"),
-            LIRPrimitiveType::UInt64 => write!(f, "uint64"),
-            LIRPrimitiveType::Float32 => write!(f, "float32"),
-            LIRPrimitiveType::Float64 => write!(f, "float64"),
-            LIRPrimitiveType::Boolean => write!(f, "bool"),
-            LIRPrimitiveType::Char => write!(f, "char"),
-            LIRPrimitiveType::Str => write!(f, "str"),
-            LIRPrimitiveType::Unit => write!(f, "unit"),
+            LirPrimitiveType::Int8 => write!(f, "int8"),
+            LirPrimitiveType::UInt8 => write!(f, "uint8"),
+            LirPrimitiveType::Int16 => write!(f, "int16"),
+            LirPrimitiveType::UInt16 => write!(f, "uint16"),
+            LirPrimitiveType::Int32 => write!(f, "int32"),
+            LirPrimitiveType::UInt32 => write!(f, "uint32"),
+            LirPrimitiveType::Int64 => write!(f, "int64"),
+            LirPrimitiveType::UInt64 => write!(f, "uint64"),
+            LirPrimitiveType::Float32 => write!(f, "float32"),
+            LirPrimitiveType::Float64 => write!(f, "float64"),
+            LirPrimitiveType::Boolean => write!(f, "bool"),
+            LirPrimitiveType::Char => write!(f, "char"),
+            LirPrimitiveType::Str => write!(f, "str"),
+            LirPrimitiveType::Unit => write!(f, "unit"),
         }
     }
 }
 
-impl std::fmt::Display for LIRTerminator {
+impl std::fmt::Display for LirTerminator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LIRTerminator::BranchIf {
+            LirTerminator::BranchIf {
                 condition,
                 then_label,
                 else_label,
             } => {
                 write!(f, "br_if {}, [{}, {}]", condition, then_label, else_label)
             }
-            LIRTerminator::Return { value } => {
+            LirTerminator::Return { value } => {
                 if let Some(v) = value {
                     write!(f, "ret {}", v)
                 } else {
                     write!(f, "ret")
                 }
             }
-            LIRTerminator::Branch { target } => {
+            LirTerminator::Branch { target } => {
                 write!(f, "br {}", target)
             }
-            LIRTerminator::Halt => {
+            LirTerminator::Halt => {
                 write!(f, "hlt")
             }
-            LIRTerminator::None => write!(f, "<no terminator>"),
+            LirTerminator::None => write!(f, "<no terminator>"),
         }
     }
 }

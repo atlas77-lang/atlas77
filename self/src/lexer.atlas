@@ -45,8 +45,8 @@ public:
         println("Destroying Lexer...");
         delete this.source;
     }
-    fun _copy(&const this) -> Lexer {
-        return new Lexer(new String (*this.source.s));
+    Lexer(from: &const Lexer) {
+        this.source = new String(*from.source);
     }
     fun tokenize(&this) -> Vector<Token> {
         let tokens = Vector<Token>::with_capacity(this.source.len());

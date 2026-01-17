@@ -26,6 +26,7 @@ pub struct HirFunction<'hir> {
     pub name_span: Span,
     pub signature: &'hir HirFunctionSignature<'hir>,
     pub body: HirBlock<'hir>,
+    pub pre_mangled_ty: Option<&'hir HirGenericTy<'hir>>,
 }
 
 /// Used by the type checker to import the API Signature of a module.
@@ -48,6 +49,8 @@ pub struct HirUnion<'hir> {
     pub variants: Vec<HirStructFieldSignature<'hir>>,
     pub signature: HirUnionSignature<'hir>,
     pub vis: HirVisibility,
+    /// If the union name is mangled, this contains the pre-mangled type
+    pub pre_mangled_ty: Option<&'hir HirGenericTy<'hir>>,
 }
 
 #[derive(Debug, Clone)]
@@ -62,7 +65,10 @@ pub struct HirStruct<'hir> {
     pub fields: Vec<HirStructFieldSignature<'hir>>,
     pub constructor: HirStructConstructor<'hir>,
     pub copy_constructor: Option<HirStructConstructor<'hir>>,
-    pub destructor: HirStructConstructor<'hir>,
+    pub destructor: Option<HirStructConstructor<'hir>>,
+    pub had_user_defined_constructor: bool,
+    /// True if the struct had a user-defined destructor
+    /// False if the destructor is the default one
     pub had_user_defined_destructor: bool,
     pub vis: HirVisibility,
     pub flag: HirFlag,
@@ -75,6 +81,7 @@ pub struct HirEnum<'hir> {
     pub name_span: Span,
     pub variants: Vec<HirEnumVariant<'hir>>,
     pub vis: HirVisibility,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone)]

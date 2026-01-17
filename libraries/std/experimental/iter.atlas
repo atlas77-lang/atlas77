@@ -1,0 +1,53 @@
+import "std/mem";
+import "std/optional";
+//! Experimental iterator implementation (unstable).
+//!
+//! Provides a lazy iterator abstraction used for experimental APIs.
+//! Methods below implement the minimal iterator protocol: `next`, `has_next` and `peek`.
+struct IterTest<T> {
+private:
+    fn_next: () -> optional<T>;
+    //! `optional<T>::of(value)` if a peeked value exists, else `optional<T>::empty()`.
+    peeked: optional<T>;
+    IterTest(fn_next: () -> optional<T>, peeked: optional<T>) {
+        this.fn_next = fn_next;
+        this.peeked = peeked;
+    }
+public:
+    //! Return the next element of the iterator, if any.
+    fun next(&this) -> optional<T> {
+        if this.peeked.has_value() {
+            // we replace the value to move it out
+            let result = replace(&this.peeked, optional<T>::empty());
+            return result;
+        } else {
+            return this.fn_next();
+        }
+    }
+    //! Returns true if the iterator has another element.
+    fun has_next(&this) -> bool {
+        if this.peeked.has_value() {
+            return true;
+        } else {
+            let next_val = this.fn_next();
+            if next_val.has_value() {
+                this.peeked = next_val;
+                return true;
+            } else {
+                return false;
+            }
+        }
+    }
+    //! Returns a reference to the next element without consuming it.
+    fun peek(&this) -> optional<&const T> {
+        if this.peeked.has_value() {
+            return this.peeked.as_ref();
+        } else {
+            let next_val = this.fn_next();
+            if next_val.has_value() {
+                this.peeked = next_val;
+            }
+            return this.peeked.as_ref();
+        }
+    }
+}

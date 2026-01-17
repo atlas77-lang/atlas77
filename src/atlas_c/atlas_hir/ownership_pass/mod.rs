@@ -42,23 +42,22 @@ use crate::atlas_c::{
         HirModule,
         arena::HirArena,
         error::{
-            CannotMoveOutOfContainerError, CannotMoveOutOfLoopError, CannotMoveOutOfReferenceError,
-            CannotTransferOwnershipInBorrowingMethodError, HirError, HirResult,
-            LifetimeDependencyViolationError, RecursiveCopyConstructorError,
+            CannotDeleteOutOfLoopError, CannotMoveOutOfContainerError, CannotMoveOutOfLoopError,
+            CannotMoveOutOfReferenceError, CannotTransferOwnershipInBorrowingMethodError, HirError,
+            HirResult, LifetimeDependencyViolationError, RecursiveCopyConstructorError,
             ReturningValueWithLocalLifetimeDependencyError, TryingToAccessADeletedValueError,
             TryingToAccessAMovedValueError, TryingToAccessAPotentiallyMovedValueError,
         },
         expr::{
-            HirAssignExpr, HirBinaryOpExpr, HirCastExpr, HirCopyExpr, HirDeleteExpr, HirExpr,
-            HirFieldAccessExpr, HirFieldInit, HirFunctionCallExpr, HirIdentExpr, HirIndexingExpr,
-            HirListLiteralExpr, HirMoveExpr, HirNewObjExpr, HirObjLiteralExpr, HirUnaryOp,
-            UnaryOpExpr,
+            HirBinaryOpExpr, HirCastExpr, HirCopyExpr, HirDeleteExpr, HirExpr, HirFieldAccessExpr,
+            HirFieldInit, HirFunctionCallExpr, HirIdentExpr, HirIndexingExpr, HirListLiteralExpr,
+            HirMoveExpr, HirNewObjExpr, HirObjLiteralExpr, HirUnaryOp, UnaryOpExpr,
         },
         item::HirFunction,
         monomorphization_pass::MonomorphizationPass,
         pretty_print::HirPrettyPrinter,
         signature::{HirModuleSignature, HirStructMethodModifier, HirStructMethodSignature},
-        stmt::{HirBlock, HirExprStmt, HirStatement, HirVariableStmt},
+        stmt::{HirAssignStmt, HirBlock, HirExprStmt, HirStatement, HirVariableStmt},
         ty::HirTy,
         warning::{
             ConsumingMethodMayLeakThisWarning, HirWarning, UnnecessaryCopyDueToLaterBorrowsWarning,
@@ -102,7 +101,7 @@ struct MethodContext<'hir> {
     method_span: Span,
     /// The name of the struct this method belongs to (for checking if struct is copyable)
     struct_name: &'hir str,
-    /// The name of the method (for detecting _copy methods)
+    /// The name of the method
     method_name: &'hir str,
     /// The return type of the method (for detecting recursive copy)
     return_ty: Option<HirTy<'hir>>,
@@ -110,6 +109,8 @@ struct MethodContext<'hir> {
     /// For generic structs, we skip some ownership checks for field accesses
     /// because the concrete types are unknown at definition time
     is_generic_struct: bool,
+    /// Whether this context is a constructor
+    is_constructor: bool,
 }
 
 impl<'hir> OwnershipPass<'hir> {
@@ -154,6 +155,11 @@ impl<'hir> OwnershipPass<'hir> {
 
             // Process methods
             for method in struct_def.methods.iter_mut() {
+                // Skip methods with unsatisfied constraints (they won't be code generated)
+                if !method.signature.is_constraint_satisfied {
+                    continue;
+                }
+
                 self.scope_map = ScopeMap::new();
                 self.current_stmt_index = 0;
                 self.temp_var_counter = 0;
@@ -166,6 +172,7 @@ impl<'hir> OwnershipPass<'hir> {
                     method_name: method.name,
                     return_ty: Some(method.signature.return_ty.clone()),
                     is_generic_struct,
+                    is_constructor: false,
                 });
 
                 // Register method parameters
@@ -230,6 +237,11 @@ impl<'hir> OwnershipPass<'hir> {
 
             // Process copy constructor (if present)
             if let Some(copy_ctor) = struct_def.copy_constructor.as_mut() {
+                // Skip copy constructor with unsatisfied constraints (it won't be code generated)
+                if !copy_ctor.signature.is_constraint_satisfied {
+                    continue;
+                }
+
                 self.scope_map = ScopeMap::new();
                 self.current_stmt_index = 0;
                 self.temp_var_counter = 0;
@@ -249,6 +261,7 @@ impl<'hir> OwnershipPass<'hir> {
                         span: struct_def.name_span,
                     })),
                     is_generic_struct,
+                    is_constructor: true,
                 });
 
                 // Register constructor parameters
@@ -281,6 +294,18 @@ impl<'hir> OwnershipPass<'hir> {
                 self.current_stmt_index = 0;
                 self.temp_var_counter = 0;
 
+                // Set a constructor context so the ownership pass can special-case
+                // first-time `this.field = ...` initializations.
+                self.current_method_context = Some(MethodContext {
+                    modifier: HirStructMethodModifier::Consuming,
+                    method_span: struct_def.constructor.signature.span,
+                    struct_name: struct_def.signature.name,
+                    method_name: "__constructor",
+                    return_ty: None,
+                    is_generic_struct,
+                    is_constructor: true,
+                });
+
                 for param in struct_def.constructor.params.iter() {
                     let kind = self.classify_type_kind(param.ty);
                     let is_copyable = self.is_type_copyable(param.ty);
@@ -298,6 +323,8 @@ impl<'hir> OwnershipPass<'hir> {
                         self.errors.push(e);
                     }
                 }
+
+                self.current_method_context = None;
             }
 
             // Process destructor
@@ -305,23 +332,29 @@ impl<'hir> OwnershipPass<'hir> {
                 self.scope_map = ScopeMap::new();
                 self.current_stmt_index = 0;
                 self.temp_var_counter = 0;
-
-                for param in struct_def.destructor.params.iter() {
-                    let kind = self.classify_type_kind(param.ty);
-                    let is_copyable = self.is_type_copyable(param.ty);
-                    self.scope_map.insert(
-                        param.name,
-                        VarData::new(param.name, param.span, kind, param.ty, is_copyable, 0),
-                    );
-                }
-
-                if let Err(e) = self.collect_uses_in_block(&struct_def.destructor.body) {
-                    self.errors.push(e);
-                } else {
-                    self.current_stmt_index = 0;
-                    if let Err(e) = self.transform_block(&mut struct_def.destructor.body) {
-                        self.errors.push(e);
+                if let Some(destructor) = struct_def.destructor.as_mut() {
+                    for param in destructor.params.iter() {
+                        let kind = self.classify_type_kind(param.ty);
+                        let is_copyable = self.is_type_copyable(param.ty);
+                        self.scope_map.insert(
+                            param.name,
+                            VarData::new(param.name, param.span, kind, param.ty, is_copyable, 0),
+                        );
                     }
+
+                    if let Err(e) = self.collect_uses_in_block(&destructor.body) {
+                        self.errors.push(e);
+                    } else {
+                        self.current_stmt_index = 0;
+                        if let Err(e) = self.transform_block(&mut destructor.body) {
+                            self.errors.push(e);
+                        }
+                    }
+                } else {
+                    unreachable!(
+                        "Struct destructor missing during ownership pass for struct {}",
+                        struct_def.signature.name
+                    );
                 }
             }
         }
@@ -434,6 +467,12 @@ impl<'hir> OwnershipPass<'hir> {
                     ),
                 );
             }
+            HirStatement::Assign(assign_stmt) => {
+                // LHS: don't consume ownership when evaluating LHS (we're writing to it)
+                self.collect_uses_in_expr(&assign_stmt.dst, false)?;
+                // RHS: ownership-consuming
+                self.collect_uses_in_expr(&assign_stmt.val, true)?;
+            }
             HirStatement::Expr(expr_stmt) => {
                 self.collect_uses_in_expr(&expr_stmt.expr, false)?;
             }
@@ -513,12 +552,7 @@ impl<'hir> OwnershipPass<'hir> {
                     },
                 );
             }
-            HirExpr::Assign(assign) => {
-                // LHS: if assigning to an existing variable, we need to track the old value
-                self.collect_uses_in_expr(&assign.lhs, false)?;
-                // RHS: ownership consuming
-                self.collect_uses_in_expr(&assign.rhs, true)?;
-            }
+
             HirExpr::Call(call) => {
                 // Check if this is a method call that consumes `this` (modifier == None)
                 // Methods with `&this` or `&const this` don't consume ownership
@@ -802,6 +836,36 @@ impl<'hir> OwnershipPass<'hir> {
                 result.push(new_stmt);
                 Ok(result)
             }
+            HirStatement::Assign(assign_stmt) => {
+                // Let helper handle special assignment deletion/temporaries
+                if let Some(stmts) = self.handle_assignment_with_deletes(assign_stmt)? {
+                    return Ok(stmts);
+                }
+
+                // Default handling: transform RHS (consuming) and LHS (non-consuming)
+                let transformed_val = self.transform_expr_ownership(&assign_stmt.val, true)?;
+                let transformed_dst = self.transform_expr_ownership(&assign_stmt.dst, false)?;
+
+                let new_assign = HirStatement::Assign(HirAssignStmt {
+                    span: assign_stmt.span,
+                    dst: transformed_dst,
+                    val: transformed_val,
+                    ty: assign_stmt.ty,
+                });
+
+                // Prepend pending temporaries
+                let mut result = self.pending_statements.clone();
+                result.push(new_assign);
+
+                // If LHS is a simple ident, mark it Owned now
+                if let HirExpr::Ident(ident) = &assign_stmt.dst
+                    && let Some(var) = self.scope_map.get_mut(ident.name)
+                {
+                    var.status = VarStatus::Owned;
+                }
+
+                Ok(result)
+            }
             HirStatement::Expr(expr_stmt) => {
                 let transformed = self.transform_expr_ownership(&expr_stmt.expr, false)?;
                 let new_stmt = HirStatement::Expr(HirExprStmt {
@@ -847,14 +911,13 @@ impl<'hir> OwnershipPass<'hir> {
                     _ => None,
                 };
 
-                if let Some(var_name) = var_name_to_check {
-                    if let Some(var_data) = self.scope_map.get(var_name) {
-                        // Check if this variable depends on any local origins
-                        if let Some(err) =
-                            self.check_return_with_local_dependencies(var_data, ret.span)
-                        {
-                            return Err(err);
-                        }
+                if let Some(var_name) = var_name_to_check
+                    && let Some(var_data) = self.scope_map.get(var_name)
+                {
+                    // Check if this variable depends on any local origins
+                    if let Some(err) = self.check_return_with_local_dependencies(var_data, ret.span)
+                    {
+                        return Err(err);
                     }
                 }
 
@@ -914,6 +977,10 @@ impl<'hir> OwnershipPass<'hir> {
 
                 // Now generate delete statements and mark variables as deleted
                 for (var_name, var_ty) in vars_to_delete {
+                    // Skip unions - they are user-managed
+                    if self.type_is_union(var_ty) {
+                        continue;
+                    }
                     result.push(Self::create_delete_stmt(var_name, var_ty, ret.span));
                     // Mark the variable as deleted so later passes don't try to delete it again
                     self.scope_map.mark_as_deleted(var_name, ret.span);
@@ -974,8 +1041,11 @@ impl<'hir> OwnershipPass<'hir> {
                 let mut final_else_branch = transformed_else_branch;
 
                 for (var_name, moved_in_then, var_data) in &conditionally_moved {
-                    // Skip primitives and references
+                    // Skip primitives, references, and unions
                     if var_data.kind == VarKind::Primitive || var_data.kind == VarKind::Reference {
+                        continue;
+                    }
+                    if self.type_is_union(var_data.ty) {
                         continue;
                     }
 
@@ -1046,18 +1116,26 @@ impl<'hir> OwnershipPass<'hir> {
                 // 2. The loop might execute once (move is valid)
                 // 3. The loop might execute multiple times (would be use-after-move)
                 let mut moved_in_loop = Vec::new();
+                let mut deleted_in_loop = Vec::new();
                 for scope in &pre_loop_state.scopes {
                     for (name, var_data) in &scope.var_status {
                         let post_var = post_loop_state.get(name);
                         if let Some(post_v) = post_var {
                             let was_owned = matches!(var_data.status, VarStatus::Owned);
                             let is_moved = matches!(post_v.status, VarStatus::Moved { .. });
+                            let is_deleted = matches!(post_v.status, VarStatus::Deleted { .. });
 
                             if was_owned
                                 && is_moved
                                 && let VarStatus::Moved { move_span } = &post_v.status
                             {
                                 moved_in_loop.push((*name, *move_span));
+                            }
+                            if was_owned
+                                && is_deleted
+                                && let VarStatus::Deleted { delete_span } = &post_v.status
+                            {
+                                deleted_in_loop.push((*name, *delete_span));
                             }
                         }
                     }
@@ -1072,6 +1150,15 @@ impl<'hir> OwnershipPass<'hir> {
                     if let Some(var) = self.scope_map.get_mut(var_name) {
                         var.status = VarStatus::ConditionallyMoved {
                             move_span: *move_span,
+                        };
+                    }
+                }
+                // Mark deleted variables as ConditionallyDeleted
+                for (var_name, delete_span) in &deleted_in_loop {
+                    if let Some(var) = self.scope_map.get_mut(var_name) {
+                        // TODO: Add a ConditionallyDeleted status
+                        var.status = VarStatus::ConditionallyMoved {
+                            move_span: *delete_span,
                         };
                     }
                 }
@@ -1091,6 +1178,25 @@ impl<'hir> OwnershipPass<'hir> {
                         },
                         src: NamedSource::new(path, src),
                     }));
+                }
+
+                // If any variables were deleted inside the loop, that's an error
+                // because the loop could run multiple times, causing use-after-free
+                if let Some((var_name, delete_span)) = deleted_in_loop.first() {
+                    let path = delete_span.path;
+                    let src = utils::get_file_content(path).unwrap_or_default();
+                    return Err(HirError::CannotDeleteOutOfLoop(
+                        CannotDeleteOutOfLoopError {
+                            var_name: var_name.to_string(),
+                            delete_span: *delete_span,
+                            loop_span: Span {
+                                start: while_stmt.span.start,
+                                end: while_stmt.condition.span().end,
+                                path: while_stmt.span.path,
+                            },
+                            src: NamedSource::new(path, src),
+                        },
+                    ));
                 }
 
                 // Prepend any pending statements (temporary extractions from condition)
@@ -1133,35 +1239,7 @@ impl<'hir> OwnershipPass<'hir> {
                     Ok(expr.clone())
                 }
             }
-            HirExpr::Assign(assign) => {
-                // For assignment to existing variable, we need to delete old value first
-                // This is handled at a higher level - here we just transform the RHS
-                let transformed_lhs = self.transform_expr_ownership(&assign.lhs, false)?;
 
-                // Special case: If LHS is an indexing expression (container slot), we allow
-                // moving from another container slot without the strict check. This enables
-                // reallocation patterns like: new_data[i] = this.data[i]
-                let lhs_is_container_slot = Self::is_indexing_expr(&assign.lhs);
-                let rhs_is_container_slot = Self::is_indexing_expr(&assign.rhs);
-
-                // If we're moving from one container slot to another, don't apply strict
-                // ownership checking on the RHS - this is a transfer, not an escape
-                let rhs_consumes_ownership = if lhs_is_container_slot && rhs_is_container_slot {
-                    false // Will just copy the reference, which is fine for reallocation
-                } else {
-                    true
-                };
-
-                let transformed_rhs =
-                    self.transform_expr_ownership(&assign.rhs, rhs_consumes_ownership)?;
-
-                Ok(HirExpr::Assign(HirAssignExpr {
-                    span: assign.span,
-                    lhs: Box::new(transformed_lhs),
-                    rhs: Box::new(transformed_rhs),
-                    ty: assign.ty,
-                }))
-            }
             HirExpr::Call(call) => {
                 // Check if this is a method call that consumes `this` (modifier == None)
                 let method_consumes_this = self.method_consumes_this(&call.callee);
@@ -1483,6 +1561,9 @@ impl<'hir> OwnershipPass<'hir> {
                 };
 
                 if let HirExpr::Ident(ident) = inner_expr {
+                    // If the variable is already deleted or moved, emit an error
+                    //self.check_variable_valid(ident)?;
+
                     // Mark the variable itself as deleted
                     if let Some(var_data) = self.scope_map.get_mut(ident.name) {
                         var_data.status = VarStatus::Deleted {
@@ -1503,6 +1584,9 @@ impl<'hir> OwnershipPass<'hir> {
             }
             // Explicit move expression from user code: move<>(x)
             // This forces a move regardless of later uses
+            //
+            // NB: This is not yet implemented in the parser, so users can't write it directly
+            // Though I do plan to add a move expression in the future for explicit moves
             HirExpr::Move(move_expr) => {
                 // Transform the inner expression as ownership-consuming (will mark as moved)
                 let transformed_inner = self.transform_expr_ownership(&move_expr.expr, true)?;
@@ -1549,6 +1633,9 @@ impl<'hir> OwnershipPass<'hir> {
                 }
             }
             // Explicit copy expression from user code: copy<>(x)
+            //
+            // NB: This is not yet implemented in the parser, so users can't write it directly
+            // Though I do plan to add a copy expression in the future for explicit copies
             HirExpr::Copy(copy_expr) => {
                 // Transform the inner expression (not ownership-consuming since we're copying)
                 let transformed_inner = self.transform_expr_ownership(&copy_expr.expr, false)?;
@@ -1860,6 +1947,10 @@ impl<'hir> OwnershipPass<'hir> {
             if var.kind == VarKind::Primitive {
                 continue;
             }
+            // Skip unions - unions are managed by the user explicitly
+            if self.type_is_union(var.ty) {
+                continue;
+            }
             deletes.push(Self::create_delete_stmt(var.name, var.ty, scope_end_span));
         }
 
@@ -1883,6 +1974,208 @@ impl<'hir> OwnershipPass<'hir> {
                 })),
             }),
         })
+    }
+
+    /// Create a delete statement for a general lvalue expression (field, indexing, deref, ident)
+    fn create_delete_for_expr(expr: &HirExpr<'hir>, span: Span) -> HirStatement<'hir> {
+        HirStatement::Expr(HirExprStmt {
+            span,
+            expr: HirExpr::Delete(HirDeleteExpr {
+                span,
+                expr: Box::new(expr.clone()),
+            }),
+        })
+    }
+
+    /// Helper to check whether a type is a union (user-managed).
+    fn type_is_union(&self, ty: &HirTy<'hir>) -> bool {
+        match ty {
+            HirTy::Named(named) => self.hir_signature.unions.contains_key(named.name),
+            HirTy::Generic(g) => {
+                let mangled =
+                    MonomorphizationPass::generate_mangled_name(self.hir_arena, g, "union");
+                self.hir_signature.unions.contains_key(mangled)
+            }
+            _ => false,
+        }
+    }
+
+    /// Handle assignment expressions and insert delete statements when needed.
+    /// Returns `Ok(Some(stmts))` when the assignment was handled (statements
+    /// already produced), or `Ok(None)` to fall back to normal handling.
+    fn handle_assignment_with_deletes(
+        &mut self,
+        assign_stmt: &HirAssignStmt<'hir>,
+    ) -> HirResult<Option<Vec<HirStatement<'hir>>>> {
+        // helper invoked
+        // Extract simple ident from LHS, possibly wrapped in a no-op Unary
+        let lhs_ident_opt: Option<HirIdentExpr<'hir>> = match &assign_stmt.dst {
+            HirExpr::Ident(ident) => Some(ident.clone()),
+            HirExpr::Unary(unary) if unary.op.is_none() => {
+                if let HirExpr::Ident(ident) = &*unary.expr {
+                    Some(ident.clone())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+
+        // keep optional ident for later updates
+        let lhs_ident = lhs_ident_opt.clone();
+
+        // Decide whether this LHS needs special handling. Use precise check:
+        // - The LHS type must need memory management, and
+        // - The root variable(s) (if any) must be owned (so deleting makes sense)
+        let lhs_ty = assign_stmt.dst.ty();
+        // Skip unions entirely - they're user-managed and must not be auto-deleted
+        if self.type_is_union(lhs_ty) {
+            return Ok(None);
+        }
+        if !Self::type_needs_memory_management(lhs_ty) {
+            return Ok(None);
+        }
+
+        // Collect root idents from the LHS (e.g., for `this.field` -> root is `this` . `*var` -> root is `var`)
+        let mut roots: Vec<&str> = Vec::new();
+        fn collect_roots<'a>(expr: &'a HirExpr<'a>, out: &mut Vec<&'a str>) {
+            match expr {
+                HirExpr::Ident(ident) => out.push(ident.name),
+                HirExpr::ThisLiteral(_) => out.push("this"),
+                HirExpr::Unary(unary) => collect_roots(&unary.expr, out),
+                HirExpr::FieldAccess(field) => collect_roots(&field.target, out),
+                HirExpr::Indexing(idx) => collect_roots(&idx.target, out),
+                HirExpr::Move(mv) => collect_roots(&mv.expr, out),
+                HirExpr::Copy(cp) => collect_roots(&cp.expr, out),
+                _ => {}
+            }
+        }
+        collect_roots(&assign_stmt.dst, &mut roots);
+
+        // Ensure at least one root (if any roots exist) is currently owned; if there are no roots
+        // (e.g., assignment into a temporary expression) we still proceed because the LHS type
+        // itself needs management.
+        let mut has_owned_root = false;
+        for r in &roots {
+            if let Some(v) = self.scope_map.get(r)
+                && v.status == VarStatus::Owned
+            {
+                has_owned_root = true;
+                break;
+            }
+        }
+        if !roots.is_empty() && !has_owned_root {
+            return Ok(None);
+        }
+
+        // Special-case: when inside a constructor, do not emit deletes for assignments
+        // whose root is `this` (initial field initialization). Constructors initialize
+        // fields; deleting a previous value for the initial assignment is incorrect.
+        if let Some(ctx) = &self.current_method_context
+            && ctx.is_constructor
+            && roots.contains(&"this")
+        {
+            return Ok(None);
+        }
+
+        // Collect vars used in RHS to see if it references any root of the LHS
+        let mut used = Vec::new();
+        Self::collect_vars_used_in_expr(&assign_stmt.val, &mut used);
+
+        // Transform RHS first (it may consume ownership)
+        let transformed_rhs = self.transform_expr_ownership(&assign_stmt.val, true)?;
+
+        // Start with any pending temporaries
+        let mut stmts: Vec<HirStatement<'hir>> = Vec::new();
+        let mut pending = self.pending_statements.clone();
+        stmts.append(&mut pending);
+
+        let rhs_uses_lhs_root = roots.iter().any(|r| used.contains(r));
+
+        if rhs_uses_lhs_root {
+            // RHS uses the LHS -> evaluate RHS into a temporary
+            let tmp_name = format!("__assign_tmp_{}", self.temp_var_counter);
+            self.temp_var_counter += 1;
+            let tmp_name_intern = self.hir_arena.names().get(&tmp_name);
+
+            // Insert temp variable into scope map
+            let tmp_ty = transformed_rhs.ty();
+            let tmp_kind = self.classify_type_kind(tmp_ty);
+            let tmp_is_copyable = self.is_type_copyable(tmp_ty);
+            let tmp_var = VarData::new(
+                tmp_name_intern,
+                assign_stmt.span,
+                tmp_kind,
+                tmp_ty,
+                tmp_is_copyable,
+                self.current_stmt_index,
+            );
+            self.scope_map.insert(tmp_name_intern, tmp_var);
+
+            // let __tmp = <transformed_rhs>;
+            stmts.push(HirStatement::Const(HirVariableStmt {
+                span: assign_stmt.span,
+                name: tmp_name_intern,
+                name_span: assign_stmt.span,
+                ty: tmp_ty,
+                ty_span: Some(assign_stmt.span),
+                value: transformed_rhs,
+            }));
+
+            // delete lhs (use expr-based delete so we can delete fields/indexes)
+            stmts.push(Self::create_delete_for_expr(
+                &assign_stmt.dst,
+                assign_stmt.span,
+            ));
+
+            // dst = __tmp
+            let assign_after = HirStatement::Assign(HirAssignStmt {
+                span: assign_stmt.span,
+                dst: assign_stmt.dst.clone(),
+                val: HirExpr::Ident(HirIdentExpr {
+                    span: assign_stmt.span,
+                    name: tmp_name_intern,
+                    ty: tmp_ty,
+                }),
+                ty: assign_stmt.ty,
+            });
+            stmts.push(assign_after);
+
+            // After assignment, if LHS was a simple ident, mark it Owned again
+            if let Some(lhs_simple) = &lhs_ident
+                && let Some(lhs_var_mut) = self.scope_map.get_mut(lhs_simple.name)
+            {
+                lhs_var_mut.status = VarStatus::Owned;
+            }
+
+            Ok(Some(stmts))
+        } else {
+            // RHS does not reference LHS -> safe to delete old value first
+            let mut result = self.pending_statements.clone();
+            // delete old value (use expr-based delete so we can delete fields/indexes)
+            result.push(Self::create_delete_for_expr(
+                &assign_stmt.dst,
+                assign_stmt.span,
+            ));
+
+            // Now create the transformed assignment using transformed_rhs
+            let new_assign = HirStatement::Assign(HirAssignStmt {
+                span: assign_stmt.span,
+                dst: assign_stmt.dst.clone(),
+                val: transformed_rhs,
+                ty: assign_stmt.ty,
+            });
+            result.push(new_assign);
+
+            // Re-establish ownership on LHS (assignment gives it ownership)
+            if let Some(lhs_simple) = &lhs_ident
+                && let Some(lhs_var_mut) = self.scope_map.get_mut(lhs_simple.name)
+            {
+                lhs_var_mut.status = VarStatus::Owned;
+            }
+
+            Ok(Some(result))
+        }
     }
 
     /// Find the position to insert delete statements in a block.
@@ -2004,11 +2297,11 @@ impl<'hir> OwnershipPass<'hir> {
 
     /// Check if an expression is (or contains) an indexing expression.
     /// Unwraps Unary wrappers since the parser sometimes wraps expressions.
-    fn is_indexing_expr(expr: &HirExpr<'hir>) -> bool {
+    fn _is_indexing_expr(expr: &HirExpr<'hir>) -> bool {
         match expr {
             HirExpr::Indexing(_) => true,
             // Unwrap unary wrappers (parser sometimes wraps expressions)
-            HirExpr::Unary(unary) if unary.op.is_none() => Self::is_indexing_expr(&unary.expr),
+            HirExpr::Unary(unary) if unary.op.is_none() => Self::_is_indexing_expr(&unary.expr),
             _ => false,
         }
     }
@@ -2241,14 +2534,15 @@ impl<'hir> OwnershipPass<'hir> {
             // Named types (structs) are copyable if they have a copy constructor
             HirTy::Named(named) => {
                 if let Some(s) = self.hir_signature.structs.get(named.name) {
-                    s.copy_constructor.is_some()
-                } else {
-                    // This might be an enum
-                    if let Some(e) = self.hir_signature.enums.get(named.name) {
-                        true
+                    if let Some(copy_ctor) = &s.copy_constructor {
+                        // It's only copyable if the copy constructor's constraints are satisfied
+                        copy_ctor.is_constraint_satisfied
                     } else {
                         false
                     }
+                } else {
+                    // This might be an enum
+                    self.hir_signature.enums.contains_key(named.name)
                 }
             }
 
@@ -2261,7 +2555,14 @@ impl<'hir> OwnershipPass<'hir> {
                 self.hir_signature
                     .structs
                     .get(mangled_name)
-                    .is_some_and(|s| s.copy_constructor.is_some())
+                    .is_some_and(|s| {
+                        if let Some(copy_ctor) = &s.copy_constructor {
+                            // It's only copyable if the copy constructor's constraints are satisfied
+                            copy_ctor.is_constraint_satisfied
+                        } else {
+                            false
+                        }
+                    })
             }
 
             // Other types are not copyable
@@ -2370,20 +2671,20 @@ impl<'hir> OwnershipPass<'hir> {
             ReferenceOrigin::Union(origins) => {
                 // Check all origins in the union
                 for origin in origins {
-                    if let ReferenceOrigin::Variable(origin_name) = origin {
-                        if let Some(dep_span) = will_be_deleted(origin_name) {
-                            let path = return_span.path;
-                            let src = utils::get_file_content(path).unwrap_or_default();
-                            return Some(HirError::ReturningValueWithLocalLifetimeDependency(
-                                ReturningValueWithLocalLifetimeDependencyError {
-                                    value_name: var_data.name.to_string(),
-                                    origin_name: origin_name.to_string(),
-                                    origin_declaration_span: dep_span,
-                                    return_span,
-                                    src: NamedSource::new(path, src),
-                                },
-                            ));
-                        }
+                    if let ReferenceOrigin::Variable(origin_name) = origin
+                        && let Some(dep_span) = will_be_deleted(origin_name)
+                    {
+                        let path = return_span.path;
+                        let src = utils::get_file_content(path).unwrap_or_default();
+                        return Some(HirError::ReturningValueWithLocalLifetimeDependency(
+                            ReturningValueWithLocalLifetimeDependencyError {
+                                value_name: var_data.name.to_string(),
+                                origin_name: origin_name.to_string(),
+                                origin_declaration_span: dep_span,
+                                return_span,
+                                src: NamedSource::new(path, src),
+                            },
+                        ));
                     }
                 }
             }

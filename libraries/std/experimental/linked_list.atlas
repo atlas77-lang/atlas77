@@ -1,30 +1,41 @@
 import "std/optional.atlas";
 import "std/vector.atlas";
 
+//! Node used by `LinkedList<T>`.
 public struct LinkedListNode<T> {
 public:
-    value: T,
-    next: optional<&LinkedListNode<T>>,
+    //! Stored value.
+    value: T;
+    //! Optional pointer to the next node.
+    next: optional<&LinkedListNode<T>>;
+    //! Create a new node containing `value`.
     LinkedListNode(value: T) {
         this.value = value;
         this.next = optional<&LinkedListNode<T>>::empty();
     }
+    //! Set the `next` pointer for this node.
     fun set_next(next_node: &LinkedListNode<T>) {
         this.next = optional<&LinkedListNode<T>>::some(next_node);
     }
+    //! Returns the optional next node.
     fun get_next() -> optional<&LinkedListNode<T>> {
         return this.next;
     }
 }
 
+//! A simple singly-linked list (experimental).
 public struct LinkedList<T> {
 public:
-    head: optional<&LinkedListNode<T>>,
-    tail: optional<&LinkedListNode<T>>,
+    //! Optional head node.
+    head: optional<&LinkedListNode<T>>;
+    //! Optional tail node.
+    tail: optional<&LinkedListNode<T>>;
+    //! Create an empty linked list.
     LinkedList() {
         this.head = optional<&LinkedListNode<T>>::empty();
         this.tail = optional<&LinkedListNode<T>>::empty();
     }
+    //! Append `value` to the list.
     fun append(value: T) {
         let new_node = &LinkedListNode<T>(value);
         if this.head.is_empty() {
@@ -36,19 +47,23 @@ public:
             this.tail = optional<&LinkedListNode<T>>::some(new_node);
         }
     }
+    //! Returns the head node if present.
     fun get_head() -> optional<&LinkedListNode<T>> {
         return this.head;
     }
+    //! Returns true when the list is empty.
     fun is_empty() -> bool {
         return this.head.is_empty();
     }
+    //! Clears the list.
     fun clear() {
         this.head = optional<&LinkedListNode<T>>::empty();
         this.tail = optional<&LinkedListNode<T>>::empty();
     }
+    //! Convert the list into a Vector of values.
     fun to_array() -> Vector<T> {
         let arr = Vector<T>();
-        var current_node_opt = this.head;
+        let current_node_opt = this.head;
         while current_node_opt.has_value() {
             let current_node = current_node_opt.value();
             arr.push(current_node.value);
@@ -56,3 +71,4 @@ public:
         }
         return arr;
     }
+}

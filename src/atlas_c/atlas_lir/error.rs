@@ -1,3 +1,6 @@
+// For some reason I get unused assignment warnings in this file
+#![allow(unused_assignments)]
+
 use miette::{Diagnostic, NamedSource};
 use thiserror::Error;
 
@@ -5,25 +8,25 @@ use crate::{atlas_c::utils::Span, declare_error_type};
 
 declare_error_type! {
     #[error("lir_error: {0}")]
-    pub enum LIRLoweringError {
+    pub enum LirLoweringError {
         UnsupportedHirExpr(UnsupportedHirExprError),
         CurrentFunctionDoesntExist(CurrentFunctionDoesntExistError),
         NoReturnInFunction(NoReturnInFunctionError),
     }
 }
 
-pub type LIRResult<T> = Result<T, Box<LIRLoweringError>>;
+pub type LirResult<T> = Result<T, Box<LirLoweringError>>;
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
     code(lir_lowering::unsupported_hir_expr),
     help("Do not mind this error for now."),
-    // It's just a warning for now, the LIR lowering pass isn't ready
+    // It's just a warning for now, the Lir lowering pass isn't ready
     severity(warning)
 )]
-#[error("Unsupported HIR expression for LIR lowering")]
+#[error("Unsupported HIR expression for Lir lowering")]
 pub struct UnsupportedHirExprError {
-    #[label = "unsupported HIR expression for LIR lowering"]
+    #[label = "unsupported HIR expression for Lir lowering"]
     pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,

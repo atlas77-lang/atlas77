@@ -23,9 +23,9 @@ pub const STACK_SIZE: usize = 16 * 16384 / size_of::<VMData>();
 ///
 /// ``arguments`` & ``local variables`` are fixed-size arrays as they are known at compile time.
 #[derive(Debug)]
-pub struct Stack {
+pub struct Stack<'run> {
     /// The stack values themselves
-    values: [VMData; STACK_SIZE],
+    values: &'run mut [VMData; STACK_SIZE],
     /// The top of the stack (i.e. a pointer to the last value pushed)
     pub top: usize,
     /// A pointer to the base of the current stack
@@ -37,17 +37,27 @@ pub struct StackFrameInfo {
     pub pc: usize,
     pub base_ptr: usize,
 }
-impl Default for Stack {
+impl Default for Stack<'_> {
     fn default() -> Self {
         Self::new()
     }
 }
 
+impl Drop for Stack<'_> {
+    fn drop(&mut self) {
+        // Safety: We used Box::leak to create the stack, so we need to
+        // convert it back to a Box to free the memory.
+        unsafe {
+            let _ = Box::from_raw(self.values as *mut [VMData; STACK_SIZE]);
+        }
+    }
+}
+
 /// TODO: this implementation should be overhauled a bit cuz it's kinda clunky
-impl Stack {
+impl<'run> Stack<'run> {
     pub fn new() -> Self {
         Self {
-            values: [VMData::new_unit(); STACK_SIZE],
+            values: Box::leak(Box::new([VMData::new_unit(); STACK_SIZE])),
             top: 0,
             base_ptr: 0,
         }
@@ -271,7 +281,7 @@ impl Stack {
     }
 }
 
-impl IntoIterator for Stack {
+impl IntoIterator for Stack<'_> {
     type Item = VMData;
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
@@ -280,27 +290,27 @@ impl IntoIterator for Stack {
     }
 }
 
-impl Index<usize> for Stack {
+impl Index<usize> for Stack<'_> {
     type Output = VMData;
     fn index(&self, index: usize) -> &Self::Output {
         &self.values[index]
     }
 }
 
-impl IndexMut<usize> for Stack {
+impl IndexMut<usize> for Stack<'_> {
     fn index_mut(&mut self, index: usize) -> &mut VMData {
         &mut self.values[index]
     }
 }
 
-impl Index<StackFrameInfo> for Stack {
+impl Index<StackFrameInfo> for Stack<'_> {
     type Output = [VMData];
     fn index(&self, index: StackFrameInfo) -> &Self::Output {
         &self.values[index.base_ptr..index.pc]
     }
 }
 
-impl Display for Stack {
+impl Display for Stack<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Stack: {}", {
             let mut s = "[".to_string();

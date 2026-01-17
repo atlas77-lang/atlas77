@@ -1,4 +1,4 @@
-use super::ty::{HirTy, HirUnitTy};
+use super::ty::HirTy;
 use crate::atlas_c::atlas_frontend::parser::ast::{AstFlag, AstVisibility};
 use crate::atlas_c::atlas_hir::expr::HirUnaryOp;
 use crate::atlas_c::atlas_hir::expr::{HirBinaryOperator, HirExpr};
@@ -39,8 +39,12 @@ pub struct HirStructSignature<'hir> {
     pub constants: BTreeMap<&'hir str, &'hir HirStructConstantSignature<'hir>>,
     pub constructor: HirStructConstructorSignature<'hir>,
     pub copy_constructor: Option<HirStructConstructorSignature<'hir>>,
-    pub destructor: HirStructConstructorSignature<'hir>,
+    /// THERE IS a destructor in this option. It's only used, because compiler
+    /// generated destructors are made at the end of the syntax lowering pass.
+    pub destructor: Option<HirStructConstructorSignature<'hir>>,
     pub had_user_defined_constructor: bool,
+    pub had_user_defined_destructor: bool,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +86,9 @@ pub struct HirUnionSignature<'hir> {
     pub variants: BTreeMap<&'hir str, HirStructFieldSignature<'hir>>,
     /// Generic type parameter names
     pub generics: Vec<&'hir HirGenericConstraint<'hir>>,
+    /// If the union name is mangled, this contains the pre-mangled type
+    pub pre_mangled_ty: Option<&'hir HirGenericTy<'hir>>,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy, Default)]
@@ -143,6 +150,11 @@ pub struct HirStructConstructorSignature<'hir> {
     pub params: Vec<HirFunctionParameterSignature<'hir>>,
     pub type_params: Vec<HirTypeParameterItemSignature<'hir>>,
     pub vis: HirVisibility,
+    pub where_clause: Option<Vec<&'hir HirGenericConstraint<'hir>>>,
+    /// Whether the constructor's where_clause constraints are satisfied by the concrete types.
+    /// Only used for copy constructors. Set to false during monomorphization if constraints aren't met.
+    pub is_constraint_satisfied: bool,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone)]
@@ -154,6 +166,7 @@ pub struct HirStructConstantSignature<'hir> {
     pub ty: &'hir HirTy<'hir>,
     pub ty_span: Span,
     pub value: &'hir ConstantValue,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
@@ -226,6 +239,7 @@ pub struct HirStructFieldSignature<'hir> {
     pub name_span: Span,
     pub ty: &'hir HirTy<'hir>,
     pub ty_span: Span,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone)]
@@ -234,10 +248,16 @@ pub struct HirStructMethodSignature<'hir> {
     pub vis: HirVisibility,
     pub modifier: HirStructMethodModifier,
     pub params: Vec<HirFunctionParameterSignature<'hir>>,
-    pub generics: Option<Vec<&'hir HirTypeParameterItemSignature<'hir>>>,
+    pub generics: Option<Vec<&'hir HirGenericConstraint<'hir>>>,
     pub type_params: Vec<&'hir HirTypeParameterItemSignature<'hir>>,
     pub return_ty: HirTy<'hir>,
     pub return_ty_span: Option<Span>,
+    /// Optional where clause only containing constraints on struct generics.
+    pub where_clause: Option<Vec<&'hir HirGenericConstraint<'hir>>>,
+    /// Whether the method's where_clause constraints are satisfied by the concrete types.
+    /// Set to false during monomorphization if constraints aren't met.
+    pub is_constraint_satisfied: bool,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -265,21 +285,9 @@ pub struct HirFunctionSignature<'hir> {
     /// The span of the return type, if it exists.
     pub return_ty_span: Option<Span>,
     pub is_external: bool,
-}
-
-impl Default for HirFunctionSignature<'_> {
-    fn default() -> Self {
-        Self {
-            span: Span::default(),
-            vis: HirVisibility::Public,
-            params: Vec::new(),
-            generics: vec![],
-            type_params: Vec::new(),
-            return_ty: HirTy::Unit(HirUnitTy {}),
-            return_ty_span: None,
-            is_external: false,
-        }
-    }
+    /// If the function name is mangled, this contains the pre-mangled type
+    pub pre_mangled_ty: Option<&'hir HirGenericTy<'hir>>,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone)]

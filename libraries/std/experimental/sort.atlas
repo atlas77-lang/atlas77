@@ -1,5 +1,6 @@
+//! Sort `arr` using `comparator` and return a new sorted array (experimental).
 fun sort<T>(arr: [T], comparator: (T, T) -> int64) -> [T] {
     if len(arr) <= 1 {
-        return arr
+        return arr;
     }
 }

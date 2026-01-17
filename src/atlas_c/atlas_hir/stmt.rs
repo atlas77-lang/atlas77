@@ -10,6 +10,7 @@ pub enum HirStatement<'hir> {
     Return(HirReturn<'hir>),
     Expr(HirExprStmt<'hir>),
     Let(HirVariableStmt<'hir>),
+    Assign(HirAssignStmt<'hir>),
     //tbf, no need to use anything else than a LetStmt for the const
     Const(HirVariableStmt<'hir>),
     IfElse(HirIfElseStmt<'hir>),
@@ -25,6 +26,7 @@ impl HirStatement<'_> {
             HirStatement::Return(ret) => ret.span,
             HirStatement::Expr(expr) => expr.span,
             HirStatement::Let(let_stmt) => let_stmt.span,
+            HirStatement::Assign(assign_stmt) => assign_stmt.span,
             HirStatement::Const(const_stmt) => const_stmt.span,
             HirStatement::IfElse(if_else) => if_else.span,
             HirStatement::While(while_stmt) => while_stmt.span,
@@ -54,6 +56,14 @@ pub struct HirVariableStmt<'hir> {
     pub ty: &'hir HirTy<'hir>,
     pub ty_span: Option<Span>,
     pub value: HirExpr<'hir>,
+}
+
+#[derive(Debug, Clone)]
+pub struct HirAssignStmt<'hir> {
+    pub span: Span,
+    pub dst: HirExpr<'hir>,
+    pub val: HirExpr<'hir>,
+    pub ty: &'hir HirTy<'hir>,
 }
 
 #[derive(Debug, Clone)]

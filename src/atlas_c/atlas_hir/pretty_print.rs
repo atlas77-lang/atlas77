@@ -1,6 +1,9 @@
 use crate::atlas_c::atlas_hir::{
     item::HirUnion,
-    signature::{HirFlag, HirStructMethodModifier, HirStructMethodSignature},
+    signature::{
+        HirFlag, HirGenericConstraint, HirGenericConstraintKind, HirStructMethodModifier,
+        HirStructMethodSignature,
+    },
     ty::HirGenericTy,
 };
 
@@ -146,11 +149,9 @@ impl HirPrettyPrinter {
         }
 
         // Constructor
-        if !struct_def.constructor.body.statements.is_empty() {
-            self.writeln("// Constructor");
-            self.print_constructor(&struct_name, &struct_def.constructor);
-            self.writeln("");
-        }
+        self.writeln("// Constructor");
+        self.print_constructor(&struct_name, &struct_def.constructor);
+        self.writeln("");
 
         if let Some(copy_ctor) = &struct_def.copy_constructor {
             self.writeln("// Copy Constructor");
@@ -159,9 +160,9 @@ impl HirPrettyPrinter {
         }
 
         // Destructor
-        if !struct_def.destructor.body.statements.is_empty() {
+        if let Some(destructor) = &struct_def.destructor {
             self.writeln("// Destructor");
-            self.print_constructor(&format!("~{}", struct_name), &struct_def.destructor);
+            self.print_constructor(&format!("~{}", struct_name), destructor);
             self.writeln("");
         }
 
@@ -197,11 +198,56 @@ impl HirPrettyPrinter {
             self.write(&format!("{}: {}", param.name, Self::type_str(param.ty)));
         }
 
-        self.write(") {\n");
+        self.write(")");
+        if let Some(where_clause) = &constructor.signature.where_clause {
+            self.write("\n");
+            self.indent();
+            self.write_indent();
+            self.print_where_clause(where_clause);
+            self.dedent();
+            self.write("\n");
+        }
+        self.write_indent();
+        self.write("{\n");
         self.indent();
         self.print_block(&constructor.body);
         self.dedent();
         self.writeln("}");
+    }
+
+    fn print_where_clause(&mut self, where_clause: &[&HirGenericConstraint]) {
+        self.write("where ");
+        for (i, constraint) in where_clause.iter().enumerate() {
+            if i > 0 {
+                self.write(", ");
+            }
+            self.print_constraint(constraint);
+        }
+    }
+
+    fn print_constraint(&mut self, constraint: &HirGenericConstraint) {
+        self.write(constraint.generic_name);
+        self.write(": ");
+        for (i, kind) in constraint.kind.iter().enumerate() {
+            if i > 0 {
+                self.write(" + ");
+            }
+            self.print_constraint_kind(kind);
+        }
+    }
+
+    fn print_constraint_kind(&mut self, kind: &HirGenericConstraintKind) {
+        match kind {
+            HirGenericConstraintKind::Std { name, .. } => {
+                self.write(format!("std::{}", name).as_str());
+            }
+            HirGenericConstraintKind::Concept { name, .. } => {
+                self.write(name);
+            }
+            HirGenericConstraintKind::Operator { op, .. } => {
+                self.write(format!("operator{}", op).as_str());
+            }
+        }
     }
 
     pub fn print_method_signature(&mut self, name: &str, method_sig: &HirStructMethodSignature) {
@@ -224,7 +270,16 @@ impl HirPrettyPrinter {
 
         self.write(")");
 
-        self.write(&format!(" -> {}", Self::type_str(&method_sig.return_ty)));
+        self.write(&format!(" -> {} ", Self::type_str(&method_sig.return_ty)));
+        if let Some(where_clause) = &method_sig.where_clause {
+            self.write("\n");
+            self.indent();
+            self.write_indent();
+            self.print_where_clause(where_clause);
+            self.dedent();
+            self.write("\n");
+            self.write_indent();
+        }
     }
 
     fn print_method(&mut self, method: &HirStructMethod) {
@@ -232,7 +287,7 @@ impl HirPrettyPrinter {
 
         self.print_method_signature(method.name, method.signature);
 
-        self.write(" {\n");
+        self.write("{\n");
         self.indent();
         self.print_block(&method.body);
         self.dedent();
@@ -343,6 +398,13 @@ impl HirPrettyPrinter {
                 self.print_expr(&var.value);
                 self.write(";\n");
             }
+            HirStatement::Assign(assign) => {
+                self.write_indent();
+                self.print_expr(&assign.dst);
+                self.write(" = ");
+                self.print_expr(&assign.val);
+                self.write(";\n");
+            }
             HirStatement::Const(var) => {
                 self.write_indent();
                 self.write(&format!(
@@ -447,11 +509,6 @@ impl HirPrettyPrinter {
                     self.print_expr(arg);
                 }
                 self.write(")");
-            }
-            HirExpr::Assign(assign) => {
-                self.print_expr(&assign.lhs);
-                self.write(" = ");
-                self.print_expr(&assign.rhs);
             }
             HirExpr::FieldAccess(field) => {
                 self.print_expr(&field.target);

@@ -2,64 +2,282 @@ import "std/vector";
 import "std/optional";
 import "std/string";
 import "std/mem";
-
-//TODO: Add Iter<T>::from_map(Map<K, V>)
+//! An iterator over an array of `T`.
+//! 
+//! > [!Note]
+//! > For non-copyable types, calling next() will copy the element.
 public struct Iter<T> {
+private:
+    data: [T];
 public:
-    data: Vector<T>;
     index: uint64;
-
-    Iter(data: Vector<T>) {
+    //! Create a new iterator from an array of T
+    //! 
+    //! ```atlas
+    //! import "std/iter";
+    //! let arr: [int64] = [1, 2, 3, 4];
+    //! let iter: Iter<int64> = new Iter<int64>(arr);
+    //! ```
+    Iter(data: [T]) {
         this.data = data;
         this.index = 0u;
     }
+    //! Destructor to clean up allocated memory
+    //! 
+    //! Only clean up remaining elements
     ~Iter() {
-        delete this.data;
+        let i = this.index;
+        while i < len(&this.data) {
+            delete this.data[i];
+            i = i + 1u;
+        }
+        delete_from_ref(&this.data);
     }
-    Iter(from: &const Iter<T>) {
-        this.data = *from.data;
+    //! Copy constructor for copyable types. `T` must implement `std::copyable`.
+    //! 
+    //! ```atlas
+    //! import "std/iter";
+    //! let arr: [int64] = [1, 2, 3, 4];
+    //! let iter1: Iter<int64> = new Iter<int64>(arr);
+    //! // Explicity copy constructor call
+    //! let iter2: Iter<int64> = new Iter<int64>(&iter1);
+    //! ```
+    Iter(from: &const Iter<T>)
+        where T: std::copyable
+    {
+        // Allocate destination array and copy elements one by one
+        let n: uint64 = len(&from.data);
+        this.data = new [T; n];
+        let i = 0u;
+        while i < n {
+            this.data[i] = (*from.data)[i];
+            i = i + 1u;
+        }
         this.index = *from.index;
     }
-    /// Returns the next item in the iterator, or None if the end is reached.
-    /// Note: For non-copyable types, this will copy the element.
+    //! Returns the next item in the iterator, or `optional::empty()` if the end
+    //! is reached.
+    //!
+    //! This advances the iterator's `index` by one and returns the element
+    //! wrapped in an `optional<T>`. For copyable types this will return a
+    //! cheap copy; for non-copyable types the element is copied out of the
+    //! internal buffer which may be expensive.
+    //!
+    //! ```atlas
+    //! import "std/iter";
+    //! let arr: [int64] = [1, 2, 3];
+    //! let mut iter: Iter<int64> = new Iter<int64>(arr);
+    //! let a: optional<int64> = iter.next();
+    //! assert(a.has_value());
+    //! ```
     fun next(&this) -> optional<T> {
-        if this.index >= this.data.length {
+        if this.index >= len(&this.data) {
             return optional<T>::empty();
         }
-        
-        // We use take to move the first item (the next one) out of the vector
-        // This avoids copying for non-copyable types
-        let item: T = this.data.take(0u);
+
+        let item: T = memcpy(&this.data[this.index]);
+        this.index = this.index + 1u;
         return optional<T>::of(item);
     }
-    /// Peeks at the next item without advancing the iterator
+    //! Peeks at the next item without advancing the iterator.
+    //!
+    //! Returns an `optional<&const T>` referencing the next element if present.
+    //! This does not modify `index` and therefore does not consume the element.
+    //!
+    //! ```atlas
+    //! import "std/iter";
+    //! let arr: [int64] = [1, 2, 3];
+    //! let iter: Iter<int64> = new Iter<int64>(arr);
+    //! let p: optional<&const int64> = iter.peek();
+    //! assert(p.has_value());
+    //! ```
     fun peek(&this) -> optional<&const T> {
-        if this.index >= this.data.length {
+        if this.index >= len(&this.data) {
             return optional<&const T>::empty();
         }
-        // 1 
-        let item = this.data.get(1u);
+        let item = &(this.data[this.index]);
         return optional<&const T>::of(item);
     }
 
-    fun from_array(data: [T]) -> Iter<T> {
-        let vector = new Vector<T>(data);
-        return new Iter<T>(vector);
+    //! Reverses the remaining elements in the iterator in place.
+    //!
+    //! This mutates the internal backing array so that the elements from
+    //! `index` to `len(data)-1` are reversed. The iterator's `index` is
+    //! unchanged so subsequent calls will yield the reversed sequence.
+    //!
+    //! ```atlas
+    //! import "std/iter";
+    //! let arr: [int64] = [1, 2, 3, 4];
+    //! let mut iter: Iter<int64> = new Iter<int64>(arr);
+    //! iter.next(); // consumes 1
+    //! iter.reverse_inplace(); // remaining order becomes [4,3,2]
+    //! let b: optional<int64> = iter.next();
+    //! assert(b.has_value());
+    //! ```
+    fun reverse_inplace(&this) {
+        let n: uint64 = len(&this.data);
+        if this.index >= n {
+            return;
+        }
+        let i: uint64 = this.index;
+        let j: uint64 = n - 1u;
+        while i < j {
+            swap<T>(&this.data[i], &this.data[j]);
+            i = i + 1u;
+            j = j - 1u;
+        }
+        // No need to change index, as we only reversed the data this.index..len(data)-1
     }
 
+    //! Create a new iterator that yields the remaining elements in reverse
+    //! order.
+    //!
+    //! This allocates a new backing array and copies the remaining elements
+    //! in reverse order into it. `T` must implement `std::copyable` because the
+    //! elements are copied into the new array.
+    //!
+    //! ```atlas
+    //! import "std/iter";
+    //! let arr: [int64] = [1, 2, 3, 4];
+    //! let mut iter: Iter<int64> = new Iter<int64>(arr);
+    //! iter.next(); // consumes 1
+    //! let r: Iter<int64> = iter.reversed();
+    //! let x: optional<int64> = r.next();
+    //! assert(x.has_value());
+    //! ```
+    fun reversed(&const this) -> Iter<T> 
+        where T: std::copyable
+    {
+        let n: uint64 = len(&this.data);
+        if *this.index >= n {
+            // No remaining elements
+            let empty: [T] = new [T; 0u];
+            return new Iter<T>(empty);
+        }
+        let m: uint64 = n - *this.index;
+        let rev_data: [T] = new [T; m];
+        let i: uint64 = 0u;
+        while i < m {
+            let a: uint64 = m - 1u;
+            let b: uint64 = a - i;
+            let idx: uint64 = *this.index + b;
+            rev_data[i] = (*this.data)[idx];
+            i = i + 1u;
+        }
+        return new Iter<T>(rev_data);
+    }
+
+    //! Consume the iterator and return a new iterator that yields the remaining
+    //! elements in reverse order.
+    //!
+    //! This method consumes `self`, reverses the remaining elements in place,
+    //! and returns the owned iterator so it can be used as the reversed sequence.
+    //!
+    //! ```atlas
+    //! import "std/iter";
+    //! let arr: [int64] = [1,2,3];
+    //! let iter: Iter<int64> = new Iter<int64>(arr);
+    //! let rev_iter = iter.rev();
+    //! let y: optional<int64> = rev_iter.next();
+    //! assert(y.has_value());
+    //! ```
+    fun rev(this) -> Iter<T> {
+        // Consume and reverse only the remaining elements, then return owned iterator
+        this.reverse_inplace();
+        return this;
+    }
+
+    //! Returns `true` if the iterator has more elements to yield.
+    //!
+    //! ```atlas
+    //! import "std/iter";
+    //! let arr: [int64] = [1];
+    //! let mut iter: Iter<int64> = new Iter<int64>(arr);
+    //! assert(iter.has_next());
+    //! iter.next();
+    //! assert(!iter.has_next());
+    //! ```
+    //! 
+    //! > [!Note]
+    //! > `assert` doesn't exist in Atlas yet; this is just illustrative.
     fun has_next(&this) -> bool {
-        return this.index < this.data.length;
+        return this.index < len(&this.data);
     }
     
+    //! Creates an `Iter<char>` from a `String`.
+    //!
+    //! The created iterator owns the character array produced from the
+    //! string. Useful for iterating over a `String`'s characters.
+    //!
+    //! ```atlas
+    //! import "std/iter";
+    //! let s: String = String::from("abc");
+    //! let it: Iter<char> = Iter<char>::from_string(s);
+    //! let c: optional<char> = it.next();
+    //! assert(c.has_value());
+    //! ```
     fun from_string(data: String) -> Iter<char> {
         let chars: [char] = to_chars(&data.s);
-        let vector = new Vector<char>(chars);
-        return new Iter<char>(vector);
+        return new Iter<char>(chars);
     }
 
+    //! Creates an `Iter<char>` from a string slice.
+    //!
+    //! This does not take ownership of the original `string` data; it
+    //! converts the slice into a newly allocated character array owned by
+    //! the returned iterator.
+    //!
+    //! ```atlas
+    //! import "std/iter";
+    //! let s: &const string = "xyz";
+    //! let it: Iter<char> = Iter<char>::from_str(s);
+    //! let c: optional<char> = it.next();
+    //! assert(c.has_value());
+    //! ```
     fun from_str(data: &const string) -> Iter<char> {
         let chars: [char] = to_chars(data);
-        let vector = new Vector<char>(chars);
-        return new Iter<char>(vector);
+        return new Iter<char>(chars);
+    }
+
+    //! Creates an iterator from a `Vector<T>` by consuming the vector.
+    //!
+    //! This is a convenience wrapper around `Vector::into_iter()` and will
+    //! transfer ownership of the vector's data into the returned iterator.
+    //!
+    //! ```atlas
+    //! import "std/iter";
+    //! import "std/vector";
+    //! let v: Vector<int64> = Vector<int64>::from_array([1,2,3]);
+    //! let it: Iter<int64> = Iter<int64>::from_vector(v);
+    //! let z: optional<int64> = it.next();
+    //! assert(z.has_value());
+    //! ```
+    fun from_vector(data: Vector<T>) -> Iter<T> {
+        return data.into_iter();
+    }
+
+    //! Creates an iterator from a map of K to V
+    //! 
+    //! ```atlas
+    //! let map: Map<int64, int64> = new Map<int64, int64>();
+    //! let iter: Iter<Pair<int64, int64>> = Iter<Pair<int64, int64>>::from_map(map);
+    //! ```
+    //!
+    //!   * `Map<K, V>` already has an `into_iter()` method that returns `Iter<Pair<K, V>>`
+    //!   * `Map<K, V>::into_iter()` is equivalent to `Iter<Pair<K, V>>::from_map()`
+    fun from_map<K, V>(data: Map<K, V>) -> Iter<Pair<K, V>> {
+        return data.into_iter();
+    }
+
+    //! Creates an iterator from an array of T
+    //! > [!Note]
+    //! > This method is mostly there for consistency with other from_* methods.
+    //! 
+    //! ```atlas
+    //! let arr: [int] = [1, 2, 3, 4];
+    //! let iter: Iter<int> = Iter<int>::from_array(arr);
+    //! ```
+    fun from_array(data: [T]) -> Iter<T> {
+        return new Iter<T>(data);
     }
 }

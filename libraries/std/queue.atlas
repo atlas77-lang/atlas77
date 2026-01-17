@@ -3,19 +3,19 @@ import "std/mem";
 import "std/optional";
 import "std/vector";
 
-/// A simple FIFO queue data structure.
+//! A simple FIFO queue data structure.
 public struct Queue<T> {
 private:
     items: [T];
-    /// The index of the head of the queue.
+    //! The index of the head of the queue.
     head: uint64;
-    /// The index of the tail of the queue.
+    //! The index of the tail of the queue.
     tail: uint64;
-    /// The size of the queue.
+    //! The size of the queue.
     size: uint64;
-    /// The number of items in the queue.
+    //! The number of items in the queue.
     count: uint64;
-    /// Creates a new empty queue.
+    //! Creates a new empty queue.
 public:
     Queue(items: [T]) {
         this.head = 0u;
@@ -24,7 +24,34 @@ public:
         this.size = len(&items);
         this.items = items;
     }
-    /// Instantiates a queue with a predefined size.
+    ~Queue() {
+        // Let's cycle and delete each item in the queue
+        // We need to delete only the items between head and tail
+        let i: uint64 = 0u;
+        while i < *this.count {
+            let index = (this.head + i) % this.size;
+            delete this.items[index];
+            i = i + 1u;
+        }
+        // Finally, delete the underlying array
+        delete_from_ref(&this.items);
+    }
+    Queue(from: &const Queue<T>)
+        where T: std::copyable
+    {
+        this.head = *(from.head);
+        this.tail = *(from.tail);
+        this.count = *(from.count);
+        this.size = *(from.size);
+        // We need to copy each item in the queue
+        this.items = new [T; *this.size];
+        let i: uint64 = 0u;
+        while i < *this.size {
+            this.items[i] = *from.items[i];
+            i = i + 1u;
+        }
+    }
+    //! Instantiates a queue with a predefined size.
     fun with_capacity(size: uint64) -> Queue<T> {
         return new Queue<T>(new [T; size]);
     }
@@ -35,8 +62,8 @@ public:
     fun to_vector(this) -> Vector<T> {
         return new Vector<T>(this.items);
     }
-    /// Enqueues an item to the back of the queue.
-    /// Returns `optional<unit>::empty()` if the queue is full.
+    //! Enqueues an item to the back of the queue.
+    //! Returns `optional<unit>::empty()` if the queue is full.
     fun enqueue(&this, item: T) -> optional<unit>{
         if this.is_full() {
             return optional<unit>::empty();
@@ -55,8 +82,8 @@ public:
         this.count = this.count + 1u;
         return optional<unit>::of(());
     }
-    /// Dequeues an item from the front of the queue.
-    /// Returns `optional<T>::empty()` if the queue is empty.
+    //! Dequeues an item from the front of the queue.
+    //! Returns `optional<T>::empty()` if the queue is empty.
     fun dequeue(&this) -> optional<T> {
         if this.is_empty() {
             return optional<T>::empty();

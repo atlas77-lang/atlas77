@@ -1,3 +1,7 @@
+//! Math utilities for common numeric operations.
+//!
+//! Provides a small set of helpers and wrappers around platform math functions.
+//! Example: `let r = math::round(3.7)`
 public extern round(x: float64) -> int64;
 public extern random(min: int64, max: int64) -> int64;
 public extern sin_f(x: float64) -> float64;
@@ -52,6 +56,7 @@ public fun pow(x: int64, y: int64) -> int64 {
     }
     return result;
 }
+//! Computes x raised to the integer power y (floating variant).
 public fun pow_f(x: float64, y: int64) -> float64 {
     let result: float64 = 1.0;
     while y > 0 {

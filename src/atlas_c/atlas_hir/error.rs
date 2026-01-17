@@ -1,3 +1,6 @@
+// For some reason I get unused assignment warnings in this file
+#![allow(unused_assignments)]
+
 use crate::atlas_c::utils::Span;
 use crate::declare_error_type;
 use miette::{Diagnostic, NamedSource};
@@ -39,6 +42,7 @@ declare_error_type! {
         StructNameCannotBeOneLetter(StructNameCannotBeOneLetterError),
         NoReturnInFunction(NoReturnInFunctionError),
         AccessingPrivateStruct(AccessingPrivateStructError),
+        AccessingPrivateUnion(AccessingPrivateUnionError),
         IllegalOperation(IllegalOperationError),
         IllegalUnaryOperation(IllegalUnaryOperationError),
         AccessingPrivateFunction(AccessingPrivateFunctionError),
@@ -49,6 +53,7 @@ declare_error_type! {
         TryingToAccessAPotentiallyMovedValue(TryingToAccessAPotentiallyMovedValueError),
         TryingToAccessADeletedValue(TryingToAccessADeletedValueError),
         CannotMoveOutOfLoop(CannotMoveOutOfLoopError),
+        CannotDeleteOutOfLoop(CannotDeleteOutOfLoopError),
         CallingNonConstMethodOnConstReference(CallingNonConstMethodOnConstReferenceError),
         CallingConsumingMethodOnMutableReference(CallingConsumingMethodOnMutableReferenceError),
         TryingToMutateConstReference(TryingToMutateConstReferenceError),
@@ -56,6 +61,7 @@ declare_error_type! {
         TypeDoesNotImplementRequiredConstraint(TypeDoesNotImplementRequiredConstraintError),
         InvalidSpecialMethodSignature(InvalidSpecialMethodSignatureError),
         ReturningReferenceToLocalVariable(ReturningReferenceToLocalVariableError),
+        VariableNameAlreadyDefined(VariableNameAlreadyDefinedError),
         TryingToCopyNonCopyableType(TryingToCopyNonCopyableTypeError),
         DoubleMoveError(DoubleMoveError),
         UnknownIdentifier(UnknownIdentifierError),
@@ -72,6 +78,11 @@ declare_error_type! {
         UnionVariantDefinedMultipleTimes(UnionVariantDefinedMultipleTimesError),
         LifetimeDependencyViolation(LifetimeDependencyViolationError),
         ReturningValueWithLocalLifetimeDependency(ReturningValueWithLocalLifetimeDependencyError),
+        ConstructorCannotHaveAWhereClause(ConstructorCannotHaveAWhereClauseError),
+        MethodConstraintNotSatisfied(MethodConstraintNotSatisfiedError),
+        TooManyReferenceLevels(TooManyReferenceLevelsError),
+        AssignmentCannotBeAnExpression(AssignmentCannotBeAnExpressionError),
+        CannotGenerateADestructorForThisType(CannotGenerateADestructorForThisTypeError),
     }
 }
 
@@ -111,6 +122,19 @@ impl HirError {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
+    code(sema::too_many_reference_levels),
+    help("reduce the number of reference levels")
+)]
+#[error("type has too many reference levels")]
+pub struct TooManyReferenceLevelsError {
+    #[label = "type has too many reference levels"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
     code(sema::returning_reference_to_local_variable),
     help(
         "references to local variables cannot be returned because the variable will be dropped when the function returns"
@@ -122,6 +146,19 @@ pub struct ReturningReferenceToLocalVariableError {
     pub span: Span,
     pub var_name: String,
     #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::variable_name_already_defined),
+    help("consider renaming one of the variables")
+)]
+#[error("variable name `{name}` is already defined")]
+pub struct VariableNameAlreadyDefinedError {
+    pub name: String,
+    pub first_definition_span: Span,
+    pub second_definition_span: Span,
     pub src: NamedSource<String>,
 }
 
@@ -425,10 +462,7 @@ pub struct IllegalOperationError {
 }
 
 #[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
-    code(sema::trying_to_access_private_struct),
-    help("Mark {name} the struct as public")
-)]
+#[diagnostic(code(sema::trying_to_access_private_struct))]
 #[error(
     "{name} is marked as private, so you cannot accessing it from outside of its declaration file."
 )]
@@ -440,12 +474,29 @@ pub struct AccessingPrivateStructError {
     pub span: Span,
     #[source]
     #[diagnostic_source]
-    pub origin: AccessingPrivateStructOrigin,
+    pub origin: AccessingPrivateObjectOrigin,
 }
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::trying_to_access_private_union))]
+#[error(
+    "{name} is marked as private, so you cannot accessing it from outside of its declaration file."
+)]
+pub struct AccessingPrivateUnionError {
+    pub name: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label = "trying to access a private union"]
+    pub span: Span,
+    #[source]
+    #[diagnostic_source]
+    pub origin: AccessingPrivateObjectOrigin,
+}
+
 #[derive(Error, Diagnostic, Debug)]
 #[error("")]
-pub struct AccessingPrivateStructOrigin {
-    #[label = "You marked it as private"]
+pub struct AccessingPrivateObjectOrigin {
+    #[label = "It's marked as private here"]
     pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
@@ -852,6 +903,26 @@ pub struct UnknownMethodError {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
+    code(sema::method_constraint_not_satisfied),
+    help(
+        "this member has a where clause constraint that is not satisfied by the concrete type used in this instantiation"
+    )
+)]
+#[error(
+    "{member_kind} `{member_name}` is not available on `{ty_name}` because its constraints are not satisfied"
+)]
+pub struct MethodConstraintNotSatisfiedError {
+    pub member_kind: String,
+    pub member_name: String,
+    pub ty_name: String,
+    #[label = "{member_kind} not available due to unsatisfied constraints"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
     code(sema::cannot_transfer_ownership_in_borrowing_method),
     help(
         "change the method to use `this` instead of `&this` if it needs to transfer ownership, or copy the value if the type is copyable"
@@ -913,6 +984,24 @@ pub struct CannotMoveOutOfLoopError {
     pub loop_span: Span,
     #[label = "variable `{var_name}` is moved here"]
     pub move_span: Span,
+    pub var_name: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::cannot_delete_out_of_loop),
+    help(
+        "variables cannot be deleted inside loops because the loop could iterate multiple times, causing use-after-delete. Consider deleting the variable before the loop, or restructuring your code"
+    )
+)]
+#[error("cannot delete variable `{var_name}` inside loop")]
+pub struct CannotDeleteOutOfLoopError {
+    #[label = "loop starts here"]
+    pub loop_span: Span,
+    #[label = "variable `{var_name}` is deleted here"]
+    pub delete_span: Span,
     pub var_name: String,
     #[source_code]
     pub src: NamedSource<String>,
@@ -1076,4 +1165,52 @@ pub struct ReturningValueWithLocalLifetimeDependencyError {
     pub return_span: Span,
     #[source_code]
     pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::constructor_cannot_have_a_where_clause),
+    help(
+        "constructors cannot have where clauses, maybe you meant to use that clause on the copy constructor?"
+    )
+)]
+#[error("constructors cannot have where clauses, they aren't conditionally defined")]
+pub struct ConstructorCannotHaveAWhereClauseError {
+    #[label = "constructors cannot have where clauses"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::assignment_cannot_be_an_expression),
+    help("assignments are statements and do not produce a value")
+)]
+#[error("assignments cannot be used as expressions")]
+pub struct AssignmentCannotBeAnExpressionError {
+    #[label = "assignments cannot be used as expressions"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::cannot_generate_a_destructor_for_this_type),
+    severity(error),
+    help(
+        "the type has a field that requires a custom destructor, but the type itself does not define one. \
+        Consider implementing a destructor for this type to properly clean up its resources."
+    )
+)]
+#[error("cannot automatically generate a destructor for type `{type_name}`")]
+pub struct CannotGenerateADestructorForThisTypeError {
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label = "field requiring custom destructor is defined here"]
+    pub conflicting_field: Span,
+    #[label("Type `{type_name}` declared here")]
+    pub name_span: Span,
+    pub type_name: String,
 }

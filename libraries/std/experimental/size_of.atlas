@@ -1,5 +1,7 @@
-// Should return the size in bytes of type T
+//! Return the size in bytes of type `T` (experimental).
+//!
+//! Placeholder implementation for now.
 public fun size_of<T>() -> uint64 {
     // Placeholder implementation
-    return 8_uint64;     
+    return 8u;
 }

@@ -1,3 +1,6 @@
+// For some reason I get unused assignment warnings in this file
+#![allow(unused_assignments)]
+
 use crate::declare_error_type;
 use miette::Diagnostic;
 use thiserror::Error;
