@@ -43,7 +43,9 @@ public:
         this.value = new_val;
     }
 }
-
+/*
+Multi line comment
+*/
 // Generic pair wrapper (different from std Map's Pair)
 struct GenericTuple<A, B> {
 public:

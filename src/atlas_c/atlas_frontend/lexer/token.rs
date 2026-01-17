@@ -118,7 +118,7 @@ pub enum TokenKind {
     UnsignedInteger(u64),
     #[regex("true|false", |lex| lex.slice().parse())]
     Bool(bool),
-    #[regex(r"//.*", |lex| lex.slice().to_string(), allow_greedy = true)]
+    #[regex(r"//.*|/\*[\s\S]*?\*/", |lex| lex.slice().to_string(), allow_greedy = true)]
     Comments(String),
     /// ``//! This is a doc comment``
     #[regex(r"//!.*", |lex| {
