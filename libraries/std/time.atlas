@@ -23,10 +23,6 @@ public:
         this.nsec = *from.nsec;
     }
 
-    fun _copy(&const this) -> Time {
-        return new Time(*this.sec, *this.nsec);
-    }
-
     fun to_iso_string(&this) -> string {
         return format_time(this, "%Y-%m-%dT%H:%M:%S");
     }

@@ -31,16 +31,16 @@ public:
         this.value = val;
     }
 
+    Container(from: &const Container<T>) {
+        this.value = *from.value;
+    }
+
     fun get(&this) -> T {
         return this.value;
     }
 
     fun set(&this, new_val: T) {
         this.value = new_val;
-    }
-
-    fun _copy(&const this) -> Container<T> {
-        return new Container<T>(*this.value);
     }
 }
 
