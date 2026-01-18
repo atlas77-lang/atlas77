@@ -35,6 +35,7 @@ declare_error_type! {
         ConstTyToNonConstTy(ConstTyToNonConstTyError),
         CanOnlyConstructStructs(CanOnlyConstructStructsError),
         ThisStructDoesNotHaveACopyConstructor(ThisStructDoesNotHaveACopyConstructorError),
+        ThisStructDoesNotHaveAMoveConstructor(ThisStructDoesNotHaveAMoveConstructorError),
         TryingToIndexNonIndexableType(TryingToIndexNonIndexableTypeError),
         UselessError(UselessError),
         InvalidReadOnlyType(InvalidReadOnlyTypeError),
@@ -599,6 +600,18 @@ pub struct CanOnlyConstructStructsError {
 )]
 pub struct ThisStructDoesNotHaveACopyConstructorError {
     #[label = "trying to use copy constructor, but this struct does not have one defined"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::this_struct_does_not_have_a_move_constructor))]
+#[error(
+    "It seems like you are trying to use a move constructor on a struct that does not have one."
+)]
+pub struct ThisStructDoesNotHaveAMoveConstructorError {
+    #[label = "trying to use move constructor, but this struct does not have one defined"]
     pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,

@@ -645,7 +645,7 @@ impl HirPrettyPrinter {
     fn visibility_str(&self, vis: HirVisibility) -> &'static str {
         match vis {
             HirVisibility::Public => "public",
-            HirVisibility::Private => "",
+            HirVisibility::Private => "private",
         }
     }
 

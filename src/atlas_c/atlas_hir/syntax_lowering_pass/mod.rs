@@ -511,6 +511,9 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             self.visit_constructor(node.name_span, node.constructor, &fields, false)?;
         let had_user_defined_constructor = node.constructor.is_some();
         let had_user_defined_destructor = node.destructor.is_some();
+        let had_user_defined_copy_constructor = node.copy_constructor.is_some();
+        let had_user_defined_move_constructor = node.move_constructor.is_some();
+        let had_user_defined_default_constructor = node.default_constructor.is_some();
         let destructor = if let Some(destructor) = node.destructor {
             Some(self.visit_destructor(destructor)?)
         } else {
@@ -521,7 +524,16 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         } else {
             None
         };
-
+        let move_constructor = if node.move_constructor.is_some() {
+            Some(self.visit_constructor(node.name_span, node.move_constructor, &fields, true)?)
+        } else {
+            None
+        };
+        let default_constructor = if node.default_constructor.is_some() {
+            Some(self.visit_constructor(node.name_span, node.default_constructor, &fields, true)?)
+        } else {
+            None
+        };
         let signature = HirStructSignature {
             declaration_span: node.span,
             name,
@@ -549,9 +561,14 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             generics,
             constructor: constructor.signature.clone(),
             copy_constructor: copy_constructor.as_ref().map(|c| c.signature.clone()),
+            move_constructor: move_constructor.as_ref().map(|m| m.signature.clone()),
+            default_constructor: default_constructor.as_ref().map(|d| d.signature.clone()),
             destructor: destructor.as_ref().map(|d| d.signature.clone()),
             had_user_defined_constructor,
             had_user_defined_destructor,
+            had_user_defined_copy_constructor,
+            had_user_defined_move_constructor,
+            had_user_defined_default_constructor,
             docstring: if let Some(docstring) = node.docstring {
                 Some(self.arena.names().get(docstring))
             } else {
@@ -570,9 +587,9 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             fields,
             constructor,
             copy_constructor,
+            move_constructor,
+            default_constructor,
             destructor,
-            had_user_defined_destructor,
-            had_user_defined_constructor,
             vis: node.vis.into(),
             flag: node.flag.into(),
         })
@@ -1878,7 +1895,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     && !s.flag.is_non_copyable()
                     // If the struct has a user-defined destructor AND no flag saying it's copyable,
                     //  we cannot auto-generate a copy constructor
-                    && !(s.had_user_defined_destructor && s.flag.is_no_flag())
+                    && !(s.signature.had_user_defined_destructor && s.flag.is_no_flag())
             })
             .map(|(name, s)| {
                 (

@@ -4,11 +4,7 @@ use super::{
     HirFunction, HirModule, HirModuleSignature, arena::HirArena, expr, stmt::HirStatement,
 };
 use crate::atlas_c::atlas_hir::error::{
-    AccessingPrivateUnionError, CallingConsumingMethodOnMutableReferenceError,
-    CallingConsumingMethodOnMutableReferenceOrigin,
-    StdNonCopyableStructCannotHaveCopyConstructorError, StructCannotHaveAFieldOfItsOwnTypeError,
-    ThisStructDoesNotHaveACopyConstructorError, UnionMustHaveAtLeastTwoVariantError,
-    UnionVariantDefinedMultipleTimesError, VariableNameAlreadyDefinedError,
+    AccessingPrivateUnionError, CallingConsumingMethodOnMutableReferenceError, CallingConsumingMethodOnMutableReferenceOrigin, StdNonCopyableStructCannotHaveCopyConstructorError, StructCannotHaveAFieldOfItsOwnTypeError, ThisStructDoesNotHaveACopyConstructorError, ThisStructDoesNotHaveAMoveConstructorError, UnionMustHaveAtLeastTwoVariantError, UnionVariantDefinedMultipleTimesError, VariableNameAlreadyDefinedError
 };
 use crate::atlas_c::atlas_hir::expr::HirNewObjExpr;
 use crate::atlas_c::atlas_hir::item::{HirStructConstructor, HirUnion};
@@ -1495,11 +1491,157 @@ impl<'hir> TypeChecker<'hir> {
 
                             Ok(func_expr.ty)
                         } else {
-                            Err(Self::unknown_method_err(
-                                static_access.field.name,
-                                name,
-                                &static_access.span,
-                            ))
+                            // It might be one of the name for the constructors/destructor
+                            // All possible names are: "__ctor", "copy", "__mov_ctor", "default", "__dtor"
+                            match static_access.field.name {
+                                "__ctor" => {
+                                    if func_expr.args.len() != class.constructor.params.len() {
+                                        return Err(Self::not_enough_arguments_err(
+                                            "constructor".to_string(),
+                                            class.constructor.params.len(),
+                                            &static_access.span,
+                                            func_expr.args.len(),
+                                            &func_expr.span,
+                                        ));
+                                    }
+                                    for (param, arg) in class
+                                        .constructor
+                                        .params
+                                        .iter()
+                                        .zip(func_expr.args.iter_mut())
+                                    {
+                                        let arg_ty = self.check_expr(arg)?;
+                                        self.is_equivalent_ty(
+                                            param.ty,
+                                            param.span,
+                                            arg_ty,
+                                            arg.span(),
+                                        )?;
+                                    }
+                                    return Ok(self
+                                        .arena
+                                        .types()
+                                        .get_named_ty(name, static_access.field.span));
+                                }
+                                "copy" | "__cpy_ctor" => {
+                                    if func_expr.args.len() != 1 {
+                                        return Err(Self::not_enough_arguments_err(
+                                            "copy constructor".to_string(),
+                                            1,
+                                            &static_access.span,
+                                            func_expr.args.len(),
+                                            &func_expr.span,
+                                        ));
+                                    }
+                                    let (expected_ty, expected_span) =
+                                        if let Some(copy_ctor) = &class.copy_constructor {
+                                            // No need to do .first().unwrap() because we already checked args.len() == 1
+                                            (
+                                                copy_ctor.params[0].ty,
+                                                copy_ctor.params[0].span,
+                                            )
+                                        } else {
+                                            let path = static_access.span.path;
+                                            let src = utils::get_file_content(path).unwrap();
+                                            return Err(
+                                                HirError::ThisStructDoesNotHaveACopyConstructor(
+                                                    ThisStructDoesNotHaveACopyConstructorError {
+                                                        span: static_access.span,
+                                                        src: NamedSource::new(path, src),
+                                                    },
+                                                ),
+                                            );
+                                        };
+                                    let found_ty = self.check_expr(&mut func_expr.args[0])?;
+                                    self.is_equivalent_ty(
+                                        expected_ty,
+                                        expected_span,
+                                        found_ty,
+                                        func_expr.args[0].span(),
+                                    )?;
+                                    return Ok(self
+                                        .arena
+                                        .types()
+                                        .get_named_ty(name, static_access.field.span));
+                                }
+                                "__mov_ctor" => {
+                                    if func_expr.args.len() != 1 {
+                                        return Err(Self::not_enough_arguments_err(
+                                            "move constructor".to_string(),
+                                            1,
+                                            &static_access.span,
+                                            func_expr.args.len(),
+                                            &func_expr.span,
+                                        ));
+                                    }
+                                    let (expected_ty, expected_span) =
+                                        if let Some(move_ctor) = &class.move_constructor {
+                                            // No need to do .first().unwrap() because we already checked args.len() == 1
+                                            (
+                                                move_ctor.params[0].ty,
+                                                move_ctor.params[0].span,
+                                            )
+                                        } else {
+                                            let path = static_access.span.path;
+                                            let src = utils::get_file_content(path).unwrap();
+                                            return Err(
+                                                HirError::ThisStructDoesNotHaveAMoveConstructor(
+                                                    ThisStructDoesNotHaveAMoveConstructorError {
+                                                        span: static_access.span,
+                                                        src: NamedSource::new(path, src),
+                                                    },
+                                                ),
+                                            );
+                                        };
+                                    let found_ty = self.check_expr(&mut func_expr.args[0])?;
+                                    self.is_equivalent_ty(
+                                        expected_ty,
+                                        expected_span,
+                                        found_ty,
+                                        func_expr.args[0].span(),
+                                    )?;
+                                    return Ok(self
+                                        .arena
+                                        .types()
+                                        .get_named_ty(name, static_access.field.span));
+                                }
+                                "default" => {
+                                    if func_expr.args.len() != 0 {
+                                        return Err(Self::not_enough_arguments_err(
+                                            "default constructor".to_string(),
+                                            0,
+                                            &static_access.span,
+                                            func_expr.args.len(),
+                                            &func_expr.span,
+                                        ));
+                                    }
+                                    return Ok(self
+                                        .arena
+                                        .types()
+                                        .get_named_ty(name, static_access.field.span));
+                                }
+                                "__dtor" => {
+                                    if func_expr.args.len() != 0 {
+                                        return Err(Self::not_enough_arguments_err(
+                                            "destructor".to_string(),
+                                            0,
+                                            &static_access.span,
+                                            func_expr.args.len(),
+                                            &func_expr.span,
+                                        ));
+                                    }
+                                    return Ok(self.arena.types().get_unit_ty());
+                                }
+                                _ => {
+                                    return Err(Self::unknown_method_err(
+                                        static_access.field.name,
+                                        name,
+                                        &static_access.span,
+                                    ));
+                                }
+                            }
+                            //TEMPORARY, I don't want to have errors everywhere in my IDE
+                            return Ok(self.arena.types().get_unit_ty());
                         }
                     }
                     _ => Err(HirError::UnsupportedExpr(UnsupportedExpr {

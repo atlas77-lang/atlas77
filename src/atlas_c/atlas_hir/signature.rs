@@ -39,11 +39,16 @@ pub struct HirStructSignature<'hir> {
     pub constants: BTreeMap<&'hir str, &'hir HirStructConstantSignature<'hir>>,
     pub constructor: HirStructConstructorSignature<'hir>,
     pub copy_constructor: Option<HirStructConstructorSignature<'hir>>,
+    pub move_constructor: Option<HirStructConstructorSignature<'hir>>,
+    pub default_constructor: Option<HirStructConstructorSignature<'hir>>,
     /// THERE IS a destructor in this option. It's only used, because compiler
     /// generated destructors are made at the end of the syntax lowering pass.
     pub destructor: Option<HirStructConstructorSignature<'hir>>,
     pub had_user_defined_constructor: bool,
     pub had_user_defined_destructor: bool,
+    pub had_user_defined_copy_constructor: bool,
+    pub had_user_defined_move_constructor: bool,
+    pub had_user_defined_default_constructor: bool,
     pub docstring: Option<&'hir str>,
 }
 

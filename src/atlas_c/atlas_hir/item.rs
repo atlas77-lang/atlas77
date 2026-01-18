@@ -66,10 +66,8 @@ pub struct HirStruct<'hir> {
     pub constructor: HirStructConstructor<'hir>,
     pub copy_constructor: Option<HirStructConstructor<'hir>>,
     pub destructor: Option<HirStructConstructor<'hir>>,
-    pub had_user_defined_constructor: bool,
-    /// True if the struct had a user-defined destructor
-    /// False if the destructor is the default one
-    pub had_user_defined_destructor: bool,
+    pub move_constructor: Option<HirStructConstructor<'hir>>,
+    pub default_constructor: Option<HirStructConstructor<'hir>>,
     pub vis: HirVisibility,
     pub flag: HirFlag,
 }

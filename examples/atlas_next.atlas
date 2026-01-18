@@ -4,7 +4,10 @@ This file will be the test file for the next design of atlas77.
 
 
 fun replace<T>(dest: &T, src: T) -> T {
-
+    let old_value: T = move<T>(dest);
+    // Now dest is in a moved-from state. We can safely overwrite it.
+    (*dest) = src;
+    return old_value;
 }
 
 //! Takes ownership of the value at val, replacing it with T::default().
@@ -16,15 +19,20 @@ fun take<T: std::default>(val: &T) -> T {
 fun move<T: std::moveable>(data: &T) -> T {
     // This is a call to T's move constructor.
     // The move constructor isn't callable directly, so we use this special syntax.
-    return T::__move_ctor(data);
+    return T::__mov_ctor(data);
 }
 
 //! Makes a copy of data using T's copy constructor.
 fun copy<T: std::copyable>(data: &T) -> T {
     // This is a call to T's copy constructor.
     // The copy constructor can be called directly with `new MyStruct(&value)`, but we use this special syntax for consistency.
-    return T::__copy_ctor(data);
+    return T::copy(data);
 }
+
+fun default<T: std::default>() -> T {
+    return T::default();
+}
+
 
 #[std::copyable]
 struct Point2D {
@@ -55,4 +63,14 @@ public:
         this.x = 0;
         this.y = 0;
     }
+}
+
+fun main() {
+    let p1: Point2D = new Point2D(1, 2); // Calls constructor
+    let p2: Point2D = copy<Point2D>(&p1); // Calls copy constructor
+    let p3: Point2D = move<Point2D>(&p1); // Calls move constructor
+    // TODO: Add std::default constraint to allow this
+    // let p4: Point2D = default<Point2D>(); // Calls default constructor
+
+    // p1 is now in a moved-from state; its fields are zeroed out.
 }
