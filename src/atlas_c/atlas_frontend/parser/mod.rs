@@ -18,7 +18,7 @@ use crate::atlas_c::atlas_frontend::parser::{
     },
 };
 use ast::{
-    AstAssignExpr, AstBinaryOp, AstBinaryOpExpr, AstBlock, AstBooleanLiteral, AstBooleanType,
+    AstAssignStmt, AstBinaryOp, AstBinaryOpExpr, AstBlock, AstBooleanLiteral, AstBooleanType,
     AstCallExpr, AstConst, AstExpr, AstExternFunction, AstFieldAccessExpr, AstFloatLiteral,
     AstFloatType, AstFunction, AstFunctionType, AstIdentifier, AstIfElseExpr, AstImport,
     AstIntegerLiteral, AstIntegerType, AstItem, AstLet, AstLiteral, AstMutableRefType,
@@ -213,6 +213,7 @@ impl<'ast> Parser<'ast> {
                     ty: c.ty,
                     value: c.value,
                     vis: AstVisibility::default(),
+                    docstring: None,
                 });
                 Ok(c)
             }
@@ -232,6 +233,12 @@ impl<'ast> Parser<'ast> {
                 let flag = self.parse_flag()?;
                 let mut item = self.parse_item()?;
                 item.set_flag(flag);
+                Ok(item)
+            }
+            TokenKind::Docs(doc) => {
+                let _ = self.advance();
+                let mut item = self.parse_item()?;
+                item.set_docstring(self.arena.alloc(doc), self.arena);
                 Ok(item)
             }
             //Handling comments
@@ -313,6 +320,7 @@ impl<'ast> Parser<'ast> {
                 span: variant_name.span,
                 name: self.arena.alloc(variant_name),
                 value,
+                docstring: None,
             };
             variants.push(variant);
             if self.current().kind() == TokenKind::Semicolon {
@@ -326,6 +334,7 @@ impl<'ast> Parser<'ast> {
             name: self.arena.alloc(enum_identifier),
             variants: self.arena.alloc_vec(variants),
             vis: AstVisibility::default(),
+            docstring: None,
         };
         Ok(node)
     }
@@ -345,15 +354,24 @@ impl<'ast> Parser<'ast> {
             }
         }
         self.expect(TokenKind::RParen)?;
+        //where clause for constructor
+        let where_clause = if self.current().kind() == TokenKind::KwWhere {
+            Some(self.arena.alloc_vec(self.parse_where_clause()?))
+        } else {
+            None
+        };
         let body = self.parse_block()?;
         let node = AstConstructor {
             span: Span::union_span(&start_span, &body.span),
             args: self.arena.alloc_vec(params),
             body: self.arena.alloc(body),
             vis,
+            where_clause,
+            docstring: None,
         };
         Ok(node)
     }
+
     fn parse_destructor(
         &mut self,
         class_name: String,
@@ -388,6 +406,7 @@ impl<'ast> Parser<'ast> {
             args: self.arena.alloc_vec(params),
             body: self.arena.alloc(body),
             vis,
+            docstring: None,
         };
         Ok(node)
     }
@@ -441,6 +460,7 @@ impl<'ast> Parser<'ast> {
             name: self.arena.alloc(union_identifier),
             variants: self.arena.alloc_vec(variants),
             vis: AstVisibility::default(),
+            docstring: None,
         };
         Ok(node)
     }
@@ -471,6 +491,8 @@ impl<'ast> Parser<'ast> {
         let mut operators = vec![];
         let mut constants = vec![];
         let mut curr_vis = self.parse_current_vis(AstVisibility::Private)?;
+        // Empty if there is none
+        let mut docs = String::new();
         while self.current().kind() != TokenKind::RBrace {
             curr_vis = self.parse_current_vis(curr_vis)?;
             match self.current().kind() {
@@ -485,14 +507,26 @@ impl<'ast> Parser<'ast> {
                 TokenKind::KwFunc => {
                     let mut method = self.parse_method()?;
                     method.vis = curr_vis;
+                    method.docstring = if !docs.is_empty() {
+                        Some(self.arena.alloc(docs.clone()))
+                    } else {
+                        None
+                    };
+                    docs.clear();
                     methods.push(method);
                 }
                 TokenKind::Identifier(s) => {
                     curr_vis = self.parse_current_vis(curr_vis)?;
                     if s == struct_identifier.name {
                         // This can be either a constructor or a copy constructor
-                        let ctor =
+                        let mut ctor =
                             self.parse_constructor(struct_identifier.name.to_owned(), curr_vis)?;
+                        ctor.docstring = if !docs.is_empty() {
+                            Some(self.arena.alloc(docs.clone()))
+                        } else {
+                            None
+                        };
+                        docs.clear();
                         let kind = self.constructor_kind(struct_identifier.name, &ctor);
                         match kind {
                             ConstructorKind::Regular => {
@@ -519,6 +553,12 @@ impl<'ast> Parser<'ast> {
                     } else {
                         let mut obj_field = self.parse_obj_field()?;
                         obj_field.vis = curr_vis;
+                        obj_field.docstring = if !docs.is_empty() {
+                            Some(self.arena.alloc(docs.clone()))
+                        } else {
+                            None
+                        };
+                        docs.clear();
                         fields.push(obj_field);
                         self.expect(TokenKind::Semicolon)?;
                     }
@@ -526,9 +566,15 @@ impl<'ast> Parser<'ast> {
                 TokenKind::Tilde => {
                     curr_vis = self.parse_current_vis(curr_vis)?;
                     if destructor.is_none() {
-                        destructor = Some(self.arena.alloc(
-                            self.parse_destructor(struct_identifier.name.to_owned(), curr_vis)?,
-                        ));
+                        let mut dtor =
+                            self.parse_destructor(struct_identifier.name.to_owned(), curr_vis)?;
+                        dtor.docstring = if !docs.is_empty() {
+                            Some(self.arena.alloc(docs.clone()))
+                        } else {
+                            None
+                        };
+                        docs.clear();
+                        destructor = Some(self.arena.alloc(dtor));
                     } else {
                         //We still parse it so we can give a better error message and recover later
                         let bad_destructor =
@@ -537,6 +583,15 @@ impl<'ast> Parser<'ast> {
                             &bad_destructor.span,
                             "destructor".to_string(),
                         ));
+                    }
+                }
+                TokenKind::Docs(doc) => {
+                    let _ = self.advance();
+                    if docs.is_empty() {
+                        docs = doc;
+                    } else {
+                        docs.push('\n');
+                        docs.push_str(&doc);
                     }
                 }
                 _ => {
@@ -582,6 +637,7 @@ impl<'ast> Parser<'ast> {
             constants: self.arena.alloc_vec(constants),
             vis: AstVisibility::default(),
             flag: AstFlag::default(),
+            docstring: None,
         };
         Ok(node)
     }
@@ -677,6 +733,11 @@ impl<'ast> Parser<'ast> {
             let _ = self.advance();
             ret_ty = self.parse_type()?;
         }
+        let where_clause = if self.current().kind() == TokenKind::KwWhere {
+            Some(self.arena.alloc_vec(self.parse_where_clause()?))
+        } else {
+            None
+        };
         let body = self.parse_block()?;
         let node = AstMethod {
             modifier,
@@ -691,8 +752,26 @@ impl<'ast> Parser<'ast> {
             ret: self.arena.alloc(ret_ty),
             body: self.arena.alloc(body),
             vis: AstVisibility::default(),
+            where_clause,
+            docstring: None,
         };
         Ok(node)
+    }
+
+    fn parse_where_clause(&mut self) -> ParseResult<Vec<AstGeneric<'ast>>> {
+        self.expect(TokenKind::KwWhere)?;
+        let mut generics = vec![];
+        loop {
+            let generic = self.parse_generic()?;
+            generics.push(generic);
+            if self.current().kind() == TokenKind::Comma {
+                let _ = self.advance();
+            } else {
+                break;
+            }
+        }
+
+        Ok(generics)
     }
 
     fn parse_generic(&mut self) -> ParseResult<AstGeneric<'ast>> {
@@ -873,6 +952,7 @@ impl<'ast> Parser<'ast> {
             ret: self.arena.alloc(ret_ty),
             body: self.arena.alloc(body),
             vis: AstVisibility::default(),
+            docstring: None,
         };
         Ok(node)
     }
@@ -930,6 +1010,23 @@ impl<'ast> Parser<'ast> {
                 Ok(node)
             }
             _ => {
+                // Look ahead to see if this is an assignment statement at top level
+                if self.lookahead_is_assignment() {
+                    // Parse LHS allowing postfix/unary forms, so we can parse `arr[i] = ...`, `this.f = ...`, `*p = ...`
+                    let lhs = self.parse_primary()?;
+                    let lhs = self.parse_ident_access(lhs, true)?;
+                    // At this point, parse_ident_access should have consumed the OpAssign and returned an Assign expression
+                    if let AstExpr::Assign(assign) = lhs {
+                        self.expect(TokenKind::Semicolon)?;
+                        return Ok(AstStatement::Assign(assign));
+                    } else {
+                        // Fallback: treat as expression
+                        let expr = self.parse_expr()?;
+                        self.expect(TokenKind::Semicolon)?;
+                        return Ok(AstStatement::Expr(expr));
+                    }
+                }
+
                 let node = self.parse_expr()?;
                 self.expect(TokenKind::Semicolon)?;
                 Ok(AstStatement::Expr(node))
@@ -996,6 +1093,7 @@ impl<'ast> Parser<'ast> {
             name: self.arena.alloc(name),
             ty: self.arena.alloc(ty),
             value: self.arena.alloc(value),
+            docstring: None,
         };
         Ok(node)
     }
@@ -1153,11 +1251,7 @@ impl<'ast> Parser<'ast> {
 
                 Ok(node)
             }
-            // Handle assignment to unary expressions like `*ref_x = 100`
-            TokenKind::OpAssign => {
-                let node = AstExpr::Assign(self.parse_assign(left)?);
-                Ok(node)
-            }
+            // Assignment is not an expression anymore; do not parse it here.
             _ => Ok(left),
         }
     }
@@ -1312,7 +1406,8 @@ impl<'ast> Parser<'ast> {
     fn parse_primary(&mut self) -> ParseResult<AstExpr<'ast>> {
         let node = self.parse_primary_no_postfix()?;
         // Parse postfix operations (method calls, field access, indexing) on all primary expressions
-        self.parse_ident_access(node, true)
+        // Do NOT treat assignment as an expression here; assignments are statements.
+        self.parse_ident_access(node, false)
     }
 
     /// Parse primary expression with postfix operations but WITHOUT assignment handling.
@@ -1659,6 +1754,7 @@ impl<'ast> Parser<'ast> {
             args_ty: self.arena.alloc_vec(args_ty),
             ret_ty: self.arena.alloc(ret_ty),
             vis: AstVisibility::default(),
+            docstring: None,
         };
         Ok(node)
     }
@@ -1710,6 +1806,7 @@ impl<'ast> Parser<'ast> {
                 ty: self
                     .arena
                     .alloc(AstType::ThisTy(AstThisType { span: name.span })),
+                docstring: None,
             };
             return Ok(node);
         } else if self.current().kind == TokenKind::Ampersand {
@@ -1736,6 +1833,7 @@ impl<'ast> Parser<'ast> {
                             .arena
                             .alloc(AstType::ThisTy(AstThisType { span: name.span })),
                     })),
+                    docstring: None,
                 };
                 return Ok(node);
             } else if self.current().kind == TokenKind::KwThis {
@@ -1755,6 +1853,7 @@ impl<'ast> Parser<'ast> {
                             .arena
                             .alloc(AstType::ThisTy(AstThisType { span: name.span })),
                     })),
+                    docstring: None,
                 };
                 return Ok(node);
             }
@@ -1771,6 +1870,7 @@ impl<'ast> Parser<'ast> {
             span: Span::union_span(&name.span, &ty.span()),
             name: self.arena.alloc(name),
             ty: self.arena.alloc(ty),
+            docstring: None,
         };
 
         Ok(node)
@@ -1796,15 +1896,54 @@ impl<'ast> Parser<'ast> {
     }
 
     ///todo: add support for += -= *= /= %= etc.
-    fn parse_assign(&mut self, target: AstExpr<'ast>) -> ParseResult<AstAssignExpr<'ast>> {
+    fn parse_assign(&mut self, target: AstExpr<'ast>) -> ParseResult<AstAssignStmt<'ast>> {
         self.expect(TokenKind::OpAssign)?;
         let value = self.parse_expr()?;
-        let node = AstAssignExpr {
+        let node = AstAssignStmt {
             span: Span::union_span(&target.span(), &value.span()),
             target: self.arena.alloc(target),
             value: self.arena.alloc(value),
         };
         Ok(node)
+    }
+
+    /// Lookahead to determine if the current statement is an assignment at top-level.
+    /// This scans forward (without consuming parser state) until semicolon or end
+    /// and returns true if an `OpAssign` token is found at depth zero (not inside parentheses/brackets).
+    fn lookahead_is_assignment(&self) -> bool {
+        let mut depth_paren = 0isize;
+        let mut depth_brack = 0isize;
+        let mut depth_brace = 0isize;
+        let mut idx = self.pos;
+        while let Some(tok) = self.tokens.get(idx) {
+            match tok.kind() {
+                TokenKind::LParen => depth_paren += 1,
+                TokenKind::RParen => {
+                    if depth_paren > 0 {
+                        depth_paren -= 1
+                    }
+                }
+                TokenKind::LBracket => depth_brack += 1,
+                TokenKind::RBracket => {
+                    if depth_brack > 0 {
+                        depth_brack -= 1
+                    }
+                }
+                TokenKind::LBrace => depth_brace += 1,
+                TokenKind::RBrace => {
+                    if depth_brace > 0 {
+                        depth_brace -= 1
+                    }
+                }
+                TokenKind::OpAssign if depth_paren == 0 && depth_brack == 0 && depth_brace == 0 => {
+                    return true;
+                }
+                TokenKind::Semicolon | TokenKind::EoI => return false,
+                _ => {}
+            }
+            idx += 1;
+        }
+        false
     }
 
     fn parse_instantiated_generics(&mut self) -> ParseResult<Vec<AstType<'ast>>> {

@@ -1,28 +1,43 @@
+//! Experimental hash map implementation.
+//!
+//! Provides a simple hash map API with buckets and entries.
+//!
+//! Entry stored in a HashMap bucket.
 public struct HashMapEntry<K, V> {
 public:
-    key: K,
-    value: V,
+    //! Key for this entry.
+    key: K;
+    //! Value for this entry.
+    value: V;
+    //! Construct an entry from key and value.
     HashMapEntry(key: K, value: V) {
         this.key = key;
         this.value = value;
     }
+    //! Return the key.
     fun get_key() -> K {
         return this.key;
     }
+    //! Return the value.
     fun get_value() -> V {
         return this.value;
     }
 }
 
+//! Bucket holding multiple entries for a given hash.
 public struct HashMapBucket<K, V> {
 public:
-    entries: [HashMapEntry<K, V>],
+    //! Stored entries.
+    entries: [HashMapEntry<K, V>];
+    //! Create an empty bucket.
     HashMapBucket() {
         this.entries = [];
     }
+    //! Add an entry to the bucket.
     fun add_entry(key: K, value: V) {
         this.entries.push(HashMapEntry<K, V>(key, value));
     }
+    //! Return the entries array.
     fun get_entries() -> [HashMapEntry<K, V>] {
         return this.entries;
     }

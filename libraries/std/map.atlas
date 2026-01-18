@@ -20,7 +20,9 @@ public:
         delete this.key;
         delete this.value;
     }
-    Pair(from: &const Pair<K, V>) {
+    Pair(from: &const Pair<K, V>) 
+        where K: std::copyable, V: std::copyable
+    {
         this.key = *from.key;
         this.value = *from.value;
     }
@@ -30,17 +32,14 @@ public:
     fun get_second(&const this) -> V {
         return *(this.value);
     }
-    /// Consumes this pair and returns a new pair with swapped key and value
+    //! Consumes this pair and returns a new pair with swapped key and value
     fun swap(this) -> Pair<V, K> {
-        let value = this.value;
-        let key = this.key;
-        delete_from_ref(&this);
-        return new Pair<V, K>(value, key);
+        return new Pair<V, K>(this.value, this.key);
     }
 }
-/// A simple map implementation using two parallel arrays.
-/// This will not make into production stdlib, I just wanted to see what could
-/// be done with the current language features.
+//! A simple map implementation using two parallel arrays.
+//! This will not make into production stdlib, I just wanted to see what could
+//! be done with the current language features.
 //NB: Only works for primitive K types that support equality comparison
 public struct Map<K, V> {
 private:
@@ -55,13 +54,15 @@ public:
         delete this.keys;
         delete this.values;
     }
-    /// Copy constructor - creates a deep copy of the map
-    Map(from: &const Map<K, V>) {
+    //! Copy constructor - creates a deep copy of the map
+    Map(from: &const Map<K, V>)
+        where K: std::copyable, V: std::copyable
+    {
         this.keys = *from.keys;
         this.values = *from.values;
     }
-    /// Retrieves the value associated with the given key.
-    /// Returns None if the key does not exist.
+    //! Retrieves the value associated with the given key.
+    //! Returns None if the key does not exist.
     fun get(&const this, key: K) -> optional<&const V> {
         let i: uint64 = 0u;
         while i < *this.keys.length {
@@ -73,8 +74,8 @@ public:
         }
         return optional<&const V>::empty();
     }
-    /// Retrieves a mutable reference to the value associated with the given key.
-    /// Returns None if the key does not exist.
+    //! Retrieves a mutable reference to the value associated with the given key.
+    //! Returns None if the key does not exist.
     fun get_mut(&this, key: K) -> optional<&V> {
         let i: uint64 = 0u;
         while i < this.keys.length {
@@ -86,8 +87,8 @@ public:
         }
         return optional<&V>::empty();
     }
-    /// Inserts a key-value pair into the map.
-    /// If the key already exists, updates its value.
+    //! Inserts a key-value pair into the map.
+    //! If the key already exists, updates its value.
     fun insert(&this, key: K, value: V) {
         let i: uint64 = 0u;
         while i < this.keys.length {
@@ -102,8 +103,8 @@ public:
         this.keys.push(key);
         this.values.push(value);
     }
-    /// Removes a key-value pair from the map by key.
-    /// If the key does not exist, does nothing.
+    //! Removes a key-value pair from the map by key.
+    //! If the key does not exist, does nothing.
     fun remove(&this, key: K) {
         let i: uint64 = 0u;
         while i < this.keys.length {
@@ -124,14 +125,14 @@ public:
         }
         return;
     }
-    /// Returns the number of key-value pairs in the map.
+    //! Returns the number of key-value pairs in the map.
     fun size(&this) -> uint64 {
         return this.keys.length;
     }
 
     fun into_iter(this) -> Iter<Pair<K, V>> {
         let size = this.keys.length;
-        let pairs = Vector<Pair<K, V>>::with_capacity(size);
+        let pairs = new [Pair<K, V>; size];
         let i = 0u;
         while i < size {
             // Create pair directly from array access to avoid take() issues
@@ -141,7 +142,7 @@ public:
             let key = *key_ref;
             let value = *value_ref;
             let pair = new Pair<K, V>(key, value);
-            pairs.push(pair);
+            pairs[i] = pair;
             i = i + 1u;
         }
         delete this;
@@ -150,11 +151,11 @@ public:
 
     fun keys(&const this) -> Iter<&const K> {
         let size = *this.keys.length;
-        let keys_vec = Vector<&const K>::with_capacity(size);
+        let keys_vec = new [&const K; size];
         let i = 0u;
         while i < size {
             let key_ref = this.keys.get(i);
-            keys_vec.push(key_ref);
+            keys_vec[i] = key_ref;
             i = i + 1u;
         }
         return new Iter<&const K>(keys_vec);

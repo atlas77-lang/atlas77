@@ -2,9 +2,23 @@
 #![allow(clippy::single_match)]
 #![allow(clippy::new_without_default)]
 #![allow(clippy::unusual_byte_groupings)]
-#![allow(unused)]
+
+//! Atlas77 — an experimental statically-typed wannabe systems programming language.
+//!
+//! This crate provides the Atlas77 compiler and runtime: lexer/parser, HIR passes,
+//! code generation, assembler, and a VM. It exposes small helper functions such
+//! as `build`, `run`, and `init` (see `DEFAULT_INIT_CODE`) for working with
+//! Atlas projects programmatically.
+//!
+//! Current focus: the v0.7.x "Covenant" series (ownership & move/copy semantics).
+//! Upcoming work includes a VM redesign and LIR-based pipeline in the v0.8.x
+//! series (typed/register VM, async/await, improved performance).
+//!
+//! See the repository README and ROADMAP for details and the online docs:
+//! https://atlas77-lang.github.io/atlas77-docs/docs/latest/index.html
 
 pub mod atlas_c;
+pub mod atlas_docs;
 pub mod atlas_lib;
 pub mod atlas_vm;
 
@@ -206,5 +220,52 @@ pub fn init(name: String) {
     if !main_file_path.exists() {
         let mut file = std::fs::File::create(&main_file_path).unwrap();
         file.write_all(DEFAULT_INIT_CODE.as_bytes()).unwrap();
+    }
+}
+
+/// Compile up to the AST, then generate documentation in the specified output directory.
+pub fn generate_docs(output_dir: String, path: Option<&str>) {
+    // Ensure output directory exists
+    let output_path = get_path(&output_dir);
+    std::fs::create_dir_all(&output_path).unwrap();
+
+    // This should find and do it for every .atlas file in the project, but for now we just do src/main.atlas
+    let source_path = get_path(path.unwrap_or("src/main.atlas"));
+    let source = std::fs::read_to_string(&source_path).unwrap_or_else(|_| {
+        eprintln!(
+            "Failed to read source file at path: {}",
+            source_path.display()
+        );
+        std::process::exit(1);
+    });
+    let ast_arena = Bump::new();
+    let ast_arena = AstArena::new(&ast_arena);
+    let file_path = atlas_c::utils::string_to_static_str(source_path.to_str().unwrap().to_owned());
+    let program = match parse(file_path, &ast_arena, source) {
+        Ok(prog) => prog,
+        Err(e) => {
+            let report: miette::Report = (*e).into();
+            eprintln!("{:?}", report);
+            std::process::exit(1);
+        }
+    };
+
+    let hir_arena = HirArena::new();
+    let mut lower = AstSyntaxLoweringPass::new(&hir_arena, &program, &ast_arena, true);
+    let hir = match lower.lower() {
+        Ok(hir) => hir,
+        Err(e) => {
+            let report: miette::Report = e.into();
+            eprintln!("{:?}", report);
+            std::process::exit(1);
+        }
+    };
+    // Generate documentation using the AST
+    let out_path = output_path.clone();
+    #[allow(clippy::unit_arg)]
+    {
+        if let Err(e) = crate::atlas_docs::generate_docs(&hir.signature, &out_path) {
+            eprintln!("atlas_docs error: {}", e);
+        }
     }
 }

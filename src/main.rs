@@ -1,3 +1,4 @@
+// TODO: We should remove those allow clippy directives one day
 #![deny(warnings)]
 #![deny(clippy::unwrap_used)]
 #![allow(clippy::result_large_err)]
@@ -5,7 +6,7 @@
 #![allow(clippy::new_without_default)]
 #![allow(clippy::unusual_byte_groupings)]
 
-use atlas_77::{CompilationFlag, build, run};
+use atlas_77::{CompilationFlag, build, generate_docs, run};
 use clap::Parser;
 
 #[derive(Parser)] // requires `derive` feature
@@ -13,7 +14,7 @@ use clap::Parser;
 #[command(
     bin_name = "atlas_77",
     author = "atlas77-lang",
-    version("v0.7.2 Covenant"),
+    version("v0.7.3 Covenant"),
     about = "Programming language made in Rust, a goofy cousin to C++. \nNB: The language is still in early development and is not stable yet, BEWARE.",
     long_about = "Atlas77 is a programming language made in Rust. It is a statically typed language with a focus on being a goofy cousin to C++ and useful for me (Gipson62) at least. \n\nNB: The language is still in early development and is not stable yet, BEWARE."
 )]
@@ -75,6 +76,13 @@ enum AtlasRuntimeCLI {
         /// Check in release mode
         release: bool,
     },
+    //#[cfg(feature = "docs")]
+    Docs {
+        #[arg(short = 'o', long, default_value = "docs")]
+        /// Output directory for the generated documentation
+        output: String,
+        file_path: Option<String>,
+    },
 }
 
 fn main() -> miette::Result<()> {
@@ -89,7 +97,7 @@ fn main() -> miette::Result<()> {
                 eprintln!("Cannot run in both release and debug mode");
                 std::process::exit(1);
             }
-            let path = file_path.unwrap_or_else(|| "src/main.atlas".to_string());
+            let path = file_path.unwrap_or("src/main.atlas".to_string());
             run(
                 path,
                 if release {
@@ -111,7 +119,7 @@ fn main() -> miette::Result<()> {
                 eprintln!("Cannot build in both release and debug mode");
                 std::process::exit(1);
             }
-            let path = file_path.unwrap_or_else(|| "src/main.atlas".to_string());
+            let path = file_path.unwrap_or("src/main.atlas".to_string());
             build(
                 path,
                 if release {
@@ -136,7 +144,7 @@ fn main() -> miette::Result<()> {
             Ok(())
         }
         AtlasRuntimeCLI::Check { file_path, release } => {
-            let path = file_path.unwrap_or_else(|| "src/main.atlas".to_string());
+            let path = file_path.unwrap_or("src/main.atlas".to_string());
             build(
                 path,
                 if release {
@@ -148,6 +156,10 @@ fn main() -> miette::Result<()> {
                 false,
             )
             .map(|_| ())
+        }
+        AtlasRuntimeCLI::Docs { output, file_path } => {
+            generate_docs(output, file_path.as_deref());
+            Ok(())
         }
     }
 }

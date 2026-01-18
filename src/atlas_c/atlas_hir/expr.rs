@@ -6,7 +6,6 @@ use crate::atlas_c::utils::Span;
 #[derive(Debug, Clone)]
 //todo: Add arrays/struct & class init literal
 pub enum HirExpr<'hir> {
-    Assign(HirAssignExpr<'hir>),
     HirBinaryOperation(HirBinaryOpExpr<'hir>),
     Call(HirFunctionCallExpr<'hir>),
     Ident(HirIdentExpr<'hir>),
@@ -55,7 +54,6 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::Casting(expr) => expr.span,
             HirExpr::HirBinaryOperation(expr) => expr.span,
             HirExpr::Call(expr) => expr.span,
-            HirExpr::Assign(expr) => expr.span,
             HirExpr::StringLiteral(expr) => expr.span,
             HirExpr::ListLiteral(expr) => expr.span,
             HirExpr::NewArray(expr) => expr.span,
@@ -84,7 +82,6 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::Casting(_) => "Casting Expression",
             HirExpr::HirBinaryOperation(_) => "Binary Operation Expression",
             HirExpr::Call(_) => "Function Call Expression",
-            HirExpr::Assign(_) => "Assignment Expression",
             HirExpr::StringLiteral(_) => "String Literal",
             HirExpr::ListLiteral(_) => "List Literal",
             HirExpr::NewArray(_) => "New Array Expression",
@@ -113,7 +110,6 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::Casting(expr) => expr.ty,
             HirExpr::HirBinaryOperation(expr) => expr.ty,
             HirExpr::Call(expr) => expr.ty,
-            HirExpr::Assign(expr) => expr.ty,
             HirExpr::StringLiteral(expr) => expr.ty,
             HirExpr::ListLiteral(expr) => expr.ty,
             HirExpr::NewArray(expr) => expr.ty,
@@ -235,14 +231,6 @@ pub struct HirBooleanLiteralExpr<'hir> {
 pub struct HirStringLiteralExpr<'hir> {
     pub value: &'hir str,
     pub span: Span,
-    pub ty: &'hir HirTy<'hir>,
-}
-
-#[derive(Debug, Clone)]
-pub struct HirAssignExpr<'hir> {
-    pub span: Span,
-    pub lhs: Box<HirExpr<'hir>>,
-    pub rhs: Box<HirExpr<'hir>>,
     pub ty: &'hir HirTy<'hir>,
 }
 

@@ -15,12 +15,14 @@ public:
     }
 }
 
-// A copyable type - just implement _copy()!
+// A copyable struct
 struct Copyable {
 public:
     value: int64;
     
-    Copyable(value: int64) { this.value = value; }
+    Copyable(value: int64) {
+        this.value = value;
+    }
 
     ~Copyable() {
         print("Copyable destroyed with value: ");
@@ -33,12 +35,12 @@ public:
 }
 
 fun mutate(ref: &int64) {
-    *ref = *ref * 2;  // Dereference and modify
+    (*ref) = *ref * 2;  // Dereference and modify
 }
 
 fun read_only(ref: &const int64) {
     println(*ref);
-    // *ref = 10;  // ❌ Compile error: can't mutate const ref
+    // (*ref) = 10;  // ❌ Compile error: can't mutate const ref
 }
 
 fun consume(resource: UniqueResource) {
@@ -64,7 +66,9 @@ fun main() {
     let x = 10;
     println(x);      // 10
     mutate(&x);      // Pass mutable reference
-    println(x);      // 20 - modified in place!
+    println(x);      // 20
+    mutate(&x);      // Modify in place again
+    println(x);      // 40 - modified in place!
     
     // === Const references ===
     println("=== Const reference test ===");

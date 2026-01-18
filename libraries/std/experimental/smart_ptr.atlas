@@ -3,67 +3,77 @@ import "std/io";
 extern forget<T>(val: T);
 extern mem_alloc<T>() -> &T;
 
-// The block itself cannot be copied
+//! Internal reference-count block used by `rc_ptr`.
 #[std::non_copyable]
 private struct RcBlock<T> {
 public:
+    //! Strong reference count.
     strong: uint64;
+    //! Owned value.
     value: T;
+    //! Construct a block with initial strong count and a value.
     RcBlock(strong: uint64, value: T) {
         this.strong = strong;
         this.value = value;
     }
+    //! Drop the owned value when the block is freed.
     ~RcBlock() {
         delete this.value;
     }
+    //! Set block fields.
     fun set(&this, strong: uint64, value: T) {
         this.strong = strong;
         this.value = value;
     }
 }
 
-// Ref-counted pointer implementation
+//! Experimental ref-counted pointer.
 public struct rc_ptr<T> {
 private:
+    //! Pointer to the shared block.
     block: &RcBlock<T>;
-    /// Private constructor
-    /// Used internally to create a rc_ptr from an existing RcBlock
+    //! Private constructor used to create an `rc_ptr` from an existing block.
     rc_ptr(block: &RcBlock<T>) {
         this.block = block;
     }
 public:
-    // custom destructor
+    //! Custom destructor - release the reference.
     ~rc_ptr() {
         this.release();
     }
+    //! Clone (increments refcount).
     rc_ptr(from: &const rc_ptr<T>) {
         let strong = *from.block.strong;
         this.block = *from.block;
-        *this.block.strong = strong + 1u;
+        (*this.block.strong) = strong + 1u;
     }
+    //! Allocate a new `rc_ptr` owning `val`.
     fun new_rc_ptr(val: T) -> rc_ptr<T> {
         let block: &RcBlock<T> = mem_alloc<RcBlock<T>>();
         block.set(1u, val);
         return new rc_ptr<T>(block);
     }
 
+    //! Release ownership; free block when count hits zero.
     fun release(this) {
         let old = *this.block.strong;
         if old == 0u {
             panic("double release");
         }
         let new_counter = old - 1u;
-        *this.block.strong = new_counter;
+        (*this.block.strong) = new_counter;
 
         if new_counter == 0u {
-            delete this.block; //Shouldn't we also free the ``rc_ptr`` itself?
+            delete this.block;
         }
     }
 
+    //! Return a const reference to the value.
     fun get(&this) -> &const T {
         return this.block.value;
     }
 
+    //! Return a mutable reference to the value.
     fun get_mut(&this) -> &T {
         return this.block.value;
     }

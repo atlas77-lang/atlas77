@@ -1,7 +1,6 @@
 // Used internally by the compiler to test every features
 // It doesn't have any specific meaning
 
-import "std/box";
 import "std/fs";
 import "std/io";
 import "std/iter";
@@ -32,6 +31,10 @@ public:
         this.value = val;
     }
 
+    Container(from: &const Container<T>) {
+        this.value = *from.value;
+    }
+
     fun get(&this) -> T {
         return this.value;
     }
@@ -39,12 +42,10 @@ public:
     fun set(&this, new_val: T) {
         this.value = new_val;
     }
-
-    fun _copy(&const this) -> Container<T> {
-        return new Container<T>(*this.value);
-    }
 }
-
+/*
+Multi line comment
+*/
 // Generic pair wrapper (different from std Map's Pair)
 struct GenericTuple<A, B> {
 public:
@@ -160,7 +161,7 @@ fun main() {
     ];
     let vec_gen_tuple = new Vector<GenericTuple<int64, string>>(arr_gen_tuple);
     let iter_over_gen_tuple = vec_gen_tuple.into_iter();
-    print("Iterator over GenericTuple:");
+    println("Iterator over GenericTuple:");
     while iter_over_gen_tuple.has_next() {
         print("Iteration - ");
         let val: optional<GenericTuple<int64, string>> = iter_over_gen_tuple.next();

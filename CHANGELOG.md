@@ -2,6 +2,74 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.3] - 2026-01-18
+
+### Bug Fixes
+
+- `std/time` still used the old copy constructor ([5fee875](https://github.com/atlas77-lang/Atlas77/commit/5fee87563e26c5bee8d5d07a1afdae4db136bb18))
+- Removed the first whitespace if it exists ([86c48c3](https://github.com/atlas77-lang/Atlas77/commit/86c48c336c3b33d926ef6f87dd828bfc94baac66))
+- README.md typo ([c13bfe0](https://github.com/atlas77-lang/Atlas77/commit/c13bfe02e4b8862369ab02c7547227a7c8a3ebf9))
+- Well, it's tested now, and crashes at the very end after working, will investigate later ([48aebdc](https://github.com/atlas77-lang/Atlas77/commit/48aebdce4a1dfef6d77f0faef07790eeae27aebd))
+- Track values deleted in loops ([eaa0d05](https://github.com/atlas77-lang/Atlas77/commit/eaa0d058ec73f274a8c997dd71be9fed03b2b9f2))
+- Potential fix for #149 ([0953339](https://github.com/atlas77-lang/Atlas77/commit/095333952d1e0576412e9766b4fe6d1cebdddf2a))
+- Well, another issue here, but that's just cuz I am stupid ([3aba518](https://github.com/atlas77-lang/Atlas77/commit/3aba5181481c1cbd1c5083d733eef1c06504ced8))
+- Every values should be properly deleted before their assignment. ([b55f3c6](https://github.com/atlas77-lang/Atlas77/commit/b55f3c646cbbbb0c49fac80118401ab76a55f3c6))
+- The typechecker didn't create a new scope for blocks ([1c4696f](https://github.com/atlas77-lang/Atlas77/commit/1c4696f9198cc86d7287f7d1f8cd7a5b1e8f7c83))
+- The previous value of a variable wouldn't be freed if you assign a new value to it ([73711af](https://github.com/atlas77-lang/Atlas77/commit/73711af2f0a1d49d60d75a2f176f3e6679988edc))
+- Temporary fix for #153, the compiler just rejects references that have a bigger depth than 2 ([11de88e](https://github.com/atlas77-lang/Atlas77/commit/11de88e49077323bdc7700386ec67572cef05d50))
+- Std issue template ([b9927a3](https://github.com/atlas77-lang/Atlas77/commit/b9927a381ed3097282b72504f2f8c2d2a1070b57))
+- Variables are now properly being lowered to the Lir without having to create a temporary ([e5af4b5](https://github.com/atlas77-lang/Atlas77/commit/e5af4b56b69e872a2b97f1964eadc17c807e58e8))
+- The monomorphization pass checked the satisfaction of generic constraints before the copy constructors were generated ([3faf9e9](https://github.com/atlas77-lang/Atlas77/commit/3faf9e93409d6368f0e631d2f9225e414e14cf22))
+- The monomorphization pass still used the old `_copy` method for the copy copyability checks ([b11c38d](https://github.com/atlas77-lang/Atlas77/commit/b11c38d7d8f8b747cdbb0f20b36b59a6883b03c0))
+
+### Documentation
+
+- Updated ROADMAP.md before new version ([534fc62](https://github.com/atlas77-lang/Atlas77/commit/534fc620b98698d49119dc97245a0d0d44d1a964))
+- Added documentation to most files, still not done. Hoping to use this to generate the v0.7.3 documentation and the future ones too ([c04696d](https://github.com/atlas77-lang/Atlas77/commit/c04696dd235c66e5b28325eca1aa53f8cad25c43))
+- Added a little documentation for people who would discover atlas from docs.rs ([a5e4fa3](https://github.com/atlas77-lang/Atlas77/commit/a5e4fa34fe8226d69e5d2b3e9a2ed307b4f19ca7))
+- Updated the roadmap ([9071345](https://github.com/atlas77-lang/Atlas77/commit/90713451aa3ef8d529ea7d6f6b9985f0da6b2a2a))
+- I believe, now there should issue/PR templates, & contributing template ([7b7f81e](https://github.com/atlas77-lang/Atlas77/commit/7b7f81e39dffa829031e950e7908bc848e115651))
+- WELL I FORGOT TO UPDATE THE CONTRIBUTING_GUIDELINES. ([454cbda](https://github.com/atlas77-lang/Atlas77/commit/454cbdabae4848849706c32a67730df4675abdcb))
+
+### Features
+
+- Added multi line comments ([322415e](https://github.com/atlas77-lang/Atlas77/commit/322415e02feec71973dde2470725f83dcc72c079))
+- Better documentation system. Will continue to improve it ([7035c6d](https://github.com/atlas77-lang/Atlas77/commit/7035c6deb233c79c0c73006be602dfac97663aff))
+- Better documentation generation ([d91c436](https://github.com/atlas77-lang/Atlas77/commit/d91c43625e36d98c908b25ed08e8e88c9916baaa))
+- First try at `atlas_77 docs`, still very wanky ([cf39c6e](https://github.com/atlas77-lang/Atlas77/commit/cf39c6eb91c00be97f029de5667098658c4a3525))
+- Supporrt for `[` & `]` operators in brainfuck (not tested) ([f9edc5a](https://github.com/atlas77-lang/Atlas77/commit/f9edc5a6d699b2c1be20eec8577d993498c2b17f))
+- Added reverse methods for `Iter<T>` ([592bfe1](https://github.com/atlas77-lang/Atlas77/commit/592bfe13fc41edd07b7c6ff07f9c128f7dee6392))
+- Improved automatic destructor generation by rejecting union fields ([faba3bf](https://github.com/atlas77-lang/Atlas77/commit/faba3bf4021092ecaef1b0f83ed2589d7ae38618))
+- The type checker reject variable shadowing. ([f98f1f2](https://github.com/atlas77-lang/Atlas77/commit/f98f1f26a17aa5352b397a7ab1e27882da2c5d8f))
+- Added `std/experimental/iter` for a better iterator ([288e8fb](https://github.com/atlas77-lang/Atlas77/commit/288e8fb2e7d9650c27388019ede1160e62d94833))
+- Added `ldimm %imm()` instruction ([6d5c5de](https://github.com/atlas77-lang/Atlas77/commit/6d5c5ded030d9cd8424076ff70d59336365f789b))
+- The std has been updated to use the new where clause for the copy constructor ([416adae](https://github.com/atlas77-lang/Atlas77/commit/416adaeb0df0ebfa7734df8c8d8b1f6bb9b29666))
+- Added checks for constraint satisfaction in the ownership pass (future proofing it) ([2b15c44](https://github.com/atlas77-lang/Atlas77/commit/2b15c44d2441955fa6605af63d0153a535d3ce44))
+- You can now add where clauses on method and copy constructor for generic structs to have a conditional implementation of that method/copy_ctor on the struct ([22713f8](https://github.com/atlas77-lang/Atlas77/commit/22713f859346bd532c758dc90ca88bd568a2d98a))
+- Added `std/experimental/future` for, well, the future ([ca46671](https://github.com/atlas77-lang/Atlas77/commit/ca46671d1b63cd4c3c03437efd161ea9545dfc25))
+
+### Miscellaneous Tasks
+
+- Cargo clippy & fmt ([dff7824](https://github.com/atlas77-lang/Atlas77/commit/dff782403640584d1cfecc0df4df88487d45816a))
+- Cargo clippy ([27f8a63](https://github.com/atlas77-lang/Atlas77/commit/27f8a636db9d5ceac4af1dd78be5e1030fd56a73))
+- Bump to `v0.7.3` ([b625376](https://github.com/atlas77-lang/Atlas77/commit/b6253766bdc4c710d252a12a14033ad3293e9b49))
+
+### Refactor
+
+- Assignments are now statements instead of expressions. Also fixed an issue where you could delete owned & non copy variables in loops. ([9d12503](https://github.com/atlas77-lang/Atlas77/commit/9d12503eee4f8f32d23c0d7cbe9eebe92cb6636b))
+
+### Misc
+
+- Changed the stack from `[VMData; Size]` to `&'run mut [VMDATA; Size]` ([245b1ea](https://github.com/atlas77-lang/Atlas77/commit/245b1ea3143429da89a8eae0d71c30ea06626d86))
+- Some changes to std/experimental/future ([accfddc](https://github.com/atlas77-lang/Atlas77/commit/accfddc483f6c2e6a2d823ef474cb7594477728a))
+- Improved error readability ([18e6bed](https://github.com/atlas77-lang/Atlas77/commit/18e6bed4acade49bdd0f5798c2390798fb7a2cd7))
+- Added `optional<T>.as_ref()` but only in comment because of #153 ([d1648a5](https://github.com/atlas77-lang/Atlas77/commit/d1648a517535076ad4cee4e3b65cf074b543bbbb))
+- Pretty printer now output the where clauses ([7acfeb7](https://github.com/atlas77-lang/Atlas77/commit/7acfeb72c98aabc00be2f0b73c80ec765d6cffe3))
+
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
 ## [0.7.2] - 2026-01-11
 
 ### Bug Fixes

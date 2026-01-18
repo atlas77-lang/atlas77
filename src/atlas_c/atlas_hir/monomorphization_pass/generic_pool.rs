@@ -2,7 +2,8 @@ use miette::NamedSource;
 
 use crate::atlas_c::atlas_hir::arena::HirArena;
 use crate::atlas_c::atlas_hir::error::{
-    TypeDoesNotImplementRequiredConstraintError, TypeDoesNotImplementRequiredConstraintOrigin,
+    HirError, TooManyReferenceLevelsError, TypeDoesNotImplementRequiredConstraintError,
+    TypeDoesNotImplementRequiredConstraintOrigin,
 };
 use crate::atlas_c::atlas_hir::monomorphization_pass::MonomorphizationPass;
 use crate::atlas_c::atlas_hir::signature::{
@@ -60,21 +61,48 @@ impl<'hir> HirGenericPool<'hir> {
         generic: HirGenericTy<'hir>,
         module: &HirModuleSignature<'hir>,
     ) {
-        //Let's now check for constraints:
-        let declaration_span;
-        let constraints: Vec<&HirGenericConstraint<'_>>;
-        if let Some(struct_sig) = module.structs.get(generic.name) {
-            declaration_span = struct_sig.name_span;
-            constraints = struct_sig.generics.clone();
-            if !self.check_constraint_satisfaction(module, &generic, constraints, declaration_span)
-            {
-                std::process::exit(1);
-            }
-        }
         //We need to check if it's an instantiated generics or a generic definition e.g.: Vector<T> or Vector<uint64>
-        //We check only after checking constraints so if a type is registered during syntax lowering we still check constraints afterwards
         if !self.is_generic_instantiated(&generic, module) {
             return;
+        }
+        // Let's add a temporary check. References cannot be more than 2 levels deep (e.g.: &&T/&&const T/&const &T/&const &const T)
+        fn count_reference_levels<'hir>(ty: &'hir HirTy<'hir>, current: usize) -> Option<usize> {
+            if current > 2 {
+                //Failed the check
+                return None;
+            }
+            match ty {
+                HirTy::ReadOnlyReference(inner) => count_reference_levels(inner.inner, current + 1),
+                HirTy::MutableReference(inner) => count_reference_levels(inner.inner, current + 1),
+                _ => Some(0),
+            }
+        }
+        for node in generic.inner.iter() {
+            if let Some(levels) = count_reference_levels(node, 0) {
+                if levels > 2 {
+                    let path = generic.span.path;
+                    let src = crate::atlas_c::utils::get_file_content(path).unwrap();
+                    let report: miette::ErrReport =
+                        HirError::TooManyReferenceLevels(TooManyReferenceLevelsError {
+                            span: generic.span,
+                            src: NamedSource::new(path, src),
+                        })
+                        .into();
+                    eprintln!("{:?}", report);
+                    std::process::exit(1);
+                }
+            } else {
+                let path = generic.span.path;
+                let src = crate::atlas_c::utils::get_file_content(path).unwrap();
+                let report: miette::ErrReport =
+                    HirError::TooManyReferenceLevels(TooManyReferenceLevelsError {
+                        span: generic.span,
+                        src: NamedSource::new(path, src),
+                    })
+                    .into();
+                eprintln!("{:?}", report);
+                std::process::exit(1);
+            }
         }
 
         //TODO: Differentiate between struct and union here
@@ -92,15 +120,6 @@ impl<'hir> HirGenericPool<'hir> {
         generic: &HirGenericTy<'hir>,
         module: &HirModuleSignature<'hir>,
     ) {
-        let declaration_span;
-        let constraints: Vec<&HirGenericConstraint<'_>>;
-        if let Some(union_sig) = module.unions.get(generic.name) {
-            declaration_span = union_sig.name_span;
-            constraints = union_sig.generics.clone();
-            if !self.check_constraint_satisfaction(module, generic, constraints, declaration_span) {
-                std::process::exit(1);
-            }
-        }
         //We need to check if it's an instantiated generics or a generic definition e.g.: Result<T> or Result<uint64>
         if !self.is_generic_instantiated(generic, module) {
             return;
@@ -228,7 +247,7 @@ impl<'hir> HirGenericPool<'hir> {
         is_instantiated
     }
 
-    fn check_constraint_satisfaction(
+    pub fn check_constraint_satisfaction(
         &self,
         module: &HirModuleSignature<'hir>,
         instantiated_generic: &HirGenericTy<'hir>,
@@ -299,7 +318,11 @@ impl<'hir> HirGenericPool<'hir> {
 
     /// This is currently the only generic constraint supported.
     /// Checks if a type implements `std::copyable` e.g. If it's a primitive type or a struct that has the `_copy` method.
-    fn implements_std_copyable(&self, module: &HirModuleSignature<'hir>, ty: &HirTy<'hir>) -> bool {
+    pub fn implements_std_copyable(
+        &self,
+        module: &HirModuleSignature<'hir>,
+        ty: &HirTy<'hir>,
+    ) -> bool {
         match ty {
             HirTy::Boolean(_)
             | HirTy::Int64(_)
@@ -313,16 +336,25 @@ impl<'hir> HirGenericPool<'hir> {
             // Function pointers are copyable, though I am still not sure if I want this behavior...
             // Maybe closures that capture environment shouldn't be copyable?
             | HirTy::Function(_) => true,
-            HirTy::List(l) => self.implements_std_copyable(module, l.inner),
+            // For now we consider lists as non-copyable until we have a better way to handle them
+            HirTy::List(_l) => false /*self.implements_std_copyable(module, l.inner)*/,
             HirTy::Named(n) => match module.structs.get(n.name) {
-                Some(struct_sig) => struct_sig.methods.contains_key("_copy"),
-                None => false,
+                Some(struct_sig) => {
+                    struct_sig.copy_constructor.is_some()
+                },
+                None => {
+                    false
+                },
             },
             HirTy::Generic(g) => {
                 let name = MonomorphizationPass::generate_mangled_name(self.arena, g, "struct");
                 match module.structs.get(name) {
-                    Some(struct_sig) => struct_sig.methods.contains_key("_copy"),
-                    None => false,
+                    Some(struct_sig) => {
+                        struct_sig.copy_constructor.is_some()
+                    },
+                    None => {
+                        false
+                    }
                 }
             }
             _ => false,
