@@ -10,10 +10,10 @@ use crate::atlas_c::{
         parser::{
             arena::AstArena,
             ast::{
-                AstBinaryOp, AstBlock, AstConstructor, AstDestructor, AstEnum, AstExpr,
+                AstArg, AstBinaryOp, AstBlock, AstConstructor, AstDestructor, AstEnum, AstExpr,
                 AstExternFunction, AstFunction, AstGeneric, AstGenericConstraint, AstIdentifier,
-                AstImport, AstItem, AstLiteral, AstMethod, AstMethodModifier, AstObjField,
-                AstProgram, AstStatement, AstStruct, AstType, AstUnaryOp, AstUnion,
+                AstImport, AstItem, AstLiteral, AstMethod, AstMethodModifier, AstProgram,
+                AstStatement, AstStruct, AstType, AstUnaryOp, AstUnion,
             },
         },
     },
@@ -979,27 +979,9 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         &mut self,
         destructor: &'ast AstDestructor<'ast>,
     ) -> HirResult<HirStructConstructor<'hir>> {
-        let mut params: Vec<HirFunctionParameterSignature<'hir>> = Vec::new();
-        for param in destructor.args.iter() {
-            let ty = self.visit_ty(param.ty)?;
-            let name = self.arena.names().get(param.name.name);
-            params.push(HirFunctionParameterSignature {
-                span: param.span,
-                name,
-                name_span: param.name.span,
-                ty,
-                ty_span: param.ty.span(),
-            });
-        }
+        let params: Vec<HirFunctionParameterSignature<'hir>> = Vec::new();
+        let type_params: Vec<HirTypeParameterItemSignature<'hir>> = Vec::new();
 
-        let mut type_params: Vec<HirTypeParameterItemSignature<'hir>> = Vec::new();
-        for type_param in params.iter() {
-            type_params.push(HirTypeParameterItemSignature {
-                span: type_param.span,
-                name: type_param.name,
-                name_span: type_param.name_span,
-            });
-        }
         let signature = HirStructConstructorSignature {
             span: destructor.span,
             params: params.clone(),
@@ -1641,7 +1623,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
     fn visit_func_param(
         &mut self,
-        node: &'ast AstObjField<'ast>,
+        node: &'ast AstArg<'ast>,
     ) -> HirResult<HirFunctionParameterSignature<'hir>> {
         let name = self.arena.names().get(node.name.name);
         let ty = self.visit_ty(node.ty)?;
@@ -1658,7 +1640,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
     fn visit_type_param_item(
         &self,
-        node: &'ast AstObjField<'ast>,
+        node: &'ast AstArg<'ast>,
     ) -> HirResult<&'hir HirTypeParameterItemSignature<'hir>> {
         let name = self.arena.names().get(node.name.name);
 

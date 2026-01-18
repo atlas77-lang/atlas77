@@ -229,7 +229,13 @@ pub struct AstStruct<'ast> {
     pub fields: &'ast [&'ast AstObjField<'ast>],
     pub field_span: Span,
     pub constructor: Option<&'ast AstConstructor<'ast>>,
+    /// Signature: `MyStruct(from: &const MyStruct)`
     pub copy_constructor: Option<&'ast AstConstructor<'ast>>,
+    /// Signature: `MyStruct(dying_obj: &MyStruct)`
+    pub move_constructor: Option<&'ast AstConstructor<'ast>>,
+    /// Signature: `MyStruct()`
+    pub default_constructor: Option<&'ast AstConstructor<'ast>>,
+    /// Signature: `~MyStruct()`
     pub destructor: Option<&'ast AstDestructor<'ast>>,
     pub generics: &'ast [&'ast AstGeneric<'ast>],
     pub operators: &'ast [&'ast AstOperatorOverload<'ast>],
@@ -300,12 +306,14 @@ pub enum AstOverloadableOperator {
 pub enum ConstructorKind {
     Regular,
     Copy,
+    Move,
+    Default,
 }
 
 #[derive(Debug, Clone)]
 pub struct AstConstructor<'ast> {
     pub span: Span,
-    pub args: &'ast [&'ast AstObjField<'ast>],
+    pub args: &'ast [&'ast AstArg<'ast>],
     pub body: &'ast AstBlock<'ast>,
     pub vis: AstVisibility,
     /// Allows adding constraints on struct generics in the copy constructor
@@ -317,7 +325,6 @@ pub struct AstConstructor<'ast> {
 #[derive(Debug, Clone)]
 pub struct AstDestructor<'ast> {
     pub span: Span,
-    pub args: &'ast [&'ast AstObjField<'ast>],
     pub body: &'ast AstBlock<'ast>,
     pub vis: AstVisibility,
     pub docstring: Option<&'ast str>,
@@ -330,7 +337,7 @@ pub struct AstMethod<'ast> {
     pub span: Span,
     pub name: &'ast AstIdentifier<'ast>,
     pub generics: Option<&'ast [&'ast AstGeneric<'ast>]>,
-    pub args: &'ast [&'ast AstObjField<'ast>],
+    pub args: &'ast [&'ast AstArg<'ast>],
     pub ret: &'ast AstType<'ast>,
     pub body: &'ast AstBlock<'ast>,
     /// Optional where clause containing constraints on struct and method generics.
@@ -344,7 +351,7 @@ pub struct AstFunction<'ast> {
     pub span: Span,
     pub name: &'ast AstIdentifier<'ast>,
     pub generics: &'ast [&'ast AstGeneric<'ast>],
-    pub args: &'ast [&'ast AstObjField<'ast>],
+    pub args: &'ast [&'ast AstArg<'ast>],
     pub ret: &'ast AstType<'ast>,
     pub body: &'ast AstBlock<'ast>,
     pub vis: AstVisibility,
@@ -352,7 +359,14 @@ pub struct AstFunction<'ast> {
 }
 
 #[derive(Debug, Clone)]
-///todo: Rename because it's also used by functions
+pub struct AstArg<'ast> {
+    pub span: Span,
+    /// In a function or a struct the visibility is always public
+    pub name: &'ast AstIdentifier<'ast>,
+    pub ty: &'ast AstType<'ast>,
+}
+
+#[derive(Debug, Clone)]
 pub struct AstObjField<'ast> {
     pub span: Span,
     /// In a function or a struct the visibility is always public
@@ -360,6 +374,7 @@ pub struct AstObjField<'ast> {
     pub ty: &'ast AstType<'ast>,
     pub vis: AstVisibility,
     pub docstring: Option<&'ast str>,
+    pub default_value: Option<&'ast AstExpr<'ast>>,
 }
 
 #[derive(Debug, Clone)]
@@ -370,6 +385,8 @@ pub struct AstExternFunction<'ast> {
     pub args_name: &'ast [&'ast AstIdentifier<'ast>],
     pub args_ty: &'ast [&'ast AstType<'ast>],
     pub ret_ty: &'ast AstType<'ast>,
+    // e.g., "C", "C++", "Rust", "Python", etc.
+    pub language: &'ast str,
     pub vis: AstVisibility,
     pub docstring: Option<&'ast str>,
 }

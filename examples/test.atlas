@@ -186,4 +186,20 @@ fun main() {
     // Clean up
     file2.remove();
     delete file2;
+
+    // Testing generic static method call
+    let result = test<Foo>(123);
+}
+
+struct Foo {
+public:
+    a: int64;
+
+    fun create_with_val(val: int64) -> Foo {
+        return new Foo(val);
+    }
+}
+
+fun test<T>(val: int64) -> T {
+    return T::create_with_val(val);
 }

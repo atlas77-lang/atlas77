@@ -1,0 +1,58 @@
+/*
+This file will be the test file for the next design of atlas77.
+ */
+
+
+fun replace<T>(dest: &T, src: T) -> T {
+
+}
+
+//! Takes ownership of the value at val, replacing it with T::default().
+fun take<T: std::default>(val: &T) -> T {
+    return replace(val, T::default());
+}
+
+//! Moves data using T's move constructor.
+fun move<T: std::moveable>(data: &T) -> T {
+    // This is a call to T's move constructor.
+    // The move constructor isn't callable directly, so we use this special syntax.
+    return T::__move_ctor(data);
+}
+
+//! Makes a copy of data using T's copy constructor.
+fun copy<T: std::copyable>(data: &T) -> T {
+    // This is a call to T's copy constructor.
+    // The copy constructor can be called directly with `new MyStruct(&value)`, but we use this special syntax for consistency.
+    return T::__copy_ctor(data);
+}
+
+#[std::copyable]
+struct Point2D {
+public:
+    // You can also do: `x: int64 = 0;` to set default values for fields.
+    x: int64;
+    y: int64;
+    // Normal constructor:
+    Point2D(x: int64, y: int64) {
+        this.x = x;
+        this.y = y;
+    }
+    // Copy constructor:
+    Point2D(from: &const Point2D) {
+        this.x = *from.x;
+        this.y = *from.y;
+    }
+    // Move constructor:
+    Point2D(from: &Point2D) {
+        this.x = *from.x;
+        this.y = *from.y;
+        // Invalidate the source (not strictly necessary for int64, but good practice)
+        (*from.x) = 0;
+        (*from.y) = 0;
+    }
+    // Default constructor:
+    Point2D() {
+        this.x = 0;
+        this.y = 0;
+    }
+}
