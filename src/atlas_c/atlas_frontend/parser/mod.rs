@@ -519,6 +519,7 @@ impl<'ast> Parser<'ast> {
                 TokenKind::Identifier(s) => {
                     curr_vis = self.parse_current_vis(curr_vis)?;
                     if s == struct_identifier.name {
+                        //TODO: method names cannot start with "__" (2 underscores or more), as those are reserved for special methods
                         // This can be either a constructor or a copy constructor
                         let mut ctor =
                             self.parse_constructor(struct_identifier.name.to_owned(), curr_vis)?;

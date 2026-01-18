@@ -43,6 +43,7 @@ use atlas_c::{
     },
 };
 use bumpalo::Bump;
+use cranelift::codegen::ir::Function;
 use std::{collections::BTreeMap, io::Write, path::PathBuf, time::Instant};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -268,4 +269,92 @@ pub fn generate_docs(output_dir: String, path: Option<&str>) {
             eprintln!("atlas_docs error: {}", e);
         }
     }
+}
+
+pub fn test(path: String) -> miette::Result<Vec<Function>> {
+    std::fs::create_dir_all("./build").unwrap();
+    let start = Instant::now();
+    println!("Building project at path: {}", path);
+    let path_buf = get_path(&path);
+
+    let source = std::fs::read_to_string(&path).unwrap_or_else(|_| {
+        eprintln!("Failed to read source file at path: {}", path);
+        std::process::exit(1);
+    }); //parse
+    let bump = Bump::new();
+    let ast_arena = AstArena::new(&bump);
+    let file_path = atlas_c::utils::string_to_static_str(path_buf.to_str().unwrap().to_owned());
+    let program = match parse(file_path, &ast_arena, source) {
+        Ok(prog) => prog,
+        Err(e) => {
+            return Err((*e).into());
+        }
+    };
+
+    //hir
+    let hir_arena = HirArena::new();
+    let mut lower = AstSyntaxLoweringPass::new(&hir_arena, &program, &ast_arena, true);
+    let hir = lower.lower()?;
+
+    //monomorphize
+    let mut monomorphizer = MonomorphizationPass::new(&hir_arena, lower.generic_pool);
+    let hir = monomorphizer.monomorphize(hir)?;
+    //type-check
+    let mut type_checker = TypeChecker::new(&hir_arena);
+    let hir = type_checker.check(hir)?;
+
+    // Ownership analysis pass (MOVE/COPY semantics and destructor insertion)
+    let mut ownership_pass = OwnershipPass::new(hir.signature.clone(), &hir_arena);
+    let mut hir = match ownership_pass.run(hir) {
+        Ok(hir) => hir,
+        Err((hir, err)) => {
+            // Write HIR output (even if there are ownership errors)
+            use crate::atlas_c::atlas_hir::pretty_print::HirPrettyPrinter;
+            let mut hir_printer = HirPrettyPrinter::new();
+            let hir_output = hir_printer.print_module(hir);
+            let mut file_hir = std::fs::File::create("./build/output.atlas").unwrap();
+            file_hir.write_all(hir_output.as_bytes()).unwrap();
+            return Err((err).into());
+        }
+    };
+
+    //Dead code elimination (only in release mode)
+    let mut dce_pass = DeadCodeEliminationPass::new(&hir_arena);
+    hir = dce_pass.eliminate_dead_code(hir)?;
+
+    // Write HIR output
+    let mut hir_printer = HirPrettyPrinter::new();
+    let hir_output = hir_printer.print_module(hir);
+    let mut file_hir = std::fs::File::create("./build/output.atlas").unwrap();
+    file_hir.write_all(hir_output.as_bytes()).unwrap();
+
+    let mut lir_lower = HirLoweringPass::new(hir);
+    let lir = match lir_lower.lower() {
+        Ok(lir) => {
+            let mut file_lir = std::fs::File::create("./build/output.atlas_lir").unwrap();
+            let lir_output = format!("{}", &lir);
+            file_lir.write_all(lir_output.as_bytes()).unwrap();
+            lir
+        }
+        Err(e) => {
+            eprintln!("{:?}", Into::<miette::Report>::into(*e));
+            std::process::exit(1);
+        }
+    };
+    // codegen
+    use atlas_c::atlas_new_codegen::codegen_program;
+    let functions = codegen_program(&lir);
+    let end = Instant::now();
+    println!("Build completed in {}µs", (end - start).as_micros());
+
+    let mut file_clif = std::fs::File::create("./build/output.clif").unwrap();
+    for func in functions.iter() {
+        let content = format!("{}", func);
+        file_clif.write_all(content.as_bytes()).unwrap();
+    }
+
+    // Let's try to actually produce a binary for testing purposes
+    use cranelift::prelude::*;
+
+    Ok(functions)
 }

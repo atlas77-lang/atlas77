@@ -5,9 +5,6 @@
 //! > Often used to move out an element from a data structure.
 //! > It is very unsafe to use, because it can lead to double-free/use-after-free errors if not used carefully.
 public extern memcpy<T>(data: &const T) -> T;
-//! > [!Warning]
-//! > This function doesn't actually exist yet. It is a placeholder for future functionality.
-public extern take<T>(data: T) -> T;
 //! Deletes the memory of a value of type T referenced by a reference.
 //! Use with caution, as deleting a reference might lead to undefined behavior.
 public extern delete_from_ref<T>(data: &const T);
@@ -16,3 +13,26 @@ public extern swap<T>(a: &T, b: &T);
 //! Replaces the memory of the destination value with that of the source value.
 //! Returns the old value that was in the destination.
 public extern replace<T>(dest: &T, src: T) -> T;
+//! Moves the value of type T referenced by a reference, transferring ownership.
+//!
+//! As it runs the move constructor, the source reference is no longer valid after this operation.
+//! Use with caution, as using the source reference after this operation leads to undefined behavior if not properly handled.
+public fun move<T>(data: &T) -> T {
+    return T::__move_ctor(data);
+}
+
+//! Copies the value of type T referenced by a const reference.
+public fun copy<T: std::copyable>(data: &const T) -> T {
+    return T::__copy_ctor(data);
+}
+
+//! Takes the value of type T referenced by a const reference, replacing it with the default value.
+//! Returns the old value that was in the reference.
+//!
+//! [!Note]
+//! Takes a const reference, so any reference can coerce to it.
+public fun take<T: std::default>(data: &const T) -> T {
+    let default_value: T = T::default();
+    let old_value: T = replace(data, default_value);
+    return old_value;
+}

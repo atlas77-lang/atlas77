@@ -5,4 +5,5 @@ pub mod atlas_frontend;
 pub mod atlas_hir;
 pub mod atlas_lir;
 pub mod atlas_macro;
+pub mod atlas_new_codegen;
 pub(crate) mod utils;

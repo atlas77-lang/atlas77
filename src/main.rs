@@ -14,7 +14,7 @@ use clap::Parser;
 #[command(
     bin_name = "atlas_77",
     author = "atlas77-lang",
-    version("v0.7.3 Covenant"),
+    version("v0.8.0 No Codename yet"),
     about = "Programming language made in Rust, a goofy cousin to C++. \nNB: The language is still in early development and is not stable yet, BEWARE.",
     long_about = "Atlas77 is a programming language made in Rust. It is a statically typed language with a focus on being a goofy cousin to C++ and useful for me (Gipson62) at least. \n\nNB: The language is still in early development and is not stable yet, BEWARE."
 )]
@@ -65,7 +65,9 @@ enum AtlasRuntimeCLI {
         about = "Initialize a new Atlas77 project",
         long_about = "Initialize a new Atlas77 project in the current directory"
     )]
-    Init { name: Option<String> },
+    Init {
+        name: Option<String>,
+    },
     #[command(
         about = "Check a local package for errors without producing output",
         long_about = "Check a local package for errors without producing output. This is similar to 'build' but does not produce any output files."
@@ -82,6 +84,9 @@ enum AtlasRuntimeCLI {
         /// Output directory for the generated documentation
         output: String,
         file_path: Option<String>,
+    },
+    Test {
+        file_path: String,
     },
 }
 
@@ -159,6 +164,10 @@ fn main() -> miette::Result<()> {
         }
         AtlasRuntimeCLI::Docs { output, file_path } => {
             generate_docs(output, file_path.as_deref());
+            Ok(())
+        }
+        AtlasRuntimeCLI::Test { file_path } => {
+            atlas_77::test(file_path)?;
             Ok(())
         }
     }

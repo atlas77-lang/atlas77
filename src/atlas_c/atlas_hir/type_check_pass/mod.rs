@@ -4,7 +4,12 @@ use super::{
     HirFunction, HirModule, HirModuleSignature, arena::HirArena, expr, stmt::HirStatement,
 };
 use crate::atlas_c::atlas_hir::error::{
-    AccessingPrivateUnionError, CallingConsumingMethodOnMutableReferenceError, CallingConsumingMethodOnMutableReferenceOrigin, StdNonCopyableStructCannotHaveCopyConstructorError, StructCannotHaveAFieldOfItsOwnTypeError, ThisStructDoesNotHaveACopyConstructorError, ThisStructDoesNotHaveAMoveConstructorError, UnionMustHaveAtLeastTwoVariantError, UnionVariantDefinedMultipleTimesError, VariableNameAlreadyDefinedError
+    AccessingPrivateUnionError, CallingConsumingMethodOnMutableReferenceError,
+    CallingConsumingMethodOnMutableReferenceOrigin,
+    StdNonCopyableStructCannotHaveCopyConstructorError, StructCannotHaveAFieldOfItsOwnTypeError,
+    ThisStructDoesNotHaveACopyConstructorError, ThisStructDoesNotHaveAMoveConstructorError,
+    UnionMustHaveAtLeastTwoVariantError, UnionVariantDefinedMultipleTimesError,
+    VariableNameAlreadyDefinedError,
 };
 use crate::atlas_c::atlas_hir::expr::HirNewObjExpr;
 use crate::atlas_c::atlas_hir::item::{HirStructConstructor, HirUnion};
@@ -1536,10 +1541,7 @@ impl<'hir> TypeChecker<'hir> {
                                     let (expected_ty, expected_span) =
                                         if let Some(copy_ctor) = &class.copy_constructor {
                                             // No need to do .first().unwrap() because we already checked args.len() == 1
-                                            (
-                                                copy_ctor.params[0].ty,
-                                                copy_ctor.params[0].span,
-                                            )
+                                            (copy_ctor.params[0].ty, copy_ctor.params[0].span)
                                         } else {
                                             let path = static_access.span.path;
                                             let src = utils::get_file_content(path).unwrap();
@@ -1577,10 +1579,7 @@ impl<'hir> TypeChecker<'hir> {
                                     let (expected_ty, expected_span) =
                                         if let Some(move_ctor) = &class.move_constructor {
                                             // No need to do .first().unwrap() because we already checked args.len() == 1
-                                            (
-                                                move_ctor.params[0].ty,
-                                                move_ctor.params[0].span,
-                                            )
+                                            (move_ctor.params[0].ty, move_ctor.params[0].span)
                                         } else {
                                             let path = static_access.span.path;
                                             let src = utils::get_file_content(path).unwrap();
@@ -1640,8 +1639,6 @@ impl<'hir> TypeChecker<'hir> {
                                     ));
                                 }
                             }
-                            //TEMPORARY, I don't want to have errors everywhere in my IDE
-                            return Ok(self.arena.types().get_unit_ty());
                         }
                     }
                     _ => Err(HirError::UnsupportedExpr(UnsupportedExpr {
