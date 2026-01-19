@@ -11,7 +11,7 @@
  * - Currently, calling a function will add its FuncRef every time,
  *      we should cache those to avoid duplicates (HashMap<String, FuncRef>)
  * - Support more LIR instructions (We already have everything needed for fibonacci, but still)
- * - Potentially review the LIR design to make sure it's optimal for codegen 
+ * - Potentially review the LIR design to make sure it's optimal for codegen
  *      (I encountered a lot of issues while coding this)
  * - IDK, test it? I hope to be able to run fib(40) & "Hello, Atlas!" soon™️
 */
@@ -22,12 +22,12 @@ use crate::atlas_c::atlas_lir::program::{
 use cranelift::codegen::ir::condcodes::IntCC;
 use cranelift::codegen::ir::types::*;
 use cranelift::codegen::ir::{AbiParam, Function, InstBuilder, Signature, UserFuncName};
-use cranelift::prelude::{ExtFuncData, ExternalName};
 use cranelift::codegen::isa::CallConv;
 use cranelift::codegen::settings;
 use cranelift::codegen::verifier::verify_function;
 use cranelift::frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift::prelude::{Block, Variable};
+use cranelift::prelude::{ExtFuncData, ExternalName};
 use std::collections::HashMap;
 
 const ARG_BASE: u32 = 100_000;
@@ -50,7 +50,11 @@ pub fn codegen_program(lir_program: &LirProgram) -> Vec<Function> {
     functions
 }
 
-pub fn codegen_function(lir_function: &LirFunction, func_map: &mut HashMap<String, u32>, index: u32) -> Function {
+pub fn codegen_function(
+    lir_function: &LirFunction,
+    func_map: &mut HashMap<String, u32>,
+    index: u32,
+) -> Function {
     let mut sig = Signature::new(CallConv::SystemV);
     // Build signature from LIR function args and return type.
     for arg in &lir_function.args {
@@ -219,7 +223,11 @@ fn codegen_block(
                     builder.def_var(dv, as_i64);
                 }
             }
-            Call { func_name, dst, args } => {
+            Call {
+                func_name,
+                dst,
+                args,
+            } => {
                 // Build arg values
                 let mut arg_vals = Vec::new();
                 for a in args {
@@ -251,7 +259,11 @@ fn codegen_block(
                     builder.def_var(dv, ret_val);
                 }
             }
-            ExternCall { dst, func_name, args } => {
+            ExternCall {
+                dst,
+                func_name,
+                args,
+            } => {
                 // Lower extern calls to imported symbol `func_name` with i64 args
                 let mut arg_vals = Vec::new();
                 for a in args {

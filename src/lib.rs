@@ -353,8 +353,5 @@ pub fn test(path: String) -> miette::Result<Vec<Function>> {
         file_clif.write_all(content.as_bytes()).unwrap();
     }
 
-    // Let's try to actually produce a binary for testing purposes
-    use cranelift::prelude::*;
-
     Ok(functions)
 }
