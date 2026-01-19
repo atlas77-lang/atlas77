@@ -41,11 +41,15 @@ public:
     ~rc_ptr() {
         this.release();
     }
-    //! Clone (increments refcount).
+    //! Copy (increments refcount).
     rc_ptr(from: &const rc_ptr<T>) {
         let strong = *from.block.strong;
         this.block = *from.block;
         (*this.block.strong) = strong + 1u;
+    }
+    //! Move
+    rc_ptr(from: &rc_ptr<T>) {
+
     }
     //! Allocate a new `rc_ptr` owning `val`.
     fun new_rc_ptr(val: T) -> rc_ptr<T> {

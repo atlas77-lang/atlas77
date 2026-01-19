@@ -43,8 +43,12 @@ use atlas_c::{
     },
 };
 use bumpalo::Bump;
-use cranelift::codegen::ir::Function;
+use cranelift::codegen::ir::{Function, Signature};
+use cranelift::codegen::settings;
+use cranelift_object::{ObjectBuilder, ObjectModule};
+use cranelift_module::Module;
 use std::{collections::BTreeMap, io::Write, path::PathBuf, time::Instant};
+use target_lexicon::Triple;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum CompilationFlag {
@@ -271,7 +275,7 @@ pub fn generate_docs(output_dir: String, path: Option<&str>) {
     }
 }
 
-pub fn test(path: String) -> miette::Result<Vec<Function>> {
+pub fn test(path: String) -> miette::Result<Vec<u8>> {
     std::fs::create_dir_all("./build").unwrap();
     let start = Instant::now();
     println!("Building project at path: {}", path);
@@ -343,7 +347,7 @@ pub fn test(path: String) -> miette::Result<Vec<Function>> {
     };
     // codegen
     use atlas_c::atlas_new_codegen::codegen_program;
-    let functions = codegen_program(&lir);
+    let (functions, externs) = codegen_program(&lir);
     let end = Instant::now();
     println!("Build completed in {}µs", (end - start).as_micros());
 
@@ -353,5 +357,54 @@ pub fn test(path: String) -> miette::Result<Vec<Function>> {
         file_clif.write_all(content.as_bytes()).unwrap();
     }
 
-    Ok(functions)
+    let obj = emit_object_file(functions, externs);
+
+    use std::fs::File;
+    use std::io::Write;
+    let mut file_obj = File::create("./build/output.o").unwrap();
+    file_obj.write_all(&obj).unwrap();
+
+    Ok(obj)
+}
+
+pub fn emit_object_file(functions: Vec<Function>, externs: Vec<(String, Signature)>) -> Vec<u8> {
+    let isa = cranelift::codegen::isa::lookup(Triple::host())
+        .unwrap()
+        .finish(settings::Flags::new(settings::builder()))
+        .unwrap();
+
+    let builder = ObjectBuilder::new(
+        isa,
+        "atlas_module".to_string(),
+        cranelift_module::default_libcall_names(),
+    )
+    .unwrap();
+    let mut module = ObjectModule::new(builder);
+
+    // Declare internal functions (exports)
+    let mut func_ids = Vec::new();
+    for (i, func) in functions.iter().enumerate() {
+        let id = module
+            .declare_function(&format!("func_{}", i), cranelift_module::Linkage::Export, &func.signature)
+            .unwrap();
+        func_ids.push(id);
+    }
+
+    // Declare extern imports (imports)
+    for (name, sig) in externs.iter() {
+        let _id = module
+            .declare_function(name, cranelift_module::Linkage::Import, sig)
+            .unwrap();
+        // imported funcs are not defined here
+    }
+
+    // Define bodies for internal functions
+    for (i, func) in functions.into_iter().enumerate() {
+        let id = func_ids[i];
+        let mut ctx = cranelift::codegen::Context::for_function(func);
+        module.define_function(id, &mut ctx).unwrap();
+    }
+
+    let object = module.finish();
+    object.emit().unwrap()
 }

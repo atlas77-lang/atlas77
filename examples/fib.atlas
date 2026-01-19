@@ -1,7 +1,8 @@
+// Only println_int64 will work with the new cranelift backend for now.
 import "std/io";
 
 fun main() {
-    println(fib(40));
+    println_int64(fib(40));
 }
 
 fun fib(n: int64) -> int64 {

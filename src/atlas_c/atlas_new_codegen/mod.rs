@@ -33,21 +33,49 @@ use std::collections::HashMap;
 const ARG_BASE: u32 = 100_000;
 
 // Everything lives in the same namespace for now
-pub fn codegen_program(lir_program: &LirProgram) -> Vec<Function> {
+pub fn codegen_program(lir_program: &LirProgram) -> (Vec<Function>, Vec<(String, Signature)>) {
+    // Collect all user-defined functions and extern symbols, assign them
+    // contiguous indices so ExternalName::user(namespace, index) works.
     let mut functions = Vec::new();
 
     let mut func_map: HashMap<String, u32> = HashMap::new();
 
+    // First, register internal functions
     for (index, lir_function) in lir_program.functions.iter().enumerate() {
         func_map.insert(lir_function.name.clone(), index as u32);
     }
 
+    // Then collect extern calls and register their names/signatures after internal functions
+    let mut externs: Vec<(String, Signature)> = Vec::new();
+    for lir_function in lir_program.functions.iter() {
+        for block in &lir_function.blocks {
+            for instr in &block.instructions {
+                if let LirInstr::ExternCall { func_name, args, dst } = instr {
+                    if !func_map.contains_key(func_name) {
+                        let idx = (func_map.len() + externs.len()) as u32;
+                        func_map.insert(func_name.clone(), idx);
+                        // Build a signature for the extern (assume i64 params/return as used elsewhere)
+                        let mut sig = Signature::new(CallConv::SystemV);
+                        for _ in args.iter() {
+                            sig.params.push(AbiParam::new(I64));
+                        }
+                        if dst.is_some() {
+                            sig.returns.push(AbiParam::new(I64));
+                        }
+                        externs.push((func_name.clone(), sig));
+                    }
+                }
+            }
+        }
+    }
+
+    // Generate cranelift `Function` values for internal functions only.
     for (index, lir_function) in lir_program.functions.iter().enumerate() {
         let func = codegen_function(lir_function, &mut func_map, index as u32);
         functions.push(func);
     }
 
-    functions
+    (functions, externs)
 }
 
 pub fn codegen_function(
@@ -243,8 +271,10 @@ fn codegen_block(
                     callee_sig.returns.push(AbiParam::new(I64));
                 }
                 let sigref = builder.import_signature(callee_sig);
-                // Import the function as an external (symbol) so we get a FuncRef
-                let name = ExternalName::testcase(func_name.clone());
+                // Import the function as an external (module-level) function so we get a FuncRef.
+                // We map function names to `ExternalName::user(0, index)` using `func_map`.
+                let idx = *func_map.get(func_name).expect("unknown function");
+                let name = ExternalName::user(cranelift::codegen::ir::UserExternalNameRef::from_u32(idx));
                 let ext = ExtFuncData {
                     name,
                     signature: sigref,
@@ -279,8 +309,12 @@ fn codegen_block(
                     callee_sig.returns.push(AbiParam::new(I64));
                 }
                 let sigref = builder.import_signature(callee_sig);
-                let name = ExternalName::testcase(func_name.clone());
-                let ext = ExtFuncData {
+                // Extern calls are treated as colocated = false. They are registered
+                // in `func_map` by `codegen_program`, so we can reference them here
+                // with the assigned index in namespace 0.
+                let idx = *func_map.get(func_name).expect("unknown extern");
+                let name = ExternalName::user(cranelift::codegen::ir::UserExternalNameRef::from_u32(idx));
+                let ext = ExtFuncData { 
                     name,
                     signature: sigref,
                     colocated: false,
