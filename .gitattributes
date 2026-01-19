@@ -1,0 +1,3 @@
+; Well, idk which syntax highlighting will properly fit atlas77...
+; Either C++/Typescript or something else.
+*.atlas linguist-language=Typescript
