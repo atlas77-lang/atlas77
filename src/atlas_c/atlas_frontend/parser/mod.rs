@@ -1051,8 +1051,10 @@ impl<'ast> Parser<'ast> {
             _ => {
                 // Look ahead to see if this is an assignment statement at top level
                 if self.lookahead_is_assignment() {
-                    // Parse LHS allowing postfix/unary forms, so we can parse `arr[i] = ...`, `this.f = ...`, `*p = ...`
-                    let lhs = self.parse_primary()?;
+                    // Parse LHS allowing unary and postfix forms, so we can parse `arr[i] = ...`, `this.f = ...`, `*p = ...`
+                    // Use `parse_casting()` (which wraps unary handling) instead of `parse_primary()`
+                    // so unary operators like `*` are accepted as assignment targets.
+                    let lhs = self.parse_casting()?;
                     let lhs = self.parse_ident_access(lhs, true)?;
                     // At this point, parse_ident_access should have consumed the OpAssign and returned an Assign expression
                     if let AstExpr::Assign(assign) = lhs {
@@ -1968,6 +1970,30 @@ impl<'ast> Parser<'ast> {
 
     ///todo: add support for += -= *= /= %= etc.
     fn parse_assign(&mut self, target: AstExpr<'ast>) -> ParseResult<AstAssignStmt<'ast>> {
+        // Validate that the target is an assignable LHS.
+        // Allowed: identifier, field access, indexing, static access, or deref unary (`*p`).
+        fn is_assignable_target(target: &AstExpr) -> bool {
+            match target {
+                AstExpr::Identifier(_) => true,
+                AstExpr::FieldAccess(_) => true,
+                AstExpr::Indexing(_) => true,
+                AstExpr::StaticAccess(_) => true,
+                AstExpr::UnaryOp(u) => match u.op {
+                    Some(AstUnaryOp::Deref) => true,
+                    None => is_assignable_target(&u.expr),
+                    _ => false,
+                },
+                _ => false,
+            }
+        }
+
+        if !is_assignable_target(&target) {
+            return Err(self.unexpected_token_error(
+                TokenVec(vec![TokenKind::Identifier("Assignable LHS".to_string())]),
+                &target.span(),
+            ));
+        }
+
         self.expect(TokenKind::OpAssign)?;
         let value = self.parse_expr()?;
         let node = AstAssignStmt {

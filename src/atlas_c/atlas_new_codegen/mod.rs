@@ -50,7 +50,12 @@ pub fn codegen_program(lir_program: &LirProgram) -> (Vec<Function>, Vec<(String,
     for lir_function in lir_program.functions.iter() {
         for block in &lir_function.blocks {
             for instr in &block.instructions {
-                if let LirInstr::ExternCall { func_name, args, dst } = instr {
+                if let LirInstr::ExternCall {
+                    func_name,
+                    args,
+                    dst,
+                } = instr
+                {
                     if !func_map.contains_key(func_name) {
                         let idx = (func_map.len() + externs.len()) as u32;
                         func_map.insert(func_name.clone(), idx);
@@ -274,7 +279,8 @@ fn codegen_block(
                 // Import the function as an external (module-level) function so we get a FuncRef.
                 // We map function names to `ExternalName::user(0, index)` using `func_map`.
                 let idx = *func_map.get(func_name).expect("unknown function");
-                let name = ExternalName::user(cranelift::codegen::ir::UserExternalNameRef::from_u32(idx));
+                let name =
+                    ExternalName::user(cranelift::codegen::ir::UserExternalNameRef::from_u32(idx));
                 let ext = ExtFuncData {
                     name,
                     signature: sigref,
@@ -313,8 +319,9 @@ fn codegen_block(
                 // in `func_map` by `codegen_program`, so we can reference them here
                 // with the assigned index in namespace 0.
                 let idx = *func_map.get(func_name).expect("unknown extern");
-                let name = ExternalName::user(cranelift::codegen::ir::UserExternalNameRef::from_u32(idx));
-                let ext = ExtFuncData { 
+                let name =
+                    ExternalName::user(cranelift::codegen::ir::UserExternalNameRef::from_u32(idx));
+                let ext = ExtFuncData {
                     name,
                     signature: sigref,
                     colocated: false,

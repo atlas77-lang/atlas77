@@ -532,7 +532,12 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 }
             }
             HirStatement::Assign(assign) => {
-                let dst = &assign.dst;
+                let dst = if let HirExpr::Unary(u) = &assign.dst {
+                    if u.op == None { &u.expr } else { &assign.dst }
+                } else {
+                    &assign.dst
+                };
+
                 match dst {
                     HirExpr::Indexing(idx_expr) => {
                         match idx_expr.target.ty() {

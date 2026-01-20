@@ -45,8 +45,8 @@ use atlas_c::{
 use bumpalo::Bump;
 use cranelift::codegen::ir::{Function, Signature};
 use cranelift::codegen::settings;
-use cranelift_object::{ObjectBuilder, ObjectModule};
 use cranelift_module::Module;
+use cranelift_object::{ObjectBuilder, ObjectModule};
 use std::{collections::BTreeMap, io::Write, path::PathBuf, time::Instant};
 use target_lexicon::Triple;
 
@@ -385,7 +385,11 @@ pub fn emit_object_file(functions: Vec<Function>, externs: Vec<(String, Signatur
     let mut func_ids = Vec::new();
     for (i, func) in functions.iter().enumerate() {
         let id = module
-            .declare_function(&format!("func_{}", i), cranelift_module::Linkage::Export, &func.signature)
+            .declare_function(
+                &format!("func_{}", i),
+                cranelift_module::Linkage::Export,
+                &func.signature,
+            )
             .unwrap();
         func_ids.push(id);
     }
