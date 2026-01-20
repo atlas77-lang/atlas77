@@ -7,6 +7,14 @@ pub type Label = String;
 #[derive(Debug, Clone)]
 pub struct LirProgram {
     pub functions: Vec<LirFunction>,
+    pub extern_functions: Vec<LirExternFunction>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LirExternFunction {
+    pub name: String,
+    pub args: Vec<LirPrimitiveType>,
+    pub return_type: Option<LirPrimitiveType>,
 }
 
 #[derive(Debug, Clone)]

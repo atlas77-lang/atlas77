@@ -17,8 +17,8 @@ use crate::atlas_c::{
             UnsupportedHirExprError,
         },
         program::{
-            LirBlock, LirFunction, LirInstr, LirOperand, LirPrimitiveType, LirProgram,
-            LirTerminator,
+            LirBlock, LirExternFunction, LirFunction, LirInstr, LirOperand, LirPrimitiveType,
+            LirProgram, LirTerminator,
         },
     },
     utils,
@@ -61,11 +61,40 @@ impl<'hir> HirLoweringPass<'hir> {
         let mut functions = Vec::new();
 
         for func in self.hir_module.body.functions.values() {
+            if func.signature.is_external {
+                continue; // Skip extern functions
+            }
             let lir_func = self.lower_function(func)?;
             functions.push(lir_func);
         }
 
-        Ok(LirProgram { functions })
+        let mut extern_functions = Vec::new();
+        for (name, sig) in &self.hir_module.signature.functions {
+            if sig.is_external {
+                let lir_extern_func = LirExternFunction {
+                    name: name.to_string(),
+                    args: sig
+                        .params
+                        .iter()
+                        .map(|p| self.hir_ty_to_lir_primitive(p.ty))
+                        .collect(),
+                    return_type: {
+                        let lir_ty = self.hir_ty_to_lir_primitive(&sig.return_ty);
+                        if lir_ty == LirPrimitiveType::Unit {
+                            None
+                        } else {
+                            Some(lir_ty)
+                        }
+                    },
+                };
+                extern_functions.push(lir_extern_func);
+            }
+        }
+
+        Ok(LirProgram {
+            functions,
+            extern_functions,
+        })
     }
 
     /// Generate a new unique temp variable

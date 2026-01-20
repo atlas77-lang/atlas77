@@ -28,7 +28,10 @@ use cranelift::codegen::verifier::verify_function;
 use cranelift::frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift::prelude::{Block, Variable};
 use cranelift::prelude::{ExtFuncData, ExternalName};
+use cranelift_module::{FuncId, Module};
+use cranelift_object::{ObjectBuilder, ObjectModule};
 use std::collections::HashMap;
+use target_lexicon::Triple;
 
 const ARG_BASE: u32 = 100_000;
 
@@ -38,45 +41,76 @@ pub fn codegen_program(lir_program: &LirProgram) -> (Vec<Function>, Vec<(String,
     // contiguous indices so ExternalName::user(namespace, index) works.
     let mut functions = Vec::new();
 
-    let mut func_map: HashMap<String, u32> = HashMap::new();
+    let mut func_map: HashMap<String, FuncId> = HashMap::new();
+    let isa = cranelift::codegen::isa::lookup(Triple::host())
+        .unwrap()
+        .finish(settings::Flags::new(settings::builder()))
+        .unwrap();
+
+    let builder = ObjectBuilder::new(
+        isa,
+        "atlas_module".to_string(),
+        cranelift_module::default_libcall_names(),
+    )
+    .unwrap();
+    let mut module = ObjectModule::new(builder);
 
     // First, register internal functions
-    for (index, lir_function) in lir_program.functions.iter().enumerate() {
-        func_map.insert(lir_function.name.clone(), index as u32);
+    for lir_function in lir_program.functions.iter() {
+        let mut sig = Signature::new(CallConv::SystemV);
+        // Build signature from LIR function args and return type.
+        for arg in &lir_function.args {
+            match arg {
+                &LirPrimitiveType::Int64 => sig.params.push(AbiParam::new(I64)),
+                _ => unimplemented!("Only Int64 args supported for this codegen"),
+            }
+        }
+        if let Some(ret) = &lir_function.return_type {
+            match ret {
+                &LirPrimitiveType::Int64 => sig.returns.push(AbiParam::new(I64)),
+                _ => unimplemented!("Only Int64 return supported for this codegen"),
+            }
+        }
+        let func_id = module
+            .declare_function(&lir_function.name, cranelift_module::Linkage::Local, &sig)
+            .unwrap();
+        func_map.insert(lir_function.name.clone(), func_id);
     }
 
     // Then collect extern calls and register their names/signatures after internal functions
     let mut externs: Vec<(String, Signature)> = Vec::new();
-    for lir_function in lir_program.functions.iter() {
-        for block in &lir_function.blocks {
-            for instr in &block.instructions {
-                if let LirInstr::ExternCall {
-                    func_name,
-                    args,
-                    dst,
-                } = instr
-                {
-                    if !func_map.contains_key(func_name) {
-                        let idx = (func_map.len() + externs.len()) as u32;
-                        func_map.insert(func_name.clone(), idx);
-                        // Build a signature for the extern (assume i64 params/return as used elsewhere)
-                        let mut sig = Signature::new(CallConv::SystemV);
-                        for _ in args.iter() {
-                            sig.params.push(AbiParam::new(I64));
-                        }
-                        if dst.is_some() {
-                            sig.returns.push(AbiParam::new(I64));
-                        }
-                        externs.push((func_name.clone(), sig));
-                    }
-                }
+    for lir_extern_function in lir_program.extern_functions.iter() {
+        let mut sig = Signature::new(CallConv::SystemV);
+        // Build signature from LIR extern function args and return type.
+        for arg in &lir_extern_function.args {
+            match arg {
+                &LirPrimitiveType::Int64 => sig.params.push(AbiParam::new(I64)),
+                &LirPrimitiveType::Str => sig.params.push(AbiParam::new(I64)), // pass strings as i64 pointers
+                _ => unimplemented!("Only Int64 args supported for this codegen, found {:?}", arg),
             }
         }
+        if let Some(ret) = &lir_extern_function.return_type {
+            match ret {
+                &LirPrimitiveType::Int64 => sig.returns.push(AbiParam::new(I64)),
+                &LirPrimitiveType::Unit => sig.returns.push(AbiParam::new(I64)), // represent void as i64 0
+                &LirPrimitiveType::Str => sig.returns.push(AbiParam::new(I64)), // return strings as i64 pointers
+                _ => unimplemented!("Only Int64 return supported for this codegen, found {:?}", ret),
+            }
+        }
+        let func_id = module
+            .declare_function(
+                &lir_extern_function.name,
+                cranelift_module::Linkage::Import,
+                &sig,
+            )
+            .unwrap();
+        func_map.insert(lir_extern_function.name.clone(), func_id);
+        externs.push((lir_extern_function.name.clone(), sig));
     }
 
     // Generate cranelift `Function` values for internal functions only.
     for (index, lir_function) in lir_program.functions.iter().enumerate() {
-        let func = codegen_function(lir_function, &mut func_map, index as u32);
+        let func = codegen_function(&mut module, lir_function, &mut func_map, index as u32);
         functions.push(func);
     }
 
@@ -84,8 +118,9 @@ pub fn codegen_program(lir_program: &LirProgram) -> (Vec<Function>, Vec<(String,
 }
 
 pub fn codegen_function(
+    module: &mut ObjectModule,
     lir_function: &LirFunction,
-    func_map: &mut HashMap<String, u32>,
+    func_map: &mut HashMap<String, FuncId>,
     index: u32,
 ) -> Function {
     let mut sig = Signature::new(CallConv::SystemV);
@@ -200,7 +235,14 @@ pub fn codegen_function(
     for lir_block in &lir_function.blocks {
         let b = *block_map.get(&lir_block.label).unwrap();
         builder.switch_to_block(b);
-        codegen_block(&mut builder, lir_block, &block_map, &var_map, func_map);
+        codegen_block(
+            module,
+            &mut builder,
+            lir_block,
+            &block_map,
+            &var_map,
+            func_map,
+        );
     }
 
     builder.finalize();
@@ -211,11 +253,12 @@ pub fn codegen_function(
 }
 
 fn codegen_block(
+    module: &mut ObjectModule,
     builder: &mut FunctionBuilder,
     lir_block: &LirBlock,
     block_map: &HashMap<String, Block>,
     var_map: &HashMap<u32, Variable>,
-    func_map: &HashMap<String, u32>,
+    func_map: &HashMap<String, FuncId>,
 ) {
     use LirInstr::*;
     for instr in &lir_block.instructions {
@@ -278,15 +321,8 @@ fn codegen_block(
                 let sigref = builder.import_signature(callee_sig);
                 // Import the function as an external (module-level) function so we get a FuncRef.
                 // We map function names to `ExternalName::user(0, index)` using `func_map`.
-                let idx = *func_map.get(func_name).expect("unknown function");
-                let name =
-                    ExternalName::user(cranelift::codegen::ir::UserExternalNameRef::from_u32(idx));
-                let ext = ExtFuncData {
-                    name,
-                    signature: sigref,
-                    colocated: true,
-                };
-                let callee = builder.import_function(ext);
+                let func_id = *func_map.get(func_name).expect("unknown function");
+                let callee = module.declare_func_in_func(func_id, builder.func);
                 let call_inst = builder.ins().call(callee, &arg_vals);
                 if let Some(LirOperand::Temp(t)) = dst {
                     let results = builder.inst_results(call_inst);
@@ -314,26 +350,9 @@ fn codegen_block(
                 if dst.is_some() {
                     callee_sig.returns.push(AbiParam::new(I64));
                 }
-                let sigref = builder.import_signature(callee_sig);
-                // Extern calls are treated as colocated = false. They are registered
-                // in `func_map` by `codegen_program`, so we can reference them here
-                // with the assigned index in namespace 0.
-                let idx = *func_map.get(func_name).expect("unknown extern");
-                let name =
-                    ExternalName::user(cranelift::codegen::ir::UserExternalNameRef::from_u32(idx));
-                let ext = ExtFuncData {
-                    name,
-                    signature: sigref,
-                    colocated: false,
-                };
-                let callee = builder.import_function(ext);
-                let call_inst = builder.ins().call(callee, &arg_vals);
-                if let Some(LirOperand::Temp(t)) = dst {
-                    let results = builder.inst_results(call_inst);
-                    let ret_val = results[0];
-                    let dv = *var_map.get(t).unwrap();
-                    builder.def_var(dv, ret_val);
-                }
+                let func_id = *func_map.get(func_name).expect("unknown extern");
+                let callee = module.declare_func_in_func(func_id, builder.func);
+                builder.ins().call(callee, &arg_vals);
             }
             _ => {}
         }
