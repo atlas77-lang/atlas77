@@ -27,7 +27,6 @@ use cranelift::codegen::settings;
 use cranelift::codegen::verifier::verify_function;
 use cranelift::frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift::prelude::{Block, Variable};
-use cranelift::prelude::{ExtFuncData, ExternalName};
 use cranelift_module::{FuncId, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use std::collections::HashMap;
@@ -84,16 +83,16 @@ pub fn codegen_program(lir_program: &LirProgram) -> (Vec<Function>, Vec<(String,
         // Build signature from LIR extern function args and return type.
         for arg in &lir_extern_function.args {
             match arg {
-                &LirPrimitiveType::Int64 => sig.params.push(AbiParam::new(I64)),
-                &LirPrimitiveType::Str => sig.params.push(AbiParam::new(I64)), // pass strings as i64 pointers
+                LirPrimitiveType::Int64 => sig.params.push(AbiParam::new(I64)),
+                LirPrimitiveType::Str => sig.params.push(AbiParam::new(I64)), // pass strings as i64 pointers
                 _ => unimplemented!("Only Int64 args supported for this codegen, found {:?}", arg),
             }
         }
         if let Some(ret) = &lir_extern_function.return_type {
             match ret {
-                &LirPrimitiveType::Int64 => sig.returns.push(AbiParam::new(I64)),
-                &LirPrimitiveType::Unit => sig.returns.push(AbiParam::new(I64)), // represent void as i64 0
-                &LirPrimitiveType::Str => sig.returns.push(AbiParam::new(I64)), // return strings as i64 pointers
+                LirPrimitiveType::Int64 => sig.returns.push(AbiParam::new(I64)),
+                LirPrimitiveType::Unit => sig.returns.push(AbiParam::new(I64)), // represent void as i64 0
+                LirPrimitiveType::Str => sig.returns.push(AbiParam::new(I64)), // return strings as i64 pointers
                 _ => unimplemented!("Only Int64 return supported for this codegen, found {:?}", ret),
             }
         }
@@ -207,7 +206,6 @@ pub fn codegen_function(
                         }
                     }
                 }
-                _ => {}
             }
         }
     }
@@ -318,7 +316,6 @@ fn codegen_block(
                 if dst.is_some() {
                     callee_sig.returns.push(AbiParam::new(I64));
                 }
-                let sigref = builder.import_signature(callee_sig);
                 // Import the function as an external (module-level) function so we get a FuncRef.
                 // We map function names to `ExternalName::user(0, index)` using `func_map`.
                 let func_id = *func_map.get(func_name).expect("unknown function");
@@ -417,8 +414,8 @@ fn codegen_add(
             let val_a = load_operand(builder, a, var_map);
             let val_b = load_operand(builder, b, var_map);
             let sum = match ty {
-                &LirPrimitiveType::Int64 => builder.ins().iadd(val_a, val_b),
-                &LirPrimitiveType::Int32 => {
+                LirPrimitiveType::Int64 => builder.ins().iadd(val_a, val_b),
+                LirPrimitiveType::Int32 => {
                     let x = builder.ins().ireduce(I32, val_a);
                     let y = builder.ins().ireduce(I32, val_b);
                     builder.ins().iadd(x, y)
@@ -441,8 +438,8 @@ fn codegen_sub(build: &mut FunctionBuilder, lir_sub: &LirInstr, var_map: &HashMa
             let val_a = load_operand(build, a, var_map);
             let val_b = load_operand(build, b, var_map);
             let diff = match ty {
-                &LirPrimitiveType::Int64 => build.ins().isub(val_a, val_b),
-                &LirPrimitiveType::Int32 => {
+                LirPrimitiveType::Int64 => build.ins().isub(val_a, val_b),
+                LirPrimitiveType::Int32 => {
                     let x = build.ins().ireduce(I32, val_a);
                     let y = build.ins().ireduce(I32, val_b);
                     build.ins().isub(x, y)

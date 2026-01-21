@@ -1523,10 +1523,10 @@ impl<'hir> TypeChecker<'hir> {
                                             arg.span(),
                                         )?;
                                     }
-                                    return Ok(self
+                                    Ok(self
                                         .arena
                                         .types()
-                                        .get_named_ty(name, static_access.field.span));
+                                        .get_named_ty(name, static_access.field.span))
                                 }
                                 "copy" | "__cpy_ctor" => {
                                     if func_expr.args.len() != 1 {
@@ -1561,10 +1561,10 @@ impl<'hir> TypeChecker<'hir> {
                                         found_ty,
                                         func_expr.args[0].span(),
                                     )?;
-                                    return Ok(self
+                                    Ok(self
                                         .arena
                                         .types()
-                                        .get_named_ty(name, static_access.field.span));
+                                        .get_named_ty(name, static_access.field.span))
                                 }
                                 "__mov_ctor" => {
                                     if func_expr.args.len() != 1 {
@@ -1599,13 +1599,13 @@ impl<'hir> TypeChecker<'hir> {
                                         found_ty,
                                         func_expr.args[0].span(),
                                     )?;
-                                    return Ok(self
+                                    Ok(self
                                         .arena
                                         .types()
-                                        .get_named_ty(name, static_access.field.span));
+                                        .get_named_ty(name, static_access.field.span))
                                 }
                                 "default" => {
-                                    if func_expr.args.len() != 0 {
+                                    if func_expr.args.is_empty() {
                                         return Err(Self::not_enough_arguments_err(
                                             "default constructor".to_string(),
                                             0,
@@ -1614,13 +1614,13 @@ impl<'hir> TypeChecker<'hir> {
                                             &func_expr.span,
                                         ));
                                     }
-                                    return Ok(self
+                                    Ok(self
                                         .arena
                                         .types()
-                                        .get_named_ty(name, static_access.field.span));
+                                        .get_named_ty(name, static_access.field.span))
                                 }
                                 "__dtor" => {
-                                    if func_expr.args.len() != 0 {
+                                    if func_expr.args.is_empty() {
                                         return Err(Self::not_enough_arguments_err(
                                             "destructor".to_string(),
                                             0,
@@ -1629,14 +1629,14 @@ impl<'hir> TypeChecker<'hir> {
                                             &func_expr.span,
                                         ));
                                     }
-                                    return Ok(self.arena.types().get_unit_ty());
+                                    Ok(self.arena.types().get_unit_ty())
                                 }
                                 _ => {
-                                    return Err(Self::unknown_method_err(
+                                    Err(Self::unknown_method_err(
                                         static_access.field.name,
                                         name,
                                         &static_access.span,
-                                    ));
+                                    ))
                                 }
                             }
                         }

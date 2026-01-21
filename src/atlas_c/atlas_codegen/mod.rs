@@ -533,7 +533,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
             }
             HirStatement::Assign(assign) => {
                 let dst = if let HirExpr::Unary(u) = &assign.dst {
-                    if u.op == None { &u.expr } else { &assign.dst }
+                    if u.op.is_none() { &u.expr } else { &assign.dst }
                 } else {
                     &assign.dst
                 };

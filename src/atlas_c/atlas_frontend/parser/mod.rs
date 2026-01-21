@@ -1980,7 +1980,7 @@ impl<'ast> Parser<'ast> {
                 AstExpr::StaticAccess(_) => true,
                 AstExpr::UnaryOp(u) => match u.op {
                     Some(AstUnaryOp::Deref) => true,
-                    None => is_assignable_target(&u.expr),
+                    None => is_assignable_target(u.expr),
                     _ => false,
                 },
                 _ => false,
