@@ -1631,13 +1631,11 @@ impl<'hir> TypeChecker<'hir> {
                                     }
                                     Ok(self.arena.types().get_unit_ty())
                                 }
-                                _ => {
-                                    Err(Self::unknown_method_err(
-                                        static_access.field.name,
-                                        name,
-                                        &static_access.span,
-                                    ))
-                                }
+                                _ => Err(Self::unknown_method_err(
+                                    static_access.field.name,
+                                    name,
+                                    &static_access.span,
+                                )),
                             }
                         }
                     }

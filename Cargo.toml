@@ -48,9 +48,6 @@ include_dir = "0.7.4"
 rand = "0.9.2"
 # std/time needs it
 time = { version = "0.3.44", features = ["formatting"] }
-# For codegen
-cranelift = "0.127.2"
-cranelift-object = "0.127.2"
 
 # For documentation
 pulldown-cmark = { version = "0.13", optional = true }              # markdown parsing(optional)
@@ -58,8 +55,7 @@ tera = { version = "1.20", optional = true }                        # HTML templ
 syntect = { version = "5.3", optional = true }                      # code highlighting 
 serde = { version = "1.0", features = ["derive"], optional = true } # for serializing the table of contents
 serde_json = { version = "1.0", optional = true }                   # for serializing the table of contents
-target-lexicon = "0.13.4"
-cranelift-module = "0.127.2"
+tcc = "0.1.0"
 
 [features]
 default = []
