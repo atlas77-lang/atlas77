@@ -13,15 +13,15 @@ pub struct LirProgram {
 #[derive(Debug, Clone)]
 pub struct LirExternFunction {
     pub name: String,
-    pub args: Vec<LirPrimitiveType>,
-    pub return_type: Option<LirPrimitiveType>,
+    pub args: Vec<LirTy>,
+    pub return_type: Option<LirTy>,
 }
 
 #[derive(Debug, Clone)]
 pub struct LirFunction {
     pub name: String,
-    pub args: Vec<LirPrimitiveType>,
-    pub return_type: Option<LirPrimitiveType>,
+    pub args: Vec<LirTy>,
+    pub return_type: Option<LirTy>,
     pub blocks: Vec<LirBlock>,
 }
 
@@ -77,8 +77,8 @@ pub struct LirBlock {
     pub terminator: LirTerminator,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LirPrimitiveType {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LirTy {
     // Signed Integers
     Int8,
     Int16,
@@ -98,17 +98,18 @@ pub enum LirPrimitiveType {
     // Unicode Character
     Char,
     Unit,
+    Ref(Box<LirTy>),
 }
 
-impl LirPrimitiveType {
+impl LirTy {
     pub fn size_of(&self) -> usize {
         match self {
-            LirPrimitiveType::Int8 | LirPrimitiveType::UInt8 | LirPrimitiveType::Boolean => 1,
-            LirPrimitiveType::Int16 | LirPrimitiveType::UInt16 => 2,
-            LirPrimitiveType::Int32 | LirPrimitiveType::UInt32 | LirPrimitiveType::Float32 => 4,
-            LirPrimitiveType::Int64 | LirPrimitiveType::UInt64 | LirPrimitiveType::Float64 => 8,
-            LirPrimitiveType::Char => 4, // Unicode scalar value (4 bytes)
-            LirPrimitiveType::Str | LirPrimitiveType::Unit => 8, // Pointer size
+            LirTy::Int8 | LirTy::UInt8 | LirTy::Boolean => 1,
+            LirTy::Int16 | LirTy::UInt16 => 2,
+            LirTy::Int32 | LirTy::UInt32 | LirTy::Float32 => 4,
+            LirTy::Int64 | LirTy::UInt64 | LirTy::Float64 => 8,
+            LirTy::Char => 4, // Unicode scalar value (4 bytes)
+            LirTy::Str | LirTy::Unit | LirTy::Ref(_) => 8, // Pointer size
         }
     }
 }
@@ -116,74 +117,74 @@ impl LirPrimitiveType {
 #[derive(Debug, Clone)]
 pub enum LirInstr {
     Add {
-        ty: LirPrimitiveType,
+        ty: LirTy,
         dest: LirOperand,
         a: LirOperand,
         b: LirOperand,
     },
     Sub {
-        ty: LirPrimitiveType,
+        ty: LirTy,
         dest: LirOperand,
         a: LirOperand,
         b: LirOperand,
     },
     Mul {
-        ty: LirPrimitiveType,
+        ty: LirTy,
         dest: LirOperand,
         a: LirOperand,
         b: LirOperand,
     },
     Div {
-        ty: LirPrimitiveType,
+        ty: LirTy,
         dest: LirOperand,
         a: LirOperand,
         b: LirOperand,
     },
     Mod {
-        ty: LirPrimitiveType,
+        ty: LirTy,
         dest: LirOperand,
         a: LirOperand,
         b: LirOperand,
     },
     LessThan {
-        ty: LirPrimitiveType,
+        ty: LirTy,
         dest: LirOperand,
         a: LirOperand,
         b: LirOperand,
     },
     LessThanOrEqual {
-        ty: LirPrimitiveType,
+        ty: LirTy,
         dest: LirOperand,
         a: LirOperand,
         b: LirOperand,
     },
     GreaterThan {
-        ty: LirPrimitiveType,
+        ty: LirTy,
         dest: LirOperand,
         a: LirOperand,
         b: LirOperand,
     },
     GreaterThanOrEqual {
-        ty: LirPrimitiveType,
+        ty: LirTy,
         dest: LirOperand,
         a: LirOperand,
         b: LirOperand,
     },
     Equal {
-        ty: LirPrimitiveType,
+        ty: LirTy,
         dest: LirOperand,
         a: LirOperand,
         b: LirOperand,
     },
     NotEqual {
-        ty: LirPrimitiveType,
+        ty: LirTy,
         dest: LirOperand,
         a: LirOperand,
         b: LirOperand,
     },
     // Load immediate value into a temporary
     LoadImm {
-        ty: LirPrimitiveType,
+        ty: LirTy,
         dst: LirOperand,
         value: LirOperand,
     },
@@ -193,29 +194,29 @@ pub enum LirInstr {
         value: LirOperand,
     },
     Call {
-        ty: LirPrimitiveType,
+        ty: LirTy,
         dst: Option<LirOperand>,
         func_name: String,
         args: Vec<LirOperand>,
     },
     ExternCall {
-        ty: LirPrimitiveType,
+        ty: LirTy,
         dst: Option<LirOperand>,
         func_name: String,
         args: Vec<LirOperand>,
     },
     /// Allocate a new value of the given type
     New {
-        ty: LirPrimitiveType,
+        ty: LirTy,
         dst: LirOperand,
     },
     /// Free a value of the given type
     Delete {
-        ty: LirPrimitiveType,
+        ty: LirTy,
         src: LirOperand,
     },
     Assign {
-        ty: LirPrimitiveType,
+        ty: LirTy,
         dst: LirOperand,
         src: LirOperand,
     },
@@ -229,6 +230,8 @@ pub enum LirOperand {
     Temp(u32),
     Arg(u8),
     Const(ConstantValue),
+    Deref(Box<LirOperand>),
+    AsRef(Box<LirOperand>),
     /// Immediate values
     ImmInt(i64),
     ImmUInt(u64),

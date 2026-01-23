@@ -9,7 +9,7 @@
 use crate::atlas_c::{
     atlas_hir::signature::ConstantValue,
     atlas_lir::program::{
-        LirBlock, LirFunction, LirInstr, LirOperand, LirPrimitiveType, LirProgram, LirTerminator,
+        LirBlock, LirFunction, LirInstr, LirOperand, LirProgram, LirTerminator, LirTy,
     },
 };
 
@@ -57,7 +57,7 @@ impl CCodeGen {
         let signature = self.codegen_signature(
             &func.name,
             &func.args,
-            &func.return_type.unwrap_or(LirPrimitiveType::Unit),
+            &func.return_type.clone().unwrap_or(LirTy::Unit),
         );
         Self::write_to_file(
             &mut self.c_header,
@@ -77,12 +77,7 @@ impl CCodeGen {
         Self::write_to_file(&mut self.c_file, "}\n", self.indent_level);
     }
 
-    fn codegen_signature(
-        &mut self,
-        name: &str,
-        args: &Vec<LirPrimitiveType>,
-        ret: &LirPrimitiveType,
-    ) -> String {
+    fn codegen_signature(&mut self, name: &str, args: &Vec<LirTy>, ret: &LirTy) -> String {
         let mut prototype = format!("{} {}(", self.codegen_type(ret), name);
         for (i, arg) in args.iter().enumerate() {
             let arg_type = self.codegen_type(arg);
@@ -97,18 +92,19 @@ impl CCodeGen {
         prototype
     }
 
-    fn codegen_type(&mut self, ty: &LirPrimitiveType) -> String {
+    fn codegen_type(&mut self, ty: &LirTy) -> String {
         match ty {
-            LirPrimitiveType::Unit => "void".to_string(),
-            LirPrimitiveType::Int32 => "int32_t".to_string(),
-            LirPrimitiveType::Int64 => "int64_t".to_string(),
-            LirPrimitiveType::Float32 => "float".to_string(),
-            LirPrimitiveType::Float64 => "double".to_string(),
-            LirPrimitiveType::UInt32 => "uint32_t".to_string(),
-            LirPrimitiveType::UInt64 => "uint64_t".to_string(),
-            LirPrimitiveType::Boolean => "bool".to_string(),
-            LirPrimitiveType::Char => "uint32_t".to_string(),
-            LirPrimitiveType::Str => "char*".to_string(),
+            LirTy::Unit => "void".to_string(),
+            LirTy::Int32 => "int32_t".to_string(),
+            LirTy::Int64 => "int64_t".to_string(),
+            LirTy::Float32 => "float".to_string(),
+            LirTy::Float64 => "double".to_string(),
+            LirTy::UInt32 => "uint32_t".to_string(),
+            LirTy::UInt64 => "uint64_t".to_string(),
+            LirTy::Boolean => "bool".to_string(),
+            LirTy::Char => "uint32_t".to_string(),
+            LirTy::Str => "char*".to_string(),
+            LirTy::Ref(inner) => format!("{}*", self.codegen_type(inner)),
             _ => unimplemented!("Type codegen not implemented for {:?}", ty),
         }
     }
@@ -414,6 +410,8 @@ impl CCodeGen {
             LirOperand::ImmFloat(f) => format!("{}", f),
             LirOperand::ImmChar(c) => format!("'{}'", c),
             LirOperand::ImmUnit => "void".to_string(),
+            LirOperand::Deref(d) => format!("*{}", self.codegen_operand(d)),
+            LirOperand::AsRef(a) => format!("&{}", self.codegen_operand(a)),
         }
     }
 

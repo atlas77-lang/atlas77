@@ -28,6 +28,21 @@ fun factorial(n: int64) -> int64 {
     return n * factorial(n - 1);
 }
 
+//references
+fun mut_ref(x: &int64)  {
+    *x = *x + 1;
+}
+
+fun while_loop_example(n: int64) -> int64 {
+    let result: int64 = 0;
+    let i: int64 = 0;
+    while (i < n) {
+        result = result + i;
+        i = i + 1;
+    }
+    return result;
+}
+
 // Test runner
 fun main() {
     let all_ok: bool = true; // 1 = true, 0 = false
@@ -49,6 +64,17 @@ fun main() {
     let fact5: int64 = factorial(5);
     printf<int64>("factorial(5) = %d\n", fact5);
     if (fact5 != 120) { printf<string>("FAIL: factorial expected 120\n", ""); all_ok = false; }
+
+    // Test: mutable reference
+    let val: int64 = 10;
+    mut_ref(&val);
+    printf<int64>("mut_ref incremented value to %d\n", val);
+    if (val != 11) { printf<string>("FAIL: mut_ref expected 11\n", ""); all_ok = false; }
+
+    // Test: while loop
+    let wl_result: int64 = while_loop_example(5);
+    printf<int64>("while_loop_example(5) = %d\n", wl_result);
+    if (wl_result != 10) { printf<string>("FAIL: while_loop_example expected 10\n", ""); all_ok = false; }
 
     // Summary
     if (all_ok) {

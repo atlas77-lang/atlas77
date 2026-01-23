@@ -6,7 +6,7 @@ use crate::atlas_c::{
     atlas_hir::{
         HirModule,
         arena::HirArena,
-        expr::{HirBinaryOperator, HirExpr},
+        expr::{HirBinaryOperator, HirExpr, HirUnaryOp},
         item::HirFunction,
         monomorphization_pass::MonomorphizationPass,
         signature::ConstantValue,
@@ -19,8 +19,8 @@ use crate::atlas_c::{
             UnsupportedHirExprError,
         },
         program::{
-            LirBlock, LirExternFunction, LirFunction, LirInstr, LirOperand, LirPrimitiveType,
-            LirProgram, LirTerminator,
+            LirBlock, LirExternFunction, LirFunction, LirInstr, LirOperand, LirProgram,
+            LirTerminator, LirTy,
         },
     },
     utils,
@@ -80,7 +80,7 @@ impl<'hir> HirLoweringPass<'hir> {
                         .collect(),
                     return_type: {
                         let lir_ty = self.hir_ty_to_lir_primitive(&sig.return_ty);
-                        if lir_ty == LirPrimitiveType::Unit {
+                        if lir_ty == LirTy::Unit {
                             None
                         } else {
                             Some(lir_ty)
@@ -129,36 +129,27 @@ impl<'hir> HirLoweringPass<'hir> {
 
     /// Push an instruction to the current (last) block
     fn emit(&mut self, instr: LirInstr) -> LirResult<()> {
-        if let Some(func) = &mut self.current_function {
-            if let Some(block) = func.blocks.last_mut() {
-                block.instructions.push(instr);
-                Ok(())
-            } else {
-                Err(Box::new(LirLoweringError::CurrentFunctionDoesntExist(
-                    CurrentFunctionDoesntExistError,
-                )))
-            }
-        } else {
-            Err(Box::new(LirLoweringError::CurrentFunctionDoesntExist(
-                CurrentFunctionDoesntExistError,
-            )))
+        if let Some(func) = &mut self.current_function
+            && let Some(block) = func.blocks.last_mut()
+        {
+            block.instructions.push(instr);
+            return Ok(());
         }
+        Err(Box::new(LirLoweringError::CurrentFunctionDoesntExist(
+            CurrentFunctionDoesntExistError,
+        )))
     }
 
     fn already_has_terminator(&mut self) -> LirResult<bool> {
-        if let Some(func) = &mut self.current_function {
-            if let Some(block) = func.blocks.last_mut() {
-                Ok(!matches!(block.terminator, LirTerminator::None))
-            } else {
-                Err(Box::new(LirLoweringError::CurrentFunctionDoesntExist(
-                    CurrentFunctionDoesntExistError,
-                )))
-            }
-        } else {
-            Err(Box::new(LirLoweringError::CurrentFunctionDoesntExist(
-                CurrentFunctionDoesntExistError,
-            )))
+        if let Some(func) = &mut self.current_function
+            && let Some(block) = func.blocks.last_mut()
+        {
+            return Ok(!matches!(block.terminator, LirTerminator::None));
         }
+
+        Err(Box::new(LirLoweringError::CurrentFunctionDoesntExist(
+            CurrentFunctionDoesntExistError,
+        )))
     }
 
     fn emit_terminator(&mut self, terminator: LirTerminator) -> LirResult<()> {
@@ -202,7 +193,7 @@ impl<'hir> HirLoweringPass<'hir> {
                 .collect(),
             return_type: {
                 let lir_ty = self.hir_ty_to_lir_primitive(&func.signature.return_ty);
-                if lir_ty == LirPrimitiveType::Unit {
+                if lir_ty == LirTy::Unit {
                     None
                 } else {
                     Some(lir_ty)
@@ -331,6 +322,18 @@ impl<'hir> HirLoweringPass<'hir> {
                     ident.name
                 } else {
                     if let HirExpr::Unary(u) = &assign.dst {
+                        if let Some(op) = &u.op
+                            && op == &HirUnaryOp::Deref
+                        {
+                            let expr_operand = self.lower_expr(&u.expr)?;
+                            let dest = LirOperand::Deref(Box::new(expr_operand));
+                            self.emit(LirInstr::Assign {
+                                ty: self.hir_ty_to_lir_primitive(&assign.ty),
+                                dst: dest,
+                                src: value,
+                            })?;
+                            return Ok(());
+                        }
                         if let HirExpr::Ident(ident) = &*u.expr {
                             ident.name
                         } else {
@@ -452,10 +455,17 @@ impl<'hir> HirLoweringPass<'hir> {
                 }
             }
 
-            HirExpr::Unary(unary) => {
-                // Because this implementation should only handle fib, we skip unary ops
-                self.lower_expr(&unary.expr)
-            }
+            HirExpr::Unary(unary) => match unary.op {
+                Some(HirUnaryOp::Deref) => {
+                    let expr_operand = self.lower_expr(&unary.expr)?;
+                    return Ok(LirOperand::Deref(Box::new(expr_operand)));
+                }
+                Some(HirUnaryOp::AsRef) => {
+                    let expr_operand = self.lower_expr(&unary.expr)?;
+                    return Ok(LirOperand::AsRef(Box::new(expr_operand)));
+                }
+                _ => self.lower_expr(&unary.expr),
+            },
 
             // === Binary operations ===
             HirExpr::HirBinaryOperation(binop) => {
@@ -657,16 +667,24 @@ impl<'hir> HirLoweringPass<'hir> {
     }
 
     /// Convert HIR type to Lir primitive type
-    fn hir_ty_to_lir_primitive(&self, ty: &HirTy) -> LirPrimitiveType {
+    fn hir_ty_to_lir_primitive(&self, ty: &HirTy) -> LirTy {
         match ty {
-            HirTy::Int64(_) => LirPrimitiveType::Int64,
-            HirTy::UInt64(_) => LirPrimitiveType::UInt64,
-            HirTy::Float64(_) => LirPrimitiveType::Float64,
-            HirTy::Boolean(_) => LirPrimitiveType::Boolean,
-            HirTy::Char(_) => LirPrimitiveType::Char,
-            HirTy::String(_) => LirPrimitiveType::Str,
-            HirTy::Unit(_) => LirPrimitiveType::Unit,
-            _ => LirPrimitiveType::Int64, // Default fallback
+            HirTy::Int64(_) => LirTy::Int64,
+            HirTy::UInt64(_) => LirTy::UInt64,
+            HirTy::Float64(_) => LirTy::Float64,
+            HirTy::Boolean(_) => LirTy::Boolean,
+            HirTy::Char(_) => LirTy::Char,
+            HirTy::String(_) => LirTy::Str,
+            HirTy::Unit(_) => LirTy::Unit,
+            HirTy::ReadOnlyReference(r) => {
+                let inner = self.hir_ty_to_lir_primitive(&r.inner);
+                LirTy::Ref(Box::new(inner))
+            }
+            HirTy::MutableReference(r) => {
+                let inner = self.hir_ty_to_lir_primitive(&r.inner);
+                LirTy::Ref(Box::new(inner))
+            }
+            _ => LirTy::Int64, // Default fallback
         }
     }
 }
@@ -822,27 +840,30 @@ impl std::fmt::Display for LirOperand {
             LirOperand::ImmBool(b) => write!(f, "%imm{}", b),
             LirOperand::ImmChar(c) => write!(f, "%imm{}", c),
             LirOperand::ImmUnit => write!(f, "%imm()"),
+            LirOperand::Deref(d) => write!(f, "*{}", d),
+            LirOperand::AsRef(a) => write!(f, "&{}", a),
         }
     }
 }
 
-impl std::fmt::Display for LirPrimitiveType {
+impl std::fmt::Display for LirTy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LirPrimitiveType::Int8 => write!(f, "int8"),
-            LirPrimitiveType::UInt8 => write!(f, "uint8"),
-            LirPrimitiveType::Int16 => write!(f, "int16"),
-            LirPrimitiveType::UInt16 => write!(f, "uint16"),
-            LirPrimitiveType::Int32 => write!(f, "int32"),
-            LirPrimitiveType::UInt32 => write!(f, "uint32"),
-            LirPrimitiveType::Int64 => write!(f, "int64"),
-            LirPrimitiveType::UInt64 => write!(f, "uint64"),
-            LirPrimitiveType::Float32 => write!(f, "float32"),
-            LirPrimitiveType::Float64 => write!(f, "float64"),
-            LirPrimitiveType::Boolean => write!(f, "bool"),
-            LirPrimitiveType::Char => write!(f, "char"),
-            LirPrimitiveType::Str => write!(f, "str"),
-            LirPrimitiveType::Unit => write!(f, "unit"),
+            LirTy::Int8 => write!(f, "int8"),
+            LirTy::UInt8 => write!(f, "uint8"),
+            LirTy::Int16 => write!(f, "int16"),
+            LirTy::UInt16 => write!(f, "uint16"),
+            LirTy::Int32 => write!(f, "int32"),
+            LirTy::UInt32 => write!(f, "uint32"),
+            LirTy::Int64 => write!(f, "int64"),
+            LirTy::UInt64 => write!(f, "uint64"),
+            LirTy::Float32 => write!(f, "float32"),
+            LirTy::Float64 => write!(f, "float64"),
+            LirTy::Boolean => write!(f, "bool"),
+            LirTy::Char => write!(f, "char"),
+            LirTy::Str => write!(f, "str"),
+            LirTy::Unit => write!(f, "unit"),
+            LirTy::Ref(r) => write!(f, "&{}", r),
         }
     }
 }
