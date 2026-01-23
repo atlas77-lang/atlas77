@@ -1,0 +1,9 @@
+extern printf<T>(fmt: string, c: T);
+
+fun main() {
+    let i = 0;
+    while (i < 5) {
+        printf("Iteration: %d\n", i);
+        i = i + 1;
+    }
+}

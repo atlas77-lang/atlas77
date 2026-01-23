@@ -4,5 +4,5 @@ fun main() {
     let c: char = 'A';
     let emoji: char = '😊';
     printf("Character: %c\n", 'A');
-    printf("Hello, Atlas! %c\n", emoji);
+    printf("Hello, Atlas! %u\n", emoji);
 }

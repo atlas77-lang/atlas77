@@ -501,6 +501,16 @@ impl HirPrettyPrinter {
             }
             HirExpr::Call(call) => {
                 self.print_expr(&call.callee);
+                if !call.generics.is_empty() {
+                    self.write("<");
+                    for (i, generic) in call.generics.iter().enumerate() {
+                        if i > 0 {
+                            self.write(", ");
+                        }
+                        self.write(&Self::type_str(generic));
+                    }
+                    self.write(">");
+                }
                 self.write("(");
                 for (i, arg) in call.args.iter().enumerate() {
                     if i > 0 {

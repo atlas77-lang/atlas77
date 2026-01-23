@@ -29,6 +29,9 @@ pub enum HirExpr<'hir> {
     StaticAccess(HirStaticAccessExpr<'hir>),
     /// Move semantics: transfers ownership from the source variable.
     /// The source variable becomes invalid after this operation.
+    #[deprecated(
+        note = "Move/Copy semantics have been changed to go from Rust model to C++ model. So there is no implicit move anymore."
+    )]
     Move(HirMoveExpr<'hir>),
     /// Copy semantics: creates a new owned copy via copy constructor.
     /// The source variable remains valid after this operation.

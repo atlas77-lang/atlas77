@@ -214,6 +214,11 @@ pub enum LirInstr {
         ty: LirPrimitiveType,
         src: LirOperand,
     },
+    Assign {
+        ty: LirPrimitiveType,
+        dst: LirOperand,
+        src: LirOperand,
+    },
 }
 
 #[derive(Debug, Clone)]

@@ -5,11 +5,13 @@ use miette::NamedSource;
 use crate::atlas_c::{
     atlas_hir::{
         HirModule,
+        arena::HirArena,
         expr::{HirBinaryOperator, HirExpr},
         item::HirFunction,
+        monomorphization_pass::MonomorphizationPass,
         signature::ConstantValue,
         stmt::HirStatement,
-        ty::HirTy,
+        ty::{HirGenericTy, HirTy},
     },
     atlas_lir::{
         error::{
@@ -28,8 +30,6 @@ use crate::atlas_c::{
 ///
 /// This pass converts the Hir (after ownership analysis) into a simple SSA-like
 /// Lir form suitable for optimization and final code generation.
-///
-/// Currently supports: fib example (arithmetic, comparisons, if-else, calls, return)
 pub struct HirLoweringPass<'hir> {
     hir_module: &'hir HirModule<'hir>,
     /// The function currently being lowered
@@ -145,6 +145,22 @@ impl<'hir> HirLoweringPass<'hir> {
         }
     }
 
+    fn already_has_terminator(&mut self) -> LirResult<bool> {
+        if let Some(func) = &mut self.current_function {
+            if let Some(block) = func.blocks.last_mut() {
+                Ok(!matches!(block.terminator, LirTerminator::None))
+            } else {
+                Err(Box::new(LirLoweringError::CurrentFunctionDoesntExist(
+                    CurrentFunctionDoesntExistError,
+                )))
+            }
+        } else {
+            Err(Box::new(LirLoweringError::CurrentFunctionDoesntExist(
+                CurrentFunctionDoesntExistError,
+            )))
+        }
+    }
+
     fn emit_terminator(&mut self, terminator: LirTerminator) -> LirResult<()> {
         if let Some(func) = &mut self.current_function {
             if let Some(block) = func.blocks.last_mut() {
@@ -245,7 +261,6 @@ impl<'hir> HirLoweringPass<'hir> {
                 let value = self.lower_expr(&ret.value)?;
                 self.emit_terminator(LirTerminator::Return { value: Some(value) })?;
             }
-
             HirStatement::IfElse(if_else) => {
                 // Lower condition
                 let cond = self.lower_expr(&if_else.condition)?;
@@ -267,8 +282,12 @@ impl<'hir> HirLoweringPass<'hir> {
                 for stmt in &if_else.then_branch.statements {
                     self.lower_stmt(stmt)?;
                 }
-                // If the then branch doesn't end with a return, jump to merge
-                // (For fib, both branches return, so this won't execute)
+                // Jump to merge if the terminator is not already set
+                if !self.already_has_terminator()? {
+                    self.emit_terminator(LirTerminator::Branch {
+                        target: merge_label.clone(),
+                    })?;
+                }
 
                 // === Else block ===
                 self.create_block(else_label)?;
@@ -281,26 +300,23 @@ impl<'hir> HirLoweringPass<'hir> {
                 // === Merge block (may be unused if both branches return) ===
                 self.create_block(merge_label)?;
             }
-
             HirStatement::Expr(expr_stmt) => {
                 // Lower expression for side effects, discard result
                 self.lower_expr(&expr_stmt.expr)?;
             }
-
             HirStatement::Let(let_stmt) => {
                 let value = self.lower_expr(&let_stmt.value)?;
                 // Allocate a temp for this local variable
                 if let LirOperand::Temp(id) = value {
-                    eprintln!("Mapping local {} to temp %t{}", let_stmt.name, id);
                     self.local_map.insert(let_stmt.name, id);
                 } else {
+                    // Immediate values don't generate temps, so load them into one
                     let temp = self.new_temp();
                     self.emit(LirInstr::LoadImm {
                         ty: self.hir_ty_to_lir_primitive(&let_stmt.ty),
                         dst: temp.clone(),
                         value,
                     })?;
-                    eprintln!("Mapping local {} to temp {}", let_stmt.name, temp);
                     if let LirOperand::Temp(id) = temp {
                         self.local_map.insert(let_stmt.name, id);
                     } else {
@@ -308,7 +324,90 @@ impl<'hir> HirLoweringPass<'hir> {
                     }
                 }
             }
+            HirStatement::Assign(assign) => {
+                let value = self.lower_expr(&assign.val)?;
+                // Find the local variable temp
+                let ident_name = if let HirExpr::Ident(ident) = &assign.dst {
+                    ident.name
+                } else {
+                    if let HirExpr::Unary(u) = &assign.dst {
+                        if let HirExpr::Ident(ident) = &*u.expr {
+                            ident.name
+                        } else {
+                            return Err(Box::new(LirLoweringError::UnsupportedHirExpr(
+                                UnsupportedHirExprError {
+                                    span: assign.dst.span(),
+                                    src: NamedSource::new(
+                                        assign.dst.span().path,
+                                        utils::get_file_content(assign.dst.span().path).unwrap(),
+                                    ),
+                                },
+                            )));
+                        }
+                    } else {
+                        return Err(Box::new(LirLoweringError::UnsupportedHirExpr(
+                            UnsupportedHirExprError {
+                                span: assign.dst.span(),
+                                src: NamedSource::new(
+                                    assign.dst.span().path,
+                                    utils::get_file_content(assign.dst.span().path).unwrap(),
+                                ),
+                            },
+                        )));
+                    }
+                };
+                if let Some(&temp_id) = self.local_map.get(ident_name) {
+                    let dest = LirOperand::Temp(temp_id);
+                    self.emit(LirInstr::Assign {
+                        ty: self.hir_ty_to_lir_primitive(&assign.ty),
+                        dst: dest,
+                        src: value,
+                    })?;
+                } else {
+                    return Err(Box::new(LirLoweringError::UnsupportedHirExpr(
+                        UnsupportedHirExprError {
+                            span: assign.dst.span(),
+                            src: NamedSource::new(
+                                assign.dst.span().path,
+                                utils::get_file_content(assign.dst.span().path).unwrap(),
+                            ),
+                        },
+                    )));
+                }
+            }
+            HirStatement::While(while_stmt) => {
+                // Lower while loop
+                let cond_label = self.new_block_label("while_cond");
+                let body_label = self.new_block_label("while_body");
+                let after_label = self.new_block_label("while_after");
 
+                // Jump to condition check
+                self.emit_terminator(LirTerminator::Branch {
+                    target: cond_label.clone(),
+                })?;
+
+                // Condition block
+                self.create_block(cond_label.clone())?;
+                let cond = self.lower_expr(&while_stmt.condition)?;
+                self.emit_terminator(LirTerminator::BranchIf {
+                    condition: cond,
+                    then_label: body_label.clone(),
+                    else_label: after_label.clone(),
+                })?;
+
+                // Body block
+                self.create_block(body_label.clone())?;
+                for stmt in &while_stmt.body.statements {
+                    self.lower_stmt(stmt)?;
+                }
+                // After body, jump back to condition
+                self.emit_terminator(LirTerminator::Branch {
+                    target: cond_label.clone(),
+                })?;
+
+                // After block
+                self.create_block(after_label.clone())?;
+            }
             _ => {
                 // For now, skip unsupported statements
                 // In a complete implementation, handle all variants
@@ -459,7 +558,32 @@ impl<'hir> HirLoweringPass<'hir> {
 
                 // Get function name from callee
                 let func_name = match call.callee.as_ref() {
-                    HirExpr::Ident(ident) => ident.name.to_string(),
+                    HirExpr::Ident(ident) => {
+                        if !call.generics.is_empty()
+                            // If it's an external function, the name hasn't been mangled, so this returns false
+                            // If it's an actual function in the module, the name is mangled in the signature, so this returns true
+                            && !self.hir_module.signature.functions.contains_key(ident.name)
+                        {
+                            eprintln!("Monomorphizing call to generic function: {}", ident.name);
+                            let arena = &HirArena::new();
+                            MonomorphizationPass::generate_mangled_name(
+                                arena,
+                                &HirGenericTy {
+                                    name: ident.name,
+                                    inner: call
+                                        .generics
+                                        .iter()
+                                        .map(|g| (*g).clone())
+                                        .collect::<Vec<_>>(),
+                                    span: ident.span,
+                                },
+                                "function",
+                            )
+                            .to_string()
+                        } else {
+                            ident.name.to_string()
+                        }
+                    }
                     _ => {
                         let path = expr.span().path;
                         let src = utils::get_file_content(path).unwrap();
@@ -678,6 +802,9 @@ impl std::fmt::Display for LirInstr {
             }
             LirInstr::Delete { ty, src } => {
                 write!(f, "delete {} {}", ty, src)
+            }
+            LirInstr::Assign { ty: _, dst, src } => {
+                write!(f, "{} = assign {}", dst, src)
             }
         }
     }
