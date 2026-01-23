@@ -4,5 +4,5 @@
 .VSCodeCounter
 .idea
 # No need to track those files, they're constantly changing
-output.*
+build/
 docs/

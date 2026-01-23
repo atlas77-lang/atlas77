@@ -308,25 +308,9 @@ impl<'hir> HirLoweringPass<'hir> {
     fn lower_expr(&mut self, expr: &'hir HirExpr<'hir>) -> LirResult<LirOperand> {
         match expr {
             // === Literals ===
-            HirExpr::IntegerLiteral(lit) => {
-                let dest = self.new_temp();
-                // For simplicity, we store the constant value directly
-                // A real impl would use a constant pool
-                self.emit(LirInstr::LoadImm {
-                    dst: dest.clone(),
-                    value: LirOperand::ImmInt(lit.value),
-                })?;
-                Ok(dest)
-            }
+            HirExpr::IntegerLiteral(lit) => Ok(LirOperand::ImmInt(lit.value)),
 
-            HirExpr::BooleanLiteral(lit) => {
-                let dest = self.new_temp();
-                self.emit(LirInstr::LoadImm {
-                    dst: dest.clone(),
-                    value: LirOperand::ImmBool(lit.value),
-                })?;
-                Ok(dest)
-            }
+            HirExpr::BooleanLiteral(lit) => Ok(LirOperand::ImmBool(lit.value)),
 
             HirExpr::StringLiteral(lit) => {
                 let dest = self.new_temp();
@@ -337,14 +321,7 @@ impl<'hir> HirLoweringPass<'hir> {
                 Ok(dest)
             }
 
-            HirExpr::UnitLiteral(_) => {
-                let dest = self.new_temp();
-                self.emit(LirInstr::LoadImm {
-                    dst: dest.clone(),
-                    value: LirOperand::ImmUnit,
-                })?;
-                Ok(dest)
-            }
+            HirExpr::UnitLiteral(_) => Ok(LirOperand::ImmUnit),
 
             // === Identifiers (variables/parameters) ===
             HirExpr::Ident(ident) => {
@@ -502,6 +479,7 @@ impl<'hir> HirLoweringPass<'hir> {
                     }
                 } else {
                     LirInstr::Call {
+                        ty: self.hir_ty_to_lir_primitive(&call.ty),
                         dst: dest.clone(),
                         func_name,
                         args,
@@ -646,6 +624,7 @@ impl std::fmt::Display for LirInstr {
                 write!(f, "{} = ld_imm {}", dst, value)
             }
             LirInstr::Call {
+                ty: _,
                 dst,
                 func_name,
                 args,

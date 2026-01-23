@@ -29,6 +29,7 @@ use crate::{
             dead_code_elimination_pass::DeadCodeEliminationPass, pretty_print::HirPrettyPrinter,
         },
         atlas_lir::hir_lowering_pass::HirLoweringPass,
+        atlas_new_codegen::{CCodeGen, HEADER_NAME},
     },
     atlas_vm::runtime::AtlasRuntime,
 };
@@ -270,7 +271,7 @@ pub fn generate_docs(output_dir: String, path: Option<&str>) {
     }
 }
 
-pub fn test(path: String) -> miette::Result<Vec<u8>> {
+pub fn test(path: String) -> miette::Result<()> {
     std::fs::create_dir_all("./build").unwrap();
     let start = Instant::now();
     println!("Building project at path: {}", path);
@@ -328,7 +329,7 @@ pub fn test(path: String) -> miette::Result<Vec<u8>> {
     file_hir.write_all(hir_output.as_bytes()).unwrap();
 
     let mut lir_lower = HirLoweringPass::new(hir);
-    let _lir = match lir_lower.lower() {
+    let lir = match lir_lower.lower() {
         Ok(lir) => {
             let mut file_lir = std::fs::File::create("./build/output.atlas_lir").unwrap();
             let lir_output = format!("{}", &lir);
@@ -341,8 +342,15 @@ pub fn test(path: String) -> miette::Result<Vec<u8>> {
         }
     };
     // codegen
+    let mut c_codegen = CCodeGen::new();
+    c_codegen.emit_c(&lir).unwrap();
+
+    let mut c_file = std::fs::File::create("./build/output.atlas_c.c").unwrap();
+    c_file.write_all(c_codegen.c_file.as_bytes()).unwrap();
+    let mut c_header = std::fs::File::create(format!("./build/{}", HEADER_NAME)).unwrap();
+    c_header.write_all(c_codegen.c_header.as_bytes()).unwrap();
 
     let end = Instant::now();
     println!("Build completed in {}µs", (end - start).as_micros());
-    todo!()
+    Ok(())
 }

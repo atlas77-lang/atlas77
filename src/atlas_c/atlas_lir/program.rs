@@ -178,6 +178,7 @@ pub enum LirInstr {
         value: LirOperand,
     },
     Call {
+        ty: LirPrimitiveType,
         dst: Option<LirOperand>,
         func_name: String,
         args: Vec<LirOperand>,
