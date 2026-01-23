@@ -1,5 +1,8 @@
-import "std/io";
+extern printf(fmt: string, c: char);
 
 fun main() {
-    println("Hello, Atlas!");
+    let c: char = 'A';
+    let emoji: char = '😊';
+    printf("Character: %c\n", 'A');
+    printf("Hello, Atlas! %c\n", emoji);
 }

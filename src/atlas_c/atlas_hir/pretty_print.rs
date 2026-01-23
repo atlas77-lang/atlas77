@@ -468,10 +468,10 @@ impl HirPrettyPrinter {
                 self.write(&lit.value.to_string());
             }
             HirExpr::CharLiteral(lit) => {
-                self.write(&format!("'{}'", lit.value));
+                self.write(&format!("'{}'", lit.value.escape_default()));
             }
             HirExpr::StringLiteral(lit) => {
-                self.write(&format!("\"{}\"", lit.value));
+                self.write(&format!("\"{}\"", lit.value.escape_default()));
             }
             HirExpr::UnitLiteral(_) => {
                 self.write("()");

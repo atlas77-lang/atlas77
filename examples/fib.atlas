@@ -1,4 +1,12 @@
-extern println_int64(n: int64);
+extern printf<T>(fmt: string, n: T);
+extern timer_now_ns() -> uint64;
+extern timer_elapsed_s(start: uint64) -> float64;
+fun println_int64(n: int64) {
+    printf("%ld\n", n);
+}
+fun println_float64(f: float64) {
+    printf("%f\n", f);
+}
 
 fun fib(n: int64) -> int64 {
     if n <= 1 {
@@ -9,5 +17,8 @@ fun fib(n: int64) -> int64 {
 }
 
 fun main() {
+    let start_time = timer_now_ns();
     println_int64(fib(40));
+    let elapsed = timer_elapsed_s(start_time);
+    println_float64(elapsed);
 }

@@ -95,8 +95,22 @@ pub enum LirPrimitiveType {
     // Other Types
     Boolean,
     Str,
+    // Unicode Character
     Char,
     Unit,
+}
+
+impl LirPrimitiveType {
+    pub fn size_of(&self) -> usize {
+        match self {
+            LirPrimitiveType::Int8 | LirPrimitiveType::UInt8 | LirPrimitiveType::Boolean => 1,
+            LirPrimitiveType::Int16 | LirPrimitiveType::UInt16 => 2,
+            LirPrimitiveType::Int32 | LirPrimitiveType::UInt32 | LirPrimitiveType::Float32 => 4,
+            LirPrimitiveType::Int64 | LirPrimitiveType::UInt64 | LirPrimitiveType::Float64 => 8,
+            LirPrimitiveType::Char => 4, // Unicode scalar value (4 bytes)
+            LirPrimitiveType::Str | LirPrimitiveType::Unit => 8, // Pointer size
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -169,6 +183,7 @@ pub enum LirInstr {
     },
     // Load immediate value into a temporary
     LoadImm {
+        ty: LirPrimitiveType,
         dst: LirOperand,
         value: LirOperand,
     },
@@ -184,9 +199,20 @@ pub enum LirInstr {
         args: Vec<LirOperand>,
     },
     ExternCall {
+        ty: LirPrimitiveType,
         dst: Option<LirOperand>,
         func_name: String,
         args: Vec<LirOperand>,
+    },
+    /// Allocate a new value of the given type
+    New {
+        ty: LirPrimitiveType,
+        dst: LirOperand,
+    },
+    /// Free a value of the given type
+    Delete {
+        ty: LirPrimitiveType,
+        src: LirOperand,
     },
 }
 

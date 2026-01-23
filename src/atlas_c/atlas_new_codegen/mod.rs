@@ -6,11 +6,15 @@
  * In the future, I'll potentially target actual backends, but for now, C is good enough.
  */
 
-use crate::atlas_c::atlas_lir::program::{
-    LirBlock, LirFunction, LirInstr, LirOperand, LirPrimitiveType, LirProgram, LirTerminator,
+use crate::atlas_c::{
+    atlas_hir::signature::ConstantValue,
+    atlas_lir::program::{
+        LirBlock, LirFunction, LirInstr, LirOperand, LirPrimitiveType, LirProgram, LirTerminator,
+    },
 };
 
 pub const HEADER_NAME: &str = "__atlas77_header.h";
+pub const PORTABLE_TIMER_HEADER: &str = include_str!("../../.././libraries/std/useful_header.h");
 
 pub struct CCodeGen {
     pub c_file: String,
@@ -32,7 +36,7 @@ impl CCodeGen {
     pub fn emit_c(&mut self, program: &LirProgram) -> Result<(), String> {
         Self::write_to_file(
             &mut self.c_file,
-            "#include <stdint.h>\n#include <stdbool.h>\n#include <stdio.h>\n",
+            "#include <stdint.h>\n#include <stdbool.h>\n#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n#include <math.h>\n#include <time.h>\n",
             self.indent_level,
         );
         //Include the generated header
@@ -41,11 +45,11 @@ impl CCodeGen {
             &format!("#include \"{}\"\n\n", HEADER_NAME),
             self.indent_level,
         );
+        // Include the portable timer header
+        Self::write_to_file(&mut self.c_header, PORTABLE_TIMER_HEADER, self.indent_level);
         for func in program.functions.iter() {
             self.codegen_function(func);
         }
-        eprintln!("Generated C Header:\n{}", self.c_header);
-        eprintln!("Generated C File:\n{}", self.c_file);
         Ok(())
     }
 
@@ -100,7 +104,11 @@ impl CCodeGen {
             LirPrimitiveType::Int64 => "int64_t".to_string(),
             LirPrimitiveType::Float32 => "float".to_string(),
             LirPrimitiveType::Float64 => "double".to_string(),
+            LirPrimitiveType::UInt32 => "uint32_t".to_string(),
+            LirPrimitiveType::UInt64 => "uint64_t".to_string(),
             LirPrimitiveType::Boolean => "bool".to_string(),
+            LirPrimitiveType::Char => "uint32_t".to_string(),
+            LirPrimitiveType::Str => "char*".to_string(),
             _ => unimplemented!("Type codegen not implemented for {:?}", ty),
         }
     }
@@ -219,13 +227,45 @@ impl CCodeGen {
                 );
                 Self::write_to_file(&mut self.c_file, &line, self.indent_level);
             }
-            LirInstr::LoadImm { dst, value } => {
+            LirInstr::LoadImm { ty, dst, value } => {
                 let dest_str = self.codegen_operand(dst);
                 let value = self.codegen_operand(value);
-                let line = format!("{} = {};", dest_str, value);
+                let line = format!("{} {} = {};", self.codegen_type(ty), dest_str, value);
+                Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+            }
+            LirInstr::LoadConst { dst, value } => {
+                let value = self.codegen_operand(value);
+                // We assume the type is always `string` so `char*` in C for now
+                // THIS OBVIOUSLY NEEDS TO BE FIXED LATER
+                let dest_str = self.codegen_operand(dst);
+                let line = format!("char* {} = {};", dest_str, value);
                 Self::write_to_file(&mut self.c_file, &line, self.indent_level);
             }
             LirInstr::Call {
+                dst,
+                func_name,
+                args,
+                ty,
+            } => {
+                let args_str: Vec<String> =
+                    args.iter().map(|arg| self.codegen_operand(arg)).collect();
+                let args_joined = args_str.join(", ");
+                if let Some(dest_op) = dst {
+                    let dest_str = self.codegen_operand(dest_op);
+                    let line = format!(
+                        "{} {} = {}({});",
+                        self.codegen_type(ty),
+                        dest_str,
+                        func_name,
+                        args_joined
+                    );
+                    Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+                } else {
+                    let line = format!("{}({});", func_name, args_joined);
+                    Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+                }
+            }
+            LirInstr::ExternCall {
                 dst,
                 func_name,
                 args,
@@ -259,7 +299,18 @@ impl CCodeGen {
         match operand {
             LirOperand::Arg(a) => format!("arg_{}", a),
             LirOperand::Temp(t) => format!("temp_{}", t),
-            LirOperand::Const(c) => unimplemented!("Constant codegen not implemented for {:?}", c),
+            LirOperand::Const(c) => match c {
+                ConstantValue::Int(i) => format!("{}", i),
+                ConstantValue::UInt(u) => format!("{}", u),
+                ConstantValue::Float(f) => format!("{}", f),
+                ConstantValue::Bool(b) => format!("{}", b),
+                ConstantValue::Char(c) => format!("'{}'", c),
+                // We need to keep all the special characters in strings escaped
+                // e.g.: \n, \t, etc.
+                ConstantValue::String(s) => format!("\"{}\"", s.escape_default()),
+                ConstantValue::Unit => "void".to_string(),
+                _ => unimplemented!("Constant codegen not implemented for {:?}", c),
+            },
             LirOperand::ImmBool(b) => format!("{}", b),
             LirOperand::ImmInt(i) => format!("{}", i),
             LirOperand::ImmUInt(u) => format!("{}", u),

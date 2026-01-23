@@ -193,7 +193,7 @@ impl Display for ConstantValue {
             ConstantValue::Int(i) => write!(f, "{}", i),
             ConstantValue::Float(fl) => write!(f, "{}", fl),
             ConstantValue::UInt(u) => write!(f, "{}", u),
-            ConstantValue::String(s) => write!(f, "\"{}\"", s),
+            ConstantValue::String(s) => write!(f, "\"{}\"", s.escape_default()),
             ConstantValue::Bool(b) => write!(f, "{}", b),
             ConstantValue::Char(c) => write!(f, "'{}'", c),
             ConstantValue::Unit => write!(f, "()"),

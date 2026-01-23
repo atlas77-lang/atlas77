@@ -290,9 +290,22 @@ impl<'hir> HirLoweringPass<'hir> {
             HirStatement::Let(let_stmt) => {
                 let value = self.lower_expr(&let_stmt.value)?;
                 // Allocate a temp for this local variable
-                //let local_temp = self.new_temp();
                 if let LirOperand::Temp(id) = value {
+                    eprintln!("Mapping local {} to temp %t{}", let_stmt.name, id);
                     self.local_map.insert(let_stmt.name, id);
+                } else {
+                    let temp = self.new_temp();
+                    self.emit(LirInstr::LoadImm {
+                        ty: self.hir_ty_to_lir_primitive(&let_stmt.ty),
+                        dst: temp.clone(),
+                        value,
+                    })?;
+                    eprintln!("Mapping local {} to temp {}", let_stmt.name, temp);
+                    if let LirOperand::Temp(id) = temp {
+                        self.local_map.insert(let_stmt.name, id);
+                    } else {
+                        panic!("Expected a temp operand");
+                    }
                 }
             }
 
@@ -311,6 +324,8 @@ impl<'hir> HirLoweringPass<'hir> {
             HirExpr::IntegerLiteral(lit) => Ok(LirOperand::ImmInt(lit.value)),
 
             HirExpr::BooleanLiteral(lit) => Ok(LirOperand::ImmBool(lit.value)),
+
+            HirExpr::CharLiteral(lit) => Ok(LirOperand::ImmChar(lit.value)),
 
             HirExpr::StringLiteral(lit) => {
                 let dest = self.new_temp();
@@ -473,6 +488,7 @@ impl<'hir> HirLoweringPass<'hir> {
 
                 let instr = if is_extern {
                     LirInstr::ExternCall {
+                        ty: self.hir_ty_to_lir_primitive(&call.ty),
                         dst: dest.clone(),
                         func_name,
                         args,
@@ -620,7 +636,7 @@ impl std::fmt::Display for LirInstr {
             LirInstr::LoadConst { dst, value } => {
                 write!(f, "{} = ld_const {}", dst, value)
             }
-            LirInstr::LoadImm { dst, value } => {
+            LirInstr::LoadImm { ty: _, dst, value } => {
                 write!(f, "{} = ld_imm {}", dst, value)
             }
             LirInstr::Call {
@@ -641,6 +657,7 @@ impl std::fmt::Display for LirInstr {
                 }
             }
             LirInstr::ExternCall {
+                ty: _,
                 dst,
                 func_name,
                 args,
@@ -655,6 +672,12 @@ impl std::fmt::Display for LirInstr {
                 } else {
                     write!(f, "call_extern @{}({})", func_name, args_str)
                 }
+            }
+            LirInstr::New { ty, dst } => {
+                write!(f, "{} = new {}", dst, ty)
+            }
+            LirInstr::Delete { ty, src } => {
+                write!(f, "delete {} {}", ty, src)
             }
         }
     }
