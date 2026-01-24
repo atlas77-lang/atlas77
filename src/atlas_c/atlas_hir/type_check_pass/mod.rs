@@ -2014,6 +2014,8 @@ impl<'hir> TypeChecker<'hir> {
 
         monomorphized.generics = vec![];
         let signature = self.arena.intern(monomorphized);
+        // Assign the computed return type to the call expression so callers can rely on it
+        call_expr.ty = self.arena.intern(signature.return_ty.clone());
         self.extern_monomorphized
             .insert((name, args_ty, explicit_generics), signature);
         Ok(self.arena.intern(signature.return_ty.clone()))
