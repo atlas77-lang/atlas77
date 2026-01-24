@@ -50,7 +50,7 @@ fn try_get_prebuilt_tinycc(
     manifest_dir: &Path,
     target: &str,
 ) -> Option<PathBuf> {
-    let prebuilt_dir = manifest_dir.join("vendor/tinycc/prebuilt");
+    let prebuilt_dir = manifest_dir.join("tinycc/prebuilt");
     
     // Map Rust target triples to TinyCC platform directories
     let platform_dir = match target {

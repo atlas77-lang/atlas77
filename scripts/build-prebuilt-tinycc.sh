@@ -4,7 +4,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 TCC_DIR="$PROJECT_ROOT/vendor/tinycc"
-PREBUILT_DIR="$TCC_DIR/prebuilt"
+PREBUILT_DIR="$PROJECT_ROOT/tinycc/prebuilt"
 
 # Colors for output
 RED='\033[0;31m'
