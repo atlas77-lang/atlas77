@@ -64,3 +64,4 @@ docs = ["pulldown-cmark", "tera", "syntect", "serde", "serde_json"]
 
 [build-dependencies]
 walkdir = "^2"
+cc = "1.0"

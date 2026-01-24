@@ -1,0 +1,72 @@
+name: Build TinyCC Pre-built Binaries
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'vendor/tinycc/**'
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc-mingw-w64-x86-64
+      
+      - name: Build Linux x64
+        run: |
+          cd vendor/tinycc
+          ./configure --cpu=x86_64 --disable-shared --enable-static
+          make -j$(nproc)
+          mkdir -p prebuilt/linux-x64
+          cp libtcc.a libtcc1.a prebuilt/linux-x64/
+      
+      - name: Build Windows x64 (cross)
+        run: |
+          cd vendor/tinycc
+          make clean
+          rm -f config.mak
+          ./configure --cpu=x86_64 --cross-prefix=x86_64-w64-mingw32- --disable-shared --enable-static
+          make -j$(nproc)
+          mkdir -p prebuilt/windows-x64
+          cp libtcc.a libtcc1.a prebuilt/windows-x64/
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: tinycc-prebuilt
+          path: vendor/tinycc/prebuilt/
+
+  build-macos:
+    strategy:
+      matrix:
+        arch: [x64, arm64]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      
+      - name: Build macOS ${{ matrix.arch }}
+        run: |
+          cd vendor/tinycc
+          if [ "${{ matrix.arch }}" = "x64" ]; then
+            ./configure --cpu=x86_64 --disable-shared --enable-static
+          else
+            ./configure --cpu=arm64 --disable-shared --enable-static
+          fi
+          make -j$(sysctl -n hw.ncpu)
+          mkdir -p prebuilt/macos-${{ matrix.arch }}
+          cp libtcc.a libtcc1.a prebuilt/macos-${{ matrix.arch }}/
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: tinycc-prebuilt-macos-${{ matrix.arch }}
+          path: vendor/tinycc/prebuilt/

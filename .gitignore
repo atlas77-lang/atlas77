@@ -6,8 +6,3 @@
 # No need to track those files, they're constantly changing
 build/
 docs/
-# Let's ignore compiled binaries
-*.exe
-*.dll
-*.so
-a.out
