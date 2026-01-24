@@ -1,4 +1,7 @@
-use std::{env, path::{Path, PathBuf}};
+use std::{
+    env,
+    path::{Path, PathBuf},
+};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let target = env::var("TARGET").expect("TARGET not set");
@@ -19,6 +22,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         None => {
             println!("cargo:warning=Building TinyCC from source for {}", target);
+            // if the target is windows, let's just error out for now
+            if target.contains("windows") {
+                return Err("Building TinyCC from source on Windows is not supported yet. Please use a pre-built binary.".into());
+            }
             build_tinycc_from_source(&manifest_dir, &out_dir, &target)?;
             out_dir
         }
@@ -62,11 +69,17 @@ fn try_get_prebuilt_tinycc(manifest_dir: &Path, target: &str) -> Option<PathBuf>
                 "windows-x64"
             } else if target.contains("x86_64") && target.contains("linux") {
                 "linux-x64"
-            } else if (target.contains("aarch64") || target.contains("arm64")) && target.contains("linux") {
+            } else if (target.contains("aarch64") || target.contains("arm64"))
+                && target.contains("linux")
+            {
                 "linux-arm64"
-            } else if target.contains("x86_64") && (target.contains("apple") || target.contains("darwin")) {
+            } else if target.contains("x86_64")
+                && (target.contains("apple") || target.contains("darwin"))
+            {
                 "macos-x64"
-            } else if (target.contains("aarch64") || target.contains("arm64")) && (target.contains("apple") || target.contains("darwin")) {
+            } else if (target.contains("aarch64") || target.contains("arm64"))
+                && (target.contains("apple") || target.contains("darwin"))
+            {
                 "macos-arm64"
             } else {
                 return None;
@@ -81,7 +94,7 @@ fn try_get_prebuilt_tinycc(manifest_dir: &Path, target: &str) -> Option<PathBuf>
 
     if target_env == "msvc" {
         let lib = platform_path.join("tcc.lib");
-        let lib1 = platform_path.join("tcc1.a");
+        let lib1 = platform_path.join("tcc1.lib");
         if lib.exists() && lib1.exists() {
             return Some(platform_path);
         }
@@ -89,7 +102,10 @@ fn try_get_prebuilt_tinycc(manifest_dir: &Path, target: &str) -> Option<PathBuf>
         let lib_a = platform_path.join("libtcc.a");
         let lib1_a = platform_path.join("libtcc1.a");
         if lib_a.exists() && lib1_a.exists() {
-            println!("cargo:warning=Found GNU-style TinyCC static libs in {} but target env is MSVC; consider building MSVC .lib import/static libs", platform_path.display());
+            println!(
+                "cargo:warning=Found GNU-style TinyCC static libs in {} but target env is MSVC; consider building MSVC .lib import/static libs",
+                platform_path.display()
+            );
             return Some(platform_path);
         }
     } else {
@@ -103,7 +119,10 @@ fn try_get_prebuilt_tinycc(manifest_dir: &Path, target: &str) -> Option<PathBuf>
         let lib = platform_path.join("tcc.lib");
         let lib1 = platform_path.join("tcc1.lib");
         if lib.exists() && lib1.exists() {
-            println!("cargo:warning=Found MSVC-style .lib files in {} but target env is not MSVC; rustc may not be able to use them", platform_path.display());
+            println!(
+                "cargo:warning=Found MSVC-style .lib files in {} but target env is not MSVC; rustc may not be able to use them",
+                platform_path.display()
+            );
             return Some(platform_path);
         }
     }
@@ -161,7 +180,7 @@ fn build_tinycc_from_source(
     }
 
     // Ensure common architecture macros are defined for compilers (MSVC/clang may not define the GCC-style macros)
-    let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_else(|_| String::new());
+    let _target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_else(|_| String::new());
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_else(|_| String::new());
     if target_arch == "x86_64" {
         build.define("__x86_64__", "1");
@@ -184,7 +203,7 @@ fn build_tinycc_from_source(
 /// Build TinyCC runtime library (libtcc1.a)
 fn build_tinycc_runtime(
     tcc_src: &Path,
-    out_dir: &Path,
+    _out_dir: &Path,
     target: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let lib_dir = tcc_src.join("lib");

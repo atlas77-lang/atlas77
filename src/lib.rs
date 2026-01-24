@@ -74,17 +74,8 @@ pub fn run(path: String, flag: CompilationFlag, using_std: bool) -> miette::Resu
         tcc_set_output_type(tcc, OutputType::Exe.into());
         // Add include paths for TinyCC and generated header
 
-        // compile-time manifest dir
-        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-
         // tinycc include path
-        let path_to_tcc_include = get_include_path().expect("Failed to find TinyCC include path for current platform");
-        let include_c = CString::new(path_to_tcc_include.to_string_lossy().as_ref()).unwrap();
-        eprintln!(
-            "Adding TinyCC include path: {}",
-            path_to_tcc_include.display()
-        );
-        tcc_add_include_path(tcc, include_c.as_ptr() as *const i8);
+        include_path(tcc).expect("Failed to find TinyCC include path for current platform");
 
         // generated header (keep CString around)
         let header_path = std::env::current_dir().unwrap().join("build");
@@ -96,7 +87,8 @@ pub fn run(path: String, flag: CompilationFlag, using_std: bool) -> miette::Resu
         tcc_add_include_path(tcc, header_c.as_ptr() as *const i8);
 
         // library path (keep CString)
-        let path_to_tcc_lib = get_prebuilt_path().expect("Failed to find prebuilt TinyCC binaries for current platform");
+        let path_to_tcc_lib = get_prebuilt_path()
+            .expect("Failed to find prebuilt TinyCC binaries for current platform");
         let lib_c = CString::new(path_to_tcc_lib.to_string_lossy().as_ref()).unwrap();
         tcc_add_library_path(tcc, lib_c.as_ptr() as *const i8);
 
@@ -106,13 +98,19 @@ pub fn run(path: String, flag: CompilationFlag, using_std: bool) -> miette::Resu
         let res = tcc_compile_string(tcc, code_c.as_ptr() as *const i8);
 
         // out name already uses CString; keep it around until after tcc_output_file
-        let out_name = CString::new("./build/a.out").unwrap();
+        let target = get_current_platform();
+        let out_name = if target.contains("windows") {
+            CString::new("./build/a.exe").unwrap()
+        } else {
+            CString::new("./build/a.out").unwrap()
+        };
         let out_res = tcc_output_file(tcc, out_name.as_ptr());
 
         let end = Instant::now();
         if res == 0 && out_res == 0 {
             println!(
-                "Program compiled and output to ./build/a.out (time: {}µs)",
+                "Program compiled and output to {} (time: {}µs)",
+                out_name.to_str().unwrap(),
                 (end - start).as_micros()
             );
         } else if res != 0 {
@@ -163,25 +161,67 @@ fn get_prebuilt_path() -> Option<PathBuf> {
     }
 }
 
-fn get_include_path() -> Option<PathBuf> {
+/// Find and add every include path needed for TinyCC compilation
+///
+/// It's in a separate function, because the logic differs per platform.
+fn include_path(tcc: *mut tcc::TCCState) -> Result<(), ()> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let target = get_current_platform();
-    let prebuilt_dir = manifest_dir.join("tinycc/prebuilt");
 
-    eprintln!(
-        "Looking for TinyCC include path for target: {}",
-        target
-    );
-    let include_path = if target.contains("windows") {
-        manifest_dir.join("vendor/tinycc/win32/include")
+    eprintln!("Looking for TinyCC include path for target: {}", target);
+    // Needs to include vendor/tinycc/win32/include/ + vendor/tinycc/win32/include/winapi/ +
+    // vendor/tinycc/win32/include/sys/ + vendor/tinycc/win32/include/tcc/ + vendor/tinycc/win32/include/sec_api +
+    // vendor/tinycc/win32/include/sec_api/sys/
+    if target.contains("windows") {
+        let base_include = manifest_dir.join("vendor/tinycc/win32/include");
+        let include_c = CString::new(base_include.to_string_lossy().as_ref()).unwrap();
+        eprintln!("Adding TinyCC include path: {}", base_include.display());
+        unsafe {
+            tcc_add_include_path(tcc, include_c.as_ptr() as *const i8);
+        }
+
+        let winapi_include = base_include.join("winapi");
+        let winapi_c = CString::new(winapi_include.to_string_lossy().as_ref()).unwrap();
+        eprintln!("Adding TinyCC include path: {}", winapi_include.display());
+        unsafe {
+            tcc_add_include_path(tcc, winapi_c.as_ptr() as *const i8);
+        }
+
+        let sys_include = base_include.join("sys");
+        let sys_c = CString::new(sys_include.to_string_lossy().as_ref()).unwrap();
+        eprintln!("Adding TinyCC include path: {}", sys_include.display());
+        unsafe {
+            tcc_add_include_path(tcc, sys_c.as_ptr() as *const i8);
+        }
+
+        let tcc_include = base_include.join("tcc");
+        let tcc_c = CString::new(tcc_include.to_string_lossy().as_ref()).unwrap();
+        eprintln!("Adding TinyCC include path: {}", tcc_include.display());
+        unsafe {
+            tcc_add_include_path(tcc, tcc_c.as_ptr() as *const i8);
+        }
+
+        let sec_api_include = base_include.join("sec_api");
+        let sec_api_c = CString::new(sec_api_include.to_string_lossy().as_ref()).unwrap();
+        eprintln!("Adding TinyCC include path: {}", sec_api_include.display());
+        unsafe {
+            tcc_add_include_path(tcc, sec_api_c.as_ptr() as *const i8);
+        }
+
+        let sec_api_sys_include = sec_api_include.join("sys");
+        let sec_api_sys_c = CString::new(sec_api_sys_include.to_string_lossy().as_ref()).unwrap();
+        eprintln!(
+            "Adding TinyCC include path: {}",
+            sec_api_sys_include.display()
+        );
+        unsafe {
+            tcc_add_include_path(tcc, sec_api_sys_c.as_ptr() as *const i8);
+        }
     } else {
-        manifest_dir.join("vendor/tinycc/include")
-    };
-    if include_path.exists() {
-        Some(include_path)
-    } else {
-        None
+        // For Linux and macOS, just use the standard include path
     }
+
+    Ok(())
 }
 
 pub const DEFAULT_INIT_CODE: &str = r#"import "std/io";
