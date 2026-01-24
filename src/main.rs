@@ -65,9 +65,7 @@ enum AtlasRuntimeCLI {
         about = "Initialize a new Atlas77 project",
         long_about = "Initialize a new Atlas77 project in the current directory"
     )]
-    Init {
-        name: Option<String>,
-    },
+    Init { name: Option<String> },
     #[command(
         about = "Check a local package for errors without producing output",
         long_about = "Check a local package for errors without producing output. This is similar to 'build' but does not produce any output files."

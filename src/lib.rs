@@ -22,13 +22,19 @@ pub mod atlas_docs;
 pub mod atlas_lib;
 pub(crate) mod tcc;
 
-use crate::{atlas_c::{
-    atlas_codegen::{CCodeGen, HEADER_NAME},
-    atlas_hir::{
-        dead_code_elimination_pass::DeadCodeEliminationPass, pretty_print::HirPrettyPrinter,
+use crate::{
+    atlas_c::{
+        atlas_codegen::{CCodeGen, HEADER_NAME},
+        atlas_hir::{
+            dead_code_elimination_pass::DeadCodeEliminationPass, pretty_print::HirPrettyPrinter,
+        },
+        atlas_lir::hir_lowering_pass::HirLoweringPass,
     },
-    atlas_lir::hir_lowering_pass::HirLoweringPass,
-}, tcc::{OutputType, tcc_add_include_path, tcc_add_library_path, tcc_compile_string, tcc_new, tcc_output_file, tcc_set_output_type}};
+    tcc::{
+        OutputType, tcc_add_include_path, tcc_add_library_path, tcc_compile_string, tcc_new,
+        tcc_output_file, tcc_set_output_type,
+    },
+};
 use atlas_c::{
     atlas_frontend::{parse, parser::arena::AstArena},
     atlas_hir::{
@@ -38,7 +44,7 @@ use atlas_c::{
     },
 };
 use bumpalo::Bump;
-use std::{io::Write, path::PathBuf, time::Instant};
+use std::{ffi::CString, io::Write, path::PathBuf, time::Instant};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum CompilationFlag {
@@ -63,22 +69,43 @@ pub fn run(path: String, flag: CompilationFlag, using_std: bool) -> miette::Resu
     build(path.clone(), flag, using_std, false)?;
     let start = Instant::now();
 
-    let tcc = unsafe { tcc_new() };
     unsafe {
+        let tcc = tcc_new();
         tcc_set_output_type(tcc, OutputType::Exe.into());
         // Add include paths for TinyCC and generated header
-        let path_to_tcc_include = std::env::current_dir().unwrap().join("vendor/tinycc/include");
-        tcc_add_include_path(tcc, path_to_tcc_include.to_str().unwrap().as_ptr() as *const i8);
+
+        // compile-time manifest dir
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+
+        // tinycc include path
+        let path_to_tcc_include = manifest_dir.join("vendor/tinycc/include");
+        let include_c = CString::new(path_to_tcc_include.to_string_lossy().as_ref()).unwrap();
+        eprintln!(
+            "Adding TinyCC include path: {}",
+            path_to_tcc_include.display()
+        );
+        tcc_add_include_path(tcc, include_c.as_ptr() as *const i8);
+
+        // generated header (keep CString around)
         let header_path = std::env::current_dir().unwrap().join("build");
-        tcc_add_include_path(tcc, header_path.to_str().unwrap().as_ptr() as *const i8);
+        let header_c = CString::new(header_path.to_string_lossy().as_ref()).unwrap();
+        eprintln!(
+            "Adding generated header include path: {}",
+            header_path.display()
+        );
+        tcc_add_include_path(tcc, header_c.as_ptr() as *const i8);
 
-        // Add library path for libtcc1.a
-        let path_to_tcc_lib = std::env::current_dir().unwrap().join("vendor/tinycc");
-        tcc_add_library_path(tcc, path_to_tcc_lib.to_str().unwrap().as_ptr() as *const i8);
+        // library path (keep CString)
+        let path_to_tcc_lib = get_prebuilt_path().expect("...");
+        let lib_c = CString::new(path_to_tcc_lib.to_string_lossy().as_ref()).unwrap();
+        tcc_add_library_path(tcc, lib_c.as_ptr() as *const i8);
 
-        // Compile the generated C code
-        let res = tcc_compile_string(tcc, std::fs::read_to_string("./build/output.atlas_c.c").unwrap().as_ptr() as *const i8);
-        use std::ffi::CString;
+        // read C file and pass as C string
+        let code = std::fs::read_to_string("./build/output.atlas_c.c").unwrap();
+        let code_c = CString::new(code).unwrap();
+        let res = tcc_compile_string(tcc, code_c.as_ptr() as *const i8);
+
+        // out name already uses CString; keep it around until after tcc_output_file
         let out_name = CString::new("./build/a.out").unwrap();
         let out_res = tcc_output_file(tcc, out_name.as_ptr());
 
@@ -96,6 +123,44 @@ pub fn run(path: String, flag: CompilationFlag, using_std: bool) -> miette::Resu
     }
 
     Ok(())
+}
+
+fn get_current_platform() -> String {
+    use target_lexicon::Triple;
+    let target = Triple::host();
+    target.to_string()
+}
+
+fn get_prebuilt_path() -> Option<PathBuf> {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let target = get_current_platform();
+    let prebuilt_dir = manifest_dir.join("tinycc/prebuilt");
+
+    eprintln!(
+        "Looking for prebuilt TinyCC binaries for target: {}",
+        target
+    );
+    // Map Rust target triples to TinyCC platform directories
+    let platform_dir = match target.as_str() {
+        t if t.contains("x86_64") && t.contains("linux") => "linux-x64",
+        t if t.contains("aarch64") && t.contains("linux") => "linux-arm64",
+        t if t.contains("x86_64") && t.contains("windows") => "windows-x64",
+        t if t.contains("x86_64") && t.contains("apple") => "macos-x64",
+        t if t.contains("aarch64") && t.contains("apple") => "macos-arm64",
+        //t if t.contains("aarch64") && t.contains("windows") => "windows-aarch64",
+        _ => return None,
+    };
+
+    let full_path = prebuilt_dir.join(platform_dir);
+    eprintln!(
+        "Checking for prebuilt TinyCC binaries at path: {}",
+        full_path.display()
+    );
+    if full_path.exists() {
+        Some(full_path)
+    } else {
+        None
+    }
 }
 
 pub const DEFAULT_INIT_CODE: &str = r#"import "std/io";
