@@ -1,7 +1,4 @@
-use std::{
-    env, fs,
-    path::{Path, PathBuf},
-};
+use std::{env, path::{Path, PathBuf}};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let target = env::var("TARGET").expect("TARGET not set");
@@ -48,25 +45,70 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn try_get_prebuilt_tinycc(manifest_dir: &Path, target: &str) -> Option<PathBuf> {
     let prebuilt_dir = manifest_dir.join("tinycc/prebuilt");
 
-    // Map Rust target triples to TinyCC platform directories
-    let platform_dir = match target {
-        "x86_64-pc-windows-msvc" | "x86_64-pc-windows-gnu" => "windows-x64",
-        "x86_64-unknown-linux-gnu" | "x86_64-unknown-linux-musl" => "linux-x64",
-        "aarch64-unknown-linux-gnu" | "aarch64-unknown-linux-musl" => "linux-arm64",
-        "x86_64-apple-darwin" => "macos-x64",
-        "aarch64-apple-darwin" => "macos-arm64",
-        _ => return None,
+    // Prefer Cargo-provided target config vars for architecture/os detection.
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_else(|_| "unknown".into());
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "unknown".into());
+
+    // Map architecture + OS to platform dir names used in tinycc/prebuilt
+    let platform_dir = match (target_arch.as_str(), target_os.as_str()) {
+        ("x86_64", "windows") => "windows-x64",
+        ("x86_64", "linux") => "linux-x64",
+        ("aarch64", "linux") | ("arm", "linux") => "linux-arm64",
+        ("x86_64", "macos") | ("x86_64", "darwin") => "macos-x64",
+        ("aarch64", "macos") | ("aarch64", "darwin") => "macos-arm64",
+        _ => {
+            // fallback: try to parse the triple (best-effort)
+            if target.contains("x86_64") && target.contains("windows") {
+                "windows-x64"
+            } else if target.contains("x86_64") && target.contains("linux") {
+                "linux-x64"
+            } else if (target.contains("aarch64") || target.contains("arm64")) && target.contains("linux") {
+                "linux-arm64"
+            } else if target.contains("x86_64") && (target.contains("apple") || target.contains("darwin")) {
+                "macos-x64"
+            } else if (target.contains("aarch64") || target.contains("arm64")) && (target.contains("apple") || target.contains("darwin")) {
+                "macos-arm64"
+            } else {
+                return None;
+            }
+        }
     };
 
     let platform_path = prebuilt_dir.join(platform_dir);
-    let libtcc = platform_path.join("libtcc.a");
-    let libtcc1 = platform_path.join("libtcc1.a");
 
-    if libtcc.exists() && libtcc1.exists() {
-        Some(platform_path)
+    // Prefer platform-specific naming: MSVC expects `tcc.lib`, GNU/Unix expect `libtcc.a`.
+    let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_else(|_| String::new());
+
+    if target_env == "msvc" {
+        let lib = platform_path.join("tcc.lib");
+        let lib1 = platform_path.join("tcc1.a");
+        if lib.exists() && lib1.exists() {
+            return Some(platform_path);
+        }
+        // Fallback: if GNU-style static libs are present, still return the dir but warn.
+        let lib_a = platform_path.join("libtcc.a");
+        let lib1_a = platform_path.join("libtcc1.a");
+        if lib_a.exists() && lib1_a.exists() {
+            println!("cargo:warning=Found GNU-style TinyCC static libs in {} but target env is MSVC; consider building MSVC .lib import/static libs", platform_path.display());
+            return Some(platform_path);
+        }
     } else {
-        None
+        // Default: look for Unix/GNU style static libs
+        let libtcc = platform_path.join("libtcc.a");
+        let libtcc1 = platform_path.join("libtcc1.a");
+        if libtcc.exists() && libtcc1.exists() {
+            return Some(platform_path);
+        }
+        // If on Windows GNU toolchain (mingw) the above should be fine; if a MSVC-style .lib exists, accept it too.
+        let lib = platform_path.join("tcc.lib");
+        let lib1 = platform_path.join("tcc1.lib");
+        if lib.exists() && lib1.exists() {
+            println!("cargo:warning=Found MSVC-style .lib files in {} but target env is not MSVC; rustc may not be able to use them", platform_path.display());
+            return Some(platform_path);
+        }
     }
+
+    None
 }
 
 /// Build TinyCC from source using the cc crate
@@ -76,21 +118,27 @@ fn build_tinycc_from_source(
     target: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let tcc_src = manifest_dir.join("vendor/tinycc");
+    // Determine target configuration using Cargo cfg variables when available
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_else(|_| "unknown".into());
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "unknown".into());
 
-    // Determine target configuration
-    let extra_defines = match target {
-        t if t.contains("x86_64") && t.contains("linux") => {
-            vec![("TCC_TARGET_X86_64", "1")]
-        }
-        t if t.contains("x86_64") && t.contains("windows") => {
-            vec![("TCC_TARGET_X86_64", "1"), ("TCC_TARGET_PE", "1")]
-        }
-        t if t.contains("aarch64") && t.contains("linux") => {
-            vec![("TCC_TARGET_ARM64", "1")]
-        }
-        _ => {
-            return Err(format!("Unsupported target for building TinyCC: {}", target).into());
-        }
+    let extra_defines = if target_arch == "x86_64" && target_os == "linux" {
+        vec![("TCC_TARGET_X86_64", "1")]
+    } else if target_arch == "x86_64" && target_os == "windows" {
+        vec![("TCC_TARGET_X86_64", "1"), ("TCC_TARGET_PE", "1")]
+    } else if (target_arch == "aarch64" || target_arch == "arm") && target_os == "linux" {
+        vec![("TCC_TARGET_ARM64", "1")]
+    } else if target.contains("x86_64") && target.contains("windows") {
+        // best-effort fallback to triple parsing
+        vec![("TCC_TARGET_X86_64", "1"), ("TCC_TARGET_PE", "1")]
+    } else if (target.contains("aarch64") || target.contains("arm64")) && target.contains("linux") {
+        vec![("TCC_TARGET_ARM64", "1")]
+    } else {
+        return Err(format!(
+            "Unsupported target for building TinyCC: {} (arch='{}' os='{}')",
+            target, target_arch, target_os
+        )
+        .into());
     };
 
     // Build libtcc.a
@@ -110,6 +158,17 @@ fn build_tinycc_from_source(
 
     for (key, val) in extra_defines {
         build.define(key, val);
+    }
+
+    // Ensure common architecture macros are defined for compilers (MSVC/clang may not define the GCC-style macros)
+    let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_else(|_| String::new());
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_else(|_| String::new());
+    if target_arch == "x86_64" {
+        build.define("__x86_64__", "1");
+    } else if target_arch == "x86" || target_arch == "i686" || target_arch == "i386" {
+        build.define("__i386__", "1");
+    } else if target_arch == "aarch64" || target_arch == "arm" {
+        build.define("__arm__", "1");
     }
 
     build.include(&tcc_src);
@@ -149,6 +208,16 @@ fn build_tinycc_runtime(
         .flag_if_supported("-std=gnu99")
         .flag_if_supported("-fno-strict-aliasing")
         .include(&lib_dir);
+
+    // Mirror architecture defines for runtime build too
+    let target_arch_rt = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_else(|_| "".into());
+    if target_arch_rt == "x86_64" {
+        build.define("__x86_64__", "1");
+    } else if target_arch_rt == "x86" || target_arch_rt == "i686" || target_arch_rt == "i386" {
+        build.define("__i386__", "1");
+    } else if target_arch_rt == "aarch64" || target_arch_rt == "arm" {
+        build.define("__arm__", "1");
+    }
 
     // Add C sources
     for source in c_sources {

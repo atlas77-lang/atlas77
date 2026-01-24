@@ -78,7 +78,7 @@ pub fn run(path: String, flag: CompilationFlag, using_std: bool) -> miette::Resu
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
 
         // tinycc include path
-        let path_to_tcc_include = manifest_dir.join("vendor/tinycc/include");
+        let path_to_tcc_include = get_include_path().expect("Failed to find TinyCC include path for current platform");
         let include_c = CString::new(path_to_tcc_include.to_string_lossy().as_ref()).unwrap();
         eprintln!(
             "Adding TinyCC include path: {}",
@@ -96,7 +96,7 @@ pub fn run(path: String, flag: CompilationFlag, using_std: bool) -> miette::Resu
         tcc_add_include_path(tcc, header_c.as_ptr() as *const i8);
 
         // library path (keep CString)
-        let path_to_tcc_lib = get_prebuilt_path().expect("...");
+        let path_to_tcc_lib = get_prebuilt_path().expect("Failed to find prebuilt TinyCC binaries for current platform");
         let lib_c = CString::new(path_to_tcc_lib.to_string_lossy().as_ref()).unwrap();
         tcc_add_library_path(tcc, lib_c.as_ptr() as *const i8);
 
@@ -158,6 +158,27 @@ fn get_prebuilt_path() -> Option<PathBuf> {
     );
     if full_path.exists() {
         Some(full_path)
+    } else {
+        None
+    }
+}
+
+fn get_include_path() -> Option<PathBuf> {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let target = get_current_platform();
+    let prebuilt_dir = manifest_dir.join("tinycc/prebuilt");
+
+    eprintln!(
+        "Looking for TinyCC include path for target: {}",
+        target
+    );
+    let include_path = if target.contains("windows") {
+        manifest_dir.join("vendor/tinycc/win32/include")
+    } else {
+        manifest_dir.join("vendor/tinycc/include")
+    };
+    if include_path.exists() {
+        Some(include_path)
     } else {
         None
     }
