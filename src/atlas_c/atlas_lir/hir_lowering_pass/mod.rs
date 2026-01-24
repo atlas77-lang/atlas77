@@ -22,8 +22,9 @@ use crate::atlas_c::{
             LirBlock, LirExternFunction, LirFunction, LirInstr, LirOperand, LirProgram,
             LirTerminator, LirTy,
         },
+        warning::{LirLoweringWarning, UnknownTypeWarning},
     },
-    utils,
+    utils::{self, Span},
 };
 
 /// Hir to Lir lowering pass
@@ -76,10 +77,10 @@ impl<'hir> HirLoweringPass<'hir> {
                     args: sig
                         .params
                         .iter()
-                        .map(|p| self.hir_ty_to_lir_primitive(p.ty))
+                        .map(|p| self.hir_ty_to_lir_primitive(&p.ty, p.span))
                         .collect(),
                     return_type: {
-                        let lir_ty = self.hir_ty_to_lir_primitive(&sig.return_ty);
+                        let lir_ty = self.hir_ty_to_lir_primitive(&sig.return_ty, sig.span);
                         if lir_ty == LirTy::Unit {
                             None
                         } else {
@@ -189,10 +190,11 @@ impl<'hir> HirLoweringPass<'hir> {
                 .signature
                 .params
                 .iter()
-                .map(|p| self.hir_ty_to_lir_primitive(p.ty))
+                .map(|p| self.hir_ty_to_lir_primitive(&p.ty, p.span))
                 .collect(),
             return_type: {
-                let lir_ty = self.hir_ty_to_lir_primitive(&func.signature.return_ty);
+                let lir_ty =
+                    self.hir_ty_to_lir_primitive(&func.signature.return_ty, func.signature.span);
                 if lir_ty == LirTy::Unit {
                     None
                 } else {
@@ -297,14 +299,14 @@ impl<'hir> HirLoweringPass<'hir> {
             }
             HirStatement::Let(let_stmt) => {
                 let value = self.lower_expr(&let_stmt.value)?;
-                // Allocate a temp for this local variable
+
                 if let LirOperand::Temp(id) = value {
                     self.local_map.insert(let_stmt.name, id);
                 } else {
                     // Immediate values don't generate temps, so load them into one
                     let temp = self.new_temp();
                     self.emit(LirInstr::LoadImm {
-                        ty: self.hir_ty_to_lir_primitive(&let_stmt.ty),
+                        ty: self.hir_ty_to_lir_primitive(&let_stmt.ty, let_stmt.span),
                         dst: temp.clone(),
                         value,
                     })?;
@@ -328,7 +330,7 @@ impl<'hir> HirLoweringPass<'hir> {
                             let expr_operand = self.lower_expr(&u.expr)?;
                             let dest = LirOperand::Deref(Box::new(expr_operand));
                             self.emit(LirInstr::Assign {
-                                ty: self.hir_ty_to_lir_primitive(&assign.ty),
+                                ty: self.hir_ty_to_lir_primitive(&assign.val.ty(), assign.span),
                                 dst: dest,
                                 src: value,
                             })?;
@@ -362,7 +364,7 @@ impl<'hir> HirLoweringPass<'hir> {
                 if let Some(&temp_id) = self.local_map.get(ident_name) {
                     let dest = LirOperand::Temp(temp_id);
                     self.emit(LirInstr::Assign {
-                        ty: self.hir_ty_to_lir_primitive(&assign.ty),
+                        ty: self.hir_ty_to_lir_primitive(&assign.ty, assign.span),
                         dst: dest,
                         src: value,
                     })?;
@@ -473,7 +475,7 @@ impl<'hir> HirLoweringPass<'hir> {
                 let rhs = self.lower_expr(&binop.rhs)?;
                 let dest = self.new_temp();
 
-                let ty = self.hir_ty_to_lir_primitive(binop.ty);
+                let ty = self.hir_ty_to_lir_primitive(binop.ty, binop.span);
 
                 let instr = match binop.op {
                     HirBinaryOperator::Add => LirInstr::Add {
@@ -622,14 +624,14 @@ impl<'hir> HirLoweringPass<'hir> {
 
                 let instr = if is_extern {
                     LirInstr::ExternCall {
-                        ty: self.hir_ty_to_lir_primitive(&call.ty),
+                        ty: self.hir_ty_to_lir_primitive(&call.ty, call.span),
                         dst: dest.clone(),
                         func_name,
                         args,
                     }
                 } else {
                     LirInstr::Call {
-                        ty: self.hir_ty_to_lir_primitive(&call.ty),
+                        ty: self.hir_ty_to_lir_primitive(&call.ty, call.span),
                         dst: dest.clone(),
                         func_name,
                         args,
@@ -661,7 +663,7 @@ impl<'hir> HirLoweringPass<'hir> {
     }
 
     /// Convert HIR type to Lir primitive type
-    fn hir_ty_to_lir_primitive(&self, ty: &HirTy) -> LirTy {
+    fn hir_ty_to_lir_primitive(&self, ty: &HirTy, span: Span) -> LirTy {
         match ty {
             HirTy::Int64(_) => LirTy::Int64,
             HirTy::UInt64(_) => LirTy::UInt64,
@@ -671,14 +673,35 @@ impl<'hir> HirLoweringPass<'hir> {
             HirTy::String(_) => LirTy::Str,
             HirTy::Unit(_) => LirTy::Unit,
             HirTy::ReadOnlyReference(r) => {
-                let inner = self.hir_ty_to_lir_primitive(&r.inner);
+                let inner = self.hir_ty_to_lir_primitive(&r.inner, span);
                 LirTy::Ref(Box::new(inner))
             }
             HirTy::MutableReference(r) => {
-                let inner = self.hir_ty_to_lir_primitive(&r.inner);
+                let inner = self.hir_ty_to_lir_primitive(&r.inner, span);
                 LirTy::Ref(Box::new(inner))
             }
-            _ => LirTy::Int64, // Default fallback
+            HirTy::Uninitialized(_) => {
+                //We should error...
+                let report: miette::Report = LirLoweringWarning::UnknownType(UnknownTypeWarning {
+                    ty_name: format!("{}", ty).to_string(),
+                    span,
+                    src: NamedSource::new(span.path, utils::get_file_content(span.path).unwrap()),
+                })
+                .into();
+                eprintln!("{:?}", report);
+
+                LirTy::Int64
+            }
+            _ => {
+                let report: miette::Report = LirLoweringWarning::UnknownType(UnknownTypeWarning {
+                    ty_name: format!("{}", ty).to_string(),
+                    span,
+                    src: NamedSource::new(span.path, utils::get_file_content(span.path).unwrap()),
+                })
+                .into();
+                eprintln!("{:?}", report);
+                LirTy::Int64
+            } // Default fallback
         }
     }
 }
