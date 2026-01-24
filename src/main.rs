@@ -85,9 +85,6 @@ enum AtlasRuntimeCLI {
         output: String,
         file_path: Option<String>,
     },
-    Test {
-        file_path: String,
-    },
 }
 
 fn main() -> miette::Result<()> {
@@ -164,10 +161,6 @@ fn main() -> miette::Result<()> {
         }
         AtlasRuntimeCLI::Docs { output, file_path } => {
             generate_docs(output, file_path.as_deref());
-            Ok(())
-        }
-        AtlasRuntimeCLI::Test { file_path } => {
-            atlas_77::test(file_path)?;
             Ok(())
         }
     }

@@ -10,7 +10,7 @@ keywords = ["programming", "language", "compiler", "atlas77"]
 categories = ["compilers"]
 homepage = "https://atlas77-lang.github.io/atlas77-docs/"
 readme = "README.md"
-
+build = "build.rs"
 
 [profile.release]
 opt-level = 3
@@ -32,6 +32,7 @@ name = "atlas_77"
 path = "src/main.rs"
 
 [dependencies]
+libc = "^0.2"
 # For the CLI
 clap = { version = "4.5.54", features = ["derive"] }
 bumpalo = "3.19.1"
@@ -55,8 +56,11 @@ tera = { version = "1.20", optional = true }                        # HTML templ
 syntect = { version = "5.3", optional = true }                      # code highlighting 
 serde = { version = "1.0", features = ["derive"], optional = true } # for serializing the table of contents
 serde_json = { version = "1.0", optional = true }                   # for serializing the table of contents
-tcc = "0.1.0"
+# tcc = "0.1.0"
 
 [features]
 default = []
 docs = ["pulldown-cmark", "tera", "syntect", "serde", "serde_json"]
+
+[build-dependencies]
+walkdir = "^2"

@@ -20,22 +20,16 @@
 pub mod atlas_c;
 pub mod atlas_docs;
 pub mod atlas_lib;
-pub mod atlas_vm;
+pub(crate) mod tcc;
 
-use crate::{
-    atlas_c::{
-        atlas_asm::AsmProgram,
-        atlas_hir::{
-            dead_code_elimination_pass::DeadCodeEliminationPass, pretty_print::HirPrettyPrinter,
-        },
-        atlas_lir::hir_lowering_pass::HirLoweringPass,
-        atlas_new_codegen::{CCodeGen, HEADER_NAME},
+use crate::{atlas_c::{
+    atlas_codegen::{CCodeGen, HEADER_NAME},
+    atlas_hir::{
+        dead_code_elimination_pass::DeadCodeEliminationPass, pretty_print::HirPrettyPrinter,
     },
-    atlas_vm::runtime::AtlasRuntime,
-};
+    atlas_lir::hir_lowering_pass::HirLoweringPass,
+}, tcc::{OutputType, tcc_add_include_path, tcc_add_library_path, tcc_compile_string, tcc_new, tcc_output_file, tcc_set_output_type}};
 use atlas_c::{
-    atlas_asm,
-    atlas_codegen::{CodeGenUnit, arena::CodeGenArena},
     atlas_frontend::{parse, parser::arena::AstArena},
     atlas_hir::{
         arena::HirArena, monomorphization_pass::MonomorphizationPass,
@@ -44,7 +38,7 @@ use atlas_c::{
     },
 };
 use bumpalo::Bump;
-use std::{collections::BTreeMap, io::Write, path::PathBuf, time::Instant};
+use std::{io::Write, path::PathBuf, time::Instant};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum CompilationFlag {
@@ -64,140 +58,41 @@ fn get_path(path: &str) -> PathBuf {
     path_buf
 }
 
-pub fn build(
-    path: String,
-    flag: CompilationFlag,
-    using_std: bool,
-    produces_output: bool,
-) -> miette::Result<AsmProgram> {
-    if produces_output {
-        std::fs::create_dir_all("./build").unwrap();
-    }
-    let start = Instant::now();
-    println!("Building project at path: {}", path);
-    let path_buf = get_path(&path);
-
-    let source = std::fs::read_to_string(&path).unwrap_or_else(|_| {
-        eprintln!("Failed to read source file at path: {}", path);
-        std::process::exit(1);
-    }); //parse
-    let bump = Bump::new();
-    let ast_arena = AstArena::new(&bump);
-    let file_path = atlas_c::utils::string_to_static_str(path_buf.to_str().unwrap().to_owned());
-    let program = match parse(file_path, &ast_arena, source) {
-        Ok(prog) => prog,
-        Err(e) => {
-            return Err((*e).into());
-        }
-    };
-
-    //hir
-    let hir_arena = HirArena::new();
-    let mut lower = AstSyntaxLoweringPass::new(&hir_arena, &program, &ast_arena, using_std);
-    let hir = lower.lower()?;
-
-    //monomorphize
-    let mut monomorphizer = MonomorphizationPass::new(&hir_arena, lower.generic_pool);
-    let hir = monomorphizer.monomorphize(hir)?;
-    //type-check
-    let mut type_checker = TypeChecker::new(&hir_arena);
-    let hir = type_checker.check(hir)?;
-
-    // Ownership analysis pass (MOVE/COPY semantics and destructor insertion)
-    let mut ownership_pass = OwnershipPass::new(hir.signature.clone(), &hir_arena);
-    let mut hir = match ownership_pass.run(hir) {
-        Ok(hir) => hir,
-        Err((hir, err)) => {
-            // Write HIR output (even if there are ownership errors)
-            use crate::atlas_c::atlas_hir::pretty_print::HirPrettyPrinter;
-            let mut hir_printer = HirPrettyPrinter::new();
-            let hir_output = hir_printer.print_module(hir);
-            let mut file_hir = std::fs::File::create("./build/output.atlas").unwrap();
-            file_hir.write_all(hir_output.as_bytes()).unwrap();
-            return Err((err).into());
-        }
-    };
-
-    //Dead code elimination (only in release mode)
-    if flag == CompilationFlag::Release {
-        let mut dce_pass = DeadCodeEliminationPass::new(&hir_arena);
-        hir = dce_pass.eliminate_dead_code(hir)?;
-    }
-
-    // Write HIR output
-    if produces_output {
-        let mut hir_printer = HirPrettyPrinter::new();
-        let hir_output = hir_printer.print_module(hir);
-        let mut file_hir = std::fs::File::create("./build/output.atlas").unwrap();
-        file_hir.write_all(hir_output.as_bytes()).unwrap();
-    }
-
-    let mut lir_lower = HirLoweringPass::new(hir);
-    match lir_lower.lower() {
-        Ok(lir) => {
-            if produces_output {
-                let mut file_lir = std::fs::File::create("./build/output.atlas_lir").unwrap();
-                let lir_output = format!("{}", lir);
-                file_lir.write_all(lir_output.as_bytes()).unwrap();
-            }
-        }
-        Err(e) => {
-            eprintln!("{:?}", Into::<miette::Report>::into(*e));
-        }
-    }
-
-    //codegen
-    let bump = Bump::new();
-    let arena = CodeGenArena::new(&bump);
-    let mut codegen = CodeGenUnit::new(hir, arena, &hir_arena);
-    let program = codegen.compile()?;
-    if produces_output {
-        let mut file = std::fs::File::create("./build/output.atlasc").unwrap();
-        let mut content = String::new();
-        for label in program.labels.iter() {
-            content.push_str(&format!("{}", label));
-        }
-        file.write_all(content.as_bytes()).unwrap();
-    }
-
-    let mut assembler = atlas_asm::Assembler::new();
-    let asm = assembler.asm_from_instruction(!using_std, program)?;
-    if produces_output {
-        let mut file2 = std::fs::File::create("./build/output.atlas_asm").unwrap();
-        let content2 = format!("{}", asm);
-        file2.write_all(content2.as_bytes()).unwrap();
-    }
-
-    let end = Instant::now();
-    println!("Build completed in {}µs", (end - start).as_micros());
-    Ok(asm)
-}
-
 //The "run" function needs a bit of refactoring
-pub fn run(path: String, _flag: CompilationFlag, using_std: bool) -> miette::Result<()> {
-    let res = build(path.clone(), _flag, using_std, false)?;
-
-    let extern_fn = BTreeMap::new();
-    let mut vm = AtlasRuntime::new(res, extern_fn);
+pub fn run(path: String, flag: CompilationFlag, using_std: bool) -> miette::Result<()> {
+    build(path.clone(), flag, using_std, false)?;
     let start = Instant::now();
-    let res = vm.run();
-    let end = Instant::now();
-    match res {
-        Ok(_) => {
+
+    let tcc = unsafe { tcc_new() };
+    unsafe {
+        tcc_set_output_type(tcc, OutputType::Exe.into());
+        // Add include paths for TinyCC and generated header
+        let path_to_tcc_include = std::env::current_dir().unwrap().join("vendor/tinycc/include");
+        tcc_add_include_path(tcc, path_to_tcc_include.to_str().unwrap().as_ptr() as *const i8);
+        let header_path = std::env::current_dir().unwrap().join("build");
+        tcc_add_include_path(tcc, header_path.to_str().unwrap().as_ptr() as *const i8);
+
+        // Add library path for libtcc1.a
+        let path_to_tcc_lib = std::env::current_dir().unwrap().join("vendor/tinycc");
+        tcc_add_library_path(tcc, path_to_tcc_lib.to_str().unwrap().as_ptr() as *const i8);
+
+        // Compile the generated C code
+        let res = tcc_compile_string(tcc, std::fs::read_to_string("./build/output.atlas_c.c").unwrap().as_ptr() as *const i8);
+        use std::ffi::CString;
+        let out_name = CString::new("./build/a.out").unwrap();
+        let out_res = tcc_output_file(tcc, out_name.as_ptr());
+
+        let end = Instant::now();
+        if res == 0 && out_res == 0 {
             println!(
-                "Program ran successfully (time: {}µs)",
+                "Program compiled and output to ./build/a.out (time: {}µs)",
                 (end - start).as_micros()
             );
+        } else if res != 0 {
+            eprintln!("TCC Compilation Error");
+        } else {
+            eprintln!("TCC failed to output executable");
         }
-        Err(e) => {
-            eprintln!("{}", e);
-        }
-    }
-
-    // Print memory report if ATLAS_MEMORY_REPORT env var is set
-    if std::env::var("ATLAS_MEMORY_REPORT").is_ok() {
-        vm.heap
-            .print_memory_report(&vm.asm_program.struct_descriptors);
     }
 
     Ok(())
@@ -271,7 +166,12 @@ pub fn generate_docs(output_dir: String, path: Option<&str>) {
     }
 }
 
-pub fn test(path: String) -> miette::Result<()> {
+pub fn build(
+    path: String,
+    _flag: CompilationFlag,
+    using_std: bool,
+    produce_output: bool,
+) -> miette::Result<()> {
     std::fs::create_dir_all("./build").unwrap();
     let start = Instant::now();
     println!("Building project at path: {}", path);
