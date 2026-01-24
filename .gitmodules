@@ -1,0 +1,3 @@
+[submodule "vendor/tinycc"]
+	path = vendor/tinycc
+	url = https://repo.or.cz/tinycc.git
