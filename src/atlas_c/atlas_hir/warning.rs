@@ -11,6 +11,7 @@ declare_warning_type!(
         ThisTypeIsStillUnstable(ThisTypeIsStillUnstableWarning),
         NameShouldBeInDifferentCase(NameShouldBeInDifferentCaseWarning),
         TryingToCastToTheSameType(TryingToCastToTheSameTypeWarning),
+        UseAfterMove(UseAfterMoveWarning),
         ConsumingMethodMayLeakThis(ConsumingMethodMayLeakThisWarning),
         CannotGenerateACopyConstructorForThisType(CannotGenerateACopyConstructorForThisTypeWarning),
         UnnecessaryCopyDueToLaterBorrows(UnnecessaryCopyDueToLaterBorrowsWarning),
@@ -37,6 +38,42 @@ pub struct CannotGenerateACopyConstructorForThisTypeWarning {
     #[label("Type `{type_name}` declared here")]
     pub name_span: Span,
     pub type_name: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::use_after_move),
+    severity(warning),
+    help(
+        "Accessing a moved-from value may be undefined at runtime; consider using a copy or std::move explicitly"
+    )
+)]
+#[error("Use of moved-from variable `{var_name}`")]
+pub struct UseAfterMoveWarning {
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label = "Use of moved-from variable `{var_name}`"]
+    pub access_span: Span,
+    #[label = "Value was moved from here"]
+    pub move_span: Span,
+    pub var_name: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::consuming_method_may_leak_this),
+    severity(warning),
+    help(
+        "Add `delete this;` before returning, or change to `&this` / `&const this` if you don't need to consume ownership"
+    )
+)]
+#[error("Consuming method `{method_signature}` does not explicitly delete `this`")]
+pub struct ConsumingMethodMayLeakThisWarning {
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label = "This method takes ownership of `this` but doesn't delete it, which may cause a memory leak"]
+    pub span: Span,
+    pub method_signature: String,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -88,24 +125,6 @@ pub struct ThisTypeIsStillUnstableWarning {
     //Additional info about why it's unstable
     pub info: String,
 }
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
-    code(sema::consuming_method_may_leak_this),
-    severity(warning),
-    help(
-        "Add `delete this;` before returning, or change to `&this` / `&const this` if you don't need to consume ownership"
-    )
-)]
-#[error("Consuming method `{method_signature}` does not explicitly delete `this`")]
-pub struct ConsumingMethodMayLeakThisWarning {
-    #[source_code]
-    pub src: NamedSource<String>,
-    #[label = "This method takes ownership of `this` but doesn't delete it, which may cause a memory leak"]
-    pub span: Span,
-    pub method_signature: String,
-}
-
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
     code(sema::unnecessary_copy_due_to_later_borrows),

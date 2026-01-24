@@ -181,7 +181,7 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
         self.local_variables.clear();
 
         //generate copy constructor
-        if let Some(copy_ctor) = &hir_struct.copy_constructor {
+        if let Some(copy_ctor) = &hir_struct.move_constructor {
             self.generate_bytecode_copy_constructor(struct_name, copy_ctor, labels)?;
             self.local_variables.clear();
         }

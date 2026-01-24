@@ -84,6 +84,7 @@ declare_error_type! {
         TooManyReferenceLevels(TooManyReferenceLevelsError),
         AssignmentCannotBeAnExpression(AssignmentCannotBeAnExpressionError),
         CannotGenerateADestructorForThisType(CannotGenerateADestructorForThisTypeError),
+        CannotImplicitlyCopyNonCopyableValue(CannotImplicitlyCopyNonCopyableValueError),
     }
 }
 
@@ -1226,4 +1227,23 @@ pub struct CannotGenerateADestructorForThisTypeError {
     #[label("Type `{type_name}` declared here")]
     pub name_span: Span,
     pub type_name: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::cannot_implicitly_copy_non_copyable_value),
+    help(
+        "the value `{var_name}` of type `{ty_name}` cannot be implicitly copied because \
+        `{ty_name}` does not implement a copy constructor. Consider moving the value instead, \
+        with `move(&{var_name})`."
+    )
+)]
+#[error("cannot implicitly copy non-copyable value `{var_name}` of type `{ty_name}`")]
+pub struct CannotImplicitlyCopyNonCopyableValueError {
+    pub var_name: String,
+    pub ty_name: String,
+    #[label = "attempting to implicitly copy `{var_name}` here"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
 }

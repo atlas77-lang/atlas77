@@ -174,7 +174,7 @@ impl<'hir> ScopeMap<'hir> {
 
     pub fn mark_as_moved(&mut self, name: &str, move_span: Span) -> Option<()> {
         if let Some(var) = self.get_mut(name) {
-            var.status = VarStatus::Moved { move_span };
+            var.status = VarStatus::MovedFrom { move_span };
             Some(())
         } else {
             None
@@ -316,41 +316,44 @@ impl<'hir> ScopeMap<'hir> {
 
             match (then_var, else_var) {
                 (Some(then_v), Some(else_v)) => {
-                    let then_moved = matches!(
-                        then_v.status,
-                        VarStatus::Moved { .. } | VarStatus::ConditionallyMoved { .. }
-                    );
-                    let else_moved = matches!(
-                        else_v.status,
-                        VarStatus::Moved { .. } | VarStatus::ConditionallyMoved { .. }
-                    );
+                    let then_moved = then_v.status.is_moved_from();
+                    let else_moved = else_v.status.is_moved_from();
 
                     match (then_moved, else_moved) {
                         (true, true) => {
-                            // Moved in both branches - definitely moved
-                            if let VarStatus::Moved { move_span } = &then_v.status {
-                                var_data.status = VarStatus::Moved {
+                            if let VarStatus::MovedFrom { move_span } = &then_v.status {
+                                var_data.status = VarStatus::MovedFrom {
                                     move_span: *move_span,
                                 };
                             } else if let VarStatus::ConditionallyMoved { move_span } =
                                 &then_v.status
                             {
-                                var_data.status = VarStatus::Moved {
+                                var_data.status = VarStatus::MovedFrom {
                                     move_span: *move_span,
                                 };
                             }
                         }
                         (true, false) => {
-                            // Moved only in then branch - conditionally moved
-                            if let VarStatus::Moved { move_span } = &then_v.status {
+                            if let VarStatus::MovedFrom { move_span } = &then_v.status {
+                                var_data.status = VarStatus::ConditionallyMoved {
+                                    move_span: *move_span,
+                                };
+                            } else if let VarStatus::ConditionallyMoved { move_span } =
+                                &then_v.status
+                            {
                                 var_data.status = VarStatus::ConditionallyMoved {
                                     move_span: *move_span,
                                 };
                             }
                         }
                         (false, true) => {
-                            // Moved only in else branch - conditionally moved
-                            if let VarStatus::Moved { move_span } = &else_v.status {
+                            if let VarStatus::MovedFrom { move_span } = &else_v.status {
+                                var_data.status = VarStatus::ConditionallyMoved {
+                                    move_span: *move_span,
+                                };
+                            } else if let VarStatus::ConditionallyMoved { move_span } =
+                                &else_v.status
+                            {
                                 var_data.status = VarStatus::ConditionallyMoved {
                                     move_span: *move_span,
                                 };
@@ -377,38 +380,44 @@ impl<'hir> ScopeMap<'hir> {
 
                 match (then_var, else_var) {
                     (Some(then_v), Some(else_v)) => {
-                        let then_moved = matches!(
-                            then_v.status,
-                            VarStatus::Moved { .. } | VarStatus::ConditionallyMoved { .. }
-                        );
-                        let else_moved = matches!(
-                            else_v.status,
-                            VarStatus::Moved { .. } | VarStatus::ConditionallyMoved { .. }
-                        );
+                        let then_moved = then_v.status.is_moved_from();
+                        let else_moved = else_v.status.is_moved_from();
 
                         match (then_moved, else_moved) {
                             (true, true) => {
-                                if let VarStatus::Moved { move_span } = &then_v.status {
-                                    var_data.status = VarStatus::Moved {
+                                if let VarStatus::MovedFrom { move_span } = &then_v.status {
+                                    var_data.status = VarStatus::MovedFrom {
                                         move_span: *move_span,
                                     };
                                 } else if let VarStatus::ConditionallyMoved { move_span } =
                                     &then_v.status
                                 {
-                                    var_data.status = VarStatus::Moved {
+                                    var_data.status = VarStatus::MovedFrom {
                                         move_span: *move_span,
                                     };
                                 }
                             }
                             (true, false) => {
-                                if let VarStatus::Moved { move_span } = &then_v.status {
+                                if let VarStatus::MovedFrom { move_span } = &then_v.status {
+                                    var_data.status = VarStatus::ConditionallyMoved {
+                                        move_span: *move_span,
+                                    };
+                                } else if let VarStatus::ConditionallyMoved { move_span } =
+                                    &then_v.status
+                                {
                                     var_data.status = VarStatus::ConditionallyMoved {
                                         move_span: *move_span,
                                     };
                                 }
                             }
                             (false, true) => {
-                                if let VarStatus::Moved { move_span } = &else_v.status {
+                                if let VarStatus::MovedFrom { move_span } = &else_v.status {
+                                    var_data.status = VarStatus::ConditionallyMoved {
+                                        move_span: *move_span,
+                                    };
+                                } else if let VarStatus::ConditionallyMoved { move_span } =
+                                    &else_v.status
+                                {
                                     var_data.status = VarStatus::ConditionallyMoved {
                                         move_span: *move_span,
                                     };
@@ -443,11 +452,11 @@ impl<'hir> ScopeMap<'hir> {
                     // A variable is "consumed" if it's either moved or explicitly deleted
                     let then_consumed = matches!(
                         then_v.status,
-                        VarStatus::Moved { .. } | VarStatus::Deleted { .. }
+                        VarStatus::MovedFrom { .. } | VarStatus::Deleted { .. }
                     );
                     let else_consumed = matches!(
                         else_v.status,
-                        VarStatus::Moved { .. } | VarStatus::Deleted { .. }
+                        VarStatus::MovedFrom { .. } | VarStatus::Deleted { .. }
                     );
 
                     match (then_consumed, else_consumed) {
@@ -560,29 +569,7 @@ impl<'hir> VarData<'hir> {
         }
     }
 
-    /// Returns the last ownership-consuming use, if any
-    pub fn last_ownership_consuming_use(&self) -> Option<&VarUse> {
-        self.uses
-            .iter()
-            .rfind(|u| u.kind == UseKind::OwnershipConsuming)
-    }
-
-    /// Check if a given use is the last ownership-consuming use
-    pub fn is_last_ownership_use(&self, stmt_index: usize) -> bool {
-        self.last_ownership_consuming_use()
-            .map(|u| u.stmt_index == stmt_index)
-            .unwrap_or(false)
-    }
-
-    /// Check if there are any uses (read or consuming) after the given statement index
-    pub fn has_any_use_after(&self, stmt_index: usize) -> bool {
-        self.uses.iter().any(|u| u.stmt_index > stmt_index)
-    }
-
-    /// Check if we can safely move at this statement (no more uses after)
-    pub fn can_move_at(&self, stmt_index: usize) -> bool {
-        !self.has_any_use_after(stmt_index)
-    }
+    // Note: last-use helper methods removed for C++-style explicit-move model.
 }
 
 /// The kind of variable (determines default copy/move behavior)
@@ -615,22 +602,44 @@ impl VarKind {
 pub enum VarStatus {
     /// The variable owns its value and can be used
     Owned,
-    /// The variable's value has been moved to another location
-    Moved { move_span: Span },
+    /// The variable's value has been moved-from (explicit std::move)
+    /// Accessing this is allowed but is potentially undefined behavior (warning)
+    MovedFrom { move_span: Span },
     /// The variable has been explicitly deleted
     Deleted { delete_span: Span },
     /// The variable is borrowed (references only)
     Borrowed,
-    /// The variable was moved in one branch of a conditional but not the other.
+    /// The variable was moved-from in one branch of a conditional but not the other.
     /// This means the outer scope should NOT generate a delete for it - each branch
-    /// is responsible for handling its own cleanup.
+    /// is responsible for handling its own cleanup. Accessing is allowed (warning).
     ConditionallyMoved { move_span: Span },
 }
 
 // For backwards compatibility with existing code
 impl VarStatus {
     pub fn is_valid(&self) -> bool {
+        // In the C++-like model moved-from states are still valid at compile time
+        // (they produce warnings on use, not hard errors). Deleted is still an error.
+        matches!(
+            self,
+            VarStatus::Owned
+                | VarStatus::Borrowed
+                | VarStatus::MovedFrom { .. }
+                | VarStatus::ConditionallyMoved { .. }
+        )
+    }
+
+    /// Check if variable is safe to use (not in moved-from state)
+    pub fn is_safe_to_use(&self) -> bool {
         matches!(self, VarStatus::Owned | VarStatus::Borrowed)
+    }
+
+    /// Check if variable is in a moved-from state
+    pub fn is_moved_from(&self) -> bool {
+        matches!(
+            self,
+            VarStatus::MovedFrom { .. } | VarStatus::ConditionallyMoved { .. }
+        )
     }
 }
 
@@ -639,7 +648,7 @@ impl PartialEq for VarStatus {
         matches!(
             (self, other),
             (VarStatus::Owned, VarStatus::Owned)
-                | (VarStatus::Moved { .. }, VarStatus::Moved { .. })
+                | (VarStatus::MovedFrom { .. }, VarStatus::MovedFrom { .. })
                 | (VarStatus::Deleted { .. }, VarStatus::Deleted { .. })
                 | (VarStatus::Borrowed, VarStatus::Borrowed)
                 | (

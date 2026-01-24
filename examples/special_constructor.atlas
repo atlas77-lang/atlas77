@@ -1,0 +1,84 @@
+import "std/io";
+
+#[std::copyable]
+struct Moveable<T> {
+public:
+    a: int64;
+    b: T;
+    // Normal constructor
+    Moveable(a: int64, b: T) {
+        this.a = a;
+        this.b = b;
+    }
+    Moveable(dying_obj: &Moveable<T>) {
+        this.a = *dying_obj.a;
+        this.b = *dying_obj.b;
+    }
+    Moveable(from: &const Moveable<T>) {
+        this.a = *from.a;
+        this.b = *from.b;
+    }
+}
+
+// Flag telling explicitly the compiler to
+// generate a copy constructor if there is none
+// Will warn you if it fails to do so
+#[std::copyable]
+// The type T has to be copyable
+struct Copyable<T> {
+public:
+    a: int64;
+    b: T;
+    // Normal constructor
+    Copyable(a: int64, b: T) {
+        this.a = a;
+        this.b = move<T>(&b);
+    }
+    // Destructor
+    ~Copyable() {
+        delete this.b;
+    }
+    // Copy constructor
+    Copyable(from: &const Copyable<T>) {
+        this.a = *from.a;
+        this.b = *from.b;
+    }
+}
+
+
+
+fun move<T: std::moveable>(x: &T) -> T {
+    return T::__mov_ctor(x);
+}
+
+//TODO: Add something like this in the language:
+/*
+ * func string::__mov_ctor(from: &string) -> string {
+ *      // implicit copy
+ *      return *from;
+ * }
+ */
+
+fun main() {
+    let moveable_str = new Moveable<string>(42, "Hello Moveable");
+    let original = new Copyable<Moveable<string>>(42, move<Moveable<string>>(&moveable_str));
+    let copy = original;
+    print("Original a: ");
+    print(original.a);
+    print(", b: ");
+    print(original.b);
+    print("Copy a: ");
+    print(copy.a);
+    print(", b: ");
+    println(copy.b);
+    let copy_of_copy = new Copyable<Moveable<string>>(&copy);
+    print("Copy of Copy a: ");
+    print(copy_of_copy.a);
+    print(", b: ");
+    println(copy_of_copy.b);
+    let moved = move<Moveable<string>>(&original.b);
+    print("Moved b: ");
+    println(moved.b);
+    print("Original after move a: ");
+    print(original.a);
+}

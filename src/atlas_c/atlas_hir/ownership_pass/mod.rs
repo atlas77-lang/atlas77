@@ -1,37 +1,3 @@
-//! Ownership Analysis Pass
-//!
-//! This pass implements MOVE/COPY semantics for Atlas77. It tracks ownership of values
-//! through the HIR, inserts copies or moves where appropriate, and emits destructors
-//! for owned values.
-//!
-//! Key ideas:
-//! 1. Ownership model: every variable owns its value. Ownership can be:
-//!    - Moved: ownership transfers and the source becomes invalid.
-//!    - Copied: a new owner is created via a *copy constructor*; the source remains valid.
-//!
-//! 2. Copy eligibility: a type is copyable IFF:
-//!    - It's a primitive type (int, float, bool, char, uint)
-//!    - It's a reference type (&T, &const T) - references are pointers
-//!    - It's a string (built-in copyable)
-//!    - It's a struct that declares a copy constructor (a dedicated constructor that
-//!      takes a `&const This` and is stored as `copy_constructor` in the HIR)
-//!
-//! 3. COPY-biased lowering: the pass initially prefers COPY for copyable types. Copying
-//!    preserves the source's validity and is therefore safe by default.
-//!
-//! 4. Move resolution (last-use analysis): after lowering, the pass identifies last
-//!    ownership-consuming uses and converts COPY → MOVE for those uses to avoid
-//!    unnecessary copies.
-//!
-//! 5. Destructor insertion: at the end of each scope the pass emits `delete` for every
-//!    variable that still owns a value (except primitives/references).
-//!
-//! Phases
-//! 1. Use Collection - walk the HIR and record all uses (Read vs OwnershipConsuming).
-//! 2. COPY-Biased Lowering - insert COPY for ownership-consuming uses of copyable types.
-//! 3. Last-Use Optimization - convert final COPY to MOVE where safe.
-//! 4. Destructor Insertion - insert DELETE statements at scope exits.
-//! 5. Validation - detect use-after-move, recursive copy constructors, illegal transfers, etc.
 mod context;
 pub use context::{
     ReferenceOrigin, ScopeMap, UseKind, VarData, VarKind, VarMap, VarStatus, VarUse,
@@ -42,9 +8,10 @@ use crate::atlas_c::{
         HirModule,
         arena::HirArena,
         error::{
-            CannotDeleteOutOfLoopError, CannotMoveOutOfContainerError, CannotMoveOutOfLoopError,
-            CannotMoveOutOfReferenceError, CannotTransferOwnershipInBorrowingMethodError, HirError,
-            HirResult, LifetimeDependencyViolationError, RecursiveCopyConstructorError,
+            CannotDeleteOutOfLoopError, CannotImplicitlyCopyNonCopyableValueError,
+            CannotMoveOutOfContainerError, CannotMoveOutOfLoopError, CannotMoveOutOfReferenceError,
+            CannotTransferOwnershipInBorrowingMethodError, HirError, HirResult,
+            LifetimeDependencyViolationError, RecursiveCopyConstructorError,
             ReturningValueWithLocalLifetimeDependencyError, TryingToAccessADeletedValueError,
             TryingToAccessAMovedValueError, TryingToAccessAPotentiallyMovedValueError,
         },
@@ -56,18 +23,26 @@ use crate::atlas_c::{
         item::HirFunction,
         monomorphization_pass::MonomorphizationPass,
         pretty_print::HirPrettyPrinter,
-        signature::{HirModuleSignature, HirStructMethodModifier, HirStructMethodSignature},
+        signature::{
+            HirGenericConstraint, HirGenericConstraintKind, HirModuleSignature,
+            HirStructMethodModifier, HirStructMethodSignature,
+        },
         stmt::{HirAssignStmt, HirBlock, HirExprStmt, HirStatement, HirVariableStmt},
         ty::HirTy,
-        warning::{
-            ConsumingMethodMayLeakThisWarning, HirWarning, UnnecessaryCopyDueToLaterBorrowsWarning,
-        },
+        warning::{ConsumingMethodMayLeakThisWarning, HirWarning, UseAfterMoveWarning},
     },
     utils::{self, Span},
 };
 use miette::{ErrReport, NamedSource};
 
 const COPY_CONSTRUCTOR_MANGLED_NAME: &str = "atlas77__copy_ctor";
+
+/// Information about ownership semantics of a function call
+struct CallOwnershipInfo {
+    moved_args: Vec<usize>,
+    copied_args: Vec<usize>,
+    taken_args: Vec<usize>,
+}
 
 /// The Ownership Analysis Pass
 ///
@@ -77,6 +52,8 @@ pub struct OwnershipPass<'hir> {
     pub scope_map: ScopeMap<'hir>,
     /// Collected errors during the pass
     pub errors: Vec<HirError>,
+    /// Collected warnings during the pass
+    pub warnings: Vec<HirWarning>,
     /// Module signature for checking copy constructors
     pub hir_signature: HirModuleSignature<'hir>,
     /// Arena for allocating new HIR nodes
@@ -118,6 +95,7 @@ impl<'hir> OwnershipPass<'hir> {
         Self {
             scope_map: ScopeMap::new(),
             errors: Vec::new(),
+            warnings: Vec::new(),
             hir_signature,
             hir_arena,
             current_stmt_index: 0,
@@ -236,7 +214,7 @@ impl<'hir> OwnershipPass<'hir> {
             }
 
             // Process copy constructor (if present)
-            if let Some(copy_ctor) = struct_def.copy_constructor.as_mut() {
+            if let Some(copy_ctor) = struct_def.move_constructor.as_mut() {
                 // Skip copy constructor with unsatisfied constraints (it won't be code generated)
                 if !copy_ctor.signature.is_constraint_satisfied {
                     continue;
@@ -393,6 +371,146 @@ impl<'hir> OwnershipPass<'hir> {
         self.transform_block(&mut func.body)?;
 
         Ok(())
+    }
+
+    /// Analyze a function call to determine ownership semantics based on parameter constraints
+    fn analyze_call_ownership_semantics(
+        &self,
+        call: &HirFunctionCallExpr<'hir>,
+    ) -> CallOwnershipInfo {
+        let mut moved_args = Vec::new();
+        let mut copied_args = Vec::new();
+        let mut taken_args = Vec::new();
+
+        // Helper to process a list of parameters and associated generics
+        let process_params = |params: &Vec<
+            crate::atlas_c::atlas_hir::signature::HirFunctionParameterSignature<'hir>,
+        >,
+                              generics: Option<&Vec<&'hir HirGenericConstraint<'hir>>>,
+                              moved_args: &mut Vec<usize>,
+                              copied_args: &mut Vec<usize>,
+                              taken_args: &mut Vec<usize>| {
+            for (i, param) in params.iter().enumerate() {
+                let constraints = self.get_type_parameter_constraints(param.ty, generics);
+                if constraints.iter().any(|c| c == "std::moveable") {
+                    moved_args.push(i);
+                } else if constraints.iter().any(|c| c == "std::copyable") {
+                    copied_args.push(i);
+                } else if constraints.iter().any(|c| c == "std::default") {
+                    taken_args.push(i);
+                }
+            }
+        };
+
+        // Resolve direct function calls
+        if let HirExpr::Ident(ident) = call.callee.as_ref() {
+            if let Some(&sig) = self.hir_signature.functions.get(ident.name) {
+                process_params(
+                    &sig.params,
+                    Some(&sig.generics),
+                    &mut moved_args,
+                    &mut copied_args,
+                    &mut taken_args,
+                );
+            }
+        }
+        // Static access or type method: Module::fn or Type::fn
+        else if let HirExpr::StaticAccess(static_access) = call.callee.as_ref() {
+            if let HirTy::Named(named) = static_access.target {
+                if let Some(struct_sig) = self.hir_signature.structs.get(named.name) {
+                    if let Some(method_sig) = struct_sig.methods.get(static_access.field.name) {
+                        process_params(
+                            &method_sig.params,
+                            method_sig.generics.as_ref().map(|g| g),
+                            &mut moved_args,
+                            &mut copied_args,
+                            &mut taken_args,
+                        );
+                    }
+                }
+            }
+        }
+        // Method call: obj.method
+        else if let HirExpr::FieldAccess(field_access) = call.callee.as_ref() {
+            let target_ty = field_access.target.ty();
+            match target_ty {
+                HirTy::Named(n) => {
+                    if let Some(struct_sig) = self.hir_signature.structs.get(n.name) {
+                        if let Some(method_sig) = struct_sig.methods.get(field_access.field.name) {
+                            process_params(
+                                &method_sig.params,
+                                method_sig.generics.as_ref().map(|g| g),
+                                &mut moved_args,
+                                &mut copied_args,
+                                &mut taken_args,
+                            );
+                        }
+                    }
+                }
+                HirTy::Generic(g) => {
+                    let mangled =
+                        MonomorphizationPass::generate_mangled_name(self.hir_arena, g, "struct");
+                    if let Some(struct_sig) = self.hir_signature.structs.get(mangled) {
+                        if let Some(method_sig) = struct_sig.methods.get(field_access.field.name) {
+                            process_params(
+                                &method_sig.params,
+                                method_sig.generics.as_ref().map(|g| g),
+                                &mut moved_args,
+                                &mut copied_args,
+                                &mut taken_args,
+                            );
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        CallOwnershipInfo {
+            moved_args,
+            copied_args,
+            taken_args,
+        }
+    }
+
+    /// Extract constraint names from a type parameter
+    fn get_type_parameter_constraints(
+        &self,
+        param_ty: &HirTy<'hir>,
+        func_generics: Option<&Vec<&'hir HirGenericConstraint<'hir>>>,
+    ) -> Vec<String> {
+        let mut constraints = Vec::new();
+
+        // If parameter is &T or &const T, get T
+        let inner_ty: &HirTy = if let Some(inner) = param_ty.get_inner_ref_ty() {
+            inner
+        } else {
+            param_ty
+        };
+
+        // If T is a named type that matches a generic parameter, collect its constraints
+        if let HirTy::Named(named) = inner_ty {
+            if let Some(gens) = func_generics {
+                for generic in gens.iter() {
+                    if generic.generic_name == named.name {
+                        for kind in &generic.kind {
+                            match kind {
+                                HirGenericConstraintKind::Std { name, .. } => {
+                                    constraints.push(format!("std.{}", name));
+                                }
+                                HirGenericConstraintKind::Concept { name, .. } => {
+                                    constraints.push(name.to_string());
+                                }
+                                _ => {}
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        constraints
     }
 
     // =========================================================================
@@ -1052,7 +1170,7 @@ impl<'hir> OwnershipPass<'hir> {
                     let delete_stmt = Self::create_delete_stmt(var_name, var_data.ty, if_else.span);
 
                     if *moved_in_then {
-                        // Moved in then branch, so insert delete at end of else branch
+                        // MovedFrom in then branch, so insert delete at end of else branch
                         if let Some(else_branch) = &mut final_else_branch {
                             // Insert before any return statement at the end
                             let insert_pos =
@@ -1066,7 +1184,7 @@ impl<'hir> OwnershipPass<'hir> {
                             });
                         }
                     } else {
-                        // Moved in else branch, so insert delete at end of then branch
+                        // MovedFrom in else branch, so insert delete at end of then branch
                         let insert_pos =
                             Self::find_delete_insert_position(&final_then_branch.statements);
                         final_then_branch.statements.insert(insert_pos, delete_stmt);
@@ -1122,12 +1240,12 @@ impl<'hir> OwnershipPass<'hir> {
                         let post_var = post_loop_state.get(name);
                         if let Some(post_v) = post_var {
                             let was_owned = matches!(var_data.status, VarStatus::Owned);
-                            let is_moved = matches!(post_v.status, VarStatus::Moved { .. });
+                            let is_moved = matches!(post_v.status, VarStatus::MovedFrom { .. });
                             let is_deleted = matches!(post_v.status, VarStatus::Deleted { .. });
 
                             if was_owned
                                 && is_moved
-                                && let VarStatus::Moved { move_span } = &post_v.status
+                                && let VarStatus::MovedFrom { move_span } = &post_v.status
                             {
                                 moved_in_loop.push((*name, *move_span));
                             }
@@ -1275,16 +1393,26 @@ impl<'hir> OwnershipPass<'hir> {
                     self.transform_expr_ownership(&call.callee, false)?
                 };
 
-                let mut transformed_args = Vec::new();
+                // Use ownership analysis to determine per-argument semantics
+                let call_info = self.analyze_call_ownership_semantics(call);
 
+                let mut transformed_args = Vec::new();
                 for (i, arg) in call.args.iter().enumerate() {
-                    // Check if the parameter type is a reference - if so, don't consume ownership
-                    let is_ref_param = call.args_ty.get(i).is_some_and(|ty| {
-                        matches!(ty, HirTy::ReadOnlyReference(_) | HirTy::MutableReference(_))
-                    });
-                    // Arguments by value consume ownership, references don't
-                    let consumes_ownership = !is_ref_param;
-                    transformed_args.push(self.transform_expr_ownership(arg, consumes_ownership)?);
+                    if call_info.moved_args.contains(&i) {
+                        transformed_args.push(self.transform_moving_argument(arg)?);
+                    } else if call_info.copied_args.contains(&i) {
+                        transformed_args.push(self.transform_copying_argument(arg)?);
+                    } else if call_info.taken_args.contains(&i) {
+                        transformed_args.push(self.transform_taking_argument(arg)?);
+                    } else {
+                        // Default: infer from parameter type (references don't consume)
+                        let is_ref_param = call.args_ty.get(i).is_some_and(|ty| {
+                            matches!(ty, HirTy::ReadOnlyReference(_) | HirTy::MutableReference(_))
+                        });
+                        let consumes_ownership = !is_ref_param;
+                        transformed_args
+                            .push(self.transform_expr_ownership(arg, consumes_ownership)?);
+                    }
                 }
 
                 Ok(HirExpr::Call(HirFunctionCallExpr {
@@ -1657,6 +1785,84 @@ impl<'hir> OwnershipPass<'hir> {
         }
     }
 
+    /// Transform an argument that should be moved into the callee.
+    fn transform_moving_argument(&mut self, arg: &HirExpr<'hir>) -> HirResult<HirExpr<'hir>> {
+        // Moving an argument consumes ownership of the source.
+        let transformed = self.transform_expr_ownership(arg, true)?;
+        // If this was a simple ident, mark it as moved and return a Move wrapper
+        if let HirExpr::Ident(ident) = &transformed {
+            let _ = self.scope_map.mark_as_moved(ident.name, ident.span);
+            return Ok(HirExpr::Move(HirMoveExpr {
+                span: ident.span,
+                source_name: ident.name,
+                expr: Box::new(HirExpr::Ident(ident.clone())),
+                ty: ident.ty,
+            }));
+        }
+
+        // For complex expressions, wrap the transformed expression in a Move node
+        let ty = transformed.ty();
+        Ok(HirExpr::Move(HirMoveExpr {
+            span: transformed.span(),
+            source_name: "",
+            expr: Box::new(transformed),
+            ty,
+        }))
+    }
+
+    /// Transform an argument that should be copied for the callee.
+    fn transform_copying_argument(&mut self, arg: &HirExpr<'hir>) -> HirResult<HirExpr<'hir>> {
+        // First, transform inner expression as ownership-consuming so any temporaries are handled
+        let transformed_inner = self.transform_expr_ownership(arg, true)?;
+        let ty = transformed_inner.ty();
+
+        // If the resulting type is copyable, wrap in a Copy expression
+        if self.is_type_copyable(ty) {
+            Ok(HirExpr::Copy(HirCopyExpr {
+                span: transformed_inner.span(),
+                source_name: "",
+                expr: Box::new(transformed_inner),
+                ty,
+            }))
+        } else {
+            // Not copyable -> error
+            let span = transformed_inner.span();
+            let path = span.path;
+            let src = utils::get_file_content(path).unwrap_or_default();
+            Err(HirError::CannotImplicitlyCopyNonCopyableValue(
+                CannotImplicitlyCopyNonCopyableValueError {
+                    var_name: "<expr>".to_string(),
+                    ty_name: Self::get_type_name(transformed_inner.ty()),
+                    span,
+                    src: NamedSource::new(path, src),
+                },
+            ))
+        }
+    }
+
+    /// Transform an argument that is "taken" by the callee (consumed by the callee's default)
+    fn transform_taking_argument(&mut self, arg: &HirExpr<'hir>) -> HirResult<HirExpr<'hir>> {
+        // Treat taking as a move for now: consume ownership and mark moved
+        let transformed = self.transform_expr_ownership(arg, true)?;
+        if let HirExpr::Ident(ident) = &transformed {
+            let _ = self.scope_map.mark_as_moved(ident.name, ident.span);
+            return Ok(HirExpr::Move(HirMoveExpr {
+                span: ident.span,
+                source_name: ident.name,
+                expr: Box::new(HirExpr::Ident(ident.clone())),
+                ty: ident.ty,
+            }));
+        }
+
+        let ty = transformed.ty();
+        Ok(HirExpr::Move(HirMoveExpr {
+            span: transformed.span(),
+            source_name: "",
+            expr: Box::new(transformed),
+            ty,
+        }))
+    }
+
     /// Transform an identifier in an ownership-consuming context
     ///
     /// Applies COPY-biased lowering + last-use optimization:
@@ -1667,39 +1873,46 @@ impl<'hir> OwnershipPass<'hir> {
         &mut self,
         ident: &HirIdentExpr<'hir>,
     ) -> HirResult<HirExpr<'hir>> {
-        // Check if variable exists and is valid
+        // Check if variable exists
         let var_data = match self.scope_map.get(ident.name) {
             Some(data) => data.clone(),
-            None => {
-                // Variable not found - might be a function name or external
-                return Ok(HirExpr::Ident(ident.clone()));
-            }
+            None => return Ok(HirExpr::Ident(ident.clone())),
         };
 
-        // Check for use-after-move
-        if let VarStatus::Moved { move_span } = &var_data.status {
+        // Check for deleted (still an error)
+        if let VarStatus::Deleted { delete_span } = &var_data.status {
             let path = ident.span.path;
             let src = utils::get_file_content(path).unwrap_or_default();
-            return Err(HirError::TryingToAccessAMovedValue(
-                TryingToAccessAMovedValueError {
-                    move_span: *move_span,
+
+            if let ReferenceOrigin::Variable(origin_name) = &var_data.origin {
+                return Err(HirError::LifetimeDependencyViolation(
+                    LifetimeDependencyViolationError {
+                        value_name: ident.name.to_string(),
+                        origin_name: origin_name.to_string(),
+                        origin_invalidation_span: *delete_span,
+                        access_span: ident.span,
+                        src: NamedSource::new(path, src),
+                    },
+                ));
+            }
+
+            return Err(HirError::TryingToAccessADeletedValue(
+                TryingToAccessADeletedValueError {
+                    delete_span: *delete_span,
                     access_span: ident.span,
                     src: NamedSource::new(path, src),
                 },
             ));
         }
 
-        // Check for use-after-conditional-move (moved in one branch of an if/else)
-        if let VarStatus::ConditionallyMoved { move_span } = &var_data.status {
-            let path = ident.span.path;
-            let src = utils::get_file_content(path).unwrap_or_default();
-            return Err(HirError::TryingToAccessAPotentiallyMovedValue(
-                TryingToAccessAPotentiallyMovedValueError {
-                    move_span: *move_span,
-                    access_span: ident.span,
-                    src: NamedSource::new(path, src),
-                },
-            ));
+        // Warn on moved-from accesses (C++-like: UB at runtime, warning at compile)
+        if var_data.status.is_moved_from() {
+            if let VarStatus::MovedFrom { move_span }
+            | VarStatus::ConditionallyMoved { move_span } = &var_data.status
+            {
+                self.emit_use_after_move_warning(ident, *move_span);
+            }
+            // continue compilation
         }
 
         // Check for use-after-delete (includes references whose origin was deleted)
@@ -1740,76 +1953,35 @@ impl<'hir> OwnershipPass<'hir> {
             return Ok(HirExpr::Ident(ident.clone()));
         }
 
-        // Check if we can safely move (no future uses of any kind)
-        let can_move = var_data.can_move_at(self.current_stmt_index);
-
-        // For copyable types: prefer MOVE if this is the last use, otherwise COPY
+        // C++-like model: copyable types are copied, non-copyable types require explicit move.
         if var_data.is_copyable {
-            if can_move {
-                // This is the last use - MOVE to avoid unnecessary copy
-                self.scope_map.mark_as_moved(ident.name, ident.span);
-                return Ok(HirExpr::Move(HirMoveExpr {
-                    span: ident.span,
-                    source_name: ident.name,
-                    expr: Box::new(HirExpr::Ident(ident.clone())),
-                    ty: ident.ty,
-                }));
-            } else {
-                // Still has future uses - must COPY
-                // Check if all remaining uses are just reads (borrows) - if so, emit a warning
-                let later_uses: Vec<&VarUse> = var_data
-                    .uses
-                    .iter()
-                    .filter(|u| u.stmt_index > self.current_stmt_index)
-                    .collect();
+            return Ok(HirExpr::Copy(HirCopyExpr {
+                span: ident.span,
+                source_name: ident.name,
+                expr: Box::new(HirExpr::Ident(ident.clone())),
+                ty: ident.ty,
+            }));
+        } else {
+            eprintln!("Debug: Non-copyable variable '{}' being moved", ident.name);
+        }
 
-                let all_later_uses_are_reads = later_uses.iter().all(|u| u.kind == UseKind::Read);
-
-                if all_later_uses_are_reads && !later_uses.is_empty() {
-                    // Emit warning: copying here but only borrowing later
-                    // Collect all the borrow uses as related diagnostics
+        // For non-copyable types: generates an error telling user to use `std::move()`
+        eprintln!(
+            "Debug: Cannot implicitly copy non-copyable variable '{}'",
+            ident.name
+        );
+        Err(HirError::CannotImplicitlyCopyNonCopyableValue(
+            CannotImplicitlyCopyNonCopyableValueError {
+                var_name: ident.name.to_string(),
+                span: ident.span,
+                ty_name: Self::get_type_name(ident.ty),
+                src: {
                     let path = ident.span.path;
                     let src = utils::get_file_content(path).unwrap_or_default();
-
-                    let borrow_uses: Vec<Span> =
-                        later_uses.iter().map(|var_use| var_use.span).collect();
-
-                    let warning: ErrReport = HirWarning::UnnecessaryCopyDueToLaterBorrows(
-                        UnnecessaryCopyDueToLaterBorrowsWarning {
-                            span: ident.span,
-                            var_name: ident.name.to_string(),
-                            src: NamedSource::new(path, src),
-                            borrow_uses,
-                        },
-                    )
-                    .into();
-                    eprintln!("{:?}", warning);
-                }
-
-                return Ok(HirExpr::Copy(HirCopyExpr {
-                    span: ident.span,
-                    source_name: ident.name,
-                    expr: Box::new(HirExpr::Ident(ident.clone())),
-                    ty: ident.ty,
-                }));
-            }
-        }
-
-        // For non-copyable types: must MOVE
-        if !can_move {
-            // Non-copyable type used multiple times - this will fail on second use
-            // We'll catch this when they try to use it again
-        }
-
-        // Mark as moved
-        self.scope_map.mark_as_moved(ident.name, ident.span);
-
-        Ok(HirExpr::Move(HirMoveExpr {
-            span: ident.span,
-            source_name: ident.name,
-            expr: Box::new(HirExpr::Ident(ident.clone())),
-            ty: ident.ty,
-        }))
+                    NamedSource::new(path, src)
+                },
+            },
+        ))
     }
 
     /// Transform an expression for return context (always moves)
@@ -1819,7 +1991,7 @@ impl<'hir> OwnershipPass<'hir> {
                 // Check if variable exists
                 if let Some(var_data) = self.scope_map.get(ident.name) {
                     // Check for use-after-move
-                    if let VarStatus::Moved { move_span } = &var_data.status {
+                    if let VarStatus::MovedFrom { move_span } = &var_data.status {
                         let path = ident.span.path;
                         let src = utils::get_file_content(path).unwrap_or_default();
                         return Err(HirError::TryingToAccessAMovedValue(
@@ -1928,6 +2100,21 @@ impl<'hir> OwnershipPass<'hir> {
             // For complex expressions, transform recursively
             _ => self.transform_expr_ownership(expr, true),
         }
+    }
+
+    /// NEW: Emit warning for use-after-move (moved-from access)
+    fn emit_use_after_move_warning(&mut self, ident: &HirIdentExpr<'hir>, move_span: Span) {
+        let path = ident.span.path;
+        let src = utils::get_file_content(path).unwrap_or_default();
+        let warning: ErrReport = HirWarning::UseAfterMove(UseAfterMoveWarning {
+            src: NamedSource::new(path, src),
+            access_span: ident.span,
+            move_span,
+            var_name: ident.name.to_string(),
+        })
+        .into();
+        // For now keep parity with other passes: print the diagnostic report to stderr
+        eprintln!("{:?}", warning);
     }
 
     // =========================================================================
@@ -2199,7 +2386,7 @@ impl<'hir> OwnershipPass<'hir> {
             let path = ident.span.path;
             let src = utils::get_file_content(path).unwrap_or_default();
             match &var_data.status {
-                VarStatus::Moved { move_span } => {
+                VarStatus::MovedFrom { move_span } => {
                     return Err(HirError::TryingToAccessAMovedValue(
                         TryingToAccessAMovedValueError {
                             move_span: *move_span,
@@ -2330,6 +2517,60 @@ impl<'hir> OwnershipPass<'hir> {
 
             _ => VarKind::Object,
         }
+    }
+
+    /// Conservative check whether a type is copyable (bitwise copy)
+    fn is_type_copyable(&self, ty: &HirTy<'hir>) -> bool {
+        match ty {
+            HirTy::Boolean(_)
+            | HirTy::Int64(_)
+            | HirTy::Float64(_)
+            | HirTy::Char(_)
+            | HirTy::UInt64(_)
+            | HirTy::Unit(_)
+            | HirTy::String(_) => true,
+            HirTy::Named(n) => {
+                if let Some(struct_sig) = self.hir_signature.structs.get(n.name) {
+                    return struct_sig.copy_constructor.is_some();
+                } else {
+                    //potentially a union
+                    if self.hir_signature.unions.contains_key(n.name) {
+                        return true;
+                    }
+                }
+                false
+            }
+            HirTy::Generic(g) => {
+                let mangled =
+                    MonomorphizationPass::generate_mangled_name(self.hir_arena, g, "struct");
+                if let Some(struct_sig) = self.hir_signature.structs.get(mangled) {
+                    return struct_sig.copy_constructor.is_some();
+                } else {
+                    let mangled =
+                        MonomorphizationPass::generate_mangled_name(self.hir_arena, g, "union");
+                    //potentially a union
+                    if self.hir_signature.unions.contains_key(mangled) {
+                        return true;
+                    }
+                }
+                false
+            }
+            // Lists and objects are not considered copyable by default here
+            _ => false,
+        }
+    }
+
+    /// Helper: is this a primitive type
+    fn is_primitive_type(ty: &HirTy<'hir>) -> bool {
+        matches!(
+            ty,
+            HirTy::Boolean(_)
+                | HirTy::Int64(_)
+                | HirTy::Float64(_)
+                | HirTy::Char(_)
+                | HirTy::UInt64(_)
+                | HirTy::Unit(_)
+        )
     }
 
     /// Check if a method call consumes `this` (takes ownership, not a reference)
@@ -2495,92 +2736,9 @@ impl<'hir> OwnershipPass<'hir> {
             HirExpr::Move(mv) => self.get_origin_from_lvalue(&mv.expr),
             HirExpr::Copy(cp) => self.get_origin_from_lvalue(&cp.expr),
 
-            // Other expressions don't have a clear origin
+            // Everything else: no clear origin (literals, temporaries, complex expressions)
             _ => ReferenceOrigin::None,
         }
-    }
-
-    /// A type is copyable if:
-    /// - It's a primitive type (always implicitly copyable)
-    /// - It's a reference type (just a pointer, trivially copyable)
-    /// - It's a string (built-in copyable)
-    /// - It's a struct with a copy Constructor defined
-    fn is_type_copyable(&self, ty: &HirTy<'hir>) -> bool {
-        match ty {
-            // Primitives are always copyable (bitwise copy)
-            HirTy::Boolean(_)
-            | HirTy::Int64(_)
-            | HirTy::Float64(_)
-            | HirTy::Char(_)
-            | HirTy::UInt64(_)
-            | HirTy::Unit(_) => true,
-            // Extern types are assumed copyable (no ownership semantics)
-            HirTy::ExternTy(_) => true,
-
-            // References are copyable (they're just pointers)
-            HirTy::ReadOnlyReference(_) | HirTy::MutableReference(_) => true,
-
-            // Strings are copyable (built-in)
-            HirTy::String(_) => true,
-
-            // Function pointers are copyable
-            HirTy::Function(_) => true,
-
-            // Lists are NOT copyable - they must be moved to avoid double-free
-            // When a list is assigned to a field or passed as argument, ownership transfers
-            // This prevents the original variable from being deleted and freeing the shared data
-            HirTy::List(_) => false,
-
-            // Named types (structs) are copyable if they have a copy constructor
-            HirTy::Named(named) => {
-                if let Some(s) = self.hir_signature.structs.get(named.name) {
-                    if let Some(copy_ctor) = &s.copy_constructor {
-                        // It's only copyable if the copy constructor's constraints are satisfied
-                        copy_ctor.is_constraint_satisfied
-                    } else {
-                        false
-                    }
-                } else {
-                    // This might be an enum
-                    self.hir_signature.enums.contains_key(named.name)
-                }
-            }
-
-            // Generic types - need to check the monomorphized/instantiated struct
-            HirTy::Generic(g) => {
-                // Compute the mangled name that the monomorphized struct is stored under
-                // Format: __atlas77__struct__<Name>__<Type1>_<Type2>_...
-                let mangled_name =
-                    MonomorphizationPass::generate_mangled_name(self.hir_arena, g, "struct");
-                self.hir_signature
-                    .structs
-                    .get(mangled_name)
-                    .is_some_and(|s| {
-                        if let Some(copy_ctor) = &s.copy_constructor {
-                            // It's only copyable if the copy constructor's constraints are satisfied
-                            copy_ctor.is_constraint_satisfied
-                        } else {
-                            false
-                        }
-                    })
-            }
-
-            // Other types are not copyable
-            _ => false,
-        }
-    }
-
-    /// Check if a type is a primitive type (bitwise copyable, no heap allocation)
-    fn is_primitive_type(ty: &HirTy<'hir>) -> bool {
-        matches!(
-            ty,
-            HirTy::Boolean(_)
-                | HirTy::Int64(_)
-                | HirTy::Float64(_)
-                | HirTy::Char(_)
-                | HirTy::UInt64(_)
-                | HirTy::Unit(_)
-        )
     }
 
     /// Check if two types match (used for detecting recursive copy)

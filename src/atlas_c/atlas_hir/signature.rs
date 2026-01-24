@@ -49,6 +49,7 @@ pub struct HirStructSignature<'hir> {
     pub had_user_defined_copy_constructor: bool,
     pub had_user_defined_move_constructor: bool,
     pub had_user_defined_default_constructor: bool,
+    pub is_instantiated: bool,
     pub docstring: Option<&'hir str>,
 }
 
@@ -94,6 +95,7 @@ pub struct HirUnionSignature<'hir> {
     /// If the union name is mangled, this contains the pre-mangled type
     pub pre_mangled_ty: Option<&'hir HirGenericTy<'hir>>,
     pub docstring: Option<&'hir str>,
+    pub is_instantiated: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy, Default)]
@@ -293,6 +295,7 @@ pub struct HirFunctionSignature<'hir> {
     /// If the function name is mangled, this contains the pre-mangled type
     pub pre_mangled_ty: Option<&'hir HirGenericTy<'hir>>,
     pub docstring: Option<&'hir str>,
+    pub is_instantiated: bool,
 }
 
 #[derive(Debug, Clone)]

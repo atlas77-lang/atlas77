@@ -266,6 +266,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             declaration_span: ast_union.span,
             name_span: ast_union.name.span,
             vis: ast_union.vis.into(),
+            is_instantiated: generics.is_empty(),
             generics,
             name,
             variants: {
@@ -393,6 +394,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             span: ast_extern_func.span,
             vis: ast_extern_func.vis.into(),
             params,
+            is_instantiated: generics.is_empty(),
             generics,
             type_params,
             return_ty: ty,
@@ -525,7 +527,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             None
         };
         let move_constructor = if node.move_constructor.is_some() {
-            Some(self.visit_constructor(node.name_span, node.move_constructor, &fields, true)?)
+            eprintln!("Visiting move constructor for struct {}", name);
+            Some(self.visit_constructor(node.name_span, node.move_constructor, &fields, false)?)
         } else {
             None
         };
@@ -558,10 +561,15 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             },
             operators,
             constants,
+            is_instantiated: generics.is_empty(),
             generics,
             constructor: constructor.signature.clone(),
             copy_constructor: copy_constructor.as_ref().map(|c| c.signature.clone()),
-            move_constructor: move_constructor.as_ref().map(|m| m.signature.clone()),
+            move_constructor: {
+                let mov = move_constructor.as_ref().map(|m| m.signature.clone());
+                eprintln!("Move constructor for struct {}: {:?}", name, mov);
+                mov
+            },
             default_constructor: default_constructor.as_ref().map(|d| d.signature.clone()),
             destructor: destructor.as_ref().map(|d| d.signature.clone()),
             had_user_defined_constructor,
@@ -900,14 +908,14 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         name_span: Span,
         constructor: Option<&'ast AstConstructor<'ast>>,
         fields: &[HirStructFieldSignature<'hir>],
-        is_copy_constructor: bool,
+        is_special_constructor: bool,
     ) -> HirResult<HirStructConstructor<'hir>> {
         if constructor.is_none() {
             let hir = self.make_default_constructor(name_span, fields);
             return Ok(hir);
         }
         let constructor = constructor.unwrap();
-        if !is_copy_constructor && constructor.where_clause.is_some() {
+        if !is_special_constructor && constructor.where_clause.is_some() {
             let path = constructor.span.path;
             let src = utils::get_file_content(path).unwrap();
             return Err(HirError::ConstructorCannotHaveAWhereClause(
@@ -1614,7 +1622,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             span: node.span,
             vis: node.vis.into(),
             params: parameters?,
-            //Generics aren't supported yet for normal functions
+            is_instantiated: generics.is_empty(),
             generics,
             type_params: type_parameters?,
             return_ty: ret_type,

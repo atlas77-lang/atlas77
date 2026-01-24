@@ -168,7 +168,7 @@ impl<'hir> TypeChecker<'hir> {
         }
         self.current_func_name = Some("constructor");
         self.check_constructor(&mut class.constructor)?;
-        if let Some(copy_ctor) = &mut class.copy_constructor {
+        if let Some(copy_ctor) = &mut class.move_constructor {
             if class.flag.is_non_copyable() {
                 let path = class.span.path;
                 let src = utils::get_file_content(path).unwrap();

@@ -82,4 +82,9 @@ fun main() {
     } else {
         printf<string>("SOME FUNCTION TESTS FAILED\n", "");
     }
+    copy<int64>(100);
+}
+
+fun copy<T: std::copyable>(x: T) -> T {
+    return x;
 }

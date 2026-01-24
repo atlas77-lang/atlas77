@@ -153,7 +153,7 @@ impl HirPrettyPrinter {
         self.print_constructor(&struct_name, &struct_def.constructor);
         self.writeln("");
 
-        if let Some(copy_ctor) = &struct_def.copy_constructor {
+        if let Some(copy_ctor) = &struct_def.move_constructor {
             self.writeln("// Copy Constructor");
             self.print_constructor(&struct_name, copy_ctor);
             self.writeln("");
@@ -346,6 +346,15 @@ impl HirPrettyPrinter {
                     self.write(", ");
                 }
                 self.write(param.generic_name);
+                if !param.kind.is_empty() {
+                    self.write(": ");
+                    for (j, constraint) in param.kind.iter().enumerate() {
+                        if j > 0 {
+                            self.write(" + ");
+                        }
+                        self.print_constraint_kind(constraint);
+                    }
+                }
             }
             self.write(">");
         }

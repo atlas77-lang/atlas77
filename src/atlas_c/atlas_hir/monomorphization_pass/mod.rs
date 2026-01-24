@@ -39,7 +39,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             module.signature.structs.remove(instance.name);
         }
         for (name, signature) in module.signature.structs.clone().iter() {
-            if !signature.generics.is_empty() {
+            if !signature.is_instantiated || signature.pre_mangled_ty.is_none() {
                 module.signature.structs.remove(name);
                 module.body.structs.remove(name);
             }
@@ -52,7 +52,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             module.signature.functions.remove(instance.name);
         }
         for (name, signature) in module.signature.functions.clone().iter() {
-            if !signature.generics.is_empty() && !signature.is_external {
+            if !signature.is_instantiated && !signature.is_external {
                 module.signature.functions.remove(name);
                 module.body.functions.remove(name);
             }
@@ -64,7 +64,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             module.signature.unions.remove(instance.name);
         }
         for (name, signature) in module.signature.unions.clone().iter() {
-            if !signature.generics.is_empty() {
+            if !signature.is_instantiated || signature.pre_mangled_ty.is_none() {
                 module.signature.unions.remove(name);
                 module.body.unions.remove(name);
             }
@@ -271,6 +271,7 @@ impl<'hir> MonomorphizationPass<'hir> {
         let mut new_union = template.clone();
         new_union.pre_mangled_ty = Some(actual_type);
         new_union.signature.pre_mangled_ty = Some(actual_type);
+        new_union.signature.is_instantiated = true;
         //Collect generic names
         let generic_constraints = template.signature.generics.clone();
         if generic_constraints.len() != actual_type.inner.len() {
@@ -402,6 +403,53 @@ impl<'hir> MonomorphizationPass<'hir> {
             }
         }
 
+        // Monomorphize move constructor signature params first, then sync body params
+        if let Some(move_ctor_sig) = new_struct.signature.move_constructor.as_mut() {
+            // Check where_clause constraints for move constructor
+            if let Some(where_clause) = &move_ctor_sig.where_clause {
+                let is_satisfied = self.check_where_constraints_on_method(
+                    where_clause,
+                    &generics,
+                    actual_type,
+                    &module.signature,
+                );
+                move_ctor_sig.is_constraint_satisfied = is_satisfied;
+
+                // If constraints are not satisfied, remove the move constructor body
+                if !is_satisfied {
+                    new_struct.move_constructor = None;
+                }
+            }
+
+            for arg in move_ctor_sig.params.iter_mut() {
+                for (j, generic) in generics.iter().enumerate() {
+                    arg.ty = self.change_inner_type(
+                        arg.ty,
+                        generic.generic_name,
+                        actual_type.inner[j].clone(),
+                        module,
+                    );
+                }
+            }
+        }
+
+        // Monomorphize move constructor body (only if constraints are satisfied)
+        if let Some(move_ctor) = new_struct.move_constructor.as_mut() {
+            self.monomorphize_constructor(move_ctor, types_to_change.clone(), module)?;
+            // Sync body params from signature
+            for (i, _) in move_ctor.params.clone().iter().enumerate() {
+                move_ctor.params[i] =
+                    if let Some(ctor) = new_struct.signature.move_constructor.as_ref() {
+                        ctor.params[i].clone()
+                    } else {
+                        unreachable!(
+                            "Struct move constructor missing during monomorphization for struct {}",
+                            new_struct.signature.name
+                        );
+                    }
+            }
+        }
+
         for arg in new_struct.signature.constructor.params.iter_mut() {
             for (j, generic) in generics.iter().enumerate() {
                 arg.ty = self.change_inner_type(
@@ -522,9 +570,10 @@ impl<'hir> MonomorphizationPass<'hir> {
             }
         }
 
-        new_struct.signature.generics = vec![];
+        //new_struct.signature.generics = vec![];
         new_struct.name = mangled_name;
         new_struct.signature.name = mangled_name;
+        new_struct.signature.is_instantiated = true;
 
         module.signature.structs.insert(
             mangled_name,
@@ -626,9 +675,12 @@ impl<'hir> MonomorphizationPass<'hir> {
             let mut new_sig = new_function.signature.clone();
             new_sig.params = new_params;
             new_sig.return_ty = new_return_ty.clone();
-            new_sig.generics = vec![];
+            //new_sig.generics = vec![];
             new_sig.pre_mangled_ty = Some(actual_type);
-            new_function.signature = &*self.arena.intern(new_sig);
+            new_sig.is_instantiated = true;
+
+            // Update the function's signature
+            new_function.signature = self.arena.intern(new_sig);
 
             // Monomorphize function body
             for statement in new_function.body.statements.iter_mut() {
