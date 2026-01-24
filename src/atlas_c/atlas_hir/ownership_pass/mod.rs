@@ -8,10 +8,10 @@ use crate::atlas_c::{
         HirModule,
         arena::HirArena,
         error::{
-            CannotDeleteOutOfLoopError, CannotImplicitlyCopyNonCopyableValueError,
-            CannotMoveFromRvalueError, CannotMoveOutOfContainerError, CannotMoveOutOfLoopError,
-            CannotMoveOutOfReferenceError, CannotTransferOwnershipInBorrowingMethodError, HirError,
-            HirResult, LifetimeDependencyViolationError, RecursiveCopyConstructorError,
+            CannotImplicitlyCopyNonCopyableValueError, CannotMoveFromRvalueError,
+            CannotMoveOutOfContainerError, CannotMoveOutOfReferenceError,
+            CannotTransferOwnershipInBorrowingMethodError, HirError, HirResult,
+            LifetimeDependencyViolationError, RecursiveCopyConstructorError,
             ReturningValueWithLocalLifetimeDependencyError, TryingToAccessADeletedValueError,
             TryingToAccessAMovedValueError, TryingToAccessAPotentiallyMovedValueError,
             TypeNotCopyableError,
@@ -1858,12 +1858,18 @@ impl<'hir> OwnershipPass<'hir> {
             // Continue compilation - moved-from is valid but undefined behavior
         }
 
-        // 4. References don't transfer ownership
+        // 4. If this variable is marked as Returned, treat it as moved for the return
+        //    (do not generate a `Copy` even if the type is copyable).
+        if matches!(var_data.status, VarStatus::Returned { .. }) {
+            return Ok(HirExpr::Ident(ident.clone()));
+        }
+
+        // 5. References don't transfer ownership
         if var_data.kind == VarKind::Reference {
             return Ok(HirExpr::Ident(ident.clone()));
         }
 
-        // 5. Primitives are always bitwise copied
+        // 6. Primitives are always bitwise copied
         if var_data.kind == VarKind::Primitive {
             return Ok(HirExpr::Ident(ident.clone()));
         }
@@ -1901,10 +1907,9 @@ impl<'hir> OwnershipPass<'hir> {
         expr: &HirExpr<'hir>,
         return_span: Span,
     ) -> HirResult<HirExpr<'hir>> {
-        // Transform as ownership-consuming
-        let transformed = self.transform_expr_ownership(expr, true)?;
-
         // If returning a simple variable (or a no-op unary wrapping an ident), mark it Returned
+        // Marking before transformation ensures the ownership transform treats this as a move
+        // (no implicit `Copy`) and allows returning non-copyable objects without explicit `std::move`.
         match expr {
             HirExpr::Ident(ident) => {
                 if let Some(var) = self.scope_map.get_mut(ident.name) {
@@ -1920,6 +1925,10 @@ impl<'hir> OwnershipPass<'hir> {
             }
             _ => {}
         }
+
+        // Now transform as ownership-consuming. Because returned variables are already marked
+        // as `Returned`, `transform_ownership_consuming_ident` will avoid generating `Copy`.
+        let transformed = self.transform_expr_ownership(expr, true)?;
 
         Ok(transformed)
     }
@@ -2017,20 +2026,6 @@ impl<'hir> OwnershipPass<'hir> {
         &mut self,
         assign_stmt: &HirAssignStmt<'hir>,
     ) -> HirResult<Option<Vec<HirStatement<'hir>>>> {
-        // helper invoked
-        // Extract simple ident from LHS, possibly wrapped in a no-op Unary
-        let lhs_ident_opt: Option<HirIdentExpr<'hir>> = match &assign_stmt.dst {
-            HirExpr::Ident(ident) => Some(ident.clone()),
-            HirExpr::Unary(unary) if unary.op.is_none() => {
-                if let HirExpr::Ident(ident) = &*unary.expr {
-                    Some(ident.clone())
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-
         // Decide whether this LHS needs special handling. Use precise check:
         // - The LHS type must need memory management, and
         // - The root variable(s) (if any) must be owned (so deleting makes sense)

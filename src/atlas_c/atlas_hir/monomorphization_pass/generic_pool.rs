@@ -312,7 +312,7 @@ impl<'hir> HirGenericPool<'hir> {
                             continue;
                         }
                     }
-                    HirGenericConstraintKind::Std { name, span } => {
+                    HirGenericConstraintKind::Std { name: _, span } => {
                         //Other std constraints not implemented yet
                         let origin_path = declaration_span.path;
                         let origin_src = utils::get_file_content(origin_path).unwrap();

@@ -10,7 +10,7 @@ pub mod arena;
 /// Passes not run in debug mode
 pub mod constant_folding_pass;
 pub mod dead_code_elimination_pass;
-pub mod error;
+pub(crate) mod error;
 pub mod monomorphization_pass;
 /// Ownership analysis pass: implements MOVE/COPY semantics and destructor insertion
 pub mod ownership_pass;
@@ -25,7 +25,7 @@ mod scope;
 pub mod signature;
 pub mod stmt;
 pub mod ty;
-mod warning;
+pub(crate) mod warning;
 
 #[derive(Debug, Clone, Default)]
 pub struct HirModuleGraph<'hir> {
