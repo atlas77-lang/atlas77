@@ -1,0 +1,22 @@
+fun move<T: std::moveable>(val: &T) -> T {
+    return T::__mov_ctor(val);
+}
+
+struct Foo {
+public:
+    a: int64;
+    Foo(dying_obj: &Foo) {
+        this.a = *dying_obj.a;
+    }
+}
+
+extern printf<T>(fmt: string, val: T);
+
+// Test use-after-move detection.
+fun main() {
+    let f: Foo = new Foo(10);
+    let pf: &Foo = &f;
+    let f2: Foo = move<Foo>(pf);
+    // The following line should produce a use-after-move error.
+    printf("%ld\n", pf.a);
+}

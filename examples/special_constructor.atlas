@@ -51,6 +51,50 @@ fun move<T: std::moveable>(x: &T) -> T {
     return T::__mov_ctor(x);
 }
 
+extern memcpy<T>(dest: &T, src: &T, size: int64);
+//! This needs to become `sizeof(T)` in the C backend... But how to do that?
+extern sizeof<T>() -> int64;
+
+//! Swaps the values at `a` and `b` using an external C function.
+//! NB: We are using an external C function, because Atlas77 
+//! would create unnecessary copies and destructor invokations.
+private extern __atlas77_c_swap<T>(a: &T, b: &T);
+
+//! Swaps the values at `a` and `b`.
+public fun swap<T>(a: &T, b: &T) {
+    __atlas77_c_swap<T>(a, b);
+}
+
+//! Replaces `dest` with `src`, returning the previous `dest` value.
+public fun replace<T>(dest: &T, src: T) -> T {
+    let old_value: T = *dest;
+    *dest = src;
+    return old_value;
+}
+
+fun test_swap_and_replace() {
+    let x: int64 = 10;
+    let y: int64 = 20;
+    let px: &int64 = &x;
+    let py: &int64 = &y;
+    swap<int64>(px, py);
+    print("x: ");
+    println(*px);
+    print("y: ");
+    println(*py);
+    let old_x: int64 = replace<int64>(px, 42);
+    print("old x: ");
+    println(old_x);
+    print("new x: ");
+    println(*px);
+}
+
+//! Replaces `dest` with the default value of `T`, returning the previous `dest` value.
+fun take<T: std::default>(x: &T) -> T {
+    let default_value: T = T::default();
+
+}
+
 //TODO: Add something like this in the language:
 /*
  * func string::__mov_ctor(from: &string) -> string {
