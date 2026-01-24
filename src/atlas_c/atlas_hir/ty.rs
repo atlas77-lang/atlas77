@@ -209,6 +209,53 @@ impl HirTy<'_> {
                 | HirTy::String(_)
         )
     }
+    //TODO: Rename the function
+    /// Used by the monomorphization pass to generate mangled names.
+    /// It solves the issue of using HirTy.to_string(), which returns `Foo_&T`,
+    /// Which is not a valid C identifier. It should returns `Foo_T_ptr` instead.
+    pub fn get_valid_c_string(&self) -> String {
+        match self {
+            HirTy::Int64(_) => "int64".to_string(),
+            HirTy::Float64(_) => "float64".to_string(),
+            HirTy::UInt64(_) => "uint64".to_string(),
+            HirTy::Char(_) => "char".to_string(),
+            HirTy::Unit(_) => "unit".to_string(),
+            HirTy::Boolean(_) => "bool".to_string(),
+            HirTy::String(_) => "string".to_string(),
+            HirTy::List(ty) => format!("list_{}", ty.inner.get_valid_c_string()),
+            HirTy::Named(ty) => ty.name.to_string(),
+            HirTy::Uninitialized(_) => "uninitialized".to_string(),
+            HirTy::Nullable(ty) => format!("nullable_{}", ty.inner.get_valid_c_string()),
+            HirTy::Generic(ty) => {
+                if ty.inner.is_empty() {
+                    ty.name.to_string()
+                } else {
+                    let params = ty
+                        .inner
+                        .iter()
+                        .map(|p| p.get_valid_c_string())
+                        .collect::<Vec<_>>()
+                        .join("_");
+                    format!("{}_{}", ty.name, params)
+                }
+            }
+            HirTy::MutableReference(ty) => format!("{}_mutptr", ty.inner.get_valid_c_string()),
+            HirTy::ReadOnlyReference(ty) => format!("{}_ptr", ty.inner.get_valid_c_string()),
+            HirTy::ExternTy(extern_ptr) => match &extern_ptr.type_hint {
+                Some(ty) => format!("externptr_{}", ty.get_valid_c_string()),
+                None => "externptr".to_string(),
+            },
+            HirTy::Function(func) => {
+                let params = func
+                    .params
+                    .iter()
+                    .map(|p| p.get_valid_c_string())
+                    .collect::<Vec<_>>()
+                    .join("_");
+                format!("fn_{}_ret_{}", params, func.ret_ty.get_valid_c_string())
+            }
+        }
+    }
 }
 
 impl fmt::Display for HirTy<'_> {

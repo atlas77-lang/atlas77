@@ -1035,7 +1035,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             .iter()
             .map(|t| match t {
                 HirTy::Generic(g) => Self::generate_mangled_name(arena, g, kind).to_string(),
-                _ => format!("{}", t),
+                _ => t.get_valid_c_string(),
             })
             .collect();
         let name = format!("__atlas77__{}__{}__{}", kind, generic.name, parts.join("_"));
