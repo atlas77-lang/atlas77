@@ -58,3 +58,22 @@ static double timer_elapsed_s(uint64_t start_ns) {
 }
 
 #endif /* PORTABLE_TIMER_H */
+
+#ifndef ATLAS77_USEFUL_HEADER_H
+#define ATLAS77_USEFUL_HEADER_H
+/* Minimal uint64_t for old compilers */
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
+#include <stdint.h>
+#else
+typedef unsigned long long uint64_t;
+#endif
+
+// TODO: Once size_of<T> is implemented in Atlas77, we can make this more general
+// because we will know the size at compile time.
+static inline void __atlas77_c_swap(void* a, void* b) {
+    uint64_t temp = *(uint64_t*)a;
+    *(uint64_t*)a = *(uint64_t*)b;
+    *(uint64_t*)b = temp;
+}
+
+#endif /* ATLAS77_USEFUL_HEADER_H */

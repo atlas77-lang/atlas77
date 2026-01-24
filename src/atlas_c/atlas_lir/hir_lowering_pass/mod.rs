@@ -649,6 +649,16 @@ impl<'hir> HirLoweringPass<'hir> {
                 self.lower_expr(&copy_expr.expr)
             }
 
+            HirExpr::Delete(_) => {
+                let dst = self.new_temp(); // Placeholder
+                self.emit(LirInstr::LoadConst {
+                    dst: dst.clone(),
+                    value: LirOperand::Const(ConstantValue::String(
+                        "There should be a delete here".to_string(),
+                    )),
+                })?;
+                Ok(dst)
+            }
             _ => {
                 let path = expr.span().path;
                 let src = utils::get_file_content(path).unwrap();

@@ -15,13 +15,6 @@ fun main() {
     printf("Hello, Atlas! %u\n", emoji);
 }
 
-#[std::copyable]
-struct Copyable {
-public:
-    a: int64;
-}
-
-
 //! Swaps the values at `a` and `b` using an external C function.
 //! NB: We are using an external C function, because Atlas77 
 //! would create unnecessary copies and destructor invokations.
@@ -39,39 +32,14 @@ public fun replace<T>(dest: &T, src: T) -> T {
 }
 
 fun test_swap_and_replace() {
-    let x: Copyable = new Copyable(42);
-    let y: Copyable = new Copyable(84);
-    let px: &Copyable = &x;
-    let py: &Copyable = &y;
-    swap<Copyable>(px, py);
-    print("x.a: ");
-    println(x.a as string);
-    print("y.a: ");
-    println(y.a as string);
-    let old_x: Copyable = replace<Copyable>(px, new Copyable(100));
-    print("old x.a: ");
-    println(old_x.a as string);
-    print("new x.a: ");
-    println(x.a as string);
-
-    let i: int64 = 10;
-    let a = new Generic<&int64>(&i);
-    let b = new Generic<&int64>(&i);
-    let pa: &Generic<&int64> = &a;
-    let pb: &Generic<&int64> = &b;
-    swap<Generic<&int64>>(pa, pb);
-    print("a.value: ");
-    println(*(a.value) as string);
-    print("b.value: ");
-    println(*(b.value) as string);
-    let old_a: Generic<&int64> = replace<Generic<&int64>>(pa, new Generic<&int64>(&i));
-    print("old a.value: ");
-    println(*(old_a.value) as string);
-    print("new a.value: ");
-    println(*(a.value) as string);
-}
-
-struct Generic<T> {
-public:
-    value: T;
+    let x: int64 = 10;
+    let y: int64 = 20;
+    let px: &int64 = &x;
+    let py: &int64 = &y;
+    swap<int64>(px, py);
+    printf("x: %ld, ", *px);
+    printf("y: %ld\n", *py);
+    let old_x: int64 = replace<int64>(px, 42);
+    printf("old x: %ld, ", old_x);
+    printf("new x: %ld\n", *px);
 }

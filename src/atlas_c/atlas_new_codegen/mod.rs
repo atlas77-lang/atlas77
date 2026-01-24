@@ -361,6 +361,12 @@ impl CCodeGen {
                 let args_str: Vec<String> =
                     args.iter().map(|arg| self.codegen_operand(arg)).collect();
                 let args_joined = args_str.join(", ");
+                if ty == &LirTy::Unit {
+                    // For extern calls that return void, we don't need to declare a variable
+                    let line = format!("{}({});", func_name, args_joined);
+                    Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+                    return;
+                }
                 if let Some(dest_op) = dst {
                     let dest_str = self.codegen_operand(dest_op);
                     let line = format!(
