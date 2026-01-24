@@ -1252,11 +1252,6 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 // Free the object memory
                 bytecode.push(Instruction::DeleteObj); // Stack: []
             }
-            // Move expressions: ownership transfer, just generate the inner expression
-            // The ownership semantics are handled by the ownership pass
-            HirExpr::Move(move_expr) => {
-                self.generate_bytecode_expr(&move_expr.expr, bytecode)?;
-            }
             // Copy expressions: for primitives, just generate the inner expression (bitwise copy)
             // For objects with a copy constructor, call it.
             // For strings, deep copy using CloneString instruction
@@ -1407,14 +1402,6 @@ impl<'hir, 'codegen> CodeGenUnit<'hir, 'codegen> {
                 // the address of that slot. This mirrors `generate_receiver_addr`'s behavior and
                 // guarantees the address refers to a stable location the callee can read.
                 self.generate_bytecode_expr(&copy_expr.expr, bytecode)?;
-                let temp_idx = self.local_variables.insert_anonymous();
-                bytecode.push(Instruction::StoreVar(temp_idx));
-                bytecode.push(Instruction::LoadVarAddr(temp_idx));
-            }
-            HirExpr::Move(move_expr) => {
-                // For move expressions, materialize into a temp slot then take its address
-                // (similar reasons as for Copy)
-                self.generate_bytecode_expr(&move_expr.expr, bytecode)?;
                 let temp_idx = self.local_variables.insert_anonymous();
                 bytecode.push(Instruction::StoreVar(temp_idx));
                 bytecode.push(Instruction::LoadVarAddr(temp_idx));

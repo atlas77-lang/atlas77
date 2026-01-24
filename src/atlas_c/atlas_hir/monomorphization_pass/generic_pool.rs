@@ -366,11 +366,9 @@ impl<'hir> HirGenericPool<'hir> {
             HirTy::List(_l) => false /*self.implements_std_copyable(module, l.inner)*/,
             HirTy::Named(n) => match module.structs.get(n.name) {
                 Some(struct_sig) => {
-                    eprintln!("{:?}", struct_sig);
                     struct_sig.copy_constructor.is_some()
                 },
                 None => {
-                    eprintln!("NONE???????");
                     false
                 },
             },
@@ -378,11 +376,9 @@ impl<'hir> HirGenericPool<'hir> {
                 let name = MonomorphizationPass::generate_mangled_name(self.arena, g, "struct");
                 match module.structs.get(name) {
                     Some(struct_sig) => {
-                        eprintln!("{:?}", struct_sig);
                         struct_sig.copy_constructor.is_some()
                     },
                     None => {
-                        eprintln!("NONE???????");
                         false
                     }
                 }
@@ -392,7 +388,6 @@ impl<'hir> HirGenericPool<'hir> {
     }
 
     fn implements_std_moveable(&self, module: &HirModuleSignature<'hir>, ty: &HirTy<'hir>) -> bool {
-        eprintln!("Checking if type {} is moveable", ty);
         match ty {
             // For now we consider all primitive types as moveable
             HirTy::Boolean(_)
@@ -410,11 +405,9 @@ impl<'hir> HirGenericPool<'hir> {
             HirTy::List(_l) => true /*self.implements_std_moveable(module, l.inner)*/,
             HirTy::Named(n) => match module.structs.get(n.name) {
                 Some(struct_sig) => {
-                    eprintln!("{:?}", module.structs.keys());
                     struct_sig.move_constructor.is_some()
                 },
                 None => {
-                    eprintln!("{:?}", module.structs.keys());
                     false
                 },
             },
@@ -422,11 +415,9 @@ impl<'hir> HirGenericPool<'hir> {
                 let name = MonomorphizationPass::generate_mangled_name(self.arena, g, "struct");
                 match module.structs.get(name) {
                     Some(struct_sig) => {
-                        eprintln!("{:?}", module.structs.keys());
                         struct_sig.move_constructor.is_some()
                     },
                     None => {
-                        eprintln!("{:?}", module.structs.keys());
                         false
                     }
                 }

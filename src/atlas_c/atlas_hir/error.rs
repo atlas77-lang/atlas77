@@ -85,6 +85,8 @@ declare_error_type! {
         AssignmentCannotBeAnExpression(AssignmentCannotBeAnExpressionError),
         CannotGenerateADestructorForThisType(CannotGenerateADestructorForThisTypeError),
         CannotImplicitlyCopyNonCopyableValue(CannotImplicitlyCopyNonCopyableValueError),
+        CannotMoveFromRvalue(CannotMoveFromRvalueError),
+        TypeNotCopyable(TypeNotCopyableError),
     }
 }
 
@@ -1246,4 +1248,31 @@ pub struct CannotImplicitlyCopyNonCopyableValueError {
     pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[error("Cannot move from rvalue")]
+#[diagnostic(code(atlas::ownership::cannot_move_from_rvalue))]
+pub struct CannotMoveFromRvalueError {
+    #[source_code]
+    pub src: NamedSource<String>,
+
+    #[label("Cannot move from this expression")]
+    pub span: Span,
+
+    #[help]
+    pub hint: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[error("Type is not copyable")]
+#[diagnostic(code(atlas::ownership::type_not_copyable))]
+pub struct TypeNotCopyableError {
+    #[source_code]
+    pub src: NamedSource<String>,
+
+    #[label("Type '{type_name}' doesn't implement std::copyable")]
+    pub span: Span,
+
+    pub type_name: String,
 }

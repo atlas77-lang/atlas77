@@ -640,12 +640,6 @@ impl<'hir> HirLoweringPass<'hir> {
                 Ok(dest.unwrap_or(LirOperand::ImmInt(0))) // unit value
             }
 
-            // === Move/Copy (ownership pass artifacts) ===
-            HirExpr::Move(move_expr) => {
-                // Move is just a value use in Lir (no runtime work)
-                self.lower_expr(&move_expr.expr)
-            }
-
             HirExpr::Copy(copy_expr) => {
                 // For primitives, copy is just a value use
                 // For objects, this would call _copy method

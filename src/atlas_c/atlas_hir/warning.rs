@@ -12,6 +12,7 @@ declare_warning_type!(
         NameShouldBeInDifferentCase(NameShouldBeInDifferentCaseWarning),
         TryingToCastToTheSameType(TryingToCastToTheSameTypeWarning),
         UseAfterMove(UseAfterMoveWarning),
+        MoveInLoop(MoveInLoopWarning),
         ConsumingMethodMayLeakThis(ConsumingMethodMayLeakThisWarning),
         CannotGenerateACopyConstructorForThisType(CannotGenerateACopyConstructorForThisTypeWarning),
         UnnecessaryCopyDueToLaterBorrows(UnnecessaryCopyDueToLaterBorrowsWarning),
@@ -163,4 +164,20 @@ pub struct UnionFieldCannotBeAutomaticallyDeletedWarning {
     pub span: Span,
     pub field_name: String,
     pub struct_name: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(atlas::ownership::move_in_loop), severity(warning))]
+#[error("Move inside loop")]
+pub struct MoveInLoopWarning {
+    #[source_code]
+    pub src: NamedSource<String>,
+
+    #[label("Variable moved here")]
+    pub move_span: Span,
+
+    #[label("Inside this loop (may execute multiple times)")]
+    pub loop_span: Span,
+
+    pub var_name: String,
 }

@@ -595,11 +595,6 @@ impl HirPrettyPrinter {
                     static_access.field.name
                 ));
             }
-            HirExpr::Move(move_expr) => {
-                self.write("move<>(");
-                self.print_expr(&move_expr.expr);
-                self.write(")");
-            }
             HirExpr::Copy(copy_expr) => {
                 self.write("copy<>(");
                 self.print_expr(&copy_expr.expr);

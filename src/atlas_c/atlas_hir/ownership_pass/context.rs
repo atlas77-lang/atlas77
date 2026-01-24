@@ -613,32 +613,42 @@ pub enum VarStatus {
     /// This means the outer scope should NOT generate a delete for it - each branch
     /// is responsible for handling its own cleanup. Accessing is allowed (warning).
     ConditionallyMoved { move_span: Span },
+    /// Variable was returned - do NOT delete at scope end (ownership transferred)
+    Returned { return_span: Span },
 }
 
 // For backwards compatibility with existing code
 impl VarStatus {
+    /// Check if variable is valid for compilation (not deleted)
+    /// MovedFrom is valid (UB at runtime, but compiles)
     pub fn is_valid(&self) -> bool {
-        // In the C++-like model moved-from states are still valid at compile time
-        // (they produce warnings on use, not hard errors). Deleted is still an error.
-        matches!(
-            self,
-            VarStatus::Owned
-                | VarStatus::Borrowed
-                | VarStatus::MovedFrom { .. }
-                | VarStatus::ConditionallyMoved { .. }
-        )
+        !matches!(self, VarStatus::Deleted { .. })
     }
 
-    /// Check if variable is safe to use (not in moved-from state)
+    /// Check if variable is safe to use (not moved-from)
     pub fn is_safe_to_use(&self) -> bool {
         matches!(self, VarStatus::Owned | VarStatus::Borrowed)
     }
 
-    /// Check if variable is in a moved-from state
+    /// Check if variable is in moved-from state
     pub fn is_moved_from(&self) -> bool {
         matches!(
             self,
             VarStatus::MovedFrom { .. } | VarStatus::ConditionallyMoved { .. }
+        )
+    }
+
+    /// Check if variable should be deleted at scope end
+    /// - Owned: YES
+    /// - MovedFrom: YES (destructor runs on empty state)
+    /// - ConditionallyMoved: YES
+    /// - Returned: NO
+    /// - Deleted: NO
+    /// - Borrowed: NO
+    pub fn should_delete_at_scope_end(&self) -> bool {
+        matches!(
+            self,
+            VarStatus::Owned | VarStatus::MovedFrom { .. } | VarStatus::ConditionallyMoved { .. }
         )
     }
 }
@@ -655,6 +665,7 @@ impl PartialEq for VarStatus {
                     VarStatus::ConditionallyMoved { .. },
                     VarStatus::ConditionallyMoved { .. }
                 )
+                | (VarStatus::Returned { .. }, VarStatus::Returned { .. })
         )
     }
 }

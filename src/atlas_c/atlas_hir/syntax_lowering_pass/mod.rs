@@ -527,7 +527,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             None
         };
         let move_constructor = if node.move_constructor.is_some() {
-            eprintln!("Visiting move constructor for struct {}", name);
             Some(self.visit_constructor(node.name_span, node.move_constructor, &fields, false)?)
         } else {
             None
@@ -565,11 +564,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             generics,
             constructor: constructor.signature.clone(),
             copy_constructor: copy_constructor.as_ref().map(|c| c.signature.clone()),
-            move_constructor: {
-                let mov = move_constructor.as_ref().map(|m| m.signature.clone());
-                eprintln!("Move constructor for struct {}: {:?}", name, mov);
-                mov
-            },
+            move_constructor: move_constructor.as_ref().map(|m| m.signature.clone()),
             default_constructor: default_constructor.as_ref().map(|d| d.signature.clone()),
             destructor: destructor.as_ref().map(|d| d.signature.clone()),
             had_user_defined_constructor,

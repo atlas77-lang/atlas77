@@ -39,7 +39,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             module.signature.structs.remove(instance.name);
         }
         for (name, signature) in module.signature.structs.clone().iter() {
-            if !signature.is_instantiated || signature.pre_mangled_ty.is_none() {
+            if !signature.is_instantiated {
                 module.signature.structs.remove(name);
                 module.body.structs.remove(name);
             }
@@ -64,7 +64,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             module.signature.unions.remove(instance.name);
         }
         for (name, signature) in module.signature.unions.clone().iter() {
-            if !signature.is_instantiated || signature.pre_mangled_ty.is_none() {
+            if !signature.is_instantiated {
                 module.signature.unions.remove(name);
                 module.body.unions.remove(name);
             }
