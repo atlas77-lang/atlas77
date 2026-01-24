@@ -1254,7 +1254,11 @@ impl<'hir> TypeChecker<'hir> {
 
                         //Only check if it's an external function with generics (e.g. `extern foo<T>(a: T) -> T`)
                         if func.is_external && !func.generics.is_empty() {
-                            return self.check_extern_fn(name, func_expr, func);
+                            let ty = self
+                                .arena
+                                .intern(self.check_extern_fn(name, func_expr, func)?);
+                            func_expr.ty = ty;
+                            return Ok(ty);
                         }
 
                         for (param, arg) in func.params.iter().zip(func_expr.args.iter_mut()) {
@@ -1523,10 +1527,12 @@ impl<'hir> TypeChecker<'hir> {
                                             arg.span(),
                                         )?;
                                     }
-                                    Ok(self
+                                    let ret_ty = self
                                         .arena
                                         .types()
-                                        .get_named_ty(name, static_access.field.span))
+                                        .get_named_ty(name, static_access.field.span);
+                                    func_expr.ty = ret_ty;
+                                    Ok(ret_ty)
                                 }
                                 "copy" | "__cpy_ctor" => {
                                     if func_expr.args.len() != 1 {
@@ -1561,10 +1567,12 @@ impl<'hir> TypeChecker<'hir> {
                                         found_ty,
                                         func_expr.args[0].span(),
                                     )?;
-                                    Ok(self
+                                    let ret_ty = self
                                         .arena
                                         .types()
-                                        .get_named_ty(name, static_access.field.span))
+                                        .get_named_ty(name, static_access.field.span);
+                                    func_expr.ty = ret_ty;
+                                    Ok(ret_ty)
                                 }
                                 "__mov_ctor" => {
                                     if func_expr.args.len() != 1 {
@@ -1599,10 +1607,12 @@ impl<'hir> TypeChecker<'hir> {
                                         found_ty,
                                         func_expr.args[0].span(),
                                     )?;
-                                    Ok(self
+                                    let ret_ty = self
                                         .arena
                                         .types()
-                                        .get_named_ty(name, static_access.field.span))
+                                        .get_named_ty(name, static_access.field.span);
+                                    func_expr.ty = ret_ty;
+                                    Ok(ret_ty)
                                 }
                                 "default" => {
                                     if func_expr.args.is_empty() {
@@ -1614,10 +1624,12 @@ impl<'hir> TypeChecker<'hir> {
                                             &func_expr.span,
                                         ));
                                     }
-                                    Ok(self
+                                    let ret_ty = self
                                         .arena
                                         .types()
-                                        .get_named_ty(name, static_access.field.span))
+                                        .get_named_ty(name, static_access.field.span);
+                                    func_expr.ty = ret_ty;
+                                    Ok(ret_ty)
                                 }
                                 "__dtor" => {
                                     if func_expr.args.is_empty() {
@@ -1629,7 +1641,9 @@ impl<'hir> TypeChecker<'hir> {
                                             &func_expr.span,
                                         ));
                                     }
-                                    Ok(self.arena.types().get_unit_ty())
+                                    let unit_ty = self.arena.types().get_unit_ty();
+                                    func_expr.ty = unit_ty;
+                                    Ok(unit_ty)
                                 }
                                 _ => Err(Self::unknown_method_err(
                                     static_access.field.name,
