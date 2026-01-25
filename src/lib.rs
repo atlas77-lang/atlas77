@@ -469,6 +469,29 @@ pub fn build(
                 eprintln!("Clang compilation failed.");
             }
         }
+        SupportedCompiler::Intel => {
+            // Let's invoke it with `icc ./build/output.atlas_c.c -o {output_dir}` (and `-O2` for release)
+            let mut command = std::process::Command::new("icc");
+            command.arg("./build/output.atlas_c.c");
+            command.arg("-o");
+            let target = if cfg!(target_os = "windows") {
+                format!("{}/a.exe", output_dir)
+            } else {
+                format!("{}/a.out", output_dir)
+            };
+            command.arg(target);
+            if _flag == CompilationFlag::Release {
+                command.arg("-O2");
+            }
+            // TODO: Make it pretty print
+            eprintln!("Invoking Intel ICC with command: {:?}", command);
+            let status = command.status().expect("Failed to invoke Intel ICC");
+            if status.success() {
+                println!("Program compiled successfully with Intel ICC.");
+            } else {
+                eprintln!("Intel ICC compilation failed.");
+            }
+        }
         SupportedCompiler::None => {
             println!("Skipping compilation step as per user request.");
         }
@@ -485,6 +508,7 @@ pub enum SupportedCompiler {
     GCC,
     MSVC,
     Clang,
+    Intel,
     None,
 }
 
@@ -495,6 +519,7 @@ impl SupportedCompiler {
             "gcc" => SupportedCompiler::GCC,
             "msvc" | "cl" => SupportedCompiler::MSVC,
             "clang" => SupportedCompiler::Clang,
+            "intel" | "icc" => SupportedCompiler::Intel,
             "none" => SupportedCompiler::None,
             _ => SupportedCompiler::TinyCC, // default to TinyCC
         }
