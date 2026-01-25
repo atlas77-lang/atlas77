@@ -419,18 +419,17 @@ impl<'hir> OwnershipPass<'hir> {
         }
         // Static access or type method: Module::fn or Type::fn
         else if let HirExpr::StaticAccess(static_access) = call.callee.as_ref() {
-            if let HirTy::Named(named) = static_access.target {
-                if let Some(struct_sig) = self.hir_signature.structs.get(named.name) {
-                    if let Some(method_sig) = struct_sig.methods.get(static_access.field.name) {
-                        process_params(
-                            &method_sig.params,
-                            method_sig.generics.as_ref().map(|g| g),
-                            &mut moved_args,
-                            &mut copied_args,
-                            &mut taken_args,
-                        );
-                    }
-                }
+            if let HirTy::Named(named) = static_access.target
+                && let Some(struct_sig) = self.hir_signature.structs.get(named.name)
+                && let Some(method_sig) = struct_sig.methods.get(static_access.field.name)
+            {
+                process_params(
+                    &method_sig.params,
+                    method_sig.generics.as_ref(),
+                    &mut moved_args,
+                    &mut copied_args,
+                    &mut taken_args,
+                );
             }
         }
         // Method call: obj.method
@@ -438,31 +437,32 @@ impl<'hir> OwnershipPass<'hir> {
             let target_ty = field_access.target.ty();
             match target_ty {
                 HirTy::Named(n) => {
-                    if let Some(struct_sig) = self.hir_signature.structs.get(n.name) {
-                        if let Some(method_sig) = struct_sig.methods.get(field_access.field.name) {
-                            process_params(
-                                &method_sig.params,
-                                method_sig.generics.as_ref().map(|g| g),
-                                &mut moved_args,
-                                &mut copied_args,
-                                &mut taken_args,
-                            );
-                        }
+                    if let Some(struct_sig) = self.hir_signature.structs.get(n.name)
+                        && let Some(method_sig) = struct_sig.methods.get(field_access.field.name)
+                    {
+                        process_params(
+                            &method_sig.params,
+                            method_sig.generics.as_ref(),
+                            &mut moved_args,
+                            &mut copied_args,
+                            &mut taken_args,
+                        );
                     }
                 }
+
                 HirTy::Generic(g) => {
                     let mangled =
                         MonomorphizationPass::generate_mangled_name(self.hir_arena, g, "struct");
-                    if let Some(struct_sig) = self.hir_signature.structs.get(mangled) {
-                        if let Some(method_sig) = struct_sig.methods.get(field_access.field.name) {
-                            process_params(
-                                &method_sig.params,
-                                method_sig.generics.as_ref().map(|g| g),
-                                &mut moved_args,
-                                &mut copied_args,
-                                &mut taken_args,
-                            );
-                        }
+                    if let Some(struct_sig) = self.hir_signature.structs.get(mangled)
+                        && let Some(method_sig) = struct_sig.methods.get(field_access.field.name)
+                    {
+                        process_params(
+                            &method_sig.params,
+                            method_sig.generics.as_ref(),
+                            &mut moved_args,
+                            &mut copied_args,
+                            &mut taken_args,
+                        );
                     }
                 }
                 _ => {}
@@ -492,23 +492,23 @@ impl<'hir> OwnershipPass<'hir> {
         };
 
         // If T is a named type that matches a generic parameter, collect its constraints
-        if let HirTy::Named(named) = inner_ty {
-            if let Some(gens) = func_generics {
-                for generic in gens.iter() {
-                    if generic.generic_name == named.name {
-                        for kind in &generic.kind {
-                            match kind {
-                                HirGenericConstraintKind::Std { name, .. } => {
-                                    constraints.push(format!("std.{}", name));
-                                }
-                                HirGenericConstraintKind::Concept { name, .. } => {
-                                    constraints.push(name.to_string());
-                                }
-                                _ => {}
+        if let HirTy::Named(named) = inner_ty
+            && let Some(gens) = func_generics
+        {
+            for generic in gens.iter() {
+                if generic.generic_name == named.name {
+                    for kind in &generic.kind {
+                        match kind {
+                            HirGenericConstraintKind::Std { name, .. } => {
+                                constraints.push(format!("std.{}", name));
                             }
+                            HirGenericConstraintKind::Concept { name, .. } => {
+                                constraints.push(name.to_string());
+                            }
+                            _ => {}
                         }
-                        break;
                     }
+                    break;
                 }
             }
         }
@@ -1545,11 +1545,11 @@ impl<'hir> OwnershipPass<'hir> {
                     } else {
                         // Non-copyable field being consumed: mark the root as moved (if identifiable)
                         // and return the field access expression (no Move node).
-                        if let HirExpr::FieldAccess(fa) = &field_access_expr {
-                            if let HirExpr::Ident(ident) = fa.target.as_ref() {
-                                // Mark the root variable as moved-from; the field value is being taken.
-                                self.scope_map.mark_as_moved(ident.name, field.span);
-                            }
+                        if let HirExpr::FieldAccess(fa) = &field_access_expr
+                            && let HirExpr::Ident(ident) = fa.target.as_ref()
+                        {
+                            // Mark the root variable as moved-from; the field value is being taken.
+                            self.scope_map.mark_as_moved(ident.name, field.span);
                         }
 
                         Ok(field_access_expr)
@@ -1757,23 +1757,21 @@ impl<'hir> OwnershipPass<'hir> {
         let transformed = self.transform_expr_ownership(arg, false)?;
 
         // Check for recursive copy in copy constructors
-        if let Some(method_ctx) = &self.current_method_context {
-            if method_ctx.method_name == COPY_CONSTRUCTOR_MANGLED_NAME {
-                if let Some(return_ty) = &method_ctx.return_ty {
-                    if self.types_match(ty, return_ty) {
-                        let path = arg.span().path;
-                        let src = utils::get_file_content(path).unwrap_or_default();
-                        return Err(HirError::RecursiveCopyConstructor(
-                            RecursiveCopyConstructorError {
-                                copy_span: arg.span(),
-                                method_span: method_ctx.method_span,
-                                type_name: Self::get_type_name(ty),
-                                src: NamedSource::new(path, src),
-                            },
-                        ));
-                    }
-                }
-            }
+        if let Some(method_ctx) = &self.current_method_context
+            && method_ctx.method_name == COPY_CONSTRUCTOR_MANGLED_NAME
+            && let Some(return_ty) = &method_ctx.return_ty
+            && self.types_match(ty, return_ty)
+        {
+            let path = arg.span().path;
+            let src = utils::get_file_content(path).unwrap_or_default();
+            return Err(HirError::RecursiveCopyConstructor(
+                RecursiveCopyConstructorError {
+                    copy_span: arg.span(),
+                    method_span: method_ctx.method_span,
+                    type_name: Self::get_type_name(ty),
+                    src: NamedSource::new(path, src),
+                },
+            ));
         }
 
         // Primitives don't need Copy wrapper (bitwise copy is implicit)
@@ -1849,14 +1847,13 @@ impl<'hir> OwnershipPass<'hir> {
         }
 
         // 3. NEW: Warn on use-after-move (not error, just UB warning)
-        if var_data.status.is_moved_from() {
-            if let VarStatus::MovedFrom { move_span }
-            | VarStatus::ConditionallyMoved { move_span } = &var_data.status
-            {
-                self.emit_use_after_move_warning(ident, *move_span);
-            }
-            // Continue compilation - moved-from is valid but undefined behavior
+        if var_data.status.is_moved_from()
+            && let VarStatus::MovedFrom { move_span } | VarStatus::ConditionallyMoved { move_span } =
+                &var_data.status
+        {
+            self.emit_use_after_move_warning(ident, *move_span);
         }
+        // Continue compilation - moved-from is valid but undefined behavior
 
         // 4. If this variable is marked as Returned, treat it as moved for the return
         //    (do not generate a `Copy` even if the type is copyable).
@@ -1917,10 +1914,10 @@ impl<'hir> OwnershipPass<'hir> {
                 }
             }
             HirExpr::Unary(unary) if unary.op.is_none() => {
-                if let HirExpr::Ident(ident) = unary.expr.as_ref() {
-                    if let Some(var) = self.scope_map.get_mut(ident.name) {
-                        var.status = VarStatus::Returned { return_span };
-                    }
+                if let HirExpr::Ident(ident) = unary.expr.as_ref()
+                    && let Some(var) = self.scope_map.get_mut(ident.name)
+                {
+                    var.status = VarStatus::Returned { return_span };
                 }
             }
             _ => {}
@@ -2602,7 +2599,7 @@ impl<'hir> OwnershipPass<'hir> {
     /// Check if a variable being returned has dependencies on local variables
     /// that will go out of scope. This prevents returning objects that contain
     /// references to local data.
-    fn check_return_with_local_dependencies(
+    fn _check_return_with_local_dependencies(
         &self,
         var_data: &VarData<'hir>,
         return_span: Span,

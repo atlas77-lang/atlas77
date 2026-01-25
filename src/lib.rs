@@ -9,7 +9,7 @@
 //! code generation, assembler, and a VM. It exposes small helper functions such
 //! as `build` and `init` (see `DEFAULT_INIT_CODE`) for working with
 //! Atlas projects programmatically.
-//! 
+//!
 //! See the repository README and ROADMAP for details and the online docs:
 //! https://atlas77-lang.github.io/atlas77-docs/docs/latest/index.html
 
@@ -35,7 +35,7 @@ use atlas_c::{
     },
 };
 use bumpalo::Bump;
-use std::{io::Write, path::PathBuf, time::Instant};
+use std::{io::Write, path::PathBuf, str::FromStr, time::Instant};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum CompilationFlag {
@@ -83,18 +83,18 @@ pub mod with_tcc {
                 "Adding generated header include path: {}",
                 header_path.display()
             );
-            tcc_add_include_path(tcc, header_c.as_ptr() as *const i8);
+            tcc_add_include_path(tcc, header_c.as_ptr());
 
             // library path (keep CString)
             let path_to_tcc_lib = get_prebuilt_path()
                 .expect("Failed to find prebuilt TinyCC binaries for current platform");
             let lib_c = CString::new(path_to_tcc_lib.to_string_lossy().as_ref()).unwrap();
-            tcc_add_library_path(tcc, lib_c.as_ptr() as *const i8);
+            tcc_add_library_path(tcc, lib_c.as_ptr());
 
             // read C file and pass as C string
             let code = std::fs::read_to_string("./build/output.atlas_c.c").unwrap();
             let code_c = CString::new(code).unwrap();
-            let res = tcc_compile_string(tcc, code_c.as_ptr() as *const i8);
+            let res = tcc_compile_string(tcc, code_c.as_ptr());
 
             // out name already uses CString; keep it around until after tcc_output_file
             let target = get_current_platform();
@@ -183,35 +183,35 @@ pub mod with_tcc {
             let include_c = CString::new(base_include.to_string_lossy().as_ref()).unwrap();
             eprintln!("Adding TinyCC include path: {}", base_include.display());
             unsafe {
-                tcc_add_include_path(tcc, include_c.as_ptr() as *const i8);
+                tcc_add_include_path(tcc, include_c.as_ptr());
             }
 
             let winapi_include = base_include.join("winapi");
             let winapi_c = CString::new(winapi_include.to_string_lossy().as_ref()).unwrap();
             eprintln!("Adding TinyCC include path: {}", winapi_include.display());
             unsafe {
-                tcc_add_include_path(tcc, winapi_c.as_ptr() as *const i8);
+                tcc_add_include_path(tcc, winapi_c.as_ptr());
             }
 
             let sys_include = base_include.join("sys");
             let sys_c = CString::new(sys_include.to_string_lossy().as_ref()).unwrap();
             eprintln!("Adding TinyCC include path: {}", sys_include.display());
             unsafe {
-                tcc_add_include_path(tcc, sys_c.as_ptr() as *const i8);
+                tcc_add_include_path(tcc, sys_c.as_ptr());
             }
 
             let tcc_include = base_include.join("tcc");
             let tcc_c = CString::new(tcc_include.to_string_lossy().as_ref()).unwrap();
             eprintln!("Adding TinyCC include path: {}", tcc_include.display());
             unsafe {
-                tcc_add_include_path(tcc, tcc_c.as_ptr() as *const i8);
+                tcc_add_include_path(tcc, tcc_c.as_ptr());
             }
 
             let sec_api_include = base_include.join("sec_api");
             let sec_api_c = CString::new(sec_api_include.to_string_lossy().as_ref()).unwrap();
             eprintln!("Adding TinyCC include path: {}", sec_api_include.display());
             unsafe {
-                tcc_add_include_path(tcc, sec_api_c.as_ptr() as *const i8);
+                tcc_add_include_path(tcc, sec_api_c.as_ptr());
             }
 
             let sec_api_sys_include = sec_api_include.join("sys");
@@ -222,7 +222,7 @@ pub mod with_tcc {
                 sec_api_sys_include.display()
             );
             unsafe {
-                tcc_add_include_path(tcc, sec_api_sys_c.as_ptr() as *const i8);
+                tcc_add_include_path(tcc, sec_api_sys_c.as_ptr());
             }
         } else {
             // For Linux and macOS, just use the standard include path
@@ -230,7 +230,7 @@ pub mod with_tcc {
             let include_c = CString::new(base_include.to_string_lossy().as_ref()).unwrap();
             eprintln!("Adding TinyCC include path: {}", base_include.display());
             unsafe {
-                tcc_add_include_path(tcc, include_c.as_ptr() as *const i8);
+                tcc_add_include_path(tcc, include_c.as_ptr());
             }
         }
 
@@ -411,8 +411,10 @@ pub fn build(
             }
             #[cfg(all(not(feature = "embedded-tinycc"), tinycc_unavailable))]
             {
-                // Let's invoke it with `tcc ./build/output.atlas_c.c -o {output_dir}` 
-                eprintln!("Embedded TinyCC feature is not enabled, trying to invoke system TCC compiler.");
+                // Let's invoke it with `tcc ./build/output.atlas_c.c -o {output_dir}`
+                eprintln!(
+                    "Embedded TinyCC feature is not enabled, trying to invoke system TCC compiler."
+                );
                 let mut command = std::process::Command::new("tcc");
                 command.arg("./build/output.atlas_c.c");
                 command.arg("-o");
@@ -428,7 +430,7 @@ pub fn build(
                     println!("Program compiled successfully with TCC.");
                 } else {
                     eprintln!("TCC compilation failed.");
-                }                
+                }
             }
         }
         SupportedCompiler::GCC => {
@@ -542,16 +544,17 @@ pub enum SupportedCompiler {
     None,
 }
 
-impl SupportedCompiler {
-    pub fn from_str(s: &str) -> Self {
+impl FromStr for SupportedCompiler {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "tinycc" | "tcc" => SupportedCompiler::TinyCC,
-            "gcc" => SupportedCompiler::GCC,
-            "msvc" | "cl" => SupportedCompiler::MSVC,
-            "clang" => SupportedCompiler::Clang,
-            "intel" | "icc" => SupportedCompiler::Intel,
-            "none" => SupportedCompiler::None,
-            _ => SupportedCompiler::TinyCC, // default to TinyCC
+            "tinycc" | "tcc" => Ok(SupportedCompiler::TinyCC),
+            "gcc" => Ok(SupportedCompiler::GCC),
+            "msvc" | "cl" => Ok(SupportedCompiler::MSVC),
+            "clang" => Ok(SupportedCompiler::Clang),
+            "intel" | "icc" => Ok(SupportedCompiler::Intel),
+            "none" => Ok(SupportedCompiler::None),
+            _ => Ok(SupportedCompiler::TinyCC), // default to TinyCC
         }
     }
 }

@@ -77,7 +77,7 @@ impl<'hir> HirLoweringPass<'hir> {
                     args: sig
                         .params
                         .iter()
-                        .map(|p| self.hir_ty_to_lir_primitive(&p.ty, p.span))
+                        .map(|p| self.hir_ty_to_lir_primitive(p.ty, p.span))
                         .collect(),
                     return_type: {
                         let lir_ty = self.hir_ty_to_lir_primitive(&sig.return_ty, sig.span);
@@ -190,7 +190,7 @@ impl<'hir> HirLoweringPass<'hir> {
                 .signature
                 .params
                 .iter()
-                .map(|p| self.hir_ty_to_lir_primitive(&p.ty, p.span))
+                .map(|p| self.hir_ty_to_lir_primitive(p.ty, p.span))
                 .collect(),
             return_type: {
                 let lir_ty =
@@ -306,7 +306,7 @@ impl<'hir> HirLoweringPass<'hir> {
                     // Immediate values don't generate temps, so load them into one
                     let temp = self.new_temp();
                     self.emit(LirInstr::LoadImm {
-                        ty: self.hir_ty_to_lir_primitive(&let_stmt.ty, let_stmt.span),
+                        ty: self.hir_ty_to_lir_primitive(let_stmt.ty, let_stmt.span),
                         dst: temp.clone(),
                         value,
                     })?;
@@ -322,33 +322,21 @@ impl<'hir> HirLoweringPass<'hir> {
                 // Find the local variable temp
                 let ident_name = if let HirExpr::Ident(ident) = &assign.dst {
                     ident.name
-                } else {
-                    if let HirExpr::Unary(u) = &assign.dst {
-                        if let Some(op) = &u.op
-                            && op == &HirUnaryOp::Deref
-                        {
-                            let expr_operand = self.lower_expr(&u.expr)?;
-                            let dest = LirOperand::Deref(Box::new(expr_operand));
-                            self.emit(LirInstr::Assign {
-                                ty: self.hir_ty_to_lir_primitive(&assign.val.ty(), assign.span),
-                                dst: dest,
-                                src: value,
-                            })?;
-                            return Ok(());
-                        }
-                        if let HirExpr::Ident(ident) = &*u.expr {
-                            ident.name
-                        } else {
-                            return Err(Box::new(LirLoweringError::UnsupportedHirExpr(
-                                UnsupportedHirExprError {
-                                    span: assign.dst.span(),
-                                    src: NamedSource::new(
-                                        assign.dst.span().path,
-                                        utils::get_file_content(assign.dst.span().path).unwrap(),
-                                    ),
-                                },
-                            )));
-                        }
+                } else if let HirExpr::Unary(u) = &assign.dst {
+                    if let Some(op) = &u.op
+                        && op == &HirUnaryOp::Deref
+                    {
+                        let expr_operand = self.lower_expr(&u.expr)?;
+                        let dest = LirOperand::Deref(Box::new(expr_operand));
+                        self.emit(LirInstr::Assign {
+                            ty: self.hir_ty_to_lir_primitive(assign.val.ty(), assign.span),
+                            dst: dest,
+                            src: value,
+                        })?;
+                        return Ok(());
+                    }
+                    if let HirExpr::Ident(ident) = &*u.expr {
+                        ident.name
                     } else {
                         return Err(Box::new(LirLoweringError::UnsupportedHirExpr(
                             UnsupportedHirExprError {
@@ -360,11 +348,21 @@ impl<'hir> HirLoweringPass<'hir> {
                             },
                         )));
                     }
+                } else {
+                    return Err(Box::new(LirLoweringError::UnsupportedHirExpr(
+                        UnsupportedHirExprError {
+                            span: assign.dst.span(),
+                            src: NamedSource::new(
+                                assign.dst.span().path,
+                                utils::get_file_content(assign.dst.span().path).unwrap(),
+                            ),
+                        },
+                    )));
                 };
                 if let Some(&temp_id) = self.local_map.get(ident_name) {
                     let dest = LirOperand::Temp(temp_id);
                     self.emit(LirInstr::Assign {
-                        ty: self.hir_ty_to_lir_primitive(&assign.ty, assign.span),
+                        ty: self.hir_ty_to_lir_primitive(assign.ty, assign.span),
                         dst: dest,
                         src: value,
                     })?;
@@ -460,11 +458,11 @@ impl<'hir> HirLoweringPass<'hir> {
             HirExpr::Unary(unary) => match unary.op {
                 Some(HirUnaryOp::Deref) => {
                     let expr_operand = self.lower_expr(&unary.expr)?;
-                    return Ok(LirOperand::Deref(Box::new(expr_operand)));
+                    Ok(LirOperand::Deref(Box::new(expr_operand)))
                 }
                 Some(HirUnaryOp::AsRef) => {
                     let expr_operand = self.lower_expr(&unary.expr)?;
-                    return Ok(LirOperand::AsRef(Box::new(expr_operand)));
+                    Ok(LirOperand::AsRef(Box::new(expr_operand)))
                 }
                 _ => self.lower_expr(&unary.expr),
             },
@@ -624,14 +622,14 @@ impl<'hir> HirLoweringPass<'hir> {
 
                 let instr = if is_extern {
                     LirInstr::ExternCall {
-                        ty: self.hir_ty_to_lir_primitive(&call.ty, call.span),
+                        ty: self.hir_ty_to_lir_primitive(call.ty, call.span),
                         dst: dest.clone(),
                         func_name,
                         args,
                     }
                 } else {
                     LirInstr::Call {
-                        ty: self.hir_ty_to_lir_primitive(&call.ty, call.span),
+                        ty: self.hir_ty_to_lir_primitive(call.ty, call.span),
                         dst: dest.clone(),
                         func_name,
                         args,
@@ -683,11 +681,11 @@ impl<'hir> HirLoweringPass<'hir> {
             HirTy::String(_) => LirTy::Str,
             HirTy::Unit(_) => LirTy::Unit,
             HirTy::ReadOnlyReference(r) => {
-                let inner = self.hir_ty_to_lir_primitive(&r.inner, span);
+                let inner = self.hir_ty_to_lir_primitive(r.inner, span);
                 LirTy::Ref(Box::new(inner))
             }
             HirTy::MutableReference(r) => {
-                let inner = self.hir_ty_to_lir_primitive(&r.inner, span);
+                let inner = self.hir_ty_to_lir_primitive(r.inner, span);
                 LirTy::Ref(Box::new(inner))
             }
             HirTy::Uninitialized(_) => {

@@ -1,6 +1,6 @@
 [package]
 name = "atlas_77"
-version = "0.8.0"
+version = "0.8.0-alpha"
 edition = "2024"
 description = "Wannabe systems programming language on a custom VM (for now)."
 authors = ["Gipson62"]
@@ -53,7 +53,6 @@ syntect = { version = "5.3", optional = true }                      # code highl
 serde = { version = "1.0", features = ["derive"], optional = true } # for serializing the table of contents
 serde_json = { version = "1.0", optional = true }                   # for serializing the table of contents
 target-lexicon = "0.13.4"
-# tcc = "0.1.0"
 
 [features]
 default = ["embedded-tinycc"]

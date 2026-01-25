@@ -77,7 +77,7 @@ impl CCodeGen {
         Self::write_to_file(&mut self.c_file, "}\n", self.indent_level);
     }
 
-    fn codegen_signature(&mut self, name: &str, args: &Vec<LirTy>, ret: &LirTy) -> String {
+    fn codegen_signature(&mut self, name: &str, args: &[LirTy], ret: &LirTy) -> String {
         let mut prototype = format!("{} {}(", self.codegen_type(ret), name);
         for (i, arg) in args.iter().enumerate() {
             let arg_type = self.codegen_type(arg);
@@ -88,7 +88,7 @@ impl CCodeGen {
                 prototype.push_str(", ");
             }
         }
-        prototype.push_str(")");
+        prototype.push(')');
         prototype
     }
 
@@ -423,7 +423,7 @@ impl CCodeGen {
 
     fn write_to_file(file: &mut String, content: &str, indent_level: usize) {
         for _ in 0..indent_level {
-            file.push_str("\t");
+            file.push('\t');
         }
         file.push_str(content);
         file.push('\n');

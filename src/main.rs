@@ -6,6 +6,8 @@
 #![allow(clippy::new_without_default)]
 #![allow(clippy::unusual_byte_groupings)]
 
+use std::str::FromStr;
+
 use atlas_77::{CompilationFlag, SupportedCompiler, build, generate_docs};
 use clap::Parser;
 
@@ -31,13 +33,27 @@ enum AtlasRuntimeCLI {
         #[arg(short = 'd', long)]
         /// Build in debug mode
         debug: bool,
-        #[arg(long, default_value_t = false, help = "Do not include the standard library")]
+        #[arg(
+            long,
+            default_value_t = false,
+            help = "Do not include the standard library"
+        )]
         /// Do not include the standard library
         no_std: bool,
-        #[arg(short = 'c', long, default_value = "tinycc", help = "Specify the C compiler to use (Available: tinycc, gcc, msvc, clang, intel)")]
+        #[arg(
+            short = 'c',
+            long,
+            default_value = "tinycc",
+            help = "Specify the C compiler to use (Available: tinycc, gcc, msvc, clang, intel)"
+        )]
         /// Specify the C compiler to use (Available: tinycc, gcc, msvc, clang, intel)
         compiler: String,
-        #[arg(short = 'o', long, default_value = "./build", help = "Output directory for the executable")]
+        #[arg(
+            short = 'o',
+            long,
+            default_value = "./build",
+            help = "Output directory for the executable"
+        )]
         /// Output directory for the executable
         output_dir: String,
     },
@@ -89,7 +105,8 @@ fn main() -> miette::Result<()> {
                     CompilationFlag::Debug
                 },
                 no_standard_lib,
-                SupportedCompiler::from_str(&compiler.to_lowercase()),
+                SupportedCompiler::from_str(&compiler.to_lowercase())
+                    .expect("Invalid compiler specified"),
                 output_dir,
             )
             .map(|_| ())
@@ -116,7 +133,7 @@ fn main() -> miette::Result<()> {
                 },
                 true,
                 // We don't care about the compiler here, as we won't compile
-                SupportedCompiler::from_str("none"),
+                SupportedCompiler::from_str("none").expect("Invalid compiler specified"),
                 "build".to_string(),
             )
             .map(|_| ())

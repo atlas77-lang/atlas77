@@ -396,23 +396,15 @@ impl<'hir> TypeChecker<'hir> {
                 }
 
                 let mut expected_ret_ty = self.arena.types().get_uninitialized_ty();
-                let span = if self.current_class_name.is_some() {
+                let span = if let Some(name) = self.current_class_name {
                     //This means we're in a class method
-                    let class = self
-                        .signature
-                        .structs
-                        .get(self.current_class_name.unwrap())
-                        .unwrap();
+                    let class = self.signature.structs.get(name).unwrap();
                     let method = class.methods.get(self.current_func_name.unwrap()).unwrap();
                     expected_ret_ty = self.arena.intern(method.clone().return_ty);
                     method.return_ty_span.unwrap_or(r.span)
-                } else if self.current_func_name.is_some() {
+                } else if let Some(name) = self.current_func_name {
                     //This means we're in a standalone function
-                    let func_ret_from = self
-                        .signature
-                        .functions
-                        .get(self.current_func_name.unwrap())
-                        .unwrap();
+                    let func_ret_from = self.signature.functions.get(name).unwrap();
                     expected_ret_ty = self.arena.intern(func_ret_from.return_ty.clone());
                     func_ret_from.return_ty_span.unwrap_or(r.span)
                 } else {

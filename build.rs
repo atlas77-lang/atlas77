@@ -242,7 +242,7 @@ fn build_tinycc_runtime(
     let asm_sources: Vec<&str> = if target.contains("x86_64") {
         vec!["alloca86_64.S", "alloca86_64-bt.S"]
     } else if target.contains("aarch64") || target.contains("arm64") {
-        vec![] // ARM uses different runtime
+        Vec::new() // ARM uses different runtime
     } else {
         vec![]
     };
