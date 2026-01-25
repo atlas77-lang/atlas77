@@ -226,6 +226,12 @@ pub mod with_tcc {
             }
         } else {
             // For Linux and macOS, just use the standard include path
+            let base_include = manifest_dir.join("vendor/tinycc/include");
+            let include_c = CString::new(base_include.to_string_lossy().as_ref()).unwrap();
+            eprintln!("Adding TinyCC include path: {}", base_include.display());
+            unsafe {
+                tcc_add_include_path(tcc, include_c.as_ptr() as *const i8);
+            }
         }
 
         Ok(())
