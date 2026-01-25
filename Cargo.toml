@@ -56,8 +56,9 @@ target-lexicon = "0.13.4"
 # tcc = "0.1.0"
 
 [features]
-default = []
+default = ["embedded-tinycc"]
 docs = ["pulldown-cmark", "tera", "syntect", "serde", "serde_json"]
+embedded-tinycc = []
 
 [build-dependencies]
 walkdir = "^2"

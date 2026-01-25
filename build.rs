@@ -3,7 +3,15 @@ use std::{
     path::{Path, PathBuf},
 };
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
+    println!("cargo::rustc-check-cfg=cfg(tinycc_unavailable)");
+    // Only build TinyCC if the feature is enabled
+    let build_tinycc = env::var("CARGO_FEATURE_EMBEDDED_TINYCC").is_ok();
+
+    if !build_tinycc {
+        println!("cargo:warning=TinyCC support disabled - using external C compiler only");
+        return;
+    }
     let target = env::var("TARGET").expect("TARGET not set");
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
@@ -24,15 +32,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("cargo:warning=Building TinyCC from source for {}", target);
             // if the target is windows, let's just error out for now
             if target.contains("windows") {
-                return Err("Building TinyCC from source on Windows is not supported yet. Please use a pre-built binary.".into());
+                // Tell Rust code that TinyCC is not available
+                println!("cargo:rustc-cfg=tinycc_unavailable");
+                return;
             }
-            build_tinycc_from_source(&manifest_dir, &out_dir, &target)?;
+            match build_tinycc_from_source(&manifest_dir, &out_dir, &target) {
+                Ok(_) => (),
+                Err(e) => {
+                    // Shouldn't we just disable TinyCC support instead of panicking?
+                    println!("cargo:warning=Failed to build TinyCC from source: {}", e);
+                    println!("cargo:rustc-cfg=tinycc_unavailable");
+                    return;
+                }
+            }
             out_dir
         }
     };
 
     // Emit link instructions
-    println!("cargo:warning=Linking TinyCC libraries from {}", lib_dir.display());
+    println!(
+        "cargo:warning=Linking TinyCC libraries from {}",
+        lib_dir.display()
+    );
     println!("cargo:rustc-link-search=native={}", lib_dir.display());
     println!("cargo:rustc-link-lib=static=tcc");
     println!("cargo:rustc-link-lib=static=tcc1");
@@ -46,7 +67,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("cargo:rustc-link-lib=pthread");
         println!("cargo:rustc-link-lib=m");
     }
-    Ok(())
 }
 
 /// Try to find pre-built TinyCC binaries for the target platform
