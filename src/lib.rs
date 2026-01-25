@@ -405,7 +405,31 @@ pub fn build(
 
     match compiler {
         SupportedCompiler::TinyCC => {
-            emit_binary(output_dir)?;
+            #[cfg(all(feature = "embedded-tinycc", not(tinycc_unavailable)))]
+            {
+                emit_binary(output_dir)?;
+            }
+            #[cfg(all(not(feature = "embedded-tinycc"), tinycc_unavailable))]
+            {
+                // Let's invoke it with `tcc ./build/output.atlas_c.c -o {output_dir}` 
+                eprintln!("Embedded TinyCC feature is not enabled, trying to invoke system TCC compiler.");
+                let mut command = std::process::Command::new("tcc");
+                command.arg("./build/output.atlas_c.c");
+                command.arg("-o");
+                let target = if cfg!(target_os = "windows") {
+                    format!("{}/a.exe", output_dir)
+                } else {
+                    format!("{}/a.out", output_dir)
+                };
+                command.arg(target);
+                eprintln!("Invoking TCC with command: {:?}", command);
+                let status = command.status().expect("Failed to invoke TCC");
+                if status.success() {
+                    println!("Program compiled successfully with TCC.");
+                } else {
+                    eprintln!("TCC compilation failed.");
+                }                
+            }
         }
         SupportedCompiler::GCC => {
             // Let's invoke it with `gcc ./build/output.atlas_c.c -o {output_dir}` (and `-O2` for release)
