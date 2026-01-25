@@ -31,17 +31,14 @@ enum AtlasRuntimeCLI {
         #[arg(short = 'd', long)]
         /// Build in debug mode
         debug: bool,
-        #[arg(long)]
+        #[arg(long, default_value_t = false, help = "Do not include the standard library")]
         /// Do not include the standard library
-        /// As of now, it just means the Runtime won't load all the extern functions from the standard library
-        ///
-        /// BEWARE: It is not stable yet, so using this flag may lead to unexpected behavior
         no_std: bool,
-        #[arg(short = 'c', long, default_value = "tinycc")]
-        /// Specifies which compiler to use. By default, it uses TinyCC if available.
-        /// You can set it to "none" to skip the compilation step and only emit C
+        #[arg(short = 'c', long, default_value = "tinycc", help = "Specify the C compiler to use (Available: tinycc, gcc, msvc, clang, intel)")]
+        /// Specify the C compiler to use (Available: tinycc, gcc, msvc, clang, intel)
         compiler: String,
-        #[arg(short = 'o', long, default_value = "build")]
+        #[arg(short = 'o', long, default_value = "./build", help = "Output directory for the executable")]
+        /// Output directory for the executable
         output_dir: String,
     },
     #[command(
