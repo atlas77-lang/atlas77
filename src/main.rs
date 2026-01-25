@@ -23,14 +23,23 @@ use clap::Parser;
 enum AtlasRuntimeCLI {
     #[command(
         about = "Compile a local package and all of its dependencies",
-        long_about = "Compile a local package and all of its dependencies. The output will be written to the current directory as `output.atlas_asm`. NB: That output file is not executable."
+        long_about = "Compile a local package and all of its dependencies. The output directory is specified with the -o flag (default is ./build). \
+        By default, it will try to use the embedded TinyCC compiler. You can specify a different compiler with the -c flag."
     )]
     Build {
         file_path: Option<String>,
-        #[arg(short = 'r', long)]
+        #[arg(
+            short = 'r',
+            long,
+            long_help = "Build in release mode (equivalent to -O2 for major compilers)"
+        )]
         /// Build in release mode
         release: bool,
-        #[arg(short = 'd', long)]
+        #[arg(
+            short = 'd',
+            long,
+            long_help = "Build in debug mode (with debug symbols and no optimizations)"
+        )]
         /// Build in debug mode
         debug: bool,
         #[arg(
@@ -44,15 +53,22 @@ enum AtlasRuntimeCLI {
             short = 'c',
             long,
             default_value = "tinycc",
-            help = "Specify the C compiler to use (Available: tinycc, gcc, msvc, clang, intel)"
+            help = "Specify the C compiler to use (Available: tinycc, gcc, msvc, clang, intel)",
+            long_help = "Specify the C compiler to use. Supported compilers:\n* TCC: \"tinycc\"/\"tcc\"\n* GCC: \"gcc\"\n* MSVC: \"msvc\"/\"cl\"\n* Clang: \"clang\"\n* Intel: \"intel\"/\"icc\""
         )]
-        /// Specify the C compiler to use (Available: tinycc, gcc, msvc, clang, intel)
+        /// Specify the C compiler to use. Supported compilers:
+        /// * TCC: "tinycc"/"tcc"
+        /// * GCC: "gcc"
+        /// * MSVC: "msvc"/"cl"
+        /// * Clang: "clang"
+        /// * Intel: "intel"/"icc"
         compiler: String,
         #[arg(
             short = 'o',
             long,
             default_value = "./build",
-            help = "Output directory for the executable"
+            help = "Output directory for the executable",
+            long_help = "Output directory for the executable. Example: -o ./build"
         )]
         /// Output directory for the executable
         output_dir: String,
