@@ -142,7 +142,14 @@ fn get_prebuilt_path() -> Option<PathBuf> {
     let platform_dir = match target.as_str() {
         t if t.contains("x86_64") && t.contains("linux") => "linux-x64",
         t if t.contains("aarch64") && t.contains("linux") => "linux-arm64",
-        t if t.contains("x86_64") && t.contains("windows") => "windows-x64",
+        t if t.contains("x86_64") && t.contains("windows") => {
+            // Can be "windows-x64/gnu" or "windows-x64/msvc" based on toolchain.
+            if cfg!(target_env = "msvc") {
+                "windows-x64/msvc"
+            } else {
+                "windows-x64/gnu"
+            }
+        },
         t if t.contains("x86_64") && t.contains("apple") => "macos-x64",
         t if t.contains("aarch64") && t.contains("apple") => "macos-arm64",
         //t if t.contains("aarch64") && t.contains("windows") => "windows-aarch64",

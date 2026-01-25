@@ -32,6 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Emit link instructions
+    println!("cargo:warning=Linking TinyCC libraries from {}", lib_dir.display());
     println!("cargo:rustc-link-search=native={}", lib_dir.display());
     println!("cargo:rustc-link-lib=static=tcc");
     println!("cargo:rustc-link-lib=static=tcc1");
@@ -93,37 +94,44 @@ fn try_get_prebuilt_tinycc(manifest_dir: &Path, target: &str) -> Option<PathBuf>
     let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_else(|_| String::new());
 
     if target_env == "msvc" {
-        let lib = platform_path.join("tcc.lib");
-        let lib1 = platform_path.join("tcc1.lib");
+        let lib = platform_path.join("msvc/tcc.lib");
+        let lib1 = platform_path.join("msvc/tcc1.lib");
         if lib.exists() && lib1.exists() {
-            return Some(platform_path);
+            return Some(platform_path.join("msvc"));
         }
         // Fallback: if GNU-style static libs are present, still return the dir but warn.
-        let lib_a = platform_path.join("libtcc.a");
-        let lib1_a = platform_path.join("libtcc1.a");
+        let lib_a = platform_path.join("gnu/libtcc.a");
+        let lib1_a = platform_path.join("gnu/libtcc1.a");
         if lib_a.exists() && lib1_a.exists() {
             println!(
                 "cargo:warning=Found GNU-style TinyCC static libs in {} but target env is MSVC; consider building MSVC .lib import/static libs",
                 platform_path.display()
             );
-            return Some(platform_path);
+            return Some(platform_path.join("gnu"));
         }
     } else {
         // Default: look for Unix/GNU style static libs
+        if platform_dir == "windows-x64" {
+            let libtcc = platform_path.join("gnu/libtcc.a");
+            let libtcc1 = platform_path.join("gnu/libtcc1.a");
+            if libtcc.exists() && libtcc1.exists() {
+                return Some(platform_path.join("gnu"));
+            }
+        }
         let libtcc = platform_path.join("libtcc.a");
         let libtcc1 = platform_path.join("libtcc1.a");
         if libtcc.exists() && libtcc1.exists() {
             return Some(platform_path);
         }
         // If on Windows GNU toolchain (mingw) the above should be fine; if a MSVC-style .lib exists, accept it too.
-        let lib = platform_path.join("tcc.lib");
-        let lib1 = platform_path.join("tcc1.lib");
+        let lib = platform_path.join("msvc/tcc.lib");
+        let lib1 = platform_path.join("msvc/tcc1.lib");
         if lib.exists() && lib1.exists() {
             println!(
                 "cargo:warning=Found MSVC-style .lib files in {} but target env is not MSVC; rustc may not be able to use them",
                 platform_path.display()
             );
-            return Some(platform_path);
+            return Some(platform_path.join("msvc"));
         }
     }
 
