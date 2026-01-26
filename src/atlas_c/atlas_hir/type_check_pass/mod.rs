@@ -584,6 +584,7 @@ impl<'hir> TypeChecker<'hir> {
                         }
                     }
                 }
+                assign.ty = dst_ty;
 
                 // Note: We intentionally do NOT block assignments where lhs.is_const() is true
                 // but there's no dereference. For example:
@@ -775,26 +776,30 @@ impl<'hir> TypeChecker<'hir> {
                         | HirTy::Boolean(_)
                         | HirTy::Char(_)
                         | HirTy::String(_)
+                        | HirTy::PtrTy(_)
                 );
-                if !can_cast {
+                if !can_cast && !c.target_ty.is_raw_ptr() {
                     return Err(Self::type_mismatch_err(
                         &format!("{}", expr_ty),
                         &c.expr.span(),
-                        "int64, float64, uint64, bool, char or str",
+                        "int64, float64, uint64, bool, char, str or raw pointer",
                         &c.expr.span(),
                     ));
                 }
                 if self
-                    .is_equivalent_ty(expr_ty, c.expr.span(), c.ty, c.span)
+                    .is_equivalent_ty(expr_ty, c.expr.span(), c.target_ty, c.span)
                     .is_ok()
                 {
-                    Self::trying_to_cast_to_the_same_type_warning(&c.span, &format!("{}", c.ty));
+                    Self::trying_to_cast_to_the_same_type_warning(
+                        &c.span,
+                        &format!("{}", c.target_ty),
+                    );
                     // Unwrap the redundant cast by replacing the casting expression with the inner expression
                     *expr = (*c.expr).clone();
                     return Ok(expr_ty);
                 }
 
-                Ok(c.ty)
+                Ok(c.target_ty)
             }
             HirExpr::Indexing(indexing_expr) => {
                 let path = indexing_expr.span.path;
@@ -815,6 +820,10 @@ impl<'hir> TypeChecker<'hir> {
                     HirTy::String(_) => {
                         indexing_expr.ty = self.arena.types().get_char_ty();
                         Ok(self.arena.types().get_char_ty())
+                    }
+                    HirTy::PtrTy(ptr_ty) => {
+                        indexing_expr.ty = ptr_ty.inner;
+                        Ok(ptr_ty.inner)
                     }
                     _ => {
                         let src = utils::get_file_content(path).unwrap();
@@ -2032,6 +2041,7 @@ impl<'hir> TypeChecker<'hir> {
             HirTy::ReadOnlyReference(r) => Self::get_generic_name(r.inner),
             HirTy::MutableReference(m) => Self::get_generic_name(m.inner),
             HirTy::Named(n) => Some(n.name),
+            HirTy::PtrTy(ptr_ty) => Self::get_generic_name(ptr_ty.inner),
             _ => None,
         }
     }
@@ -2055,6 +2065,11 @@ impl<'hir> TypeChecker<'hir> {
                 .arena
                 .types()
                 .get_mutable_ref_ty(self.get_generic_ret_ty(r.inner, actual_generic_ty)),
+            HirTy::PtrTy(ptr_ty) => self
+                .arena
+                .types()
+                .get_ptr_ty(self.get_generic_ret_ty(ptr_ty.inner, actual_generic_ty)),
+
             _ => actual_generic_ty,
         }
     }

@@ -506,7 +506,7 @@ impl HirPrettyPrinter {
             }
             HirExpr::Casting(cast) => {
                 self.print_expr(&cast.expr);
-                self.write(&format!(" as {}", Self::type_str(cast.ty)));
+                self.write(&format!(" as {}", Self::type_str(cast.target_ty)));
             }
             HirExpr::Call(call) => {
                 self.print_expr(&call.callee);
@@ -643,7 +643,7 @@ impl HirPrettyPrinter {
             ),
             HirTy::Uninitialized(_) => "<uninit>".to_string(),
             HirTy::Nullable(n) => format!("{}?", Self::type_str(n.inner)),
-            HirTy::ExternTy(e) => format!("extern {:?}", e.type_hint),
+            HirTy::PtrTy(ptr_ty) => format!("ptr<{}>", Self::type_str(ptr_ty.inner)),
             HirTy::Function(f) => {
                 let params = f
                     .params

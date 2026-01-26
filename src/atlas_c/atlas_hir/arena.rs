@@ -11,7 +11,7 @@ use super::ty::{
     HirUninitializedTy, HirUnitTy, HirUnsignedIntTy,
 };
 use crate::atlas_c::{
-    atlas_hir::ty::{HirExternTy, HirFunctionTy, HirReadOnlyReferenceTy},
+    atlas_hir::ty::{HirFunctionTy, HirPtrTy, HirReadOnlyReferenceTy},
     utils::Span,
 };
 use bumpalo::Bump;
@@ -221,16 +221,12 @@ impl<'arena> TypeArena<'arena> {
         })
     }
 
-    pub fn get_extern_ty(
-        &'arena self,
-        type_hint: Option<&'arena HirTy<'arena>>,
-    ) -> &'arena HirTy<'arena> {
-        let type_hint_id = type_hint.map(HirTyId::from);
-        let id = HirTyId::compute_extern_ty_id(type_hint_id.as_ref());
-        self.intern.borrow_mut().entry(id).or_insert_with(|| {
-            self.allocator
-                .alloc(HirTy::ExternTy(HirExternTy { type_hint }))
-        })
+    pub fn get_ptr_ty(&'arena self, inner: &'arena HirTy<'arena>) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_pointer_ty_id(&HirTyId::from(inner));
+        self.intern
+            .borrow_mut()
+            .entry(id)
+            .or_insert_with(|| self.allocator.alloc(HirTy::PtrTy(HirPtrTy { inner })))
     }
 
     pub fn get_function_ty(

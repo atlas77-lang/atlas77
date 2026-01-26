@@ -74,6 +74,7 @@ impl<'hir> HirGenericPool<'hir> {
             match ty {
                 HirTy::ReadOnlyReference(inner) => count_reference_levels(inner.inner, current + 1),
                 HirTy::MutableReference(inner) => count_reference_levels(inner.inner, current + 1),
+                HirTy::PtrTy(inner) => count_reference_levels(inner.inner, current + 1),
                 _ => Some(0),
             }
         }
@@ -241,6 +242,25 @@ impl<'hir> HirGenericPool<'hir> {
                     }
                     _ => continue,
                 },
+                HirTy::PtrTy(p) => match p.inner {
+                    HirTy::Named(n) => {
+                        // Check if this is actually a defined struct/union in the module
+                        if n.name.len() == 1
+                            && !module.structs.contains_key(n.name)
+                            && !module.unions.contains_key(n.name)
+                        {
+                            is_instantiated = false;
+                        }
+                    }
+                    HirTy::Generic(g) => {
+                        if !self.is_generic_instantiated(g, module) {
+                            is_instantiated = false;
+                        } else {
+                            self.register_struct_instance(g.clone(), module);
+                        }
+                    }
+                    _ => continue,
+                },
                 _ => continue,
             }
         }
@@ -359,6 +379,7 @@ impl<'hir> HirGenericPool<'hir> {
             // References are copyable as they are just pointers
             | HirTy::ReadOnlyReference(_)
             | HirTy::MutableReference(_)
+            | HirTy::PtrTy(_)
             // Function pointers are copyable, though I am still not sure if I want this behavior...
             // Maybe closures that capture environment shouldn't be copyable?
             | HirTy::Function(_) => true,

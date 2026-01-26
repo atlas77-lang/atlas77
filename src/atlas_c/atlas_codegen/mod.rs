@@ -117,7 +117,7 @@ impl CCodeGen {
             LirTy::Boolean => "bool".to_string(),
             LirTy::Char => "uint32_t".to_string(),
             LirTy::Str => "char*".to_string(),
-            LirTy::Ref(inner) => {
+            LirTy::Ptr(inner) => {
                 let inner_type = self.codegen_type(inner);
                 if inner_type.ends_with('*') {
                     // Avoid double pointers for now
@@ -423,10 +423,11 @@ impl CCodeGen {
                 let line = format!("{} = {};", dest_str, src_str);
                 Self::write_to_file(&mut self.c_file, &line, self.indent_level);
             }
-            LirInstr::Delete { ty: _, src } => {
-                let src_str = self.codegen_operand(src);
+            LirInstr::Delete { ty: _, src: _ } => {
+                // Delete instructions are ignored for now. We don't properly handle move semantics in C yet.
+                /* let src_str = self.codegen_operand(src);
                 let line = format!("free({});", src_str);
-                Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+                Self::write_to_file(&mut self.c_file, &line, self.indent_level); */
             }
             LirInstr::Construct { ty, dst, args } => {
                 let dest_str = self.codegen_operand(dst);
@@ -453,6 +454,28 @@ impl CCodeGen {
                     ctor_call
                 );
                 Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+            }
+            LirInstr::Cast { ty, from, dst, src } => {
+                if !(ty == from) {
+                    let dest_str = self.codegen_operand(dst);
+                    let src_str = self.codegen_operand(src);
+                    let line = format!(
+                        "{} {} = ({}){};",
+                        self.codegen_type(ty),
+                        dest_str,
+                        self.codegen_type(ty),
+                        src_str
+                    );
+                    Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+                } else {
+                    // No-op cast
+                    let dest_str = self.codegen_operand(dst);
+                    let src_str = self.codegen_operand(src);
+                    let line_comment = format!("//No-op cast, needs to be removed");
+                    let line = format!("{} {} = {};", self.codegen_type(ty), dest_str, src_str);
+                    Self::write_to_file(&mut self.c_file, &line_comment, self.indent_level);
+                    Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+                }
             }
             _ => {
                 eprintln!("Instruction codegen not implemented for {:?}", instr)

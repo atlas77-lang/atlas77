@@ -1307,7 +1307,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 let hir = HirExpr::Casting(HirCastExpr {
                     span: node.span(),
                     expr: Box::new(expr.clone()),
-                    ty,
+                    target_ty: ty,
                 });
                 Ok(hir)
             }
@@ -1733,13 +1733,9 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
             //The "this" ty is replaced during the type checking phase
             AstType::ThisTy(_) => self.arena.types().get_uninitialized_ty(),
-            AstType::ExternTy(extern_ty) => {
-                let type_hint = if let Some(hint) = extern_ty.type_hint {
-                    Some(self.visit_ty(hint)?)
-                } else {
-                    None
-                };
-                self.arena.types().get_extern_ty(type_hint)
+            AstType::PtrTy(ptr_ty) => {
+                let inner_ty = self.visit_ty(ptr_ty.inner)?;
+                self.arena.types().get_ptr_ty(inner_ty)
             }
             AstType::Function(func_ty) => {
                 let span = func_ty.span;
@@ -2054,7 +2050,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             | HirTy::Unit(_)
             | HirTy::MutableReference(_)
             | HirTy::ReadOnlyReference(_)
-            | HirTy::ExternTy(_)
             | HirTy::Function(_) => true,
             // TODO: Add support for list copy constructors
             // HirTy::List(list) => self.can_be_copyable(list.inner, module),

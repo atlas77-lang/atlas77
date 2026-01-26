@@ -9,29 +9,24 @@
  * std::vector functionality in Atlas77 eventually, and replace the old one.
  */
 
-//! TODO: Add raw pointer support with `ptr<T>` type.
-//! For testing purposes, we will "lie" and returns a [T] instead of a T*.
-//! It's so it fits atlas77 type system for now.
-extern malloc<T>(size: uint64) -> [T];
+extern malloc<T>(size: uint64) -> ptr<T>;
 
 public struct CVec<T> {
 //! Equivalent to T* in C.
-//! TODO: Change to ptr<T> when supported.
-    data: [T];
-    // data: ptr<T>;
+    data: ptr<T>;
 public:
     len: uint64;
     capacity: uint64;
+    // It takes in a [T], because the [T] types is safe in Atlas77. ptr<T> isn't as it's a entirely a raw pointer
     CVec(data: [T], len: uint64, capacity: uint64) {
-        this.data = data;
+        // This is 100% a lie, but trust
+        this.data = data as ptr<T>;
         this.len = len;
         this.capacity = capacity;
     }
     fun with_capacity(capacity: uint64) -> CVec<T> {
         // Allocate memory using calloc
-        // NB: Each T is assumed to be 8 bytes for now. 
-        // I'll change this once we have sizeof<T>() support.
-        let data = malloc<T>(capacity*8u);
+        let data = malloc<T>(capacity*8u) as [T];
         return new CVec<T>(data, 0u, capacity);
     }
     fun get(&const this, index: uint64) -> &const T {
@@ -61,10 +56,24 @@ fun main() {
     let vec = CVec<int64>::with_capacity(10u);
     printf("CVec created with capacity: %llu\n", vec.len);
     vec.push(0);
+    vec.push(1);
+    vec.push(2);
+    vec.push(3);
     let mut_ref = vec.get_mut(0u);
     *mut_ref = 42;
     let const_ref = vec.get(0u);
     assert(*const_ref == 42);
+    while (vec.len < vec.capacity) {
+        vec.push(vec.len as int64);
+    }
+    assert(vec.len == vec.capacity);
+    let i = 0u;
+    while (i < vec.len) {
+        let val = vec.get(i);
+        printf("vec[%llu]", i);
+        printf("= %lld\n", *val);
+        i = i + 1u;
+    }
 }
 
 extern panic(msg: string);

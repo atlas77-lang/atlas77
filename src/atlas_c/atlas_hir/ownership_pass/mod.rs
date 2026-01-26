@@ -500,7 +500,7 @@ impl<'hir> OwnershipPass<'hir> {
                     for kind in &generic.kind {
                         match kind {
                             HirGenericConstraintKind::Std { name, .. } => {
-                                constraints.push(format!("std.{}", name));
+                                constraints.push(format!("std::{}", name));
                             }
                             HirGenericConstraintKind::Concept { name, .. } => {
                                 constraints.push(name.to_string());
@@ -1617,7 +1617,7 @@ impl<'hir> OwnershipPass<'hir> {
                 Ok(HirExpr::Casting(HirCastExpr {
                     span: cast.span,
                     expr: Box::new(transformed),
-                    ty: cast.ty,
+                    target_ty: cast.target_ty,
                 }))
             }
             // Delete expressions - mark the variable as deleted so it won't be auto-deleted later
@@ -2352,7 +2352,10 @@ impl<'hir> OwnershipPass<'hir> {
             | HirTy::Char(_)
             | HirTy::UInt64(_)
             | HirTy::Unit(_)
-            | HirTy::String(_) => true,
+            | HirTy::ReadOnlyReference(_)
+            | HirTy::MutableReference(_)
+            | HirTy::PtrTy(_) => true,
+            HirTy::String(_) => true,
             HirTy::Named(n) => {
                 if let Some(struct_sig) = self.hir_signature.structs.get(n.name) {
                     return struct_sig.copy_constructor.is_some();
@@ -2384,8 +2387,11 @@ impl<'hir> OwnershipPass<'hir> {
             // They'll need to do &const [T] or &[T]
             // I just need to make c_vec works properly first (I still don't have the ptr<T> type implemented)
             HirTy::List(_) => true,
-            // Lists and objects are not considered copyable by default here
-            _ => false,
+            // TOOD: actually implement function types properly
+            HirTy::Function(_) => false,
+            HirTy::Uninitialized(_) | HirTy::Nullable(_) => {
+                panic!("Ownership pass should not see Uninitialized or Nullable types")
+            }
         }
     }
 
@@ -3010,7 +3016,7 @@ impl<'hir> OwnershipPass<'hir> {
             }
             // Nested casts - the inner cast creates a temporary that needs to be extracted
             HirExpr::Casting(cast) => {
-                !cast.ty.is_ref() && Self::type_needs_memory_management(cast.ty)
+                !cast.target_ty.is_ref() && Self::type_needs_memory_management(cast.target_ty)
             }
             // Any other expression that creates a value needing memory management
             _ => false,
@@ -3042,7 +3048,7 @@ impl<'hir> OwnershipPass<'hir> {
             HirTy::Nullable(nullable) => Self::type_needs_memory_management(nullable.inner),
 
             // Other types
-            HirTy::Uninitialized(_) | HirTy::ExternTy(_) | HirTy::Function(_) => false,
+            HirTy::Uninitialized(_) | HirTy::PtrTy(_) | HirTy::Function(_) => false,
         }
     }
 

@@ -199,12 +199,12 @@ impl<'hir> HirLoweringPass<'hir> {
         };
 
         for method in struct_body.methods.iter() {
-            let lir_method = self.lower_method(&struct_body.name, method)?;
+            let lir_method = self.lower_method(struct_body.name, method)?;
             functions.push(lir_method);
         }
 
         functions.push(self.lower_constructor(
-            &struct_body.name,
+            struct_body.name,
             &struct_body.constructor,
             "new",
         )?);
@@ -229,14 +229,10 @@ impl<'hir> HirLoweringPass<'hir> {
 
         self.param_map.insert("this", 0);
         let mut args = Vec::new();
-        args.push(LirTy::Ref(Box::new(LirTy::Named(struct_name.to_string()))));
+        args.push(LirTy::Ptr(Box::new(LirTy::Named(struct_name.to_string()))));
         // Build parameter map
         for (idx, param) in ctor.params.iter().enumerate() {
             self.param_map.insert(param.name, (idx + 1) as u8);
-            eprintln!(
-                "Lowering constructor param: {} of type {:?}",
-                param.name, param.ty
-            );
             args.push(self.hir_ty_to_lir_ty(param.ty, param.span));
         }
 
@@ -282,7 +278,7 @@ impl<'hir> HirLoweringPass<'hir> {
         ) {
             // The first parameter is always "this"
             self.param_map.insert("this", 0);
-            args.push(LirTy::Ref(Box::new(LirTy::Named(struct_name.to_string()))));
+            args.push(LirTy::Ptr(Box::new(LirTy::Named(struct_name.to_string()))));
         }
         // Build parameter map
         for param in method.signature.params.iter() {
@@ -546,7 +542,7 @@ impl<'hir> HirLoweringPass<'hir> {
     // Helper function to take care of the unary unwrapping for l-values
     fn lower_assign_l_value(&mut self, l_value: &'hir HirExpr<'hir>) -> LirResult<LirOperand> {
         match l_value {
-            HirExpr::Unary(unary) if unary.op == None => self.lower_assign_l_value(&unary.expr),
+            HirExpr::Unary(unary) if unary.op.is_none() => self.lower_assign_l_value(&unary.expr),
             HirExpr::Unary(unary) if matches!(unary.op, Some(HirUnaryOp::Deref)) => {
                 self.lower_expr(l_value)
             }
@@ -583,6 +579,20 @@ impl<'hir> HirLoweringPass<'hir> {
             HirExpr::ThisLiteral(_) => {
                 // "this" is always the first argument (arg 0)
                 Ok(LirOperand::Arg(0))
+            }
+
+            // === Casting ===
+            HirExpr::Casting(casting_expr) => {
+                let expr_operand = self.lower_expr(&casting_expr.expr)?;
+                let dest = self.new_temp();
+                let target_ty = self.hir_ty_to_lir_ty(&casting_expr.target_ty, casting_expr.span);
+                self.emit(LirInstr::Cast {
+                    ty: target_ty,
+                    from: self.hir_ty_to_lir_ty(&casting_expr.expr.ty(), casting_expr.span),
+                    dst: dest.clone(),
+                    src: expr_operand,
+                })?;
+                Ok(dest)
             }
 
             // === Identifiers (variables/parameters) ===
@@ -710,8 +720,6 @@ impl<'hir> HirLoweringPass<'hir> {
                         b: rhs,
                     },
                     _ => {
-                        let path = expr.span().path;
-                        let src = utils::get_file_content(path).unwrap();
                         return Err(unsupported_expr(expr.span()));
                     }
                 };
@@ -802,8 +810,6 @@ impl<'hir> HirLoweringPass<'hir> {
                         (format!("{}_{}", object_name, field_access.field.name), true)
                     }
                     _ => {
-                        let path = expr.span().path;
-                        let src = utils::get_file_content(path).unwrap();
                         return Err(unsupported_expr(expr.span()));
                     }
                 };
@@ -814,8 +820,6 @@ impl<'hir> HirLoweringPass<'hir> {
                         let target_operand = self.lower_expr(&field_access.target)?;
                         args.push(target_operand);
                     } else {
-                        let path = expr.span().path;
-                        let src = utils::get_file_content(path).unwrap();
                         return Err(unsupported_expr(expr.span()));
                     }
                 }
@@ -900,11 +904,7 @@ impl<'hir> HirLoweringPass<'hir> {
                 self.emit(LirInstr::Delete { ty, src })?;
                 Ok(dst)
             }
-            _ => {
-                let path = expr.span().path;
-                let src = utils::get_file_content(path).unwrap();
-                Err(unsupported_expr(expr.span()))
-            }
+            _ => Err(unsupported_expr(expr.span())),
         }
     }
 
@@ -920,11 +920,11 @@ impl<'hir> HirLoweringPass<'hir> {
             HirTy::Unit(_) => LirTy::Unit,
             HirTy::ReadOnlyReference(r) => {
                 let inner = self.hir_ty_to_lir_ty(r.inner, span);
-                LirTy::Ref(Box::new(inner))
+                LirTy::Ptr(Box::new(inner))
             }
             HirTy::MutableReference(r) => {
                 let inner = self.hir_ty_to_lir_ty(r.inner, span);
-                LirTy::Ref(Box::new(inner))
+                LirTy::Ptr(Box::new(inner))
             }
             HirTy::Uninitialized(_) => {
                 //We should error...
@@ -938,19 +938,16 @@ impl<'hir> HirLoweringPass<'hir> {
 
                 LirTy::Int64
             }
-            HirTy::List(l) => {
-                let ty = LirTy::Ref(Box::new(self.hir_ty_to_lir_ty(l.inner, span)));
-                eprintln!(
-                    "Warning: Lowering list type to reference type for LIR: {}",
-                    ty
-                );
-                ty
-            }
+            HirTy::List(l) => LirTy::Ptr(Box::new(self.hir_ty_to_lir_ty(l.inner, span))),
             HirTy::Named(n) => LirTy::Named(n.name.to_string()),
             HirTy::Generic(g) => {
                 let mangled_name =
                     MonomorphizationPass::generate_mangled_name(self.hir_arena, g, "struct");
                 LirTy::Named(mangled_name.to_string())
+            }
+            HirTy::PtrTy(ptr_ty) => {
+                let inner = self.hir_ty_to_lir_ty(&ptr_ty.inner, span);
+                LirTy::Ptr(Box::new(inner))
             }
             _ => {
                 let report: miette::Report = LirLoweringWarning::UnknownType(UnknownTypeWarning {
@@ -1172,6 +1169,9 @@ impl std::fmt::Display for LirInstr {
             LirInstr::Assign { ty: _, dst, src } => {
                 write!(f, "{} = assign {}", dst, src)
             }
+            LirInstr::Cast { ty, from, dst, src } => {
+                write!(f, "{} = cast {}->{} {}", dst, from, ty, src)
+            }
         }
     }
 }
@@ -1215,7 +1215,7 @@ impl std::fmt::Display for LirTy {
             LirTy::Char => write!(f, "char"),
             LirTy::Str => write!(f, "str"),
             LirTy::Unit => write!(f, "unit"),
-            LirTy::Ref(r) => write!(f, "&{}", r),
+            LirTy::Ptr(r) => write!(f, "ptr<{}>", r),
             LirTy::Named(name) => write!(f, "{}", name),
         }
     }

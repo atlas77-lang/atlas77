@@ -796,7 +796,7 @@ pub enum AstType<'ast> {
     Nullable(AstNullableType<'ast>),
     List(AstListType<'ast>),
     Generic(AstGenericType<'ast>),
-    ExternTy(AstExternType<'ast>),
+    PtrTy(AstPtrTy<'ast>),
 }
 
 impl AstType<'_> {
@@ -817,7 +817,7 @@ impl AstType<'_> {
             AstType::ReadOnlyRef(t) => t.span,
             AstType::List(t) => t.span,
             AstType::Generic(t) => t.span,
-            AstType::ExternTy(t) => t.span,
+            AstType::PtrTy(t) => t.span,
         }
     }
 }
@@ -852,10 +852,7 @@ impl<'ast> AstType<'ast> {
                 }
             }
             //AstType::Function(_) => "fn".to_owned(),
-            AstType::ExternTy(t) => match t.type_hint {
-                Some(ty) => format!("extern_ptr<{}>", ty.name()),
-                None => "extern_ptr".to_owned(),
-            },
+            AstType::PtrTy(ptr_ty) => format!("ptr<{}>", ptr_ty.inner.name()),
             _ => {
                 panic!("Type does not have a name yet")
             }
@@ -864,10 +861,10 @@ impl<'ast> AstType<'ast> {
 }
 
 #[derive(Debug, Clone)]
-
-pub struct AstExternType<'ast> {
+/// A raw pointer type in atlas has the form of `ptr<T>`
+pub struct AstPtrTy<'ast> {
     pub span: Span,
-    pub type_hint: Option<&'ast AstType<'ast>>,
+    pub inner: &'ast AstType<'ast>,
 }
 
 #[derive(Debug, Clone)]

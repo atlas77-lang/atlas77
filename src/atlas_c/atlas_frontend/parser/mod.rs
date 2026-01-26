@@ -9,8 +9,9 @@ use miette::NamedSource;
 
 use crate::atlas_c::atlas_frontend::parser::{
     ast::{
-        AstArg, AstEnum, AstEnumVariant, AstExternType, AstFlag, AstGlobalConst, AstObjLiteralExpr,
-        AstObjLiteralField, AstReadOnlyRefType, AstStdGenericConstraint, AstUnion, ConstructorKind,
+        AstArg, AstEnum, AstEnumVariant, AstFlag, AstGlobalConst, AstObjLiteralExpr,
+        AstObjLiteralField, AstPtrTy, AstReadOnlyRefType, AstStdGenericConstraint, AstUnion,
+        ConstructorKind,
     },
     error::{
         DestructorWithParametersError, FlagDoesntExistError, NoFieldInStructError,
@@ -2242,10 +2243,13 @@ impl<'ast> Parser<'ast> {
                     ret: self.arena.alloc(ret),
                 })
             }
-            TokenKind::ExternPtr => {
+            TokenKind::PtrTy => {
                 let _ = self.advance();
-                AstType::ExternTy(AstExternType {
-                    type_hint: None,
+                self.expect(TokenKind::LAngle)?;
+                let ty = self.parse_type()?;
+                self.expect(TokenKind::RAngle)?;
+                AstType::PtrTy(AstPtrTy {
+                    inner: self.arena.alloc(ty),
                     span: Span::union_span(&start, &self.current().span()),
                 })
             }

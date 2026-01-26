@@ -2,6 +2,10 @@ fun move<T: std::moveable>(val: &T) -> T {
     return T::__mov_ctor(val);
 }
 
+fun copy<T: std::copyable>(val: &T) -> T {
+    return T::copy(val);
+}
+
 struct Foo {
 public:
     a: int64;
@@ -15,8 +19,8 @@ extern printf<T>(fmt: string, val: T);
 // Test use-after-move detection.
 fun main() {
     let f: Foo = new Foo(10);
-    let pf: &Foo = &f;
-    let f2: Foo = move<Foo>(pf);
-    // The following line should produce a use-after-move error.
-    printf("%ld\n", pf.a);
+    let f2: Foo = move<Foo>(&f);
+    // The following line should produce a use-after-move warning.
+    let f3: Foo = copy<Foo>(&f);
+    printf("%ld\n", f.a);
 }

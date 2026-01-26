@@ -11,7 +11,9 @@ use crate::atlas_c::{
         monomorphization_pass::generic_pool::HirGenericPool,
         signature::{HirGenericConstraint, HirGenericConstraintKind, HirModuleSignature},
         stmt::HirStatement,
-        ty::{HirGenericTy, HirListTy, HirMutableReferenceTy, HirReadOnlyReferenceTy, HirTy},
+        ty::{
+            HirGenericTy, HirListTy, HirMutableReferenceTy, HirPtrTy, HirReadOnlyReferenceTy, HirTy,
+        },
     },
     utils::{self, Span},
 };
@@ -904,7 +906,14 @@ impl<'hir> MonomorphizationPass<'hir> {
                 }
             }
             HirExpr::Casting(casting_expr) => {
-                self.monomorphize_expression(&mut casting_expr.expr, types_to_change, module)?;
+                self.monomorphize_expression(
+                    &mut casting_expr.expr,
+                    types_to_change.clone(),
+                    module,
+                )?;
+                let monomorphized_ty =
+                    self.swap_generic_types_in_ty(casting_expr.target_ty, types_to_change);
+                casting_expr.target_ty = monomorphized_ty;
             }
             HirExpr::Delete(delete_expr) => {
                 self.monomorphize_expression(&mut delete_expr.expr, types_to_change, module)?;
@@ -1017,6 +1026,11 @@ impl<'hir> MonomorphizationPass<'hir> {
                         inner: new_inner,
                     }))
             }
+            HirTy::PtrTy(ptr_ty) => {
+                let new_inner = self.swap_generic_types_in_ty(ptr_ty.inner, types_to_change);
+                self.arena
+                    .intern(HirTy::PtrTy(HirPtrTy { inner: new_inner }))
+            }
             _ => ty,
         }
     }
@@ -1094,11 +1108,6 @@ impl<'hir> MonomorphizationPass<'hir> {
         true
     }
 
-    /// Add a new struct signature to the module signature.
-    ///
-    /// The name of the new struct will be `__atlas77__StructType_actual_type_names`, so it's actually mangled.
-    ///
-    /// Helper function to change the inner type of generic type recursively if matches.
     fn change_inner_type(
         &mut self,
         type_to_change: &'hir HirTy<'hir>,
@@ -1154,6 +1163,9 @@ impl<'hir> MonomorphizationPass<'hir> {
                         inner: self.change_inner_type(r.inner, generic_name, new_type, module),
                     }))
             }
+            HirTy::PtrTy(ptr_ty) => self.arena.intern(HirTy::PtrTy(HirPtrTy {
+                inner: self.change_inner_type(ptr_ty.inner, generic_name, new_type, module),
+            })),
             _ => type_to_change,
         }
     }

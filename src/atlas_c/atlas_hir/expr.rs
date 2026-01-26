@@ -102,7 +102,7 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::UnitLiteral(expr) => expr.ty,
             HirExpr::ThisLiteral(expr) => expr.ty,
             HirExpr::Unary(expr) => expr.ty,
-            HirExpr::Casting(expr) => expr.ty,
+            HirExpr::Casting(expr) => expr.target_ty,
             HirExpr::HirBinaryOperation(expr) => expr.ty,
             HirExpr::Call(expr) => expr.ty,
             HirExpr::StringLiteral(expr) => expr.ty,
@@ -211,7 +211,7 @@ pub struct HirIndexingExpr<'hir> {
 pub struct HirCastExpr<'hir> {
     pub span: Span,
     pub expr: Box<HirExpr<'hir>>,
-    pub ty: &'hir HirTy<'hir>,
+    pub target_ty: &'hir HirTy<'hir>,
 }
 
 #[derive(Debug, Clone)]

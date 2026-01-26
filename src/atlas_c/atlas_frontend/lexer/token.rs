@@ -291,6 +291,8 @@ pub enum TokenKind {
     ThisTy,
     #[token("string")]
     StrTy,
+    #[token("ptr")]
+    PtrTy,
     EoI,
 }
 

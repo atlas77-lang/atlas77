@@ -109,7 +109,7 @@ pub enum LirTy {
     // Unicode Character
     Char,
     Unit,
-    Ref(Box<LirTy>),
+    Ptr(Box<LirTy>),
     Named(String),
 }
 
@@ -121,7 +121,7 @@ impl LirTy {
             LirTy::Int32 | LirTy::UInt32 | LirTy::Float32 => 4,
             LirTy::Int64 | LirTy::UInt64 | LirTy::Float64 => 8,
             LirTy::Char => 4, // Unicode scalar value (4 bytes)
-            LirTy::Str | LirTy::Unit | LirTy::Ref(_) | LirTy::Named(_) => 8, // Pointer size
+            LirTy::Str | LirTy::Unit | LirTy::Ptr(_) | LirTy::Named(_) => 8, // Pointer size
         }
     }
 }
@@ -252,6 +252,12 @@ pub enum LirInstr {
     },
     Assign {
         ty: LirTy,
+        dst: LirOperand,
+        src: LirOperand,
+    },
+    Cast {
+        ty: LirTy,
+        from: LirTy,
         dst: LirOperand,
         src: LirOperand,
     },
