@@ -325,13 +325,6 @@ pub fn build(
     compiler: SupportedCompiler,
     output_dir: String,
 ) -> miette::Result<()> {
-    #[cfg(all(not(feature = "embedded-tinycc"), tinycc_unavailable))]
-    if compiler == SupportedCompiler::TinyCC {
-        // If it's unavailable, we warn the user
-        eprint!(
-            "Warning: Embedded TinyCC feature is not enabled, but TinyCC compiler was selected. Atlas77 will attempt to invoke system TCC compiler if available.\n"
-        );
-    }
     std::fs::create_dir_all("./build").unwrap();
     let start = Instant::now();
     println!("Building project at path: {}", path);
