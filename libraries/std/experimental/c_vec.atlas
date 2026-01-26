@@ -9,7 +9,16 @@
  * std::vector functionality in Atlas77 eventually, and replace the old one.
  */
 
+union Optional<T> {
+    Some: T;
+    None: ptr<unit>;
+}
+
 extern malloc<T>(size: uint64) -> ptr<T>;
+// realloc helper
+extern realloc<T>(pointer: ptr<T>, new_size: uint64) -> ptr<T>;
+extern free<T>(pointer: ptr<T>);
+
 
 public struct CVec<T> {
 //! Equivalent to T* in C.
@@ -23,6 +32,9 @@ public:
         this.data = data as ptr<T>;
         this.len = len;
         this.capacity = capacity;
+    }
+    ~CVec() {
+        free<T>(this.data);
     }
     fun with_capacity(capacity: uint64) -> CVec<T> {
         // Allocate memory using calloc
@@ -43,10 +55,29 @@ public:
     }
     fun push(&this, value: T) {
         if (*this).len >= (*this).capacity {
-            panic("CVec capacity exceeded");
+            // Reallocate with double capacity
+            let new_capacity = 0u;
+            if (*this).capacity == 0u {
+                new_capacity = 1u;
+            } else {
+                new_capacity = (*this).capacity * 2u;
+            }
+            let new_data = realloc<T>((*this).data, new_capacity * 8u);
+            (*this).data = new_data;
+            (*this).capacity = new_capacity;
         }
         (*this).data[(*this).len] = value;
         (*this).len = (*this).len + 1u;
+    }
+    fun len(&const this) -> uint64 {
+        return (*this).len;
+    }
+    fun pop(&this) -> T {
+        if (*this).len == 0u {
+            panic("Pop from empty CVec");
+        }
+        (*this).len = (*this).len - 1u;
+        return (*this).data[(*this).len];
     }
 }
 
@@ -67,13 +98,22 @@ fun main() {
         vec.push(vec.len as int64);
     }
     assert(vec.len == vec.capacity);
+    vec.push(100);
+    assert(vec.len != vec.capacity);
     let i = 0u;
     while (i < vec.len) {
         let val = vec.get(i);
         printf("vec[%llu]", i);
-        printf("= %lld\n", *val);
+        printf("= %lld, ", *val);
         i = i + 1u;
     }
+    printf("Length after pushes: %llu\n", vec.len);
+    printf("Capacity after pushes: %llu\n", vec.capacity);
+
+    let option = Optional<int64> {
+        .Some = 42,
+    };
+    
 }
 
 extern panic(msg: string);

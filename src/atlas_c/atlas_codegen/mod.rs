@@ -10,6 +10,7 @@ use crate::atlas_c::{
     atlas_hir::signature::ConstantValue,
     atlas_lir::program::{
         LirBlock, LirFunction, LirInstr, LirOperand, LirProgram, LirStruct, LirTerminator, LirTy,
+        LirUnion,
     },
 };
 
@@ -47,6 +48,9 @@ impl CCodeGen {
         );
         // Include the portable timer header
         Self::write_to_file(&mut self.c_header, PORTABLE_TIMER_HEADER, self.indent_level);
+        for union in program.unions.iter() {
+            self.codegen_union(union);
+        }
         for strukt in program.structs.iter() {
             self.codegen_struct(strukt);
         }
@@ -54,6 +58,16 @@ impl CCodeGen {
             self.codegen_function(func);
         }
         Ok(())
+    }
+
+    fn codegen_union(&mut self, union: &LirUnion) {
+        let mut union_def = format!("typedef union {} {{\n", union.name);
+        for (variant_name, variant_type) in union.variants.iter() {
+            let variant_type_str = self.codegen_type(variant_type);
+            union_def.push_str(&format!("\t{} {};\n", variant_type_str, variant_name));
+        }
+        union_def.push_str(&format!("}} {};\n\n", union.name));
+        Self::write_to_file(&mut self.c_header, &union_def, self.indent_level);
     }
 
     fn codegen_struct(&mut self, strukt: &LirStruct) {
@@ -126,8 +140,10 @@ impl CCodeGen {
                     format!("{}*", inner_type)
                 }
             }
-            // For named types, we assume they are structs and use pointers
-            LirTy::Named(name) => format!("{}*", name),
+            // For struct types, we use pointers
+            LirTy::StructType(name) => format!("{}*", name),
+            // For union types, we don't use pointers for now
+            LirTy::UnionType(name) => name.to_string(),
             _ => unimplemented!("Type codegen not implemented for {:?}", ty),
         }
     }
@@ -455,6 +471,28 @@ impl CCodeGen {
                 );
                 Self::write_to_file(&mut self.c_file, &line, self.indent_level);
             }
+            // Similar to {foo: bar, baz: qux}
+            // It DOES NOT allocate memory, just creates a raw object on the stack
+            LirInstr::RawObject {
+                ty,
+                dst,
+                field_values,
+            } => {
+                let dest_str = self.codegen_operand(dst);
+                let type_str = self.codegen_type(ty);
+                let type_name_str = type_str.trim_end_matches('*').to_string();
+                let mut field_inits: Vec<String> = Vec::new();
+                for (field_name, field_value) in field_values.iter() {
+                    let value_str = self.codegen_operand(field_value);
+                    field_inits.push(format!(".{} = {}", field_name, value_str));
+                }
+                let field_inits_str = field_inits.join(", ");
+                let line = format!(
+                    "{} {} = {{ {} }};",
+                    type_name_str, dest_str, field_inits_str
+                );
+                Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+            }
             LirInstr::Cast { ty, from, dst, src } => {
                 if !(ty == from) {
                     let dest_str = self.codegen_operand(dst);
@@ -471,7 +509,7 @@ impl CCodeGen {
                     // No-op cast
                     let dest_str = self.codegen_operand(dst);
                     let src_str = self.codegen_operand(src);
-                    let line_comment = format!("//No-op cast, needs to be removed");
+                    let line_comment = "//No-op cast, needs to be removed".to_string();
                     let line = format!("{} {} = {};", self.codegen_type(ty), dest_str, src_str);
                     Self::write_to_file(&mut self.c_file, &line_comment, self.indent_level);
                     Self::write_to_file(&mut self.c_file, &line, self.indent_level);
@@ -507,13 +545,22 @@ impl CCodeGen {
             LirOperand::ImmUnit => "void".to_string(),
             LirOperand::Deref(d) => format!("(*{})", self.codegen_operand(d)),
             LirOperand::AsRef(a) => format!("(&{})", self.codegen_operand(a)),
-            LirOperand::FieldAccess { src, field_name } => {
+            LirOperand::FieldAccess {
+                src,
+                field_name,
+                ty: field_ty,
+            } => {
                 let src_str = self.codegen_operand(src);
                 // We assume src is a pointer for now
-                if let LirOperand::Deref(_) = **src {
-                    format!("{}.{}", src_str, field_name)
+                if matches!(field_ty, LirTy::StructType(_)) {
+                    if let LirOperand::Deref(_) = **src {
+                        format!("{}.{}", src_str, field_name)
+                    } else {
+                        format!("{}->{}", src_str, field_name)
+                    }
                 } else {
-                    format!("{}->{}", src_str, field_name)
+                    // For union types, we use dot operator
+                    format!("({}).{}", src_str, field_name)
                 }
             }
             LirOperand::Index { src, index } => {

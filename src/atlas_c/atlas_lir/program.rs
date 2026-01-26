@@ -9,6 +9,7 @@ pub struct LirProgram {
     pub functions: Vec<LirFunction>,
     pub extern_functions: Vec<LirExternFunction>,
     pub structs: Vec<LirStruct>,
+    pub unions: Vec<LirUnion>,
 }
 
 #[derive(Debug, Clone)]
@@ -19,8 +20,16 @@ pub struct LirExternFunction {
 }
 
 #[derive(Debug, Clone)]
+/// Represents a union definition in LIR
+/// e.g., union Value { a: int32, b: float32 }
+pub struct LirUnion {
+    pub name: String,
+    pub variants: HashMap<String, LirTy>,
+}
+
+#[derive(Debug, Clone)]
 /// Represents a structure definition in LIR
-/// e.g., struct Point { x: Int32, y: Int32 }
+/// e.g., struct Point { x: int32, y: int32 }
 ///
 /// The methods of the struct are not included here; they are part of the functions in the program.
 pub struct LirStruct {
@@ -110,7 +119,8 @@ pub enum LirTy {
     Char,
     Unit,
     Ptr(Box<LirTy>),
-    Named(String),
+    StructType(String),
+    UnionType(String),
 }
 
 impl LirTy {
@@ -121,7 +131,11 @@ impl LirTy {
             LirTy::Int32 | LirTy::UInt32 | LirTy::Float32 => 4,
             LirTy::Int64 | LirTy::UInt64 | LirTy::Float64 => 8,
             LirTy::Char => 4, // Unicode scalar value (4 bytes)
-            LirTy::Str | LirTy::Unit | LirTy::Ptr(_) | LirTy::Named(_) => 8, // Pointer size
+            LirTy::Str
+            | LirTy::Unit
+            | LirTy::Ptr(_)
+            | LirTy::StructType(_)
+            | LirTy::UnionType(_) => 8, // Pointer size
         }
     }
 }
@@ -239,6 +253,11 @@ pub enum LirInstr {
         dst: LirOperand,
         args: Vec<LirOperand>,
     },
+    RawObject {
+        ty: LirTy,
+        dst: LirOperand,
+        field_values: HashMap<String, LirOperand>,
+    },
     /// Free a value of the given type
     Delete {
         ty: LirTy,
@@ -277,6 +296,7 @@ pub enum LirOperand {
     FieldAccess {
         src: Box<LirOperand>,
         field_name: String,
+        ty: LirTy,
     },
     Index {
         src: Box<LirOperand>,

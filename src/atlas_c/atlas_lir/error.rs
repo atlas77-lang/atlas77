@@ -12,6 +12,7 @@ declare_error_type! {
         UnsupportedHirExpr(UnsupportedHirExprError),
         CurrentFunctionDoesntExist(CurrentFunctionDoesntExistError),
         NoReturnInFunction(NoReturnInFunctionError),
+        UnknownType(UnknownTypeError),
     }
 }
 
@@ -48,4 +49,20 @@ pub struct CurrentFunctionDoesntExistError;
 #[error("No return statement in function `{name}`")]
 pub struct NoReturnInFunctionError {
     pub name: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(lir_lowering::unknown_type),
+    help("Ensure that the type is defined before using it"),
+    severity(warning)
+)]
+// It doesn't really mean the type is unknown, but that it's not managed by the LIR lowering pass yet
+#[error("Unknown type: `{ty_name}`")]
+pub struct UnknownTypeError {
+    pub ty_name: String,
+    #[label = "unknown type: `{ty_name}`"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
 }
