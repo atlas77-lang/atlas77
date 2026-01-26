@@ -362,8 +362,11 @@ impl<'hir> HirGenericPool<'hir> {
             // Function pointers are copyable, though I am still not sure if I want this behavior...
             // Maybe closures that capture environment shouldn't be copyable?
             | HirTy::Function(_) => true,
-            // For now we consider lists as non-copyable until we have a better way to handle them
-            HirTy::List(_l) => false /*self.implements_std_copyable(module, l.inner)*/,
+            // Lists are copyable by default, they are just a pointer to the heap data
+            // THIS IS ONLY TEMPORARY. Lists need to be owned types, and if people want a reference to them,
+            // They'll need to do &const [T] or &[T]
+            // I just need to make c_vec works properly first (I still don't have the ptr<T> type implemented)
+            HirTy::List(_) => true,
             HirTy::Named(n) => match module.structs.get(n.name) {
                 Some(struct_sig) => {
                     struct_sig.copy_constructor.is_some()

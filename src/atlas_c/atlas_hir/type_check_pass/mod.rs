@@ -699,14 +699,12 @@ impl<'hir> TypeChecker<'hir> {
                 let method = class.methods.get(function_name).unwrap();
                 match method.modifier {
                     HirStructMethodModifier::Const => {
-                        let readonly_self_ty =
-                            self.arena.types().get_readonly_ref_ty(self_ty);
+                        let readonly_self_ty = self.arena.types().get_readonly_ref_ty(self_ty);
                         s.ty = readonly_self_ty;
                         Ok(readonly_self_ty)
                     }
                     HirStructMethodModifier::Mutable => {
-                        let mutable_self_ty =
-                            self.arena.types().get_mutable_ref_ty(self_ty);
+                        let mutable_self_ty = self.arena.types().get_mutable_ref_ty(self_ty);
                         s.ty = mutable_self_ty;
                         Ok(mutable_self_ty)
                     }
@@ -1694,7 +1692,8 @@ impl<'hir> TypeChecker<'hir> {
                                             self.arena.types().get_readonly_ref_ty(var.ty);
                                         return Ok(field_access.ty);
                                     } else if self.is_mutable_ref_ty(target_ty) {
-                                        field_access.ty = self.arena.types().get_mutable_ref_ty(var.ty);
+                                        field_access.ty =
+                                            self.arena.types().get_mutable_ref_ty(var.ty);
                                         field_access.field.ty =
                                             self.arena.types().get_mutable_ref_ty(var.ty);
                                         return Ok(field_access.ty);
@@ -1736,17 +1735,14 @@ impl<'hir> TypeChecker<'hir> {
                         ));
                     }
                     if self.is_const_ty(target_ty) {
-                        field_access.ty = self
-                            .arena
-                            .types()
-                            .get_readonly_ref_ty(field_signature.ty);
-                        field_access.field.ty = self
-                            .arena
-                            .types()
-                            .get_readonly_ref_ty(field_signature.ty);
+                        field_access.ty =
+                            self.arena.types().get_readonly_ref_ty(field_signature.ty);
+                        field_access.field.ty =
+                            self.arena.types().get_readonly_ref_ty(field_signature.ty);
                     } else if self.is_mutable_ref_ty(target_ty) {
                         field_access.ty = self.arena.types().get_mutable_ref_ty(field_signature.ty);
-                        field_access.field.ty = self.arena.types().get_mutable_ref_ty(field_signature.ty);
+                        field_access.field.ty =
+                            self.arena.types().get_mutable_ref_ty(field_signature.ty);
                     } else {
                         field_access.ty = field_signature.ty;
                         field_access.field.ty = field_signature.ty;
@@ -1864,9 +1860,9 @@ impl<'hir> TypeChecker<'hir> {
                     return false;
                 }
             };
-            self.arena.types().get_readonly_ref_ty(
-                self.arena.types().get_named_ty(struct_name, new_obj.span),
-            )
+            self.arena
+                .types()
+                .get_readonly_ref_ty(self.arena.types().get_named_ty(struct_name, new_obj.span))
         };
         let arg_ty = arg_ty.unwrap();
         if self

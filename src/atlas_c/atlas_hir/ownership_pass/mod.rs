@@ -1964,6 +1964,9 @@ impl<'hir> OwnershipPass<'hir> {
                 if self.type_is_union(var.ty) {
                     continue;
                 }
+                if let HirTy::List(_) = var.ty {
+                    continue;
+                }
                 if var.status.should_delete_at_scope_end() {
                     deletes.push(Self::create_delete_stmt(var.name, var.ty, scope_end_span));
                 }
@@ -2376,6 +2379,11 @@ impl<'hir> OwnershipPass<'hir> {
                 }
                 false
             }
+            // Lists are copyable by default, they are just a pointer to the heap data
+            // THIS IS ONLY TEMPORARY. Lists need to be owned types, and if people want a reference to them,
+            // They'll need to do &const [T] or &[T]
+            // I just need to make c_vec works properly first (I still don't have the ptr<T> type implemented)
+            HirTy::List(_) => true,
             // Lists and objects are not considered copyable by default here
             _ => false,
         }

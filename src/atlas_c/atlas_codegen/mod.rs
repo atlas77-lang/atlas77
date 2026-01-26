@@ -9,7 +9,7 @@
 use crate::atlas_c::{
     atlas_hir::signature::ConstantValue,
     atlas_lir::program::{
-        LirBlock, LirFunction, LirInstr, LirOperand, LirProgram, LirTerminator, LirTy,
+        LirBlock, LirFunction, LirInstr, LirOperand, LirProgram, LirStruct, LirTerminator, LirTy,
     },
 };
 
@@ -47,10 +47,23 @@ impl CCodeGen {
         );
         // Include the portable timer header
         Self::write_to_file(&mut self.c_header, PORTABLE_TIMER_HEADER, self.indent_level);
+        for strukt in program.structs.iter() {
+            self.codegen_struct(strukt);
+        }
         for func in program.functions.iter() {
             self.codegen_function(func);
         }
         Ok(())
+    }
+
+    fn codegen_struct(&mut self, strukt: &LirStruct) {
+        let mut struct_def = format!("typedef struct {} {{\n", strukt.name);
+        for (field_name, field_type) in strukt.fields.iter() {
+            let field_type_str = self.codegen_type(field_type);
+            struct_def.push_str(&format!("\t{} {};\n", field_type_str, field_name));
+        }
+        struct_def.push_str(&format!("}} {};\n\n", strukt.name));
+        Self::write_to_file(&mut self.c_header, &struct_def, self.indent_level);
     }
 
     fn codegen_function(&mut self, func: &LirFunction) {
@@ -104,7 +117,17 @@ impl CCodeGen {
             LirTy::Boolean => "bool".to_string(),
             LirTy::Char => "uint32_t".to_string(),
             LirTy::Str => "char*".to_string(),
-            LirTy::Ref(inner) => format!("{}*", self.codegen_type(inner)),
+            LirTy::Ref(inner) => {
+                let inner_type = self.codegen_type(inner);
+                if inner_type.ends_with('*') {
+                    // Avoid double pointers for now
+                    inner_type
+                } else {
+                    format!("{}*", inner_type)
+                }
+            }
+            // For named types, we assume they are structs and use pointers
+            LirTy::Named(name) => format!("{}*", name),
             _ => unimplemented!("Type codegen not implemented for {:?}", ty),
         }
     }
@@ -314,6 +337,18 @@ impl CCodeGen {
                 );
                 Self::write_to_file(&mut self.c_file, &line, self.indent_level);
             }
+            LirInstr::Negate { ty, dest, src } => {
+                let dest_str = self.codegen_operand(dest);
+                let src_str = self.codegen_operand(src);
+                let line = format!("{} {} = -{};", self.codegen_type(ty), dest_str, src_str);
+                Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+            }
+            LirInstr::Not { ty, dest, src } => {
+                let dest_str = self.codegen_operand(dest);
+                let src_str = self.codegen_operand(src);
+                let line = format!("{} {} = !{};", self.codegen_type(ty), dest_str, src_str);
+                Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+            }
             LirInstr::LoadImm { ty, dst, value } => {
                 let dest_str = self.codegen_operand(dst);
                 let value = self.codegen_operand(value);
@@ -388,6 +423,37 @@ impl CCodeGen {
                 let line = format!("{} = {};", dest_str, src_str);
                 Self::write_to_file(&mut self.c_file, &line, self.indent_level);
             }
+            LirInstr::Delete { ty: _, src } => {
+                let src_str = self.codegen_operand(src);
+                let line = format!("free({});", src_str);
+                Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+            }
+            LirInstr::Construct { ty, dst, args } => {
+                let dest_str = self.codegen_operand(dst);
+                let type_str = self.codegen_type(ty);
+                let type_name_str = type_str.trim_end_matches('*').to_string();
+                let mut args_str: Vec<String> =
+                    args.iter().map(|arg| self.codegen_operand(arg)).collect();
+                args_str.insert(0, dest_str.clone());
+                let ctor_call = format!("{}_new({})", type_name_str, args_str.join(", "));
+                let line = format!(
+                    "{} {} = ({})malloc(sizeof({}));\n\
+                    \tif ({} == NULL) {{\n\
+                    \t\tprintf(\"Failed to allocate memory for {}\\n\", {});\n\
+                    \t\texit(1);\n\
+                    \t}}\n\
+                    \t{};\n",
+                    type_str,
+                    dest_str,
+                    type_str,
+                    type_name_str,
+                    dest_str,
+                    type_str,
+                    dest_str,
+                    ctor_call
+                );
+                Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+            }
             _ => {
                 eprintln!("Instruction codegen not implemented for {:?}", instr)
             }
@@ -416,8 +482,22 @@ impl CCodeGen {
             LirOperand::ImmFloat(f) => format!("{}", f),
             LirOperand::ImmChar(c) => format!("'{}'", c),
             LirOperand::ImmUnit => "void".to_string(),
-            LirOperand::Deref(d) => format!("*{}", self.codegen_operand(d)),
-            LirOperand::AsRef(a) => format!("&{}", self.codegen_operand(a)),
+            LirOperand::Deref(d) => format!("(*{})", self.codegen_operand(d)),
+            LirOperand::AsRef(a) => format!("(&{})", self.codegen_operand(a)),
+            LirOperand::FieldAccess { src, field_name } => {
+                let src_str = self.codegen_operand(src);
+                // We assume src is a pointer for now
+                if let LirOperand::Deref(_) = **src {
+                    format!("{}.{}", src_str, field_name)
+                } else {
+                    format!("{}->{}", src_str, field_name)
+                }
+            }
+            LirOperand::Index { src, index } => {
+                let src_str = self.codegen_operand(src);
+                let index_str = self.codegen_operand(index);
+                format!("{}[{}]", src_str, index_str)
+            }
         }
     }
 

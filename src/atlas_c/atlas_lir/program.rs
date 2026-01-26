@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::atlas_c::atlas_hir::signature::ConstantValue;
 // TODO: Add Span info to Lir structures for better error reporting
@@ -8,6 +8,7 @@ pub type Label = String;
 pub struct LirProgram {
     pub functions: Vec<LirFunction>,
     pub extern_functions: Vec<LirExternFunction>,
+    pub structs: Vec<LirStruct>,
 }
 
 #[derive(Debug, Clone)]
@@ -15,6 +16,16 @@ pub struct LirExternFunction {
     pub name: String,
     pub args: Vec<LirTy>,
     pub return_type: Option<LirTy>,
+}
+
+#[derive(Debug, Clone)]
+/// Represents a structure definition in LIR
+/// e.g., struct Point { x: Int32, y: Int32 }
+///
+/// The methods of the struct are not included here; they are part of the functions in the program.
+pub struct LirStruct {
+    pub name: String,
+    pub fields: HashMap<String, LirTy>,
 }
 
 #[derive(Debug, Clone)]
@@ -99,6 +110,7 @@ pub enum LirTy {
     Char,
     Unit,
     Ref(Box<LirTy>),
+    Named(String),
 }
 
 impl LirTy {
@@ -109,7 +121,7 @@ impl LirTy {
             LirTy::Int32 | LirTy::UInt32 | LirTy::Float32 => 4,
             LirTy::Int64 | LirTy::UInt64 | LirTy::Float64 => 8,
             LirTy::Char => 4, // Unicode scalar value (4 bytes)
-            LirTy::Str | LirTy::Unit | LirTy::Ref(_) => 8, // Pointer size
+            LirTy::Str | LirTy::Unit | LirTy::Ref(_) | LirTy::Named(_) => 8, // Pointer size
         }
     }
 }
@@ -182,6 +194,22 @@ pub enum LirInstr {
         a: LirOperand,
         b: LirOperand,
     },
+    Negate {
+        ty: LirTy,
+        dest: LirOperand,
+        src: LirOperand,
+    },
+    Not {
+        ty: LirTy,
+        dest: LirOperand,
+        src: LirOperand,
+    },
+    Index {
+        ty: LirTy,
+        dst: LirOperand,
+        src: LirOperand,
+        index: LirOperand,
+    },
     // Load immediate value into a temporary
     LoadImm {
         ty: LirTy,
@@ -206,14 +234,21 @@ pub enum LirInstr {
         args: Vec<LirOperand>,
     },
     /// Allocate a new value of the given type
-    New {
+    Construct {
         ty: LirTy,
         dst: LirOperand,
+        args: Vec<LirOperand>,
     },
     /// Free a value of the given type
     Delete {
         ty: LirTy,
         src: LirOperand,
+    },
+    FieldAccess {
+        ty: LirTy,
+        dst: LirOperand,
+        src: LirOperand,
+        field_name: String,
     },
     Assign {
         ty: LirTy,
@@ -230,8 +265,17 @@ pub enum LirOperand {
     Temp(u32),
     Arg(u8),
     Const(ConstantValue),
+    // Should those two be operands or instructions?
     Deref(Box<LirOperand>),
     AsRef(Box<LirOperand>),
+    FieldAccess {
+        src: Box<LirOperand>,
+        field_name: String,
+    },
+    Index {
+        src: Box<LirOperand>,
+        index: Box<LirOperand>,
+    },
     /// Immediate values
     ImmInt(i64),
     ImmUInt(u64),

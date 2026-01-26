@@ -67,6 +67,9 @@ static double timer_elapsed_s(uint64_t start_ns) {
 #else
 typedef unsigned long long uint64_t;
 #endif
+// Should this be conditionally included?
+#include <stdio.h>
+#include <stdlib.h>
 
 // TODO: Once size_of<T> is implemented in Atlas77, we can make this more general
 // because we will know the size at compile time.
@@ -75,5 +78,11 @@ static inline void __atlas77_c_swap(void* a, void* b) {
     *(uint64_t*)a = *(uint64_t*)b;
     *(uint64_t*)b = temp;
 }
+
+static inline void panic(const char* message) {
+    fprintf(stderr, "PANIC: %s\n", message);
+    exit(1);
+}
+
 
 #endif /* ATLAS77_USEFUL_HEADER_H */

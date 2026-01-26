@@ -7,9 +7,9 @@ use crate::atlas_c::{
         HirModule,
         arena::HirArena,
         expr::{HirBinaryOperator, HirExpr, HirUnaryOp},
-        item::HirFunction,
+        item::{HirFunction, HirStruct, HirStructConstructor, HirStructMethod},
         monomorphization_pass::MonomorphizationPass,
-        signature::ConstantValue,
+        signature::{ConstantValue, HirStructMethodModifier},
         stmt::HirStatement,
         ty::{HirGenericTy, HirTy},
     },
@@ -19,7 +19,7 @@ use crate::atlas_c::{
             UnsupportedHirExprError,
         },
         program::{
-            LirBlock, LirExternFunction, LirFunction, LirInstr, LirOperand, LirProgram,
+            LirBlock, LirExternFunction, LirFunction, LirInstr, LirOperand, LirProgram, LirStruct,
             LirTerminator, LirTy,
         },
         warning::{LirLoweringWarning, UnknownTypeWarning},
@@ -43,10 +43,11 @@ pub struct HirLoweringPass<'hir> {
     param_map: HashMap<&'hir str, u8>,
     /// Maps local variable names to their temp ID
     local_map: HashMap<&'hir str, u32>,
+    hir_arena: &'hir HirArena<'hir>,
 }
 
 impl<'hir> HirLoweringPass<'hir> {
-    pub fn new(hir_module: &'hir HirModule<'hir>) -> Self {
+    pub fn new(hir_module: &'hir HirModule<'hir>, hir_arena: &'hir HirArena<'hir>) -> Self {
         Self {
             hir_module,
             current_function: None,
@@ -54,6 +55,7 @@ impl<'hir> HirLoweringPass<'hir> {
             block_counter: 0,
             param_map: HashMap::new(),
             local_map: HashMap::new(),
+            hir_arena,
         }
     }
 
@@ -77,10 +79,10 @@ impl<'hir> HirLoweringPass<'hir> {
                     args: sig
                         .params
                         .iter()
-                        .map(|p| self.hir_ty_to_lir_primitive(p.ty, p.span))
+                        .map(|p| self.hir_ty_to_lir_ty(p.ty, p.span))
                         .collect(),
                     return_type: {
-                        let lir_ty = self.hir_ty_to_lir_primitive(&sig.return_ty, sig.span);
+                        let lir_ty = self.hir_ty_to_lir_ty(&sig.return_ty, sig.span);
                         if lir_ty == LirTy::Unit {
                             None
                         } else {
@@ -92,9 +94,15 @@ impl<'hir> HirLoweringPass<'hir> {
             }
         }
 
+        let mut structs = Vec::new();
+        for body in self.hir_module.body.structs.values() {
+            structs.push(self.lower_struct(body, &mut functions)?);
+        }
+
         Ok(LirProgram {
             functions,
             extern_functions,
+            structs,
         })
     }
 
@@ -170,6 +178,175 @@ impl<'hir> HirLoweringPass<'hir> {
         }
     }
 
+    fn lower_struct(
+        &mut self,
+        struct_body: &'hir HirStruct<'hir>,
+        functions: &mut Vec<LirFunction>,
+    ) -> LirResult<LirStruct> {
+        let lir_struct = LirStruct {
+            name: struct_body.name.to_string(),
+            fields: struct_body
+                .signature
+                .fields
+                .iter()
+                .map(|(field_name, field_sig)| {
+                    (
+                        field_name.to_string(),
+                        self.hir_ty_to_lir_ty(field_sig.ty, field_sig.span),
+                    )
+                })
+                .collect(),
+        };
+
+        for method in struct_body.methods.iter() {
+            let lir_method = self.lower_method(&struct_body.name, method)?;
+            functions.push(lir_method);
+        }
+
+        functions.push(self.lower_constructor(
+            &struct_body.name,
+            &struct_body.constructor,
+            "new",
+        )?);
+
+        Ok(lir_struct)
+    }
+
+    /// Lower a struct constructor
+    /// kind can be "new"/"copy"/"default"/"move"
+    /// TODO: Add an enum for kind instead of using &str
+    fn lower_constructor(
+        &mut self,
+        struct_name: &str,
+        ctor: &'hir HirStructConstructor<'hir>,
+        kind: &str,
+    ) -> LirResult<LirFunction> {
+        // Reset state for new function
+        self.temp_counter = 0;
+        self.block_counter = 0;
+        self.param_map.clear();
+        self.local_map.clear();
+
+        self.param_map.insert("this", 0);
+        let mut args = Vec::new();
+        args.push(LirTy::Ref(Box::new(LirTy::Named(struct_name.to_string()))));
+        // Build parameter map
+        for (idx, param) in ctor.params.iter().enumerate() {
+            self.param_map.insert(param.name, (idx + 1) as u8);
+            eprintln!(
+                "Lowering constructor param: {} of type {:?}",
+                param.name, param.ty
+            );
+            args.push(self.hir_ty_to_lir_ty(param.ty, param.span));
+        }
+
+        // Initialize current function with entry block
+        self.current_function = Some(LirFunction {
+            name: format!("{}_{}", struct_name, kind),
+            args,
+            // a constructor does NOT have a return type. It constructs the object in-place
+            return_type: Some(LirTy::Unit),
+            blocks: vec![LirBlock {
+                label: "entry".to_string(),
+                instructions: Vec::new(),
+                terminator: LirTerminator::None,
+            }],
+        });
+
+        // Lower the function body
+        for stmt in &ctor.body.statements {
+            self.lower_stmt(stmt)?;
+        }
+
+        // Take the completed function and clean up dead blocks
+        let mut result = self.current_function.take().unwrap();
+        result.remove_dead_blocks();
+        Ok(result)
+    }
+
+    fn lower_method(
+        &mut self,
+        struct_name: &str,
+        method: &'hir HirStructMethod<'hir>,
+    ) -> LirResult<LirFunction> {
+        // Reset state for new function
+        self.temp_counter = 0;
+        self.block_counter = 0;
+        self.param_map.clear();
+        self.local_map.clear();
+
+        let mut args = Vec::new();
+        if matches!(
+            method.signature.modifier,
+            HirStructMethodModifier::Const | HirStructMethodModifier::Mutable
+        ) {
+            // The first parameter is always "this"
+            self.param_map.insert("this", 0);
+            args.push(LirTy::Ref(Box::new(LirTy::Named(struct_name.to_string()))));
+        }
+        // Build parameter map
+        for param in method.signature.params.iter() {
+            let idx = self.param_map.len();
+            self.param_map.insert(param.name, idx as u8);
+            args.push(self.hir_ty_to_lir_ty(param.ty, param.span));
+        }
+
+        // Initialize current function with entry block
+        self.current_function = Some(LirFunction {
+            name: format!("{}_{}", struct_name, method.name),
+            args,
+            return_type: {
+                let lir_ty =
+                    self.hir_ty_to_lir_ty(&method.signature.return_ty, method.signature.span);
+                if lir_ty == LirTy::Unit {
+                    None
+                } else {
+                    Some(lir_ty)
+                }
+            },
+            blocks: vec![LirBlock {
+                label: "entry".to_string(),
+                instructions: Vec::new(),
+                terminator: LirTerminator::None,
+            }],
+        });
+
+        // Lower the function body
+        for stmt in &method.body.statements {
+            self.lower_stmt(stmt)?;
+        }
+
+        // Take the completed function and clean up dead blocks
+        let mut result = self.current_function.take().unwrap();
+        result.remove_dead_blocks();
+        // TODO: This is very goofy and should never be done, I'll rework it later to properly work
+        self.current_function = Some(result);
+        if let Some(b) = self.current_function.as_ref().unwrap().blocks.last() {
+            if method.signature.return_ty.is_unit() {
+                if matches!(b.terminator, LirTerminator::None) {
+                    // For methods returning unit, ensure there's a return at the end
+
+                    self.emit_terminator(LirTerminator::Return { value: None })?;
+                }
+            } else if !matches!(
+                b.terminator,
+                LirTerminator::Return { value: Some(_) } | LirTerminator::Halt
+            ) {
+                // It should return something, but doesn't
+                // TODO: Add a ! type so if the last statement is a call to a function returning !, we don't error
+                // TODO: Add CFG analysis to check all paths because right now only the else branch has to return,
+                //  the if branch can just fallthrough
+                return Err(Box::new(LirLoweringError::NoReturnInFunction(
+                    NoReturnInFunctionError {
+                        name: method.name.to_string(),
+                    },
+                )));
+            }
+        }
+        let result = self.current_function.take().unwrap();
+        Ok(result)
+    }
+
     /// Lower a single function
     fn lower_function(&mut self, func: &'hir HirFunction<'hir>) -> LirResult<LirFunction> {
         // Reset state for new function
@@ -190,11 +367,10 @@ impl<'hir> HirLoweringPass<'hir> {
                 .signature
                 .params
                 .iter()
-                .map(|p| self.hir_ty_to_lir_primitive(p.ty, p.span))
+                .map(|p| self.hir_ty_to_lir_ty(p.ty, p.span))
                 .collect(),
             return_type: {
-                let lir_ty =
-                    self.hir_ty_to_lir_primitive(&func.signature.return_ty, func.signature.span);
+                let lir_ty = self.hir_ty_to_lir_ty(&func.signature.return_ty, func.signature.span);
                 if lir_ty == LirTy::Unit {
                     None
                 } else {
@@ -306,7 +482,7 @@ impl<'hir> HirLoweringPass<'hir> {
                     // Immediate values don't generate temps, so load them into one
                     let temp = self.new_temp();
                     self.emit(LirInstr::LoadImm {
-                        ty: self.hir_ty_to_lir_primitive(let_stmt.ty, let_stmt.span),
+                        ty: self.hir_ty_to_lir_ty(let_stmt.ty, let_stmt.span),
                         dst: temp.clone(),
                         value,
                     })?;
@@ -319,64 +495,12 @@ impl<'hir> HirLoweringPass<'hir> {
             }
             HirStatement::Assign(assign) => {
                 let value = self.lower_expr(&assign.val)?;
-                // Find the local variable temp
-                let ident_name = if let HirExpr::Ident(ident) = &assign.dst {
-                    ident.name
-                } else if let HirExpr::Unary(u) = &assign.dst {
-                    if let Some(op) = &u.op
-                        && op == &HirUnaryOp::Deref
-                    {
-                        let expr_operand = self.lower_expr(&u.expr)?;
-                        let dest = LirOperand::Deref(Box::new(expr_operand));
-                        self.emit(LirInstr::Assign {
-                            ty: self.hir_ty_to_lir_primitive(assign.val.ty(), assign.span),
-                            dst: dest,
-                            src: value,
-                        })?;
-                        return Ok(());
-                    }
-                    if let HirExpr::Ident(ident) = &*u.expr {
-                        ident.name
-                    } else {
-                        return Err(Box::new(LirLoweringError::UnsupportedHirExpr(
-                            UnsupportedHirExprError {
-                                span: assign.dst.span(),
-                                src: NamedSource::new(
-                                    assign.dst.span().path,
-                                    utils::get_file_content(assign.dst.span().path).unwrap(),
-                                ),
-                            },
-                        )));
-                    }
-                } else {
-                    return Err(Box::new(LirLoweringError::UnsupportedHirExpr(
-                        UnsupportedHirExprError {
-                            span: assign.dst.span(),
-                            src: NamedSource::new(
-                                assign.dst.span().path,
-                                utils::get_file_content(assign.dst.span().path).unwrap(),
-                            ),
-                        },
-                    )));
-                };
-                if let Some(&temp_id) = self.local_map.get(ident_name) {
-                    let dest = LirOperand::Temp(temp_id);
-                    self.emit(LirInstr::Assign {
-                        ty: self.hir_ty_to_lir_primitive(assign.ty, assign.span),
-                        dst: dest,
-                        src: value,
-                    })?;
-                } else {
-                    return Err(Box::new(LirLoweringError::UnsupportedHirExpr(
-                        UnsupportedHirExprError {
-                            span: assign.dst.span(),
-                            src: NamedSource::new(
-                                assign.dst.span().path,
-                                utils::get_file_content(assign.dst.span().path).unwrap(),
-                            ),
-                        },
-                    )));
-                }
+                let l_value = self.lower_assign_l_value(&assign.dst)?;
+                self.emit(LirInstr::Assign {
+                    ty: self.hir_ty_to_lir_ty(assign.ty, assign.span),
+                    dst: l_value,
+                    src: value,
+                })?;
             }
             HirStatement::While(while_stmt) => {
                 // Lower while loop
@@ -419,11 +543,27 @@ impl<'hir> HirLoweringPass<'hir> {
         Ok(())
     }
 
+    // Helper function to take care of the unary unwrapping for l-values
+    fn lower_assign_l_value(&mut self, l_value: &'hir HirExpr<'hir>) -> LirResult<LirOperand> {
+        match l_value {
+            HirExpr::Unary(unary) if unary.op == None => self.lower_assign_l_value(&unary.expr),
+            HirExpr::Unary(unary) if matches!(unary.op, Some(HirUnaryOp::Deref)) => {
+                self.lower_expr(l_value)
+            }
+            HirExpr::Ident(_) | HirExpr::FieldAccess(_) | HirExpr::Indexing(_) => {
+                self.lower_expr(l_value)
+            }
+            _ => Err(unsupported_expr(l_value.span())),
+        }
+    }
+
     /// Lower an expression, returning the operand holding the result
     fn lower_expr(&mut self, expr: &'hir HirExpr<'hir>) -> LirResult<LirOperand> {
         match expr {
             // === Literals ===
             HirExpr::IntegerLiteral(lit) => Ok(LirOperand::ImmInt(lit.value)),
+
+            HirExpr::UnsignedIntegerLiteral(lit) => Ok(LirOperand::ImmUInt(lit.value)),
 
             HirExpr::BooleanLiteral(lit) => Ok(LirOperand::ImmBool(lit.value)),
 
@@ -439,6 +579,11 @@ impl<'hir> HirLoweringPass<'hir> {
             }
 
             HirExpr::UnitLiteral(_) => Ok(LirOperand::ImmUnit),
+
+            HirExpr::ThisLiteral(_) => {
+                // "this" is always the first argument (arg 0)
+                Ok(LirOperand::Arg(0))
+            }
 
             // === Identifiers (variables/parameters) ===
             HirExpr::Ident(ident) => {
@@ -464,6 +609,28 @@ impl<'hir> HirLoweringPass<'hir> {
                     let expr_operand = self.lower_expr(&unary.expr)?;
                     Ok(LirOperand::AsRef(Box::new(expr_operand)))
                 }
+                Some(HirUnaryOp::Neg) => {
+                    let expr_operand = self.lower_expr(&unary.expr)?;
+                    let dest = self.new_temp();
+                    let ty = self.hir_ty_to_lir_ty(unary.ty, unary.span);
+                    self.emit(LirInstr::Negate {
+                        ty,
+                        dest: dest.clone(),
+                        src: expr_operand,
+                    })?;
+                    Ok(dest)
+                }
+                Some(HirUnaryOp::Not) => {
+                    let expr_operand = self.lower_expr(&unary.expr)?;
+                    let dest = self.new_temp();
+                    let ty = self.hir_ty_to_lir_ty(unary.ty, unary.span);
+                    self.emit(LirInstr::Not {
+                        ty,
+                        dest: dest.clone(),
+                        src: expr_operand,
+                    })?;
+                    Ok(dest)
+                }
                 _ => self.lower_expr(&unary.expr),
             },
 
@@ -473,7 +640,7 @@ impl<'hir> HirLoweringPass<'hir> {
                 let rhs = self.lower_expr(&binop.rhs)?;
                 let dest = self.new_temp();
 
-                let ty = self.hir_ty_to_lir_primitive(binop.ty, binop.span);
+                let ty = self.hir_ty_to_lir_ty(binop.ty, binop.span);
 
                 let instr = match binop.op {
                     HirBinaryOperator::Add => LirInstr::Add {
@@ -545,12 +712,7 @@ impl<'hir> HirLoweringPass<'hir> {
                     _ => {
                         let path = expr.span().path;
                         let src = utils::get_file_content(path).unwrap();
-                        return Err(Box::new(LirLoweringError::UnsupportedHirExpr(
-                            UnsupportedHirExprError {
-                                span: expr.span(),
-                                src: NamedSource::new(path, src),
-                            },
-                        )));
+                        return Err(unsupported_expr(expr.span()));
                     }
                 };
 
@@ -558,16 +720,28 @@ impl<'hir> HirLoweringPass<'hir> {
                 Ok(dest)
             }
 
-            // === Function calls ===
-            HirExpr::Call(call) => {
-                // Lower arguments
+            // === Constructor ===
+            HirExpr::NewObj(new_obj) => {
                 let mut args = Vec::new();
-                for arg in &call.args {
+                for arg in &new_obj.args {
                     args.push(self.lower_expr(arg)?);
                 }
 
+                let dest = self.new_temp();
+
+                self.emit(LirInstr::Construct {
+                    ty: self.hir_ty_to_lir_ty(new_obj.ty, new_obj.span),
+                    dst: dest.clone(),
+                    args,
+                })?;
+                Ok(dest)
+            }
+
+            // === Function calls ===
+            HirExpr::Call(call) => {
                 // Get function name from callee
-                let func_name = match call.callee.as_ref() {
+                // "take_this" indicates if there is an implicit "this" argument
+                let (func_name, take_this) = match call.callee.as_ref() {
                     HirExpr::Ident(ident) => {
                         if !call.generics.is_empty()
                             // If it's an external function, the name hasn't been mangled, so this returns false
@@ -575,36 +749,79 @@ impl<'hir> HirLoweringPass<'hir> {
                             && !self.hir_module.signature.functions.contains_key(ident.name)
                         {
                             eprintln!("Monomorphizing call to generic function: {}", ident.name);
-                            let arena = &HirArena::new();
-                            MonomorphizationPass::generate_mangled_name(
-                                arena,
-                                &HirGenericTy {
-                                    name: ident.name,
-                                    inner: call
-                                        .generics
-                                        .iter()
-                                        .map(|g| (*g).clone())
-                                        .collect::<Vec<_>>(),
-                                    span: ident.span,
-                                },
-                                "function",
+                            (
+                                MonomorphizationPass::generate_mangled_name(
+                                    self.hir_arena,
+                                    &HirGenericTy {
+                                        name: ident.name,
+                                        inner: call
+                                            .generics
+                                            .iter()
+                                            .map(|g| (*g).clone())
+                                            .collect::<Vec<_>>(),
+                                        span: ident.span,
+                                    },
+                                    "function",
+                                )
+                                .to_string(),
+                                false,
                             )
-                            .to_string()
                         } else {
-                            ident.name.to_string()
+                            (ident.name.to_string(), false)
                         }
+                    }
+                    HirExpr::StaticAccess(static_access) => {
+                        let object_name = match static_access.target {
+                            HirTy::Named(n) => n.name,
+                            HirTy::Generic(g) => MonomorphizationPass::generate_mangled_name(
+                                self.hir_arena,
+                                g,
+                                "struct",
+                            ),
+                            _ => {
+                                return Err(unsupported_expr(expr.span()));
+                            }
+                        };
+                        (
+                            format!("{}_{}", object_name, static_access.field.name),
+                            false,
+                        )
+                    }
+                    HirExpr::FieldAccess(field_access) => {
+                        let object_name = match field_access.target.ty() {
+                            HirTy::Named(n) => n.name,
+                            HirTy::Generic(g) => MonomorphizationPass::generate_mangled_name(
+                                self.hir_arena,
+                                g,
+                                "struct",
+                            ),
+                            _ => {
+                                return Err(unsupported_expr(expr.span()));
+                            }
+                        };
+                        (format!("{}_{}", object_name, field_access.field.name), true)
                     }
                     _ => {
                         let path = expr.span().path;
                         let src = utils::get_file_content(path).unwrap();
-                        return Err(Box::new(LirLoweringError::UnsupportedHirExpr(
-                            UnsupportedHirExprError {
-                                span: expr.span(),
-                                src: NamedSource::new(path, src),
-                            },
-                        )));
+                        return Err(unsupported_expr(expr.span()));
                     }
                 };
+                // Lower arguments
+                let mut args = Vec::new();
+                if take_this {
+                    if let HirExpr::FieldAccess(field_access) = call.callee.as_ref() {
+                        let target_operand = self.lower_expr(&field_access.target)?;
+                        args.push(target_operand);
+                    } else {
+                        let path = expr.span().path;
+                        let src = utils::get_file_content(path).unwrap();
+                        return Err(unsupported_expr(expr.span()));
+                    }
+                }
+                for arg in &call.args {
+                    args.push(self.lower_expr(arg)?);
+                }
 
                 // Check if it's an external function
                 let is_extern = self
@@ -622,14 +839,14 @@ impl<'hir> HirLoweringPass<'hir> {
 
                 let instr = if is_extern {
                     LirInstr::ExternCall {
-                        ty: self.hir_ty_to_lir_primitive(call.ty, call.span),
+                        ty: self.hir_ty_to_lir_ty(call.ty, call.span),
                         dst: dest.clone(),
                         func_name,
                         args,
                     }
                 } else {
                     LirInstr::Call {
-                        ty: self.hir_ty_to_lir_primitive(call.ty, call.span),
+                        ty: self.hir_ty_to_lir_ty(call.ty, call.span),
                         dst: dest.clone(),
                         func_name,
                         args,
@@ -640,38 +857,59 @@ impl<'hir> HirLoweringPass<'hir> {
                 Ok(dest.unwrap_or(LirOperand::ImmInt(0))) // unit value
             }
 
-            HirExpr::Copy(copy_expr) => {
-                // For primitives, copy is just a value use
-                // For objects, this would call _copy method
-                // For fib (all primitives), just lower the inner expression
-                self.lower_expr(&copy_expr.expr)
-            }
-
-            HirExpr::Delete(_) => {
-                let dst = self.new_temp(); // Placeholder
+            HirExpr::StaticAccess(_) => {
+                let dst = self.new_temp();
                 self.emit(LirInstr::LoadConst {
                     dst: dst.clone(),
                     value: LirOperand::Const(ConstantValue::String(
-                        "There should be a delete here".to_string(),
+                        "There should be a static access here".to_string(),
                     )),
                 })?;
+                Ok(dst)
+            }
+
+            HirExpr::FieldAccess(field_access) => {
+                let target_operand = self.lower_expr(&field_access.target)?;
+
+                Ok(LirOperand::FieldAccess {
+                    src: Box::new(target_operand),
+                    field_name: field_access.field.name.to_string(),
+                })
+            }
+
+            HirExpr::Indexing(indexing_expr) => {
+                let collection_operand = self.lower_expr(&indexing_expr.target)?;
+                let index_operand = self.lower_expr(&indexing_expr.index)?;
+
+                Ok(LirOperand::Index {
+                    src: Box::new(collection_operand),
+                    index: Box::new(index_operand),
+                })
+            }
+
+            HirExpr::Copy(copy_expr) => {
+                // For primitives, copy is just a value use
+                // For objects, this would call the copy constructor
+                self.lower_expr(&copy_expr.expr)
+            }
+
+            HirExpr::Delete(delete_expr) => {
+                let dst = self.new_temp(); // Placeholder
+                let src = self.lower_expr(&delete_expr.expr)?;
+                let ty = self.hir_ty_to_lir_ty(delete_expr.expr.ty(), delete_expr.span);
+                self.emit(LirInstr::Delete { ty, src })?;
                 Ok(dst)
             }
             _ => {
                 let path = expr.span().path;
                 let src = utils::get_file_content(path).unwrap();
-                Err(Box::new(LirLoweringError::UnsupportedHirExpr(
-                    UnsupportedHirExprError {
-                        span: expr.span(),
-                        src: NamedSource::new(path, src),
-                    },
-                )))
+                Err(unsupported_expr(expr.span()))
             }
         }
     }
 
-    /// Convert HIR type to Lir primitive type
-    fn hir_ty_to_lir_primitive(&self, ty: &HirTy, span: Span) -> LirTy {
+    /// Convert HIR type to Lir type
+    fn hir_ty_to_lir_ty(&self, ty: &HirTy, span: Span) -> LirTy {
         match ty {
             HirTy::Int64(_) => LirTy::Int64,
             HirTy::UInt64(_) => LirTy::UInt64,
@@ -681,11 +919,11 @@ impl<'hir> HirLoweringPass<'hir> {
             HirTy::String(_) => LirTy::Str,
             HirTy::Unit(_) => LirTy::Unit,
             HirTy::ReadOnlyReference(r) => {
-                let inner = self.hir_ty_to_lir_primitive(r.inner, span);
+                let inner = self.hir_ty_to_lir_ty(r.inner, span);
                 LirTy::Ref(Box::new(inner))
             }
             HirTy::MutableReference(r) => {
-                let inner = self.hir_ty_to_lir_primitive(r.inner, span);
+                let inner = self.hir_ty_to_lir_ty(r.inner, span);
                 LirTy::Ref(Box::new(inner))
             }
             HirTy::Uninitialized(_) => {
@@ -699,6 +937,20 @@ impl<'hir> HirLoweringPass<'hir> {
                 eprintln!("{:?}", report);
 
                 LirTy::Int64
+            }
+            HirTy::List(l) => {
+                let ty = LirTy::Ref(Box::new(self.hir_ty_to_lir_ty(l.inner, span)));
+                eprintln!(
+                    "Warning: Lowering list type to reference type for LIR: {}",
+                    ty
+                );
+                ty
+            }
+            HirTy::Named(n) => LirTy::Named(n.name.to_string()),
+            HirTy::Generic(g) => {
+                let mangled_name =
+                    MonomorphizationPass::generate_mangled_name(self.hir_arena, g, "struct");
+                LirTy::Named(mangled_name.to_string())
             }
             _ => {
                 let report: miette::Report = LirLoweringWarning::UnknownType(UnknownTypeWarning {
@@ -714,16 +966,60 @@ impl<'hir> HirLoweringPass<'hir> {
     }
 }
 
+fn unsupported_expr(span: Span) -> Box<LirLoweringError> {
+    Box::new(LirLoweringError::UnsupportedHirExpr(
+        UnsupportedHirExprError {
+            span,
+            src: NamedSource::new(span.path, utils::get_file_content(span.path).unwrap()),
+        },
+    ))
+}
+
 // ============================================================================
 // Pretty printing for debugging
 // ============================================================================
 
 impl std::fmt::Display for LirProgram {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for strukt in &self.structs {
+            writeln!(f, "{}", strukt)?;
+        }
+        for extern_func in &self.extern_functions {
+            writeln!(f, "{}", extern_func)?;
+        }
         for func in &self.functions {
             writeln!(f, "{}", func)?;
         }
         Ok(())
+    }
+}
+
+impl std::fmt::Display for LirExternFunction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "extern fun {}({}): {}",
+            self.name,
+            self.args
+                .iter()
+                .map(|arg| format!("{}", arg))
+                .collect::<Vec<_>>()
+                .join(", "),
+            match &self.return_type {
+                Some(ty) => format!("{}", ty),
+                None => "".to_string(),
+            }
+        )
+    }
+}
+
+impl std::fmt::Display for LirStruct {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "struct {} {{", self.name)?;
+        for (field_name, field_type) in &self.fields {
+            writeln!(f, "\t{}: {},", field_name, field_type)?;
+        }
+        writeln!(f, "}}")
     }
 }
 
@@ -800,6 +1096,20 @@ impl std::fmt::Display for LirInstr {
             LirInstr::NotEqual { dest, a, b, ty } => {
                 write!(f, "{} = ne.{} {}, {}", dest, ty, a, b)
             }
+            LirInstr::Negate { ty: _, dest, src } => {
+                write!(f, "{} = neg {}", dest, src)
+            }
+            LirInstr::Not { ty: _, dest, src } => {
+                write!(f, "{} = not {}", dest, src)
+            }
+            LirInstr::Index {
+                ty: _,
+                dst,
+                src,
+                index,
+            } => {
+                write!(f, "{} = index {}[{}]", dst, src, index)
+            }
             LirInstr::LoadConst { dst, value } => {
                 write!(f, "{} = ld_const {}", dst, value)
             }
@@ -840,11 +1150,24 @@ impl std::fmt::Display for LirInstr {
                     write!(f, "call_extern @{}({})", func_name, args_str)
                 }
             }
-            LirInstr::New { ty, dst } => {
-                write!(f, "{} = new {}", dst, ty)
+            LirInstr::Construct { ty, dst, args } => {
+                let args_str = args
+                    .iter()
+                    .map(|a| format!("{}", a))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "{} = new {}({})", dst, ty, args_str)
             }
             LirInstr::Delete { ty, src } => {
                 write!(f, "delete {} {}", ty, src)
+            }
+            LirInstr::FieldAccess {
+                ty: _,
+                dst,
+                src,
+                field_name,
+            } => {
+                write!(f, "{} = {}.{}", dst, src, field_name)
             }
             LirInstr::Assign { ty: _, dst, src } => {
                 write!(f, "{} = assign {}", dst, src)
@@ -867,6 +1190,10 @@ impl std::fmt::Display for LirOperand {
             LirOperand::ImmUnit => write!(f, "%imm()"),
             LirOperand::Deref(d) => write!(f, "*{}", d),
             LirOperand::AsRef(a) => write!(f, "&{}", a),
+            LirOperand::FieldAccess { src, field_name } => {
+                write!(f, "{}.{}", src, field_name)
+            }
+            LirOperand::Index { src, index } => write!(f, "{}[{}]", src, index),
         }
     }
 }
@@ -889,6 +1216,7 @@ impl std::fmt::Display for LirTy {
             LirTy::Str => write!(f, "str"),
             LirTy::Unit => write!(f, "unit"),
             LirTy::Ref(r) => write!(f, "&{}", r),
+            LirTy::Named(name) => write!(f, "{}", name),
         }
     }
 }

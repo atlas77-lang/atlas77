@@ -381,7 +381,7 @@ pub fn build(
     let mut file_hir = std::fs::File::create("./build/output.atlas").unwrap();
     file_hir.write_all(hir_output.as_bytes()).unwrap();
 
-    let mut lir_lower = HirLoweringPass::new(hir);
+    let mut lir_lower = HirLoweringPass::new(hir, &hir_arena);
     let lir = match lir_lower.lower() {
         Ok(lir) => {
             let mut file_lir = std::fs::File::create("./build/output.atlas_lir").unwrap();
@@ -403,6 +403,7 @@ pub fn build(
     let mut c_header = std::fs::File::create(format!("./build/{}", HEADER_NAME)).unwrap();
     c_header.write_all(c_codegen.c_header.as_bytes()).unwrap();
 
+    // TODO: put that in its own function, e.g.: "emit_binary(output_dir, compiler)"
     match compiler {
         SupportedCompiler::TinyCC => {
             #[cfg(all(feature = "embedded-tinycc", not(tinycc_unavailable)))]

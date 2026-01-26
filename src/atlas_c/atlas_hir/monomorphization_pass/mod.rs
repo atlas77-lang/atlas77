@@ -1038,16 +1038,8 @@ impl<'hir> MonomorphizationPass<'hir> {
                 _ => t.get_valid_c_string(),
             })
             .collect();
-        let name = format!("__atlas77__{}__{}__{}", kind, generic.name, parts.join("_"));
+        let name = format!("_{}_{}_{}_A77", kind, generic.name, parts.join("_"));
         arena.intern(name)
-    }
-
-    /// Compute a stable mangled name for a monomorphized function given its base name
-    /// and the actual type arguments.
-    #[inline]
-    fn _mangle_function_name(&self, base_name: &str, actual_tys: &[&'hir HirTy<'hir>]) -> String {
-        let parts: Vec<String> = actual_tys.iter().map(|t| format!("{}", t)).collect();
-        format!("__atlas77__fun__{}__{}", base_name, parts.join("_"))
     }
 
     /// Check if a method's where_clause constraints are satisfied by the concrete types.

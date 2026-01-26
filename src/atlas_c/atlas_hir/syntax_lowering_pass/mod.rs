@@ -1709,7 +1709,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
             AstType::ReadOnlyRef(const_ref) => {
                 let inner_ty = self.visit_ty(const_ref.inner)?;
-                self.arena.types().get_readonly_reference_ty(inner_ty)
+                self.arena.types().get_readonly_ref_ty(inner_ty)
             }
             AstType::Generic(g) => {
                 let inner_types = g
@@ -1729,7 +1729,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
             AstType::MutableRef(ptr) => {
                 let inner_ty = self.visit_ty(ptr.inner)?;
-                self.arena.types().get_ref_ty(inner_ty)
+                self.arena.types().get_mutable_ref_ty(inner_ty)
             }
             //The "this" ty is replaced during the type checking phase
             AstType::ThisTy(_) => self.arena.types().get_uninitialized_ty(),
@@ -1963,7 +1963,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 span,
                 name: self.arena.names().get("from"),
                 name_span: span,
-                ty: self.arena.types().get_readonly_reference_ty(ty),
+                ty: self.arena.types().get_readonly_ref_ty(ty),
                 ty_span: span,
             }];
 
@@ -2009,7 +2009,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                             target: Box::new(HirExpr::Ident(HirIdentExpr {
                                 span,
                                 name: self.arena.names().get("from"),
-                                ty: self.arena.types().get_readonly_reference_ty(ty),
+                                ty: self.arena.types().get_readonly_ref_ty(ty),
                             })),
                             field: Box::new(HirIdentExpr {
                                 span: field.span,

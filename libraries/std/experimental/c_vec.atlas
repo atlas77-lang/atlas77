@@ -1,0 +1,76 @@
+/* 
+ * Experimental implementation of the Vector types in Atlas77.
+ *
+ * This tries to leverage the C backend properly and not rely 
+ * on the VM external function like in std/vector.atlas 
+ * (which is discard due to the removal of the VM itself).
+ *
+ * Very early implementation, it aims to reimplement the entire 
+ * std::vector functionality in Atlas77 eventually, and replace the old one.
+ */
+
+//! TODO: Add raw pointer support with `ptr<T>` type.
+//! For testing purposes, we will "lie" and returns a [T] instead of a T*.
+//! It's so it fits atlas77 type system for now.
+extern malloc<T>(size: uint64) -> [T];
+
+public struct CVec<T> {
+//! Equivalent to T* in C.
+//! TODO: Change to ptr<T> when supported.
+    data: [T];
+    // data: ptr<T>;
+public:
+    len: uint64;
+    capacity: uint64;
+    CVec(data: [T], len: uint64, capacity: uint64) {
+        this.data = data;
+        this.len = len;
+        this.capacity = capacity;
+    }
+    fun with_capacity(capacity: uint64) -> CVec<T> {
+        // Allocate memory using calloc
+        // NB: Each T is assumed to be 8 bytes for now. 
+        // I'll change this once we have sizeof<T>() support.
+        let data = malloc<T>(capacity*8u);
+        return new CVec<T>(data, 0u, capacity);
+    }
+    fun get(&const this, index: uint64) -> &const T {
+        if index >= (*this).len {
+            panic("Index out of bounds");
+        }
+        return &((*this).data[index]);
+    }
+    fun get_mut(&this, index: uint64) -> &T {
+        if index >= (*this).len {
+            panic("Index out of bounds");
+        }
+        return &((*this).data[index]);
+    }
+    fun push(&this, value: T) {
+        if (*this).len >= (*this).capacity {
+            panic("CVec capacity exceeded");
+        }
+        (*this).data[(*this).len] = value;
+        (*this).len = (*this).len + 1u;
+    }
+}
+
+extern printf<T>(format: string, arg: T);
+
+fun main() {
+    let vec = CVec<int64>::with_capacity(10u);
+    printf("CVec created with capacity: %llu\n", vec.len);
+    vec.push(0);
+    let mut_ref = vec.get_mut(0u);
+    *mut_ref = 42;
+    let const_ref = vec.get(0u);
+    assert(*const_ref == 42);
+}
+
+extern panic(msg: string);
+
+fun assert(cond: bool) {
+    if !cond {
+        panic("Assertion failed");
+    }
+}
