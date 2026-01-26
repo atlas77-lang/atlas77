@@ -142,24 +142,3 @@ public:
     //    }
     //}
 }
-
-extern printf<T>(format: string, arg: T);
-extern panic(message: string);
-
-// Let's test it out
-fun main() {
-    let some_opt = optional<int64>::of(100);
-    let none_opt = optional<int64>::empty();
-
-    if (some_opt.has_value()) {
-        let value = some_opt.value();
-        printf("Some optional has value: %d\n", value);
-    }
-
-    if (none_opt.is_empty()) {
-        printf("None optional is empty\n", 0);
-    }
-
-    let default_value = none_opt.value_or(42);
-    printf("Value from none optional with default: %d\n", default_value);
-}

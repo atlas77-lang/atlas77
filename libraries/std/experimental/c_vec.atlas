@@ -9,11 +9,6 @@
  * std::vector functionality in Atlas77 eventually, and replace the old one.
  */
 
-union Optional<T> {
-    Some: T;
-    None: ptr<unit>;
-}
-
 extern malloc<T>(size: uint64) -> ptr<T>;
 // realloc helper
 extern realloc<T>(pointer: ptr<T>, new_size: uint64) -> ptr<T>;
@@ -78,48 +73,5 @@ public:
         }
         (*this).len = (*this).len - 1u;
         return (*this).data[(*this).len];
-    }
-}
-
-extern printf<T>(format: string, arg: T);
-
-fun main() {
-    let vec = CVec<int64>::with_capacity(10u);
-    printf("CVec created with capacity: %llu\n", vec.len);
-    vec.push(0);
-    vec.push(1);
-    vec.push(2);
-    vec.push(3);
-    let mut_ref = vec.get_mut(0u);
-    *mut_ref = 42;
-    let const_ref = vec.get(0u);
-    assert(*const_ref == 42);
-    while (vec.len < vec.capacity) {
-        vec.push(vec.len as int64);
-    }
-    assert(vec.len == vec.capacity);
-    vec.push(100);
-    assert(vec.len != vec.capacity);
-    let i = 0u;
-    while (i < vec.len) {
-        let val = vec.get(i);
-        printf("vec[%llu]", i);
-        printf("= %lld, ", *val);
-        i = i + 1u;
-    }
-    printf("Length after pushes: %llu\n", vec.len);
-    printf("Capacity after pushes: %llu\n", vec.capacity);
-
-    let option = Optional<int64> {
-        .Some = 42,
-    };
-    
-}
-
-extern panic(msg: string);
-
-fun assert(cond: bool) {
-    if !cond {
-        panic("Assertion failed");
     }
 }
