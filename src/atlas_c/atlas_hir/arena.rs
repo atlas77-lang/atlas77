@@ -202,7 +202,7 @@ impl<'arena> TypeArena<'arena> {
         })
     }
 
-    pub fn get_ref_ty(&'arena self, inner: &'arena HirTy<'arena>) -> &'arena HirTy<'arena> {
+    pub fn get_mutable_ref_ty(&'arena self, inner: &'arena HirTy<'arena>) -> &'arena HirTy<'arena> {
         let id = HirTyId::compute_ref_ty_id(&HirTyId::from(inner));
         self.intern.borrow_mut().entry(id).or_insert_with(|| {
             self.allocator
@@ -210,7 +210,7 @@ impl<'arena> TypeArena<'arena> {
         })
     }
 
-    pub fn get_readonly_reference_ty(
+    pub fn get_readonly_ref_ty(
         &'arena self,
         inner: &'arena HirTy<'arena>,
     ) -> &'arena HirTy<'arena> {
