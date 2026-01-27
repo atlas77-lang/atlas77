@@ -2,103 +2,68 @@
 //! operator overloading & typedef do not work yet in Atlas77.
 package std;
 
-private struct _LenMeta : SliceMeta {
-public:
-    // runtime length value
-    len: uint64;
-    #[inline]
-    const fun get_len(&const this) -> uint64 {
-        return (*this).len;
-    };
-    // Constructor
-    _LenMeta(len: uint64) {
-        this.len = len;
-    }
-    // Default constructor
-    _LenMeta() {
-        this.len = 0u;
-    }
-}
-
-private struct _ConstMeta<const N: uint64> : SliceMeta {
-    // The &const this is bothering me tbf...
-    // There shouldn't be any need to access instance data here
-    #[inline]
-    const fun get_len(&const this) -> uint64 {
-        return N;
-    };
-    // I am not so sure about this...
-    // It feels weird to have a default constructor for an empty struct.
-    // I guess it will be optimized out anyway. 
-    _ConstMeta() {}
-}
-
-public concept SliceMeta {
-    #[inline]
-    const fun get_len(&const this) -> uint64;
-}
-
-#[std::non_copyable]
 #[std::non_moveable]
 //! View over a contiguous sequence of elements in memory
-public struct Slice<T, M: SliceMeta> {
+public struct Slice<T> {
+    // TODO: This needs to have some ways of telling the lifetime of T
     data: ptr<T>;
-    meta: M;
+    len: uint64;
 public:
     // Constructor
-    Slice(data: ptr<T>, meta: M) {
+    Slice(data: ptr<T>, len: uint64) {
         this.data = data;
-        this.meta = meta;
+        this.len = len;
+    }
+    // Copy constructor
+    //! Shallow copy
+    Slice(from: &const Slice<T>) {
+        this.data = (*from).data;
+        this.len = (*from).len;
     }
     // Default constructor
     Slice() {
         // Needs to allocate on the stack
-        this.data = const_expr(
-            if M is _LenMeta null as ptr<T>
-            else malloc<T>(meta.get_len() * sizeof<T>())
-        );
-        // This feels weird for _ConstMeta
-        this.meta = M::default();
+        this.data = null;
+        this.len = 0u;
     }
     operator [](&const this, index: uint64) -> &T {
-        if index >= (*this).meta.get_len() {
+        if index >= (*this).len {
             panic("Index out of bounds");
         }
         return &((*this).data[index]);
     }
     operator []=(&this, index: uint64, value: T) {
-        if index >= (*this).meta.get_len() {
+        if index >= (*this).len {
             panic("Index out of bounds");
         }
         (*this).data[index] = value;
     }
 
     fun get(&const this, index: uint64) -> &const T {
-        if index >= (*this).meta.get_len() {
+        if index >= (*this).len {
             panic("Index out of bounds");
         }
         return &((*this).data[index]);
     }
     fun get_mut(&this, index: uint64) -> &T {
-        if index >= (*this).meta.get_len() {
+        if index >= (*this).len {
             panic("Index out of bounds");
         }
         return &((*this).data[index]);
     }
     fun set(&this, index: uint64, value: T) {
-        if index >= (*this).meta.get_len() {
+        if index >= (*this).len {
             panic("Index out of bounds");
         }
         (*this).data[index] = value;
     }
     // Generic len accessor
     fun len(&const this) -> uint64 {
-        return (*this).meta.get_len();
+        return (*this).len;
     }
 }
 
 // The idea is to completely remove the primitive string type and replace it with Slice<char>
-typedef string = Slice<char, _LenMeta>;
+typedef string = Slice<char>;
 // Same for arrays
-typedef [T] = Slice<T, _LenMeta>;
-typedef [T; N] = Slice<T, _ConstMeta<N>>;
+typedef [T] = Slice<T>;

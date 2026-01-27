@@ -1,45 +1,36 @@
 package std::array;
 
-import "std/experimental/slice";
-
-//! Allocation on the stack
-extern fun alloca<T>(size: uint64) -> ptr<T>;
 //! Allocation on the heap
 extern fun malloc<T>(size: uint64) -> ptr<T>;
+extern fun free<T>(p: ptr<T>);
 /*
- * Similar to the std::vector, but with a fixed size known at compile time.
- * If the size is small enough, the data is stored inline, else it is allocated on the heap.
- * This is obviously experimental and DOES NOT work yet. (const_expr doesn't exist yet)
+ * Equivalent of std::array in C++.
+ * NB: Not every feature used here is implemented in atlas77 yet.
  */
 // Above this threshold, we allocate the array on the heap
+// TODO: tune this value and add target flags to make it different per architecture
 const INLINE_THRESHOLD: uint64 = 256u;
 //! Owned fixed-size array, copyable & moveable if T is copyable & moveable
-//! Cannot be returned from functions as its data lives on the stack
-#[no_return]
-public struct Array<T, N> {
-    data: Slice<T, _ConstMeta<N>>;
+public struct array<T, N> {
+    // sadly it seems like it's the only way to have inline storage for now
+    data: [T; N];
 public:
     // Normal constructor
-    Array(data: [T; N]) {
+    array(data: [T; N]) {
         this.data = data;
     }
     // Default constructor
-    Array() {
-        this.data = const_expr(
-            if N > INLINE_THRESHOLD then 
-                 new Slice<T, _ConstMeta<N>>(malloc<T>(N * sizeof<T>()), new _ConstMeta<N>()) 
-            else new Slice<T, _ConstMeta<N>>(alloca<T>(N * sizeof<T>()), new _ConstMeta<N>())
-        );
+    array() 
+        where T: std::default 
+    {
+        this.data = new [T; N];
     }
     // Copy constructor
-    Array(from: &const Array<T, N>)
+    array(from: &const array<T, N>)
         where T: std::copyable
     {
-        this.data = this.data = const_expr(
-            if N > INLINE_THRESHOLD then 
-                 new Slice<T, _ConstMeta<N>>(malloc<T>(N * sizeof<T>()), new _ConstMeta<N>()) 
-            else new Slice<T, _ConstMeta<N>>(alloca<T>(N * sizeof<T>()), new _ConstMeta<N>())
-        );
+        // ensure this doesn't require std::default
+        this.data = new [T; N];
         let i = 0u;
         while i < N {
             (*this).data[i] = (*from).data[i];
@@ -47,34 +38,26 @@ public:
         }
     }
     // Move constructor
-    Array(from: &Array<T, N>)
+    array(from: &array<T, N>)
         where T: std::moveable
     {
-        this.data = const_expr(
-            if N > INLINE_THRESHOLD then 
-                 new Slice<T, _ConstMeta<N>>(malloc<T>(N * sizeof<T>()), new _ConstMeta<N>()) 
-            else new Slice<T, _ConstMeta<N>>(alloca<T>(N * sizeof<T>()), new _ConstMeta<N>())
-        );
+        // ensure this doesn't require std::default
+        this.data = new [T; N];
         let i = 0u;
         while i < N {
             (*this).data[i] = move<T>(&(*from).data[i]);
             i = i + 1u;
         }
     }
-    ~Array() {
-        // Only free if allocated on the heap
-        const_expr(
-            if N > INLINE_THRESHOLD then 
-                 free<T>((*this).data.data) 
-        );
+    ~array() {
+        // Nothing to do, data is inline
     }
     operator [](&const this, index: uint64) -> &const T {
         return (*this).data.get(index);
     }
-    operator []=(&this, index: uint64, value: T) -> &T {
+    operator []=(&this, index: uint64, value: T) {
         let slot = (*this).data.get_mut(index);
         *slot = value;
-        return slot;
     }
     #[inline]
     fun get(&const this, index: uint64) -> &const T {
