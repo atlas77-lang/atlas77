@@ -1,0 +1,57 @@
+//! Very experimental slice implementation.
+//! operator overloading & typedef do not work yet in Atlas77.
+package std;
+
+private struct _LenMeta implements SliceMeta {
+public:
+    // runtime length value
+    len: uint64;
+    #[inline]
+    const fun get_len(&const this) -> uint64 {
+        return (*this).len;
+    };
+}
+
+private struct _ConstMeta<const N: uint64> implements SliceMeta {
+    // static field to hold the constant length
+    #[inline]
+    // The &const this is bothering me tbf...
+    // There shouldn't be any need to access instance data here
+    const fun get_len(&const this) -> uint64 {
+        return N;
+    };
+}
+
+public concept SliceMeta {
+    #[inline]
+    const fun get_len(&const this) -> uint64;
+}
+
+struct Slice<T, M: SliceMeta> {
+    data: ptr<T>;
+    meta: M;
+    operator [](&const this, index: uint64) -> &T {
+        if index >= (*this).meta.get_len() {
+            panic("Index out of bounds");
+        }
+        return &((*this).data[index]);
+    }
+    operator []=(&this, index: uint64, value: T) -> unit {
+        if index >= (*this).meta.get_len() {
+            panic("Index out of bounds");
+        }
+        (*this).data[index] = value;
+        return;
+    }
+
+    // Generic len accessor usable in generic code
+    fun len(&const this) -> uint64 {
+        return (*this).meta.get_len();
+    }
+}
+
+// The idea is to completely remove the primitive string type and replace it with Slice<char>
+typedef string = Slice<char, _LenMeta>;
+// Same for arrays
+typedef [T] = Slice<T, _LenMeta>;
+typedef [T; N] = Slice<T, _ConstMeta<N>>;

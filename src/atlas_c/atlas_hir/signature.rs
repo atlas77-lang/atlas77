@@ -18,6 +18,11 @@ pub struct HirModuleSignature<'hir> {
     //No need for enum signatures for now
     pub enums: BTreeMap<&'hir str, &'hir HirEnum<'hir>>,
     pub unions: BTreeMap<&'hir str, &'hir HirUnionSignature<'hir>>,
+    pub docstring: Option<&'hir str>,
+    /// Name of the module (e.g.: `package name;`)
+    pub module_name: &'hir str,
+    /// Imported modules and their signatures
+    pub imported_modules: BTreeMap<&'hir str, &'hir HirModuleSignature<'hir>>,
 }
 
 #[derive(Debug, Clone)]
