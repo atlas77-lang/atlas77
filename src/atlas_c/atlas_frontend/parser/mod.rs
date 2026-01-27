@@ -9,9 +9,9 @@ use miette::NamedSource;
 
 use crate::atlas_c::atlas_frontend::parser::{
     ast::{
-        AstArg, AstEnum, AstEnumVariant, AstFlag, AstGlobalConst, AstObjLiteralExpr,
-        AstObjLiteralField, AstPtrTy, AstReadOnlyRefType, AstStdGenericConstraint, AstUnion,
-        ConstructorKind,
+        AstArg, AstEnum, AstEnumVariant, AstExternStruct, AstFlag, AstGlobalConst,
+        AstObjLiteralExpr, AstObjLiteralField, AstPtrTy, AstReadOnlyRefType,
+        AstStdGenericConstraint, AstUnion, ConstructorKind,
     },
     error::{
         DestructorWithParametersError, FlagDoesntExistError, NoFieldInStructError,
@@ -1673,15 +1673,53 @@ impl<'ast> Parser<'ast> {
                 let ty = self.parse_type()?;
                 self.expect(TokenKind::Semicolon)?;
                 let size = self.parse_expr()?;
+                eprintln!("Size expr: {:?}", size);
                 self.expect(TokenKind::RBracket)?;
                 let node = AstExpr::NewArray(AstNewArrayExpr {
                     span: Span::union_span(&ty.span(), &size.span()),
                     ty: self.arena.alloc(AstType::List(AstListType {
                         span: ty.span(),
                         inner: self.arena.alloc(ty),
+                        size: match &size {
+                            AstExpr::Literal(AstLiteral::UnsignedInteger(u)) => {
+                                Some(u.value as usize)
+                            }
+                            AstExpr::Literal(AstLiteral::Integer(i)) => {
+                                if i.value >= 0 {
+                                    Some(i.value as usize)
+                                } else {
+                                    return Err(self.unexpected_token_error(
+                                        TokenVec(vec![TokenKind::Identifier(
+                                            "Non-negative Integer".to_string(),
+                                        )]),
+                                        &size.span(),
+                                    ));
+                                }
+                            }
+                            AstExpr::UnaryOp(unary) if unary.op.is_none() => match unary.expr {
+                                AstExpr::Literal(AstLiteral::UnsignedInteger(u)) => {
+                                    Some(u.value as usize)
+                                }
+                                AstExpr::Literal(AstLiteral::Integer(i)) => {
+                                    if i.value >= 0 {
+                                        Some(i.value as usize)
+                                    } else {
+                                        return Err(self.unexpected_token_error(
+                                            TokenVec(vec![TokenKind::Identifier(
+                                                "Non-negative Integer".to_string(),
+                                            )]),
+                                            &size.span(),
+                                        ));
+                                    }
+                                }
+                                _ => None,
+                            },
+                            _ => None,
+                        },
                     })),
                     size: self.arena.alloc(size),
                 });
+                eprintln!("New array node: {:?}", node);
                 Ok(node)
             }
             _ => Err(self.unexpected_token_error(
@@ -1750,6 +1788,31 @@ impl<'ast> Parser<'ast> {
         Ok(node)
     }
 
+    fn parse_extern_struct(&mut self) -> ParseResult<AstExternStruct<'ast>> {
+        let start = self.advance();
+
+        self.expect(TokenKind::KwStruct)?;
+
+        let name = self.parse_identifier()?;
+
+        // Extern structs cannot be generic for now
+
+        self.expect(TokenKind::LBrace)?;
+        let mut fields = vec![];
+        while self.current().kind() != TokenKind::RBrace {
+            fields.push(self.parse_obj_field()?);
+        }
+        self.expect(TokenKind::RBrace)?;
+        let node = AstExternStruct {
+            span: Span::union_span(&start.span(), &self.current().span()),
+            name: self.arena.alloc(name),
+            fields: self.arena.alloc_vec(fields),
+            vis: AstVisibility::default(),
+            docstring: None,
+        };
+        Ok(node)
+    }
+
     fn parse_extern_function(&mut self) -> ParseResult<AstExternFunction<'ast>> {
         let _ = self.advance();
 
@@ -1764,6 +1827,8 @@ impl<'ast> Parser<'ast> {
                 "C"
             }
         };
+
+        self.expect(TokenKind::KwFunc)?;
 
         let name = self.parse_identifier()?;
 
@@ -2215,12 +2280,48 @@ impl<'ast> Parser<'ast> {
             TokenKind::LBracket => {
                 let _ = self.advance();
                 let ty = self.parse_type()?;
-                self.expect(TokenKind::RBracket)?;
 
-                AstType::List(AstListType {
-                    span: Span::union_span(&start, &self.current().span()),
-                    inner: self.arena.alloc(ty),
-                })
+                if self.current().kind == TokenKind::Semicolon {
+                    //Fixed-size array type
+                    let _ = self.advance();
+                    let size = match self.current().kind() {
+                        TokenKind::UnsignedInteger(u) => u,
+                        TokenKind::Integer(i) => {
+                            if i < 0 {
+                                return Err(self.unexpected_token_error(
+                                    TokenVec(vec![TokenKind::Identifier(
+                                        "Non-negative integer".to_string(),
+                                    )]),
+                                    &self.current().span(),
+                                ));
+                            }
+                            i as u64
+                        }
+                        _ => {
+                            return Err(self.unexpected_token_error(
+                                TokenVec(vec![TokenKind::Identifier(
+                                    "Non-negative integer".to_string(),
+                                )]),
+                                &self.current().span(),
+                            ));
+                        }
+                    } as usize;
+                    let _ = self.advance();
+                    self.expect(TokenKind::RBracket)?;
+                    AstType::List(AstListType {
+                        span: Span::union_span(&start, &self.current().span()),
+                        inner: self.arena.alloc(ty),
+                        size: Some(size),
+                    })
+                } else {
+                    // Slice type
+                    self.expect(TokenKind::RBracket)?;
+                    AstType::List(AstListType {
+                        span: Span::union_span(&start, &self.current().span()),
+                        inner: self.arena.alloc(ty),
+                        size: None,
+                    })
+                }
             }
             TokenKind::LParen => {
                 let _ = self.advance();

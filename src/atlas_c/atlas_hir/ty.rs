@@ -73,9 +73,9 @@ impl HirTyId {
         Self(hasher.finish())
     }
 
-    pub fn compute_list_ty_id(ty: &HirTyId) -> Self {
+    pub fn compute_list_ty_id(ty: &HirTyId, size: Option<usize>) -> Self {
         let mut hasher = DefaultHasher::new();
-        (LIST_TY_ID, ty).hash(&mut hasher);
+        (LIST_TY_ID, ty, size).hash(&mut hasher);
         Self(hasher.finish())
     }
 
@@ -132,7 +132,7 @@ impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
             HirTy::Boolean(_) => Self::compute_boolean_ty_id(),
             HirTy::Unit(_) => Self::compute_unit_ty_id(),
             HirTy::String(_) => Self::compute_str_ty_id(),
-            HirTy::List(ty) => HirTyId::compute_list_ty_id(&HirTyId::from(ty.inner)),
+            HirTy::List(ty) => HirTyId::compute_list_ty_id(&HirTyId::from(ty.inner), ty.size),
             HirTy::Named(ty) => HirTyId::compute_name_ty_id(ty.name),
             HirTy::Uninitialized(_) => Self::compute_uninitialized_ty_id(),
             HirTy::Nullable(ty) => HirTyId::compute_nullable_ty_id(&HirTyId::from(ty.inner)),
@@ -265,7 +265,16 @@ impl fmt::Display for HirTy<'_> {
             HirTy::Unit(_) => write!(f, "unit"),
             HirTy::Boolean(_) => write!(f, "bool"),
             HirTy::String(_) => write!(f, "string"),
-            HirTy::List(ty) => write!(f, "[{}]", ty),
+            HirTy::List(ty) => write!(
+                f,
+                "[{}{}]",
+                ty.inner,
+                if let Some(size) = ty.size {
+                    format!("; {}", size)
+                } else {
+                    "".to_string()
+                }
+            ),
             HirTy::Named(ty) => write!(f, "{}", ty.name),
             HirTy::Uninitialized(_) => write!(f, "uninitialized"),
             HirTy::Nullable(ty) => write!(f, "{}?", ty.inner),
@@ -329,6 +338,7 @@ pub struct HirCharTy {}
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct HirListTy<'hir> {
     pub inner: &'hir HirTy<'hir>,
+    pub size: Option<usize>,
 }
 impl fmt::Display for HirListTy<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {

@@ -15,6 +15,4 @@ public extern panic<T>(s: T);
 //! Well, still needs to be worked on...
 private extern printf<T>(fmt: string, s: T);
 
-public fun println_int64(n: int64) {
-    printf<int64>("%ld\n", n);
-}
+public fun print<T>(fmt: string, s: T) 

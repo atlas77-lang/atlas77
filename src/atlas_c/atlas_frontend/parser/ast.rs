@@ -18,6 +18,7 @@ pub enum AstItem<'ast> {
     Import(AstImport<'ast>),
     Struct(AstStruct<'ast>),
     ExternFunction(AstExternFunction<'ast>),
+    ExternStruct(AstExternStruct<'ast>),
     Function(AstFunction<'ast>),
     Enum(AstEnum<'ast>),
     Union(AstUnion<'ast>),
@@ -30,6 +31,7 @@ impl AstItem<'_> {
             AstItem::Import(_) => {}
             AstItem::Struct(v) => v.vis = vis,
             AstItem::ExternFunction(v) => v.vis = vis,
+            AstItem::ExternStruct(v) => v.vis = vis,
             AstItem::Function(v) => v.vis = vis,
             AstItem::Enum(v) => v.vis = vis,
             AstItem::Union(v) => v.vis = vis,
@@ -47,6 +49,7 @@ impl AstItem<'_> {
             AstItem::Import(v) => v.span,
             AstItem::Struct(v) => v.span,
             AstItem::ExternFunction(v) => v.span,
+            AstItem::ExternStruct(v) => v.span,
             AstItem::Function(v) => v.span,
             AstItem::Enum(v) => v.span,
             AstItem::Union(v) => v.span,
@@ -60,6 +63,15 @@ impl<'ast> AstItem<'ast> {
     pub fn set_docstring(&mut self, docstring: &'ast str, arena: &'ast AstArena<'ast>) {
         match self {
             AstItem::Struct(v) => match v.docstring {
+                Some(existing) => {
+                    let combined = format!("{}\n{}", docstring, existing);
+                    v.docstring = Some(arena.alloc(combined));
+                }
+                None => {
+                    v.docstring = Some(docstring);
+                }
+            },
+            AstItem::ExternStruct(v) => match v.docstring {
                 Some(existing) => {
                     let combined = format!("{}\n{}", docstring, existing);
                     v.docstring = Some(arena.alloc(combined));
@@ -375,6 +387,15 @@ pub struct AstObjField<'ast> {
     pub vis: AstVisibility,
     pub docstring: Option<&'ast str>,
     pub default_value: Option<&'ast AstExpr<'ast>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AstExternStruct<'ast> {
+    pub span: Span,
+    pub name: &'ast AstIdentifier<'ast>,
+    pub vis: AstVisibility,
+    pub fields: &'ast [&'ast AstObjField<'ast>],
+    pub docstring: Option<&'ast str>,
 }
 
 #[derive(Debug, Clone)]
@@ -896,6 +917,7 @@ pub struct AstGenericType<'ast> {
 pub struct AstListType<'ast> {
     pub span: Span,
     pub inner: &'ast AstType<'ast>,
+    pub size: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -955,4 +977,23 @@ pub struct AstBooleanType {
 #[derive(Debug, Clone)]
 pub struct AstUnitType {
     pub span: Span,
+}
+
+/*
+ * Compile-time expressions, it's more of of a todo right now than anything.
+ *
+ */
+
+pub enum CompTimeExpr<'ast> {
+    Literal(AstLiteral<'ast>),
+    IfExpr(CompTimeIf<'ast>),
+    Ident(AstIdentifier<'ast>),
+    // types can be the result of a comp-time expression
+    Type(AstType<'ast>),
+}
+
+pub struct CompTimeIf<'ast> {
+    pub condition: &'ast CompTimeExpr<'ast>,
+    pub body: Vec<CompTimeExpr<'ast>>,
+    pub else_body: Option<Vec<CompTimeExpr<'ast>>>,
 }

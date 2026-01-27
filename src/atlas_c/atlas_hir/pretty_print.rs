@@ -629,7 +629,15 @@ impl HirPrettyPrinter {
             HirTy::String(_) => "string".to_string(),
             HirTy::Unit(_) => "unit".to_string(),
             HirTy::Named(n) => n.name.to_string(),
-            HirTy::List(l) => format!("[{}]", Self::type_str(l.inner)),
+            HirTy::List(l) => format!(
+                "[{}{}]",
+                Self::type_str(l.inner),
+                if let Some(size) = l.size {
+                    format!("; {}", size)
+                } else {
+                    "".to_string()
+                }
+            ),
             HirTy::ReadOnlyReference(r) => format!("&const {}", Self::type_str(r.inner)),
             HirTy::MutableReference(r) => format!("&{}", Self::type_str(r.inner)),
             HirTy::Generic(g) => format!(

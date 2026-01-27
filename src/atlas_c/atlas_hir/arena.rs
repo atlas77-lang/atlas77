@@ -165,12 +165,16 @@ impl<'arena> TypeArena<'arena> {
         })
     }
 
-    pub fn get_list_ty(&'arena self, ty: &'arena HirTy<'arena>) -> &'arena HirTy<'arena> {
-        let id = HirTyId::compute_list_ty_id(&HirTyId::from(ty));
-        self.intern
-            .borrow_mut()
-            .entry(id)
-            .or_insert_with(|| self.allocator.alloc(HirTy::List(HirListTy { inner: ty })))
+    pub fn get_list_ty(
+        &'arena self,
+        ty: &'arena HirTy<'arena>,
+        size: Option<usize>,
+    ) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_list_ty_id(&HirTyId::from(ty), size);
+        self.intern.borrow_mut().entry(id).or_insert_with(|| {
+            self.allocator
+                .alloc(HirTy::List(HirListTy { inner: ty, size }))
+        })
     }
 
     pub fn get_named_ty(&'arena self, name: &'arena str, span: Span) -> &'arena HirTy<'arena> {

@@ -5,7 +5,7 @@ use super::{
 };
 use crate::atlas_c::atlas_hir::error::{
     AccessingPrivateUnionError, CallingConsumingMethodOnMutableReferenceError,
-    CallingConsumingMethodOnMutableReferenceOrigin,
+    CallingConsumingMethodOnMutableReferenceOrigin, ListIndexOutOfBoundsError,
     StdNonCopyableStructCannotHaveCopyConstructorError, StructCannotHaveAFieldOfItsOwnTypeError,
     ThisStructDoesNotHaveACopyConstructorError, ThisStructDoesNotHaveAMoveConstructorError,
     UnionMustHaveAtLeastTwoVariantError, UnionVariantDefinedMultipleTimesError,
@@ -564,7 +564,6 @@ impl<'hir> TypeChecker<'hir> {
             HirStatement::Assign(assign) => {
                 let dst_ty = self.check_expr(&mut assign.dst)?;
                 let val_ty = self.check_expr(&mut assign.val)?;
-                //Todo needs a special rule for `this.field = value`, because you can assign once to a const field
 
                 // Check if we are dereferencing a const reference (mutation through const ref)
                 // This catches: `*const_ref = value`
@@ -592,7 +591,7 @@ impl<'hir> TypeChecker<'hir> {
                 //   arr[i] = some_const_ref;  // This is OK - storing a const ref value
                 // This is different from *const_ref = value (mutation through const ref)
 
-                self.is_equivalent_ty(val_ty, assign.dst.span(), dst_ty, assign.val.span())?;
+                self.is_equivalent_ty(dst_ty, assign.dst.span(), val_ty, assign.val.span())?;
                 Ok(())
             }
             HirStatement::Block(block) => {
@@ -811,9 +810,45 @@ impl<'hir> TypeChecker<'hir> {
                     index,
                     indexing_expr.index.span(),
                 )?;
-
+                eprintln!("[DEBUG] indexing_expr: {:?}", indexing_expr);
                 match target {
                     HirTy::List(l) => {
+                        fn is_inbound(index: &HirExpr, size: usize) -> (bool, usize) {
+                            match index {
+                                HirExpr::IntegerLiteral(i) => {
+                                    if i.value < 0 || (i.value as usize) >= size {
+                                        (false, i.value as usize)
+                                    } else {
+                                        (true, i.value as usize)
+                                    }
+                                }
+                                HirExpr::UnsignedIntegerLiteral(u) => {
+                                    if (u.value as usize) >= size {
+                                        (false, u.value as usize)
+                                    } else {
+                                        (true, u.value as usize)
+                                    }
+                                }
+                                HirExpr::Unary(unary) if unary.op.is_none() => {
+                                    is_inbound(&unary.expr, size)
+                                }
+                                // We let the runtime handle non-constant indices
+                                _ => (true, 0),
+                            }
+                        }
+                        if let Some(size) = l.size
+                            && let (false, index) = is_inbound(&indexing_expr.index, size)
+                        {
+                            let src = utils::get_file_content(path).unwrap();
+                            return Err(HirError::ListIndexOutOfBounds(
+                                ListIndexOutOfBoundsError {
+                                    span: indexing_expr.index.span(),
+                                    index,
+                                    size,
+                                    src: NamedSource::new(path, src),
+                                },
+                            ));
+                        }
                         indexing_expr.ty = l.inner;
                         Ok(l.inner)
                     }
@@ -919,7 +954,7 @@ impl<'hir> TypeChecker<'hir> {
                     let e_ty = self.check_expr(e)?;
                     self.is_equivalent_ty(e_ty, e.span(), ty, l.span)?;
                 }
-                l.ty = self.arena.types().get_list_ty(ty);
+                l.ty = self.arena.types().get_list_ty(ty, Some(l.items.len()));
                 Ok(l.ty)
             }
             HirExpr::NewArray(a) => {
@@ -939,6 +974,7 @@ impl<'hir> TypeChecker<'hir> {
                         &a.size.span(),
                     ));
                 }
+                eprintln!("[DEBUG] New Array type: {}", a.ty);
                 Ok(a.ty)
             }
             HirExpr::ObjLiteral(obj_lit) => {
@@ -2055,7 +2091,7 @@ impl<'hir> TypeChecker<'hir> {
             HirTy::List(l) => self
                 .arena
                 .types()
-                .get_list_ty(self.get_generic_ret_ty(l.inner, actual_generic_ty)),
+                .get_list_ty(self.get_generic_ret_ty(l.inner, actual_generic_ty), l.size),
             HirTy::Named(_) => actual_generic_ty,
             HirTy::ReadOnlyReference(r) => self
                 .arena
@@ -2135,8 +2171,6 @@ impl<'hir> TypeChecker<'hir> {
         found_span: Span,
     ) -> HirResult<()> {
         match (expected_ty, found_ty) {
-            // Let's handle ref to primitive types
-
             //(HirTy::Int64(_), HirTy::UInt64(_)) | (HirTy::UInt64(_), HirTy::Int64(_)) => Ok(()),
             (HirTy::Generic(g), HirTy::Named(n)) | (HirTy::Named(n), HirTy::Generic(g)) => {
                 if MonomorphizationPass::generate_mangled_name(self.arena, g, "struct") == n.name {
@@ -2179,14 +2213,37 @@ impl<'hir> TypeChecker<'hir> {
                 self.is_equivalent_ty(mutable1.inner, expected_span, mutable2.inner, found_span)
             }
             (HirTy::List(list1), HirTy::List(list2)) => {
+                eprintln!("Checking list types: {} vs {}", expected_ty, found_ty);
+                match (list1.size, list2.size) {
+                    (Some(s1), Some(s2)) => {
+                        if s1 != s2 {
+                            // Both fixed-size but sizes differ
+                            return Err(Self::type_mismatch_err(
+                                &format!("{}", expected_ty),
+                                &expected_span,
+                                &format!("{}", found_ty),
+                                &found_span,
+                            ));
+                        }
+                    }
+                    (Some(_), None) => {
+                        // Expected fixed-size, found slice -> not allowed
+                        return Err(Self::type_mismatch_err(
+                            &format!("{}", expected_ty),
+                            &expected_span,
+                            &format!("{}", found_ty),
+                            &found_span,
+                        ));
+                    }
+                    (None, Some(_)) => {
+                        // Expected slice, found fixed-size -> allowed (coercion of [T;N] to [T])
+                    }
+                    (None, None) => {
+                        // Both are slices - fine
+                    }
+                }
                 self.is_equivalent_ty(list1.inner, expected_span, list2.inner, found_span)
             }
-            // NOTE: Removed implicit value-to-reference coercion.
-            // Previously, `&const T` could match `T` and `&mut T` could match `T`.
-            // This caused issues with ownership: the type checker would accept `len(list)`
-            // when `len` expects `&const [T]`, but the ownership pass didn't know about
-            // the implicit borrow and would try to move/consume the list.
-            // Now users must explicitly write `len(&list)` to borrow.
             _ => {
                 if HirTyId::from(expected_ty) == HirTyId::from(found_ty) {
                     Ok(())

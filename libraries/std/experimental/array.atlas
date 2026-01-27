@@ -1,0 +1,38 @@
+/*
+ * Similar to the std::vector, but with a fixed size known at compile time.
+ * If the size is small enough, the data is stored inline, else it is allocated on the heap.
+ * This is obviously experimental and DOES NOT work yet. (const_expr doesn't exist yet)
+ */
+const INLINE_THRESHOLD: uint64 = 256u;
+
+extern fun malloc<T>(size: uint64) -> ptr<T>;
+
+// I need to find a way to conditionally decide on the type of data based on N
+// If N is <= INLINE_THRESHOLD, use [T; N], else use ptr<T>
+public struct Array<T, N: Sizeable> {
+    data: const_expr(if N <= INLINE_THRESHOLD then [T; N] else ptr<T>);
+    len: uint64;
+public:
+    Array() {
+        this.data = const_expr(if N <= INLINE_THRESHOLD then [T; N] else malloc<T>(N * 8u));
+        this.len = N;
+    }
+}
+
+// As of now, we cannot have generic extern structs.
+// Later I'll add something similar than extern function,
+//  where the structs are monomorphized but not mangled.
+// Which means that the compiler will generate only one version
+//  of the struct in total, the rest of the types will be casted 
+//  to/from void pointers. 
+// It also cannot have methods/constructors for now.
+// Support for this will be added later, with attributes to specify
+//  the name of the actual methods in the extern library (for constructors).
+extern struct Slice {
+    data: ptr<unit>;
+    len: uint64;
+    #[extern_name = "slice_from_array"]
+    Slice() {
+
+    }
+}

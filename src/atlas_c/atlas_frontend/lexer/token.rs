@@ -293,6 +293,17 @@ pub enum TokenKind {
     StrTy,
     #[token("ptr")]
     PtrTy,
+    // === Keywords for compile-time ===
+    #[token("size_of")]
+    KwSizeOf,
+    #[token("align_of")]
+    KwAlignOf,
+    #[token("type_of")]
+    KwTypeOf,
+    #[token("const_expr")]
+    KwConstExpr,
+    #[token("then")] // Then is used in compile-time ifs
+    KwThen,
     EoI,
 }
 

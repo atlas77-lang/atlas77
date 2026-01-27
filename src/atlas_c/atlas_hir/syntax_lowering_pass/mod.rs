@@ -153,6 +153,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     .insert(class.name, self.arena.intern(class.signature.clone()));
                 self.module_body.structs.insert(class.name, class);
             }
+            AstItem::ExternStruct(ast_struct) => {}
             AstItem::Import(ast_import) => match self.visit_import(ast_import) {
                 Ok((hir_module, mut generic_pool)) => {
                     let allocated_hir: &'hir HirModule<'hir> = self.arena.intern(hir_module);
@@ -1687,7 +1688,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
             AstType::List(l) => {
                 let ty = self.visit_ty(l.inner)?;
-                self.arena.types().get_list_ty(ty)
+                self.arena.types().get_list_ty(ty, l.size)
             }
             AstType::Nullable(n) => {
                 if !self.using_std {

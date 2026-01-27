@@ -1,45 +1,5 @@
 extern printf<T>(fmt: string, val: T);
 
-fun println(s: string) {
-    printf("%s\n", s);
-}
-
-fun print(s: string) {
-    printf("%s", s);
-}
-
 fun main() {
-    let c: char = 'A';
-    let emoji: char = '😊';
-    printf("Character: %c\n", 'A');
-    printf("Hello, Atlas! %u\n", emoji);
-}
-
-//! Swaps the values at `a` and `b` using an external C function.
-//! NB: We are using an external C function, because Atlas77 
-//! would create unnecessary copies and destructor invokations.
-private extern __atlas77_c_swap<T>(a: &T, b: &T);
-
-//! Swaps the values at `a` and `b`.
-public fun swap<T>(a: &T, b: &T) {
-    __atlas77_c_swap<T>(a, b);
-}
-
-//! Replaces `dest` with `src`, returning the previous `dest` value.
-public fun replace<T>(dest: &T, src: T) -> T {
-    __atlas77_c_swap<T>(dest, &src);
-    return src;
-}
-
-fun test_swap_and_replace() {
-    let x: int64 = 10;
-    let y: int64 = 20;
-    let px: &int64 = &x;
-    let py: &int64 = &y;
-    swap<int64>(px, py);
-    printf("x: %ld, ", *px);
-    printf("y: %ld\n", *py);
-    let old_x: int64 = replace<int64>(px, 42);
-    printf("old x: %ld, ", old_x);
-    printf("new x: %ld\n", *px);
+    printf("Hello, %s\n", "Atlas!");
 }

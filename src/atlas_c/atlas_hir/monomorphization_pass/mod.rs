@@ -994,8 +994,10 @@ impl<'hir> MonomorphizationPass<'hir> {
             }
             HirTy::List(l) => {
                 let new_inner = self.swap_generic_types_in_ty(l.inner, types_to_change);
-                self.arena
-                    .intern(HirTy::List(HirListTy { inner: new_inner }))
+                self.arena.intern(HirTy::List(HirListTy {
+                    inner: new_inner,
+                    size: l.size,
+                }))
             }
             HirTy::Generic(g) => {
                 let new_inner_types: Vec<HirTy<'hir>> = g
@@ -1125,6 +1127,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             }
             HirTy::List(l) => self.arena.intern(HirTy::List(HirListTy {
                 inner: self.change_inner_type(l.inner, generic_name, new_type, module),
+                size: l.size,
             })),
             HirTy::Generic(g) => {
                 let new_inner_types: Vec<HirTy<'hir>> = g

@@ -87,6 +87,7 @@ declare_error_type! {
         CannotImplicitlyCopyNonCopyableValue(CannotImplicitlyCopyNonCopyableValueError),
         CannotMoveFromRvalue(CannotMoveFromRvalueError),
         TypeNotCopyable(TypeNotCopyableError),
+        ListIndexOutOfBounds(ListIndexOutOfBoundsError),
     }
 }
 
@@ -122,6 +123,21 @@ impl HirError {
             _ => HirErrorGravity::Critical,
         }
     }
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::list_index_out_of_bounds),
+    help("ensure the index is within the bounds of the list")
+)]
+#[error("list index {index} is out of bounds for list of size {size}")]
+pub struct ListIndexOutOfBoundsError {
+    #[label = "index {index} is out of bounds for list of size {size}"]
+    pub span: Span,
+    pub index: usize,
+    pub size: usize,
+    #[source_code]
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]
