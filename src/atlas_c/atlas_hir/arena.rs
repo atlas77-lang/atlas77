@@ -93,28 +93,28 @@ impl<'arena> TypeArena<'arena> {
         self.intern.borrow().get(&id).copied()
     }
 
-    pub fn get_integer64_ty(&'arena self) -> &'arena HirTy<'arena> {
-        let id = HirTyId::compute_integer64_ty_id();
-        self.intern
-            .borrow_mut()
-            .entry(id)
-            .or_insert_with(|| self.allocator.alloc(HirTy::Int64(HirIntegerTy {})))
+    pub fn get_int_ty(&'arena self, size_in_bits: u8) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_int_ty_id(size_in_bits);
+        self.intern.borrow_mut().entry(id).or_insert_with(|| {
+            self.allocator
+                .alloc(HirTy::Integer(HirIntegerTy { size_in_bits }))
+        })
     }
 
-    pub fn get_float64_ty(&'arena self) -> &'arena HirTy<'arena> {
-        let id = HirTyId::compute_float64_ty_id();
-        self.intern
-            .borrow_mut()
-            .entry(id)
-            .or_insert_with(|| self.allocator.alloc(HirTy::Float64(HirFloatTy {})))
+    pub fn get_float_ty(&'arena self, size_in_bits: u8) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_float_ty_id(size_in_bits);
+        self.intern.borrow_mut().entry(id).or_insert_with(|| {
+            self.allocator
+                .alloc(HirTy::Float(HirFloatTy { size_in_bits }))
+        })
     }
 
-    pub fn get_uint64_ty(&'arena self) -> &'arena HirTy<'arena> {
-        let id = HirTyId::compute_uint64_ty_id();
-        self.intern
-            .borrow_mut()
-            .entry(id)
-            .or_insert_with(|| self.allocator.alloc(HirTy::UInt64(HirUnsignedIntTy {})))
+    pub fn get_uint_ty(&'arena self, size_in_bits: u8) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_uint_ty_id(size_in_bits);
+        self.intern.borrow_mut().entry(id).or_insert_with(|| {
+            self.allocator
+                .alloc(HirTy::UnsignedInteger(HirUnsignedIntTy { size_in_bits }))
+        })
     }
 
     pub fn get_char_ty(&'arena self) -> &'arena HirTy<'arena> {

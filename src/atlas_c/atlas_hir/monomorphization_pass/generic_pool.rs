@@ -371,11 +371,11 @@ impl<'hir> HirGenericPool<'hir> {
     ) -> bool {
         match ty {
             HirTy::Boolean(_)
-            | HirTy::Int64(_)
-            | HirTy::Float64(_)
+            | HirTy::Integer(_)
+            | HirTy::Float(_)
             | HirTy::Char(_)
             | HirTy::String(_)
-            | HirTy::UInt64(_)
+            | HirTy::UnsignedInteger(_)
             // References are copyable as they are just pointers
             | HirTy::ReadOnlyReference(_)
             | HirTy::MutableReference(_)
@@ -415,11 +415,11 @@ impl<'hir> HirGenericPool<'hir> {
         match ty {
             // For now we consider all primitive types as moveable
             HirTy::Boolean(_)
-            | HirTy::Int64(_)
-            | HirTy::Float64(_)
+            | HirTy::Integer(_)
+            | HirTy::Float(_)
             | HirTy::Char(_)
             | HirTy::String(_)
-            | HirTy::UInt64(_)
+            | HirTy::UnsignedInteger(_)
             // References are moveable as they are just pointers
             | HirTy::ReadOnlyReference(_)
             | HirTy::MutableReference(_)

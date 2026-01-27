@@ -1,0 +1,62 @@
+import "std/experimental/c_vec";
+import "std/io";
+//! API for a dynamic string builder
+//! Used internally by the compiler for string interpolation
+public struct StringBuilder {
+    buffer: String;
+public:
+    StringBuilder() {
+        this.buffer = new String();
+    }
+    StringBuilder(from: &const StringBuilder) {
+        this.buffer = (*from).buffer;
+    }
+    fun append(this, s: string) -> StringBuilder
+    {
+        this.buffer.push(s);
+        return this;
+    }
+    fun to_string(&this) -> String {
+        return (*this).buffer;
+    }
+    fun to_str(&this) -> string {
+        return (*this).buffer.to_string();
+    }
+}
+
+/* public concept ToString {
+    fun to_string(&const this) -> String;
+} */
+
+public struct String {
+private:
+    s: CVec<uint8>;
+public:
+    String(s: string, len: uint64, capacity: uint64) {
+        // We do this silly cast because string is just a ptr<uint8> under the hood
+        const slice_s: [uint8] = (s as ptr<uint8>) as [uint8];
+        this.s = new CVec<uint8>(slice_s, len, capacity);
+    }
+    String(from: &const String) {
+        this.s = (*from).s;
+    }
+    ~String() {
+        delete this.s;
+    }
+    fun with_capacity(capacity: uint64) -> String {
+        // Well... Should we allocate a string here?
+        // Aren't we returning a temporary char*?
+        return new String("", 0u, capacity);
+    }
+    fun push(&this, c: string) {
+        (*this).s.push((c as ptr<uint8>) as uint8);
+    }
+    fun to_string(&const this) -> string {
+        return ((*this).s as ptr<uint8>) as string;
+    }
+}
+
+public extern struct Slice {
+    data: ptr<unit>;
+    len: uint8;
+}

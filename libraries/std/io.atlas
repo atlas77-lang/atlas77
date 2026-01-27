@@ -1,18 +1,21 @@
 //! Print a value followed by a newline
 //! Example: println("Hello, World!")
-public extern println<T>(s: T);
-//! Print a value without a newline
-//! Example: print("Hello, ")
-//! print("World!")
-public extern print<T>(s: T);
+public fun println(s: string) {
+    printf<unit>("%s\n", s);
+}
+
 //! Read a line from standard input
 //! Example: let input = input()
 //public extern input() -> string;
 //! Panic the program with a value
 //! Example: panic("Something went wrong!")
-public extern panic<T>(s: T);
+public extern fun panic<T>(s: T);
 
 //! Well, still needs to be worked on...
-private extern printf<T>(fmt: string, s: T);
-
-public fun print<T>(fmt: string, s: T) 
+private extern fun printf<T>(fmt: string, s: T);
+//! Print a value without a newline
+//! Example: print("Hello, ")
+//! print("World!")
+public fun print(s: string) {
+    printf<unit>("%s", s);
+}

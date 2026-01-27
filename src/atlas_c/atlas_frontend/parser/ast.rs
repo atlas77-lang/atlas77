@@ -957,16 +957,19 @@ pub struct AstNamedType<'ast> {
 #[derive(Debug, Clone)]
 pub struct AstIntegerType {
     pub span: Span,
+    pub size_in_bits: u8,
 }
 
 #[derive(Debug, Clone)]
 pub struct AstFloatType {
     pub span: Span,
+    pub size_in_bits: u8,
 }
 
 #[derive(Debug, Clone)]
 pub struct AstUnsignedIntegerType {
     pub span: Span,
+    pub size_in_bits: u8,
 }
 
 #[derive(Debug, Clone)]

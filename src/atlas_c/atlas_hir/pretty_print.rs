@@ -621,9 +621,9 @@ impl HirPrettyPrinter {
 
     pub fn type_str(ty: &HirTy) -> String {
         match ty {
-            HirTy::Int64(_) => "int64".to_string(),
-            HirTy::Float64(_) => "float64".to_string(),
-            HirTy::UInt64(_) => "uint64".to_string(),
+            HirTy::Integer(i) => format!("int{}", i.size_in_bits),
+            HirTy::Float(f) => format!("float{}", f.size_in_bits),
+            HirTy::UnsignedInteger(u) => format!("uint{}", u.size_in_bits),
             HirTy::Boolean(_) => "bool".to_string(),
             HirTy::Char(_) => "char".to_string(),
             HirTy::String(_) => "string".to_string(),

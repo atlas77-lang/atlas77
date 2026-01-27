@@ -195,25 +195,6 @@ impl<'hir> TypeChecker<'hir> {
             .last_mut()
             .unwrap()
             .insert(String::from("destructor"), ContextFunction::new());
-        for param in &destructor.params {
-            self.context_functions
-                .last_mut()
-                .unwrap()
-                .get_mut("destructor")
-                .unwrap()
-                .insert(
-                    param.name,
-                    ContextVariable {
-                        name: param.name,
-                        name_span: param.span,
-                        ty: param.ty,
-                        _ty_span: param.ty_span,
-                        _is_mut: false,
-                        is_param: true,
-                        refs_locals: vec![],
-                    },
-                );
-        }
         for stmt in &mut destructor.body.statements {
             self.check_stmt(stmt)?;
         }
@@ -626,9 +607,9 @@ impl<'hir> TypeChecker<'hir> {
     }
     pub fn check_expr(&mut self, expr: &mut HirExpr<'hir>) -> HirResult<&'hir HirTy<'hir>> {
         match expr {
-            HirExpr::IntegerLiteral(_) => Ok(self.arena.types().get_integer64_ty()),
-            HirExpr::FloatLiteral(_) => Ok(self.arena.types().get_float64_ty()),
-            HirExpr::UnsignedIntegerLiteral(_) => Ok(self.arena.types().get_uint64_ty()),
+            HirExpr::IntegerLiteral(i) => Ok(i.ty),
+            HirExpr::FloatLiteral(f) => Ok(f.ty),
+            HirExpr::UnsignedIntegerLiteral(u) => Ok(u.ty),
             HirExpr::BooleanLiteral(_) => Ok(self.arena.types().get_boolean_ty()),
             HirExpr::UnitLiteral(_) => Ok(self.arena.types().get_unit_ty()),
             HirExpr::CharLiteral(_) => Ok(self.arena.types().get_char_ty()),
@@ -769,9 +750,9 @@ impl<'hir> TypeChecker<'hir> {
                 let expr_ty = self.check_expr(&mut c.expr)?;
                 let can_cast = matches!(
                     expr_ty,
-                    HirTy::Int64(_)
-                        | HirTy::Float64(_)
-                        | HirTy::UInt64(_)
+                    HirTy::Integer(_)
+                        | HirTy::Float(_)
+                        | HirTy::UnsignedInteger(_)
                         | HirTy::Boolean(_)
                         | HirTy::Char(_)
                         | HirTy::String(_)
@@ -805,12 +786,12 @@ impl<'hir> TypeChecker<'hir> {
                 let target = self.check_expr(&mut indexing_expr.target)?;
                 let index = self.check_expr(&mut indexing_expr.index)?;
                 self.is_equivalent_ty(
-                    self.arena.types().get_uint64_ty(),
+                    // we expect the biggest size, because smaller size can be implicitely casted to it
+                    self.arena.types().get_uint_ty(64),
                     indexing_expr.index.span(),
                     index,
                     indexing_expr.index.span(),
                 )?;
-                eprintln!("[DEBUG] indexing_expr: {:?}", indexing_expr);
                 match target {
                     HirTy::List(l) => {
                         fn is_inbound(index: &HirExpr, size: usize) -> (bool, usize) {
@@ -960,21 +941,13 @@ impl<'hir> TypeChecker<'hir> {
             HirExpr::NewArray(a) => {
                 let size_ty = self.check_expr(a.size.as_mut())?;
                 let size_ty_id = HirTyId::from(size_ty);
-                if size_ty_id != HirTyId::compute_uint64_ty_id()
-                    && size_ty_id != HirTyId::compute_integer64_ty_id()
-                {
-                    return Err(Self::type_mismatch_err(
-                        &format!("{}", size_ty),
-                        &a.size.span(),
-                        &format!(
-                            "{} or {}",
-                            self.arena.types().get_uint64_ty(),
-                            self.arena.types().get_integer64_ty()
-                        ),
-                        &a.size.span(),
-                    ));
-                }
-                eprintln!("[DEBUG] New Array type: {}", a.ty);
+                self.is_equivalent_ty(
+                    // we expect the biggest size, because smaller size can be implicitely casted to it
+                    self.arena.types().get_uint_ty(64),
+                    a.size.span(),
+                    size_ty,
+                    a.size.span(),
+                )?;
                 Ok(a.ty)
             }
             HirExpr::ObjLiteral(obj_lit) => {
@@ -1795,7 +1768,7 @@ impl<'hir> TypeChecker<'hir> {
                     match field_access.field.ty {
                         HirTy::Named(n) => {
                             if self.signature.enums.contains_key(n.name) {
-                                Ok(self.arena.types().get_uint64_ty())
+                                Ok(self.arena.types().get_uint_ty(64))
                             } else {
                                 Ok(field_access.field.ty)
                             }
@@ -1841,11 +1814,11 @@ impl<'hir> TypeChecker<'hir> {
                                         HirUnsignedIntegerLiteralExpr {
                                             value: var.value,
                                             span: static_access.span,
-                                            ty: self.arena.types().get_uint64_ty(),
+                                            ty: self.arena.types().get_uint_ty(64),
                                         },
                                     );
                                     *expr = replaced_expr;
-                                    return Ok(self.arena.types().get_uint64_ty());
+                                    return Ok(self.arena.types().get_uint_ty(64));
                                 }
                                 None => {
                                     return Err(Self::unknown_field_err(
@@ -2185,7 +2158,8 @@ impl<'hir> TypeChecker<'hir> {
                 }
             }
             //Check for enums
-            (HirTy::Named(n), HirTy::UInt64(_)) | (HirTy::UInt64(_), HirTy::Named(n)) => {
+            (HirTy::Named(n), HirTy::UnsignedInteger(_))
+            | (HirTy::UnsignedInteger(_), HirTy::Named(n)) => {
                 if self.signature.enums.contains_key(n.name) {
                     Ok(())
                 } else {
@@ -2243,6 +2217,42 @@ impl<'hir> TypeChecker<'hir> {
                     }
                 }
                 self.is_equivalent_ty(list1.inner, expected_span, list2.inner, found_span)
+            }
+            (HirTy::Integer(i), HirTy::Integer(j)) => {
+                if i.size_in_bits >= j.size_in_bits {
+                    Ok(())
+                } else {
+                    Err(Self::type_mismatch_err(
+                        &format!("{}", expected_ty),
+                        &expected_span,
+                        &format!("{}", found_ty),
+                        &found_span,
+                    ))
+                }
+            }
+            (HirTy::UnsignedInteger(i), HirTy::UnsignedInteger(j)) => {
+                if i.size_in_bits >= j.size_in_bits {
+                    Ok(())
+                } else {
+                    Err(Self::type_mismatch_err(
+                        &format!("{}", expected_ty),
+                        &expected_span,
+                        &format!("{}", found_ty),
+                        &found_span,
+                    ))
+                }
+            }
+            (HirTy::Float(i), HirTy::Float(j)) => {
+                if i.size_in_bits >= j.size_in_bits {
+                    Ok(())
+                } else {
+                    Err(Self::type_mismatch_err(
+                        &format!("{}", expected_ty),
+                        &expected_span,
+                        &format!("{}", found_ty),
+                        &found_span,
+                    ))
+                }
             }
             _ => {
                 if HirTyId::from(expected_ty) == HirTyId::from(found_ty) {
@@ -2454,10 +2464,10 @@ impl<'hir> TypeChecker<'hir> {
             }
             HirTy::MutableReference(m) => format!("&{}", Self::get_type_display_name(m.inner)),
             HirTy::Boolean(_) => "bool".to_string(),
-            HirTy::Int64(_) => "int64".to_string(),
-            HirTy::Float64(_) => "float64".to_string(),
+            HirTy::Integer(_) => "int64".to_string(),
+            HirTy::Float(_) => "float64".to_string(),
             HirTy::Char(_) => "char".to_string(),
-            HirTy::UInt64(_) => "uint64".to_string(),
+            HirTy::UnsignedInteger(_) => "uint64".to_string(),
             HirTy::String(_) => "string".to_string(),
             HirTy::Unit(_) => "unit".to_string(),
             HirTy::List(l) => format!("[{}]", Self::get_type_display_name(l.inner)),
@@ -2783,16 +2793,16 @@ impl<'hir> TypeChecker<'hir> {
     fn is_arithmetic_type(ty: &HirTy) -> bool {
         matches!(
             ty,
-            HirTy::Int64(_) | HirTy::UInt64(_) | HirTy::Float64(_) | HirTy::Char(_)
+            HirTy::Integer(_) | HirTy::UnsignedInteger(_) | HirTy::Float(_) | HirTy::Char(_)
         )
     }
 
     /// == !=
     fn is_equality_comparable(&self, ty: &HirTy) -> bool {
         match ty {
-            HirTy::Int64(_)
-            | HirTy::UInt64(_)
-            | HirTy::Float64(_)
+            HirTy::Integer(_)
+            | HirTy::UnsignedInteger(_)
+            | HirTy::Float(_)
             | HirTy::Char(_)
             | HirTy::Boolean(_)
             | HirTy::Unit(_)
@@ -2807,7 +2817,7 @@ impl<'hir> TypeChecker<'hir> {
     fn is_orderable_type(ty: &HirTy) -> bool {
         matches!(
             ty,
-            HirTy::Int64(_) | HirTy::UInt64(_) | HirTy::Float64(_) | HirTy::Char(_)
+            HirTy::Integer(_) | HirTy::UnsignedInteger(_) | HirTy::Float(_) | HirTy::Char(_)
         )
     }
 }

@@ -9,11 +9,10 @@
  * std::vector functionality in Atlas77 eventually, and replace the old one.
  */
 
-extern malloc<T>(size: uint64) -> ptr<T>;
+extern fun malloc<T>(size: uint64) -> ptr<T>;
 // realloc helper
-extern realloc<T>(pointer: ptr<T>, new_size: uint64) -> ptr<T>;
-extern free<T>(pointer: ptr<T>);
-
+extern fun realloc<T>(pointer: ptr<T>, new_size: uint64) -> ptr<T>;
+extern fun free<T>(pointer: ptr<T>);
 
 public struct CVec<T> {
 //! Equivalent to T* in C.
@@ -51,7 +50,7 @@ public:
     fun push(&this, value: T) {
         if (*this).len >= (*this).capacity {
             // Reallocate with double capacity
-            let new_capacity = 0u;
+            let new_capacity: uint64 = 0u;
             if (*this).capacity == 0u {
                 new_capacity = 1u;
             } else {

@@ -122,12 +122,16 @@ impl CCodeGen {
     fn codegen_type(&mut self, ty: &LirTy) -> String {
         match ty {
             LirTy::Unit => "void".to_string(),
-            LirTy::Int32 => "int32_t".to_string(),
             LirTy::Int64 => "int64_t".to_string(),
+            LirTy::Int32 => "int32_t".to_string(),
+            LirTy::Int16 => "int16_t".to_string(),
+            LirTy::Int8 => "int8_t".to_string(),
             LirTy::Float32 => "float".to_string(),
             LirTy::Float64 => "double".to_string(),
-            LirTy::UInt32 => "uint32_t".to_string(),
             LirTy::UInt64 => "uint64_t".to_string(),
+            LirTy::UInt32 => "uint32_t".to_string(),
+            LirTy::UInt16 => "uint16_t".to_string(),
+            LirTy::UInt8 => "uint8_t".to_string(),
             LirTy::Boolean => "bool".to_string(),
             LirTy::Char => "uint32_t".to_string(),
             LirTy::Str => "char*".to_string(),

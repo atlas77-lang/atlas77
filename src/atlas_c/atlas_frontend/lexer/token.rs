@@ -268,19 +268,32 @@ pub enum TokenKind {
     #[token("const")]
     KwConst,
     //Misc
-    #[token("comptime")]
-    KwComptime,
     #[token("as")]
     KwAs,
-    //Primitive Types
-    #[token("extern_ptr")]
-    ExternPtr,
+    //Signed Types
     #[token("int64")]
     Int64Ty,
+    #[token("int32")]
+    Int32Ty,
+    #[token("int16")]
+    Int16Ty,
+    #[token("int8")]
+    Int8Ty,
+    //Float Types
     #[token("float64")]
     Float64Ty,
+    #[token("float32")]
+    Float32Ty,
+    //Unsigned Types
     #[token("uint64")]
     UInt64Ty,
+    #[token("uint32")]
+    UInt32Ty,
+    #[token("uint16")]
+    UInt16Ty,
+    #[token("uint8")]
+    UInt8Ty,
+    //other types
     #[token("unit")]
     UnitTy,
     #[token("char")]
@@ -294,14 +307,14 @@ pub enum TokenKind {
     #[token("ptr")]
     PtrTy,
     // === Keywords for compile-time ===
+    #[token("comptime")]
+    KwComptime,
     #[token("size_of")]
     KwSizeOf,
     #[token("align_of")]
     KwAlignOf,
     #[token("type_of")]
     KwTypeOf,
-    #[token("const_expr")]
-    KwConstExpr,
     #[token("then")] // Then is used in compile-time ifs
     KwThen,
     EoI,

@@ -2325,10 +2325,10 @@ impl<'hir> OwnershipPass<'hir> {
     fn classify_type_kind(&self, ty: &HirTy<'hir>) -> VarKind {
         match ty {
             HirTy::Boolean(_)
-            | HirTy::Int64(_)
-            | HirTy::Float64(_)
+            | HirTy::Integer(_)
+            | HirTy::Float(_)
             | HirTy::Char(_)
-            | HirTy::UInt64(_)
+            | HirTy::UnsignedInteger(_)
             | HirTy::Unit(_) => VarKind::Primitive,
 
             HirTy::ReadOnlyReference(_) | HirTy::MutableReference(_) => VarKind::Reference,
@@ -2347,10 +2347,10 @@ impl<'hir> OwnershipPass<'hir> {
     fn is_type_copyable(&self, ty: &HirTy<'hir>) -> bool {
         match ty {
             HirTy::Boolean(_)
-            | HirTy::Int64(_)
-            | HirTy::Float64(_)
+            | HirTy::Integer(_)
+            | HirTy::Float(_)
             | HirTy::Char(_)
-            | HirTy::UInt64(_)
+            | HirTy::UnsignedInteger(_)
             | HirTy::Unit(_)
             | HirTy::ReadOnlyReference(_)
             | HirTy::MutableReference(_)
@@ -2400,10 +2400,10 @@ impl<'hir> OwnershipPass<'hir> {
         matches!(
             ty,
             HirTy::Boolean(_)
-                | HirTy::Int64(_)
-                | HirTy::Float64(_)
+                | HirTy::Integer(_)
+                | HirTy::Float(_)
                 | HirTy::Char(_)
-                | HirTy::UInt64(_)
+                | HirTy::UnsignedInteger(_)
                 | HirTy::Unit(_)
         )
     }
@@ -2600,10 +2600,10 @@ impl<'hir> OwnershipPass<'hir> {
             }
             (HirTy::List(l1), HirTy::List(l2)) => self.types_match(l1.inner, l2.inner),
             (HirTy::Boolean(_), HirTy::Boolean(_))
-            | (HirTy::Int64(_), HirTy::Int64(_))
-            | (HirTy::Float64(_), HirTy::Float64(_))
+            | (HirTy::Integer(_), HirTy::Integer(_))
+            | (HirTy::Float(_), HirTy::Float(_))
             | (HirTy::Char(_), HirTy::Char(_))
-            | (HirTy::UInt64(_), HirTy::UInt64(_))
+            | (HirTy::UnsignedInteger(_), HirTy::UnsignedInteger(_))
             | (HirTy::Unit(_), HirTy::Unit(_))
             | (HirTy::String(_), HirTy::String(_)) => true,
             _ => false,
@@ -2748,10 +2748,10 @@ impl<'hir> OwnershipPass<'hir> {
             HirTy::MutableReference(r) => format!("&{}", Self::get_type_name(r.inner)),
             HirTy::List(l) => format!("[{}]", Self::get_type_name(l.inner)),
             HirTy::Boolean(_) => "bool".to_string(),
-            HirTy::Int64(_) => "int64".to_string(),
-            HirTy::Float64(_) => "float64".to_string(),
+            HirTy::Integer(_) => "int64".to_string(),
+            HirTy::Float(_) => "float64".to_string(),
             HirTy::Char(_) => "char".to_string(),
-            HirTy::UInt64(_) => "uint64".to_string(),
+            HirTy::UnsignedInteger(_) => "uint64".to_string(),
             HirTy::Unit(_) => "()".to_string(),
             HirTy::String(_) => "string".to_string(),
             HirTy::Function(_) => "function".to_string(),
@@ -3028,9 +3028,9 @@ impl<'hir> OwnershipPass<'hir> {
     fn type_needs_memory_management(ty: &HirTy<'hir>) -> bool {
         match ty {
             // Primitives don't need memory management
-            HirTy::Int64(_)
-            | HirTy::Float64(_)
-            | HirTy::UInt64(_)
+            HirTy::Integer(_)
+            | HirTy::Float(_)
+            | HirTy::UnsignedInteger(_)
             | HirTy::Char(_)
             | HirTy::Boolean(_)
             | HirTy::Unit(_) => false,

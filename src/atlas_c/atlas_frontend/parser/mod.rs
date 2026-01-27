@@ -200,7 +200,17 @@ impl<'ast> Parser<'ast> {
     fn parse_item(&mut self) -> ParseResult<AstItem<'ast>> {
         match self.current().kind() {
             TokenKind::KwImport => Ok(AstItem::Import(self.parse_import()?)),
-            TokenKind::KwExtern => Ok(AstItem::ExternFunction(self.parse_extern_function()?)),
+            TokenKind::KwExtern => {
+                let _ = self.advance();
+                match self.current().kind() {
+                    TokenKind::KwFunc => Ok(AstItem::ExternFunction(self.parse_extern_function()?)),
+                    TokenKind::KwStruct => Ok(AstItem::ExternStruct(self.parse_extern_struct()?)),
+                    _ => Err(self.unexpected_token_error(
+                        TokenVec(vec![TokenKind::KwFunc, TokenKind::KwStruct]),
+                        &self.current().span(),
+                    )),
+                }
+            }
             TokenKind::KwFunc => Ok(AstItem::Function(self.parse_func()?)),
             TokenKind::KwStruct => Ok(AstItem::Struct(self.parse_struct()?)),
             TokenKind::KwUnion => Ok(AstItem::Union(self.parse_union()?)),
@@ -1673,7 +1683,6 @@ impl<'ast> Parser<'ast> {
                 let ty = self.parse_type()?;
                 self.expect(TokenKind::Semicolon)?;
                 let size = self.parse_expr()?;
-                eprintln!("Size expr: {:?}", size);
                 self.expect(TokenKind::RBracket)?;
                 let node = AstExpr::NewArray(AstNewArrayExpr {
                     span: Span::union_span(&ty.span(), &size.span()),
@@ -1719,7 +1728,6 @@ impl<'ast> Parser<'ast> {
                     })),
                     size: self.arena.alloc(size),
                 });
-                eprintln!("New array node: {:?}", node);
                 Ok(node)
             }
             _ => Err(self.unexpected_token_error(
@@ -1789,9 +1797,7 @@ impl<'ast> Parser<'ast> {
     }
 
     fn parse_extern_struct(&mut self) -> ParseResult<AstExternStruct<'ast>> {
-        let start = self.advance();
-
-        self.expect(TokenKind::KwStruct)?;
+        let start = self.expect(TokenKind::KwStruct)?;
 
         let name = self.parse_identifier()?;
 
@@ -1801,6 +1807,7 @@ impl<'ast> Parser<'ast> {
         let mut fields = vec![];
         while self.current().kind() != TokenKind::RBrace {
             fields.push(self.parse_obj_field()?);
+            self.expect(TokenKind::Semicolon)?;
         }
         self.expect(TokenKind::RBrace)?;
         let node = AstExternStruct {
@@ -1814,8 +1821,6 @@ impl<'ast> Parser<'ast> {
     }
 
     fn parse_extern_function(&mut self) -> ParseResult<AstExternFunction<'ast>> {
-        let _ = self.advance();
-
         let language = match self.current().kind() {
             TokenKind::StringLiteral(lang) => {
                 let lang_str = lang;
@@ -2187,18 +2192,70 @@ impl<'ast> Parser<'ast> {
                 let _ = self.advance();
                 AstType::Integer(AstIntegerType {
                     span: Span::union_span(&start, &self.current().span()),
+                    size_in_bits: 64,
+                })
+            }
+            TokenKind::Int32Ty => {
+                let _ = self.advance();
+                AstType::Integer(AstIntegerType {
+                    span: Span::union_span(&start, &self.current().span()),
+                    size_in_bits: 32,
+                })
+            }
+            TokenKind::Int16Ty => {
+                let _ = self.advance();
+                AstType::Integer(AstIntegerType {
+                    span: Span::union_span(&start, &self.current().span()),
+                    size_in_bits: 16,
+                })
+            }
+            TokenKind::Int8Ty => {
+                let _ = self.advance();
+                AstType::Integer(AstIntegerType {
+                    span: Span::union_span(&start, &self.current().span()),
+                    size_in_bits: 8,
                 })
             }
             TokenKind::Float64Ty => {
                 let _ = self.advance();
                 AstType::Float(AstFloatType {
                     span: Span::union_span(&start, &self.current().span()),
+                    size_in_bits: 64,
+                })
+            }
+            TokenKind::Float32Ty => {
+                let _ = self.advance();
+                AstType::Float(AstFloatType {
+                    span: Span::union_span(&start, &self.current().span()),
+                    size_in_bits: 32,
                 })
             }
             TokenKind::UInt64Ty => {
                 let _ = self.advance();
                 AstType::UnsignedInteger(AstUnsignedIntegerType {
                     span: Span::union_span(&start, &self.current().span()),
+                    size_in_bits: 64,
+                })
+            }
+            TokenKind::UInt32Ty => {
+                let _ = self.advance();
+                AstType::UnsignedInteger(AstUnsignedIntegerType {
+                    span: Span::union_span(&start, &self.current().span()),
+                    size_in_bits: 32,
+                })
+            }
+            TokenKind::UInt16Ty => {
+                let _ = self.advance();
+                AstType::UnsignedInteger(AstUnsignedIntegerType {
+                    span: Span::union_span(&start, &self.current().span()),
+                    size_in_bits: 16,
+                })
+            }
+            TokenKind::UInt8Ty => {
+                let _ = self.advance();
+                AstType::UnsignedInteger(AstUnsignedIntegerType {
+                    span: Span::union_span(&start, &self.current().span()),
+                    size_in_bits: 8,
                 })
             }
             TokenKind::CharTy => {

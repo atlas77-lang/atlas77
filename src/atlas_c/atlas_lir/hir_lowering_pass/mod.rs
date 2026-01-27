@@ -498,6 +498,26 @@ impl<'hir> HirLoweringPass<'hir> {
                 // Lower expression for side effects, discard result
                 self.lower_expr(&expr_stmt.expr)?;
             }
+            HirStatement::Const(const_stmt) => {
+                let value = self.lower_expr(&const_stmt.value)?;
+
+                if let LirOperand::Temp(id) = value {
+                    self.local_map.insert(const_stmt.name, id);
+                } else {
+                    // Immediate values don't generate temps, so load them into one
+                    let temp = self.new_temp();
+                    self.emit(LirInstr::LoadImm {
+                        ty: self.hir_ty_to_lir_ty(const_stmt.ty, const_stmt.span),
+                        dst: temp.clone(),
+                        value,
+                    })?;
+                    if let LirOperand::Temp(id) = temp {
+                        self.local_map.insert(const_stmt.name, id);
+                    } else {
+                        panic!("Expected a temp operand");
+                    }
+                }
+            }
             HirStatement::Let(let_stmt) => {
                 let value = self.lower_expr(&let_stmt.value)?;
 
@@ -803,7 +823,6 @@ impl<'hir> HirLoweringPass<'hir> {
                             // If it's an actual function in the module, the name is mangled in the signature, so this returns true
                             && !self.hir_module.signature.functions.contains_key(ident.name)
                         {
-                            eprintln!("Monomorphizing call to generic function: {}", ident.name);
                             (
                                 MonomorphizationPass::generate_mangled_name(
                                     self.hir_arena,
@@ -976,9 +995,40 @@ impl<'hir> HirLoweringPass<'hir> {
     /// Convert HIR type to Lir type
     fn hir_ty_to_lir_ty(&self, ty: &HirTy, span: Span) -> LirTy {
         match ty {
-            HirTy::Int64(_) => LirTy::Int64,
-            HirTy::UInt64(_) => LirTy::UInt64,
-            HirTy::Float64(_) => LirTy::Float64,
+            HirTy::Integer(i) => match i.size_in_bits {
+                8 => LirTy::Int8,
+                16 => LirTy::Int16,
+                32 => LirTy::Int32,
+                64 => LirTy::Int64,
+                _ => {
+                    let report: miette::Report =
+                        (*unknown_type_err(&format!("{}", ty), span)).into();
+                    eprintln!("{:?}", report);
+                    std::process::exit(1);
+                }
+            },
+            HirTy::UnsignedInteger(ui) => match ui.size_in_bits {
+                8 => LirTy::UInt8,
+                16 => LirTy::UInt16,
+                32 => LirTy::UInt32,
+                64 => LirTy::UInt64,
+                _ => {
+                    let report: miette::Report =
+                        (*unknown_type_err(&format!("{}", ty), span)).into();
+                    eprintln!("{:?}", report);
+                    std::process::exit(1);
+                }
+            },
+            HirTy::Float(flt) => match flt.size_in_bits {
+                32 => LirTy::Float32,
+                64 => LirTy::Float64,
+                _ => {
+                    let report: miette::Report =
+                        (*unknown_type_err(&format!("{}", ty), span)).into();
+                    eprintln!("{:?}", report);
+                    std::process::exit(1);
+                }
+            },
             HirTy::Boolean(_) => LirTy::Boolean,
             HirTy::Char(_) => LirTy::Char,
             HirTy::String(_) => LirTy::Str,

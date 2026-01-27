@@ -6,8 +6,8 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
 pub struct HirTyId(u64);
 
-const INTEGER64_TY_ID: u8 = 0x01;
-const FLOAT64_TY_ID: u8 = 0x02;
+const INTEGER_TY_ID: u8 = 0x01;
+const FLOAT_TY_ID: u8 = 0x02;
 const UNSIGNED_INTEGER_TY_ID: u8 = 0x03;
 const BOOLEAN_TY_ID: u8 = 0x04;
 const UNIT_TY_ID: u8 = 0x05;
@@ -24,21 +24,21 @@ const CONST_REFERENCE_TY_ID: u8 = 0x81;
 const POINTER_TY_ID: u8 = 0x90;
 
 impl HirTyId {
-    pub fn compute_integer64_ty_id() -> Self {
+    pub fn compute_int_ty_id(size_in_bits: u8) -> Self {
         let mut hasher = DefaultHasher::new();
-        INTEGER64_TY_ID.hash(&mut hasher);
+        (INTEGER_TY_ID, size_in_bits).hash(&mut hasher);
         Self(hasher.finish())
     }
 
-    pub fn compute_float64_ty_id() -> Self {
+    pub fn compute_float_ty_id(size_in_bits: u8) -> Self {
         let mut hasher = DefaultHasher::new();
-        FLOAT64_TY_ID.hash(&mut hasher);
+        (FLOAT_TY_ID, size_in_bits).hash(&mut hasher);
         Self(hasher.finish())
     }
 
-    pub fn compute_uint64_ty_id() -> Self {
+    pub fn compute_uint_ty_id(size_in_bits: u8) -> Self {
         let mut hasher = DefaultHasher::new();
-        UNSIGNED_INTEGER_TY_ID.hash(&mut hasher);
+        (UNSIGNED_INTEGER_TY_ID, size_in_bits).hash(&mut hasher);
         Self(hasher.finish())
     }
 
@@ -125,9 +125,9 @@ impl HirTyId {
 impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
     fn from(value: &'hir HirTy<'hir>) -> Self {
         match value {
-            HirTy::Int64(_) => Self::compute_integer64_ty_id(),
-            HirTy::Float64(_) => Self::compute_float64_ty_id(),
-            HirTy::UInt64(_) => Self::compute_uint64_ty_id(),
+            HirTy::Integer(i) => Self::compute_int_ty_id(i.size_in_bits),
+            HirTy::Float(f) => Self::compute_float_ty_id(f.size_in_bits),
+            HirTy::UnsignedInteger(u) => Self::compute_uint_ty_id(u.size_in_bits),
             HirTy::Char(_) => Self::compute_char_ty_id(),
             HirTy::Boolean(_) => Self::compute_boolean_ty_id(),
             HirTy::Unit(_) => Self::compute_unit_ty_id(),
@@ -156,9 +156,9 @@ impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub enum HirTy<'hir> {
-    Int64(HirIntegerTy),
-    Float64(HirFloatTy),
-    UInt64(HirUnsignedIntTy),
+    Integer(HirIntegerTy),
+    Float(HirFloatTy),
+    UnsignedInteger(HirUnsignedIntTy),
     Char(HirCharTy),
     Unit(HirUnitTy),
     Boolean(HirBooleanTy),
@@ -197,9 +197,9 @@ impl HirTy<'_> {
     pub fn is_primitive(&self) -> bool {
         matches!(
             self,
-            HirTy::Int64(_)
-                | HirTy::Float64(_)
-                | HirTy::UInt64(_)
+            HirTy::Integer(_)
+                | HirTy::Float(_)
+                | HirTy::UnsignedInteger(_)
                 | HirTy::Boolean(_)
                 | HirTy::Unit(_)
                 | HirTy::Char(_)
@@ -215,9 +215,9 @@ impl HirTy<'_> {
     /// Which is not a valid C identifier. It should returns `Foo_T_ptr` instead.
     pub fn get_valid_c_string(&self) -> String {
         match self {
-            HirTy::Int64(_) => "int64".to_string(),
-            HirTy::Float64(_) => "float64".to_string(),
-            HirTy::UInt64(_) => "uint64".to_string(),
+            HirTy::Integer(_) => "int64".to_string(),
+            HirTy::Float(_) => "float64".to_string(),
+            HirTy::UnsignedInteger(_) => "uint64".to_string(),
             HirTy::Char(_) => "char".to_string(),
             HirTy::Unit(_) => "unit".to_string(),
             HirTy::Boolean(_) => "bool".to_string(),
@@ -258,9 +258,9 @@ impl HirTy<'_> {
 impl fmt::Display for HirTy<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            HirTy::Int64(_) => write!(f, "int64"),
-            HirTy::Float64(_) => write!(f, "float64"),
-            HirTy::UInt64(_) => write!(f, "uint64"),
+            HirTy::Integer(i) => write!(f, "int{}", i.size_in_bits),
+            HirTy::Float(flt) => write!(f, "float{}", flt.size_in_bits),
+            HirTy::UnsignedInteger(ui) => write!(f, "uint{}", ui.size_in_bits),
             HirTy::Char(_) => write!(f, "char"),
             HirTy::Unit(_) => write!(f, "unit"),
             HirTy::Boolean(_) => write!(f, "bool"),
@@ -351,13 +351,19 @@ impl fmt::Display for HirListTy<'_> {
 pub struct HirUninitializedTy {}
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
-pub struct HirIntegerTy {}
+pub struct HirIntegerTy {
+    pub size_in_bits: u8,
+}
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
-pub struct HirFloatTy {}
+pub struct HirFloatTy {
+    pub size_in_bits: u8,
+}
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
-pub struct HirUnsignedIntTy {}
+pub struct HirUnsignedIntTy {
+    pub size_in_bits: u8,
+}
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct HirUnitTy {}
