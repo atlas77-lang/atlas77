@@ -73,8 +73,13 @@ impl CCodeGen {
     fn codegen_struct(&mut self, strukt: &LirStruct) {
         let mut struct_def = format!("typedef struct {} {{\n", strukt.name);
         for (field_name, field_type) in strukt.fields.iter() {
-            let field_type_str = self.codegen_type(field_type);
-            struct_def.push_str(&format!("\t{} {};\n", field_type_str, field_name));
+            let field_sig = match field_type {
+                LirTy::ArrayTy { inner, size } => {
+                    format!("\t{} {}[{}];\n", self.codegen_type(inner), field_name, size)
+                }
+                _ => format!("\t{} {};\n", self.codegen_type(field_type), field_name),
+            };
+            struct_def.push_str(&field_sig);
         }
         struct_def.push_str(&format!("}} {};\n\n", strukt.name));
         Self::write_to_file(&mut self.c_header, &struct_def, self.indent_level);
@@ -107,10 +112,15 @@ impl CCodeGen {
     fn codegen_signature(&mut self, name: &str, args: &[LirTy], ret: &LirTy) -> String {
         let mut prototype = format!("{} {}(", self.codegen_type(ret), name);
         for (i, arg) in args.iter().enumerate() {
-            let arg_type = self.codegen_type(arg);
+            let arg_sig = match arg {
+                LirTy::ArrayTy { inner, size } => {
+                    format!("{} arg_{}[{}]", self.codegen_type(inner), i, size)
+                }
+                _ => format!("{} arg_{}", self.codegen_type(arg), i),
+            };
+            self.codegen_type(arg);
             // For now, just name args arg0, arg1, etc.
-            let arg_name = format!("arg_{}", i);
-            prototype.push_str(&format!("{} {}", arg_type, arg_name));
+            prototype.push_str(&arg_sig);
             if i != args.len() - 1 {
                 prototype.push_str(", ");
             }
@@ -438,12 +448,24 @@ impl CCodeGen {
                     Self::write_to_file(&mut self.c_file, &line, self.indent_level);
                 }
             }
-            LirInstr::Assign { ty: _, dst, src } => {
-                let dest_str = self.codegen_operand(dst);
-                let src_str = self.codegen_operand(src);
-                let line = format!("{} = {};", dest_str, src_str);
-                Self::write_to_file(&mut self.c_file, &line, self.indent_level);
-            }
+            LirInstr::Assign { ty, dst, src } => match ty {
+                LirTy::ArrayTy { inner, size } => {
+                    let dest_str = self.codegen_operand(dst);
+                    let src_str = self.codegen_operand(src);
+                    let type_str = self.codegen_type(inner);
+                    let line = format!(
+                        "memcpy({}, {}, sizeof({}) * {});",
+                        dest_str, src_str, type_str, size
+                    );
+                    Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+                }
+                _ => {
+                    let dest_str = self.codegen_operand(dst);
+                    let src_str = self.codegen_operand(src);
+                    let line = format!("{} = {};", dest_str, src_str);
+                    Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+                }
+            },
             LirInstr::Delete { ty: _, src: _ } => {
                 // Delete instructions are ignored for now. We don't properly handle move semantics in C yet.
                 /* let src_str = self.codegen_operand(src);

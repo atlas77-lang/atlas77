@@ -3,6 +3,19 @@ extern fun printf<T>(fmt: string, val: T);
 fun main() {
     printf("Hello, %s\n", "Atlas!");
     test();
+    let arr = new [int64; 5u];
+    arr[0u] = 10;
+    arr[1u] = 20;
+    arr[2u] = 30;
+    arr[3u] = 40;
+    arr[4u] = 50;
+    let inline_arr = take_and_return_arr(arr);
+    let i = 0u;
+    while i < 5u {
+        printf("inline_arr.data[%d]", i);
+        printf("= %d\n", inline_arr.data[i]);
+        i = i + 1u;
+    }
 }
 
 
@@ -11,4 +24,25 @@ fun test() {
     let b = a;
     b[0u] = 42;
     printf("a[0] = %d\n", a[0u]);
+}
+
+struct InlineArray5<T> {
+public:
+    data: [T; 5u];
+    InlineArray5(data: [T; 5u]) {
+        this.data = data;
+    }
+    InlineArray5() {
+        this.data = new [T; 5u];
+    }
+}
+
+fun take_and_return_arr(arr: [int64; 5u]) -> InlineArray5<int64> {
+    let inline_arr = new InlineArray5<int64>(arr);
+    let i = 0u;
+    while i < 5u {
+        inline_arr.data[i] = arr[i];
+        i = i + 1u;
+    }
+    return inline_arr;
 }
