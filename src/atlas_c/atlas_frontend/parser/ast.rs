@@ -815,7 +815,8 @@ pub enum AstType<'ast> {
     ReadOnlyRef(AstReadOnlyRefType<'ast>),
     Function(AstFunctionType<'ast>),
     Nullable(AstNullableType<'ast>),
-    List(AstListType<'ast>),
+    Slice(AstSliceType<'ast>),
+    InlineArray(AstInlineArrayType<'ast>),
     Generic(AstGenericType<'ast>),
     PtrTy(AstPtrTy<'ast>),
 }
@@ -836,7 +837,8 @@ impl AstType<'_> {
             AstType::Function(t) => t.span,
             AstType::Nullable(t) => t.span,
             AstType::ReadOnlyRef(t) => t.span,
-            AstType::List(t) => t.span,
+            AstType::Slice(t) => t.span,
+            AstType::InlineArray(t) => t.span,
             AstType::Generic(t) => t.span,
             AstType::PtrTy(t) => t.span,
         }
@@ -858,7 +860,8 @@ impl<'ast> AstType<'ast> {
             AstType::MutableRef(t) => format!("&{}", t.inner.name()),
             AstType::Nullable(t) => format!("{}?", t.inner.name()),
             AstType::ReadOnlyRef(t) => format!("&const {}", t.inner.name()),
-            AstType::List(t) => format!("[{}]", t.inner.name()),
+            AstType::Slice(t) => format!("[{}]", t.inner.name()),
+            AstType::InlineArray(t) => format!("[{}; {}]", t.inner.name(), t.size),
             AstType::Generic(t) => {
                 if t.inner_types.is_empty() {
                     t.name.name.to_owned()
@@ -913,11 +916,18 @@ pub struct AstGenericType<'ast> {
 }
 
 #[derive(Debug, Clone)]
-///A List type in atlas as the form of `[T]`
-pub struct AstListType<'ast> {
+///The slice type in atlas as the form of `[T]`
+pub struct AstSliceType<'ast> {
     pub span: Span,
     pub inner: &'ast AstType<'ast>,
-    pub size: Option<usize>,
+}
+
+#[derive(Debug, Clone)]
+///The Inline Array type in atlas as the form of `[T; N]`
+pub struct AstInlineArrayType<'ast> {
+    pub span: Span,
+    pub inner: &'ast AstType<'ast>,
+    pub size: usize,
 }
 
 #[derive(Debug, Clone)]

@@ -1,5 +1,14 @@
-extern printf<T>(fmt: string, val: T);
+extern fun printf<T>(fmt: string, val: T);
 
 fun main() {
     printf("Hello, %s\n", "Atlas!");
+    test();
+}
+
+
+fun test() {
+    let a: [int64; 5] = new [int64; 5u];
+    let b = a;
+    b[0u] = 42;
+    printf("a[0] = %d\n", a[0u]);
 }

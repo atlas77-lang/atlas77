@@ -43,6 +43,9 @@ public:
     ~String() {
         delete this.s;
     }
+    fun from(s: string) -> String {
+        
+    }
     fun with_capacity(capacity: uint64) -> String {
         // Well... Should we allocate a string here?
         // Aren't we returning a temporary char*?
@@ -53,6 +56,28 @@ public:
     }
     fun to_string(&const this) -> string {
         return ((*this).s as ptr<uint8>) as string;
+    }
+    // return a Unicode char from UTF-8 string at index
+    operator [](&const this, index: uint64) -> char {
+        let i = 0u;
+        let byte_index = 0u;
+        while byte_index < (*this).s.len() {
+            let byte = (*this).s.get(byte_index);
+            let char_len = utf8_char_length(byte);
+            if i == index {
+                // Extract the char
+                let char_bytes = new [uint8; 4];
+                let j = 0u;
+                while j < char_len {
+                    char_bytes[j] = (*this).s.get(byte_index + j);
+                    j = j + 1u;
+                }
+                return utf8_bytes_to_char(char_bytes, char_len);
+            }
+            byte_index = byte_index + char_len;
+            i = i + 1u;
+        }
+        panic("Index out of bounds");   
     }
 }
 

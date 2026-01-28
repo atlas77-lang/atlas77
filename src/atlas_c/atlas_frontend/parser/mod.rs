@@ -10,12 +10,13 @@ use miette::NamedSource;
 use crate::atlas_c::atlas_frontend::parser::{
     ast::{
         AstArg, AstEnum, AstEnumVariant, AstExternStruct, AstFlag, AstGlobalConst,
-        AstObjLiteralExpr, AstObjLiteralField, AstPtrTy, AstReadOnlyRefType,
+        AstInlineArrayType, AstObjLiteralExpr, AstObjLiteralField, AstPtrTy, AstReadOnlyRefType,
         AstStdGenericConstraint, AstUnion, ConstructorKind,
     },
     error::{
         DestructorWithParametersError, FlagDoesntExistError, NoFieldInStructError,
-        OnlyOneConstructorAllowedError, ParseResult, SyntaxError, UnexpectedTokenError,
+        OnlyOneConstructorAllowedError, ParseResult, SizeOfArrayMustBeKnownAtCompileTimeError,
+        SyntaxError, UnexpectedTokenError,
     },
 };
 use ast::{
@@ -34,10 +35,10 @@ use crate::atlas_c::atlas_frontend::lexer::{
 };
 use crate::atlas_c::atlas_frontend::parser::ast::{
     AstCastingExpr, AstCharLiteral, AstCharType, AstConstructor, AstDeleteObjExpr, AstDestructor,
-    AstGeneric, AstGenericConstraint, AstGenericType, AstIndexingExpr, AstListLiteral, AstListType,
-    AstMethod, AstMethodModifier, AstNewArrayExpr, AstNewObjExpr, AstNullableType,
-    AstOperatorOverload, AstStaticAccessExpr, AstStruct, AstThisLiteral, AstThisType,
-    AstUnitLiteral, AstVisibility,
+    AstGeneric, AstGenericConstraint, AstGenericType, AstIndexingExpr, AstListLiteral, AstMethod,
+    AstMethodModifier, AstNewArrayExpr, AstNewObjExpr, AstNullableType, AstOperatorOverload,
+    AstSliceType, AstStaticAccessExpr, AstStruct, AstThisLiteral, AstThisType, AstUnitLiteral,
+    AstVisibility,
 };
 use crate::atlas_c::utils::{Span, get_file_content};
 use arena::AstArena;
@@ -1686,16 +1687,14 @@ impl<'ast> Parser<'ast> {
                 self.expect(TokenKind::RBracket)?;
                 let node = AstExpr::NewArray(AstNewArrayExpr {
                     span: Span::union_span(&ty.span(), &size.span()),
-                    ty: self.arena.alloc(AstType::List(AstListType {
+                    ty: self.arena.alloc(AstType::InlineArray(AstInlineArrayType {
                         span: ty.span(),
                         inner: self.arena.alloc(ty),
                         size: match &size {
-                            AstExpr::Literal(AstLiteral::UnsignedInteger(u)) => {
-                                Some(u.value as usize)
-                            }
+                            AstExpr::Literal(AstLiteral::UnsignedInteger(u)) => u.value as usize,
                             AstExpr::Literal(AstLiteral::Integer(i)) => {
                                 if i.value >= 0 {
-                                    Some(i.value as usize)
+                                    i.value as usize
                                 } else {
                                     return Err(self.unexpected_token_error(
                                         TokenVec(vec![TokenKind::Identifier(
@@ -1707,11 +1706,11 @@ impl<'ast> Parser<'ast> {
                             }
                             AstExpr::UnaryOp(unary) if unary.op.is_none() => match unary.expr {
                                 AstExpr::Literal(AstLiteral::UnsignedInteger(u)) => {
-                                    Some(u.value as usize)
+                                    u.value as usize
                                 }
                                 AstExpr::Literal(AstLiteral::Integer(i)) => {
                                     if i.value >= 0 {
-                                        Some(i.value as usize)
+                                        i.value as usize
                                     } else {
                                         return Err(self.unexpected_token_error(
                                             TokenVec(vec![TokenKind::Identifier(
@@ -1721,9 +1720,9 @@ impl<'ast> Parser<'ast> {
                                         ));
                                     }
                                 }
-                                _ => None,
+                                _ => return Err(self.unknown_array_size_error(&size.span())),
                             },
-                            _ => None,
+                            _ => return Err(self.unknown_array_size_error(&size.span())),
                         },
                     })),
                     size: self.arena.alloc(size),
@@ -2365,18 +2364,17 @@ impl<'ast> Parser<'ast> {
                     } as usize;
                     let _ = self.advance();
                     self.expect(TokenKind::RBracket)?;
-                    AstType::List(AstListType {
+                    AstType::InlineArray(AstInlineArrayType {
                         span: Span::union_span(&start, &self.current().span()),
                         inner: self.arena.alloc(ty),
-                        size: Some(size),
+                        size,
                     })
                 } else {
                     // Slice type
                     self.expect(TokenKind::RBracket)?;
-                    AstType::List(AstListType {
+                    AstType::Slice(AstSliceType {
                         span: Span::union_span(&start, &self.current().span()),
                         inner: self.arena.alloc(ty),
-                        size: None,
                     })
                 }
             }
@@ -2434,6 +2432,17 @@ impl<'ast> Parser<'ast> {
             ty
         };
         Ok(node)
+    }
+
+    fn unknown_array_size_error(&self, span: &Span) -> Box<SyntaxError> {
+        let path = span.path;
+        let src = get_file_content(path).expect("Failed to read source file");
+        Box::new(SyntaxError::SizeOfArrayMustBeKnownAtCompileTime(
+            SizeOfArrayMustBeKnownAtCompileTimeError {
+                span: *span,
+                src: NamedSource::new(path, src),
+            },
+        ))
     }
 
     fn unexpected_token_error(&self, expected: TokenVec, span: &Span) -> Box<SyntaxError> {

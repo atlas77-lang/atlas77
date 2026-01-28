@@ -19,6 +19,7 @@ declare_error_type! {
         InvalidCharacter(InvalidCharacterError),
         DestructorWithParameters(DestructorWithParametersError),
         FlagDoesntExist(FlagDoesntExistError),
+        SizeOfArrayMustBeKnownAtCompileTime(SizeOfArrayMustBeKnownAtCompileTimeError),
     }
 }
 
@@ -112,4 +113,17 @@ pub struct InvalidCharacterError {
     #[label("invalid character found here")]
     pub span: Span,
     pub kind: LexingError,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(syntax::size_of_array_must_be_known_at_compile_time),
+    help("Use a compile-time constant expression or an integer literal for the size of the array")
+)]
+#[error("size of array must be known at compile time")]
+pub struct SizeOfArrayMustBeKnownAtCompileTimeError {
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label("size of array must be known at compile time")]
+    pub span: Span,
 }

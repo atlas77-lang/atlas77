@@ -12,7 +12,8 @@ use crate::atlas_c::{
         signature::{HirGenericConstraint, HirGenericConstraintKind, HirModuleSignature},
         stmt::HirStatement,
         ty::{
-            HirGenericTy, HirListTy, HirMutableReferenceTy, HirPtrTy, HirReadOnlyReferenceTy, HirTy,
+            HirGenericTy, HirInlineArrayTy, HirMutableReferenceTy, HirPtrTy,
+            HirReadOnlyReferenceTy, HirSliceTy, HirTy,
         },
     },
     utils::{self, Span},
@@ -924,11 +925,11 @@ impl<'hir> MonomorphizationPass<'hir> {
                 }
             }
             HirExpr::NewArray(new_array_expr) => {
-                if let HirTy::List(_l) = new_array_expr.ty {
+                if let HirTy::Slice(_l) = new_array_expr.ty {
                     let ty =
                         self.swap_generic_types_in_ty(new_array_expr.ty, types_to_change.clone());
 
-                    if let HirTy::List(l_mono) = ty
+                    if let HirTy::Slice(l_mono) = ty
                         && let HirTy::Generic(g_mono) = l_mono.inner
                     {
                         self.generic_pool
@@ -992,11 +993,16 @@ impl<'hir> MonomorphizationPass<'hir> {
                 }
                 ty
             }
-            HirTy::List(l) => {
+            HirTy::Slice(l) => {
                 let new_inner = self.swap_generic_types_in_ty(l.inner, types_to_change);
-                self.arena.intern(HirTy::List(HirListTy {
+                self.arena
+                    .intern(HirTy::Slice(HirSliceTy { inner: new_inner }))
+            }
+            HirTy::InlineArray(arr) => {
+                let new_inner = self.swap_generic_types_in_ty(arr.inner, types_to_change);
+                self.arena.intern(HirTy::InlineArray(HirInlineArrayTy {
                     inner: new_inner,
-                    size: l.size,
+                    size: arr.size,
                 }))
             }
             HirTy::Generic(g) => {
@@ -1125,9 +1131,12 @@ impl<'hir> MonomorphizationPass<'hir> {
                     type_to_change
                 }
             }
-            HirTy::List(l) => self.arena.intern(HirTy::List(HirListTy {
+            HirTy::Slice(l) => self.arena.intern(HirTy::Slice(HirSliceTy {
                 inner: self.change_inner_type(l.inner, generic_name, new_type, module),
-                size: l.size,
+            })),
+            HirTy::InlineArray(arr) => self.arena.intern(HirTy::InlineArray(HirInlineArrayTy {
+                inner: self.change_inner_type(arr.inner, generic_name, new_type, module),
+                size: arr.size,
             })),
             HirTy::Generic(g) => {
                 let new_inner_types: Vec<HirTy<'hir>> = g

@@ -387,7 +387,7 @@ impl<'hir> HirGenericPool<'hir> {
             // THIS IS ONLY TEMPORARY. Lists need to be owned types, and if people want a reference to them,
             // They'll need to do &const [T] or &[T]
             // I just need to make c_vec works properly first (I still don't have the ptr<T> type implemented)
-            HirTy::List(_) => true,
+            HirTy::Slice(_) => true,
             HirTy::Named(n) => match module.structs.get(n.name) {
                 Some(struct_sig) => {
                     struct_sig.copy_constructor.is_some()
@@ -426,7 +426,7 @@ impl<'hir> HirGenericPool<'hir> {
             // Function pointers are moveable
             | HirTy::Function(_) => true,
             // For now we consider lists as moveable until we have a better way to handle them
-            HirTy::List(_l) => true /*self.implements_std_moveable(module, l.inner)*/,
+            HirTy::Slice(_l) => true /*self.implements_std_moveable(module, l.inner)*/,
             HirTy::Named(n) => match module.structs.get(n.name) {
                 Some(struct_sig) => {
                     struct_sig.move_constructor.is_some()

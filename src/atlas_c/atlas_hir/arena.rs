@@ -6,9 +6,9 @@ use std::{
 };
 
 use super::ty::{
-    HirBooleanTy, HirCharTy, HirFloatTy, HirGenericTy, HirIntegerTy, HirListTy,
-    HirMutableReferenceTy, HirNamedTy, HirNullableTy, HirStringTy, HirTy, HirTyId,
-    HirUninitializedTy, HirUnitTy, HirUnsignedIntTy,
+    HirBooleanTy, HirCharTy, HirFloatTy, HirGenericTy, HirIntegerTy, HirMutableReferenceTy,
+    HirNamedTy, HirNullableTy, HirSliceTy, HirStringTy, HirTy, HirTyId, HirUninitializedTy,
+    HirUnitTy, HirUnsignedIntTy,
 };
 use crate::atlas_c::{
     atlas_hir::ty::{HirFunctionTy, HirPtrTy, HirReadOnlyReferenceTy},
@@ -165,15 +165,24 @@ impl<'arena> TypeArena<'arena> {
         })
     }
 
-    pub fn get_list_ty(
+    pub fn get_slice_ty(&'arena self, ty: &'arena HirTy<'arena>) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_slice_ty_id(&HirTyId::from(ty));
+        self.intern
+            .borrow_mut()
+            .entry(id)
+            .or_insert_with(|| self.allocator.alloc(HirTy::Slice(HirSliceTy { inner: ty })))
+    }
+
+    pub fn get_inline_arr_ty(
         &'arena self,
         ty: &'arena HirTy<'arena>,
-        size: Option<usize>,
+        size: usize,
     ) -> &'arena HirTy<'arena> {
-        let id = HirTyId::compute_list_ty_id(&HirTyId::from(ty), size);
+        let id = HirTyId::compute_inline_arr_ty_id(&HirTyId::from(ty), size);
         self.intern.borrow_mut().entry(id).or_insert_with(|| {
-            self.allocator
-                .alloc(HirTy::List(HirListTy { inner: ty, size }))
+            self.allocator.alloc(HirTy::InlineArray(
+                crate::atlas_c::atlas_hir::ty::HirInlineArrayTy { inner: ty, size },
+            ))
         })
     }
 

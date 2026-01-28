@@ -1964,7 +1964,7 @@ impl<'hir> OwnershipPass<'hir> {
                 if self.type_is_union(var.ty) {
                     continue;
                 }
-                if let HirTy::List(_) = var.ty {
+                if let HirTy::Slice(_) = var.ty {
                     continue;
                 }
                 if var.status.should_delete_at_scope_end() {
@@ -2335,7 +2335,7 @@ impl<'hir> OwnershipPass<'hir> {
 
             HirTy::String(_) => VarKind::String,
 
-            HirTy::List(_) => VarKind::List,
+            HirTy::Slice(_) => VarKind::List,
 
             HirTy::Named(_) | HirTy::Generic(_) | HirTy::Function(_) => VarKind::Object,
 
@@ -2354,8 +2354,11 @@ impl<'hir> OwnershipPass<'hir> {
             | HirTy::Unit(_)
             | HirTy::ReadOnlyReference(_)
             | HirTy::MutableReference(_)
-            | HirTy::PtrTy(_) => true,
-            HirTy::String(_) => true,
+            // Slices are copyable by default, they are just a fat pointer to the heap data
+            | HirTy::Slice(_)
+            | HirTy::PtrTy(_)
+            // Copyable because it's just a reference
+            | HirTy::String(_) => true,
             HirTy::Named(n) => {
                 if let Some(struct_sig) = self.hir_signature.structs.get(n.name) {
                     return struct_sig.copy_constructor.is_some();
@@ -2382,11 +2385,8 @@ impl<'hir> OwnershipPass<'hir> {
                 }
                 false
             }
-            // Lists are copyable by default, they are just a pointer to the heap data
-            // THIS IS ONLY TEMPORARY. Lists need to be owned types, and if people want a reference to them,
-            // They'll need to do &const [T] or &[T]
-            // I just need to make c_vec works properly first (I still don't have the ptr<T> type implemented)
-            HirTy::List(_) => true,
+            // Arrays are copyable if their inner type is copyable
+            HirTy::InlineArray(arr) => self.is_type_copyable(&arr.inner),
             // TOOD: actually implement function types properly
             HirTy::Function(_) => false,
             HirTy::Uninitialized(_) | HirTy::Nullable(_) => {
@@ -2598,7 +2598,7 @@ impl<'hir> OwnershipPass<'hir> {
             (HirTy::MutableReference(r1), HirTy::MutableReference(r2)) => {
                 self.types_match(r1.inner, r2.inner)
             }
-            (HirTy::List(l1), HirTy::List(l2)) => self.types_match(l1.inner, l2.inner),
+            (HirTy::Slice(l1), HirTy::Slice(l2)) => self.types_match(l1.inner, l2.inner),
             (HirTy::Boolean(_), HirTy::Boolean(_))
             | (HirTy::Integer(_), HirTy::Integer(_))
             | (HirTy::Float(_), HirTy::Float(_))
@@ -2746,7 +2746,7 @@ impl<'hir> OwnershipPass<'hir> {
             }
             HirTy::ReadOnlyReference(r) => format!("&const {}", Self::get_type_name(r.inner)),
             HirTy::MutableReference(r) => format!("&{}", Self::get_type_name(r.inner)),
-            HirTy::List(l) => format!("[{}]", Self::get_type_name(l.inner)),
+            HirTy::Slice(l) => format!("[{}]", Self::get_type_name(l.inner)),
             HirTy::Boolean(_) => "bool".to_string(),
             HirTy::Integer(_) => "int64".to_string(),
             HirTy::Float(_) => "float64".to_string(),
@@ -3033,16 +3033,20 @@ impl<'hir> OwnershipPass<'hir> {
             | HirTy::UnsignedInteger(_)
             | HirTy::Char(_)
             | HirTy::Boolean(_)
+            // Just a reference to data, no management needed
+            | HirTy::Slice(_)
+            // Strings are just references to data
+            | HirTy::String(_)
             | HirTy::Unit(_) => false,
 
             // References don't need to be freed (they're borrowed)
             HirTy::MutableReference(_) | HirTy::ReadOnlyReference(_) => false,
 
-            // Strings need memory management even though they're copyable
-            HirTy::String(_) => true,
+            // Inline arrays need management if their inner type does
+            HirTy::InlineArray(arr) => Self::type_needs_memory_management(&arr.inner),
 
             // Lists, structs, and other complex types need memory management
-            HirTy::List(_) | HirTy::Named(_) | HirTy::Generic(_) => true,
+            HirTy::Named(_) | HirTy::Generic(_) => true,
 
             // Nullable types need management if their inner type does
             HirTy::Nullable(nullable) => Self::type_needs_memory_management(nullable.inner),

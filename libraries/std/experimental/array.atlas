@@ -17,6 +17,12 @@ public struct array<T, N> {
 public:
     // Normal constructor
     array(data: [T; N]) {
+        const_expr(
+            if N > INLINE_THRESHOLD then
+                // Compile time warning
+                pragma("warning", $"Allocating large array ({N}) on the stack may lead to stack overflow.")
+            end
+        );
         this.data = data;
     }
     // Default constructor
@@ -50,7 +56,11 @@ public:
         }
     }
     ~array() {
-        // Nothing to do, data is inline
+        let i = 0u;
+        while i < N {
+            delete &(*this).data[i];
+            i = i + 1u;
+        }
     }
     operator [](&const this, index: uint64) -> &const T {
         return (*this).data.get(index);
@@ -58,6 +68,18 @@ public:
     operator []=(&this, index: uint64, value: T) {
         let slot = (*this).data.get_mut(index);
         *slot = value;
+    }
+    fun from_slice(slice: [T]) -> array<T, N> {
+        if slice.len() != N {
+            panic("Slice length does not match array size");
+        }
+        let arr = new array<T, N>();
+        let i = 0u;
+        while i < N {
+            (*arr).data[i] = slice[i];
+            i = i + 1u;
+        }
+        return arr;
     }
     #[inline]
     fun get(&const this, index: uint64) -> &const T {

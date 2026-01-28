@@ -1460,18 +1460,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     AstLiteral::Integer(i) => HirExpr::IntegerLiteral(HirIntegerLiteralExpr {
                         span: l.span(),
                         value: i.value,
-                        // we take the smallest integer type possible by default; type checking pass will update
-                        ty: {
-                            if i.value >= i8::MIN as i64 && i.value <= i8::MAX as i64 {
-                                self.arena.types().get_int_ty(8)
-                            } else if i.value >= i16::MIN as i64 && i.value <= i16::MAX as i64 {
-                                self.arena.types().get_int_ty(16)
-                            } else if i.value >= i32::MIN as i64 && i.value <= i32::MAX as i64 {
-                                self.arena.types().get_int_ty(32)
-                            } else {
-                                self.arena.types().get_int_ty(64)
-                            }
-                        },
+                        ty: self.arena.types().get_int_ty(64),
                     }),
                     AstLiteral::Boolean(b) => HirExpr::BooleanLiteral(HirBooleanLiteralExpr {
                         span: l.span(),
@@ -1481,29 +1470,13 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     AstLiteral::Float(f) => HirExpr::FloatLiteral(HirFloatLiteralExpr {
                         span: l.span(),
                         value: f.value,
-                        ty: {
-                            if f.value as f32 as f64 != f.value {
-                                self.arena.types().get_float_ty(64)
-                            } else {
-                                self.arena.types().get_float_ty(32)
-                            }
-                        },
+                        ty: self.arena.types().get_float_ty(64),
                     }),
                     AstLiteral::UnsignedInteger(u) => {
                         HirExpr::UnsignedIntegerLiteral(HirUnsignedIntegerLiteralExpr {
                             span: l.span(),
                             value: u.value,
-                            ty: {
-                                if u.value <= u8::MAX as u64 {
-                                    self.arena.types().get_uint_ty(8)
-                                } else if u.value <= u16::MAX as u64 {
-                                    self.arena.types().get_uint_ty(16)
-                                } else if u.value <= u32::MAX as u64 {
-                                    self.arena.types().get_uint_ty(32)
-                                } else {
-                                    self.arena.types().get_uint_ty(64)
-                                }
-                            },
+                            ty: self.arena.types().get_uint_ty(64),
                         })
                     }
                     AstLiteral::ThisLiteral(_) => HirExpr::ThisLiteral(HirThisLiteral {
@@ -1713,9 +1686,13 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 let name = self.arena.names().get(n.name.name);
                 self.arena.types().get_named_ty(name, n.span)
             }
-            AstType::List(l) => {
+            AstType::Slice(l) => {
                 let ty = self.visit_ty(l.inner)?;
-                self.arena.types().get_list_ty(ty, l.size)
+                self.arena.types().get_slice_ty(ty)
+            }
+            AstType::InlineArray(arr) => {
+                let ty = self.visit_ty(arr.inner)?;
+                self.arena.types().get_inline_arr_ty(ty, arr.size)
             }
             AstType::Nullable(n) => {
                 if !self.using_std {

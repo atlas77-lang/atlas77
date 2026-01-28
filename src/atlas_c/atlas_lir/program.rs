@@ -121,6 +121,7 @@ pub enum LirTy {
     Ptr(Box<LirTy>),
     StructType(String),
     UnionType(String),
+    ArrayTy { inner: Box<LirTy>, size: usize },
 }
 
 impl LirTy {
@@ -134,8 +135,10 @@ impl LirTy {
             LirTy::Str
             | LirTy::Unit
             | LirTy::Ptr(_)
+            // TOOD: Adjust size_of for Structs and Unions based on their definitions
             | LirTy::StructType(_)
             | LirTy::UnionType(_) => 8, // Pointer size
+            LirTy::ArrayTy { inner, size } => inner.size_of() * size,
         }
     }
 }
@@ -253,7 +256,12 @@ pub enum LirInstr {
         dst: LirOperand,
         args: Vec<LirOperand>,
     },
-    RawObject {
+    ConstructArray {
+        ty: LirTy,
+        dst: LirOperand,
+        size: usize,
+    },
+    ConstructUnion {
         ty: LirTy,
         dst: LirOperand,
         field_values: HashMap<String, LirOperand>,

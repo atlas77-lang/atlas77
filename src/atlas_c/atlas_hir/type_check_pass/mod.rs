@@ -793,7 +793,11 @@ impl<'hir> TypeChecker<'hir> {
                     indexing_expr.index.span(),
                 )?;
                 match target {
-                    HirTy::List(l) => {
+                    HirTy::Slice(l) => {
+                        indexing_expr.ty = l.inner;
+                        Ok(l.inner)
+                    }
+                    HirTy::InlineArray(arr) => {
                         fn is_inbound(index: &HirExpr, size: usize) -> (bool, usize) {
                             match index {
                                 HirExpr::IntegerLiteral(i) => {
@@ -817,21 +821,19 @@ impl<'hir> TypeChecker<'hir> {
                                 _ => (true, 0),
                             }
                         }
-                        if let Some(size) = l.size
-                            && let (false, index) = is_inbound(&indexing_expr.index, size)
-                        {
+                        if let (false, index) = is_inbound(&indexing_expr.index, arr.size) {
                             let src = utils::get_file_content(path).unwrap();
                             return Err(HirError::ListIndexOutOfBounds(
                                 ListIndexOutOfBoundsError {
                                     span: indexing_expr.index.span(),
                                     index,
-                                    size,
+                                    size: arr.size,
                                     src: NamedSource::new(path, src),
                                 },
                             ));
                         }
-                        indexing_expr.ty = l.inner;
-                        Ok(l.inner)
+                        indexing_expr.ty = arr.inner;
+                        Ok(arr.inner)
                     }
                     HirTy::String(_) => {
                         indexing_expr.ty = self.arena.types().get_char_ty();
@@ -935,14 +937,12 @@ impl<'hir> TypeChecker<'hir> {
                     let e_ty = self.check_expr(e)?;
                     self.is_equivalent_ty(e_ty, e.span(), ty, l.span)?;
                 }
-                l.ty = self.arena.types().get_list_ty(ty, Some(l.items.len()));
+                l.ty = self.arena.types().get_inline_arr_ty(ty, l.items.len());
                 Ok(l.ty)
             }
             HirExpr::NewArray(a) => {
                 let size_ty = self.check_expr(a.size.as_mut())?;
-                let size_ty_id = HirTyId::from(size_ty);
                 self.is_equivalent_ty(
-                    // we expect the biggest size, because smaller size can be implicitely casted to it
                     self.arena.types().get_uint_ty(64),
                     a.size.span(),
                     size_ty,
@@ -2046,7 +2046,7 @@ impl<'hir> TypeChecker<'hir> {
 
     fn get_generic_name(ty: &'hir HirTy<'hir>) -> Option<&'hir str> {
         match ty {
-            HirTy::List(l) => Self::get_generic_name(l.inner),
+            HirTy::Slice(l) => Self::get_generic_name(l.inner),
             HirTy::ReadOnlyReference(r) => Self::get_generic_name(r.inner),
             HirTy::MutableReference(m) => Self::get_generic_name(m.inner),
             HirTy::Named(n) => Some(n.name),
@@ -2061,10 +2061,14 @@ impl<'hir> TypeChecker<'hir> {
         actual_generic_ty: &'hir HirTy<'hir>,
     ) -> &'hir HirTy<'hir> {
         match ty {
-            HirTy::List(l) => self
+            HirTy::Slice(l) => self
                 .arena
                 .types()
-                .get_list_ty(self.get_generic_ret_ty(l.inner, actual_generic_ty), l.size),
+                .get_slice_ty(self.get_generic_ret_ty(l.inner, actual_generic_ty)),
+            HirTy::InlineArray(arr) => self.arena.types().get_inline_arr_ty(
+                self.get_generic_ret_ty(arr.inner, actual_generic_ty),
+                arr.size,
+            ),
             HirTy::Named(_) => actual_generic_ty,
             HirTy::ReadOnlyReference(r) => self
                 .arena
@@ -2090,7 +2094,7 @@ impl<'hir> TypeChecker<'hir> {
         given_ty: &'hir HirTy<'hir>,
     ) -> Option<&'hir HirTy<'hir>> {
         match (ty, given_ty) {
-            (HirTy::List(l1), HirTy::List(l2)) => Self::get_generic_ty(l1.inner, l2.inner),
+            (HirTy::Slice(l1), HirTy::Slice(l2)) => Self::get_generic_ty(l1.inner, l2.inner),
             (HirTy::ReadOnlyReference(r1), HirTy::ReadOnlyReference(r2)) => {
                 Self::get_generic_ty(r1.inner, r2.inner)
             }
@@ -2186,35 +2190,14 @@ impl<'hir> TypeChecker<'hir> {
             (HirTy::MutableReference(mutable1), HirTy::MutableReference(mutable2)) => {
                 self.is_equivalent_ty(mutable1.inner, expected_span, mutable2.inner, found_span)
             }
-            (HirTy::List(list1), HirTy::List(list2)) => {
-                eprintln!("Checking list types: {} vs {}", expected_ty, found_ty);
-                match (list1.size, list2.size) {
-                    (Some(s1), Some(s2)) => {
-                        if s1 != s2 {
-                            // Both fixed-size but sizes differ
-                            return Err(Self::type_mismatch_err(
-                                &format!("{}", expected_ty),
-                                &expected_span,
-                                &format!("{}", found_ty),
-                                &found_span,
-                            ));
-                        }
-                    }
-                    (Some(_), None) => {
-                        // Expected fixed-size, found slice -> not allowed
-                        return Err(Self::type_mismatch_err(
-                            &format!("{}", expected_ty),
-                            &expected_span,
-                            &format!("{}", found_ty),
-                            &found_span,
-                        ));
-                    }
-                    (None, Some(_)) => {
-                        // Expected slice, found fixed-size -> allowed (coercion of [T;N] to [T])
-                    }
-                    (None, None) => {
-                        // Both are slices - fine
-                    }
+            (HirTy::InlineArray(list1), HirTy::InlineArray(list2)) => {
+                if list1.size != list2.size {
+                    return Err(Self::type_mismatch_err(
+                        &format!("{}", expected_ty),
+                        &expected_span,
+                        &format!("{}", found_ty),
+                        &found_span,
+                    ));
                 }
                 self.is_equivalent_ty(list1.inner, expected_span, list2.inner, found_span)
             }
@@ -2470,7 +2453,7 @@ impl<'hir> TypeChecker<'hir> {
             HirTy::UnsignedInteger(_) => "uint64".to_string(),
             HirTy::String(_) => "string".to_string(),
             HirTy::Unit(_) => "unit".to_string(),
-            HirTy::List(l) => format!("[{}]", Self::get_type_display_name(l.inner)),
+            HirTy::Slice(l) => format!("[{}]", Self::get_type_display_name(l.inner)),
             _ => "<unknown>".to_string(),
         }
     }

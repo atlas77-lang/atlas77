@@ -14,7 +14,8 @@ const UNIT_TY_ID: u8 = 0x05;
 const CHAR_TY_ID: u8 = 0x06;
 const STR_TY_ID: u8 = 0x10;
 const FUNCTION_TY_ID: u8 = 0x28;
-const LIST_TY_ID: u8 = 0x39;
+const SLICE_TY_ID: u8 = 0x35;
+const INLINE_ARRAY_TY_ID: u8 = 0x36;
 const NULLABLE_TY_ID: u8 = 0x40;
 const UNINITIALIZED_TY_ID: u8 = 0x50;
 const NAMED_TY_ID: u8 = 0x60;
@@ -73,9 +74,15 @@ impl HirTyId {
         Self(hasher.finish())
     }
 
-    pub fn compute_list_ty_id(ty: &HirTyId, size: Option<usize>) -> Self {
+    pub fn compute_slice_ty_id(ty: &HirTyId) -> Self {
         let mut hasher = DefaultHasher::new();
-        (LIST_TY_ID, ty, size).hash(&mut hasher);
+        (SLICE_TY_ID, ty).hash(&mut hasher);
+        Self(hasher.finish())
+    }
+
+    pub fn compute_inline_arr_ty_id(ty: &HirTyId, size: usize) -> Self {
+        let mut hasher = DefaultHasher::new();
+        (INLINE_ARRAY_TY_ID, ty, size).hash(&mut hasher);
         Self(hasher.finish())
     }
 
@@ -132,7 +139,10 @@ impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
             HirTy::Boolean(_) => Self::compute_boolean_ty_id(),
             HirTy::Unit(_) => Self::compute_unit_ty_id(),
             HirTy::String(_) => Self::compute_str_ty_id(),
-            HirTy::List(ty) => HirTyId::compute_list_ty_id(&HirTyId::from(ty.inner), ty.size),
+            HirTy::Slice(ty) => HirTyId::compute_slice_ty_id(&HirTyId::from(ty.inner)),
+            HirTy::InlineArray(ty) => {
+                HirTyId::compute_inline_arr_ty_id(&HirTyId::from(ty.inner), ty.size)
+            }
             HirTy::Named(ty) => HirTyId::compute_name_ty_id(ty.name),
             HirTy::Uninitialized(_) => Self::compute_uninitialized_ty_id(),
             HirTy::Nullable(ty) => HirTyId::compute_nullable_ty_id(&HirTyId::from(ty.inner)),
@@ -163,7 +173,8 @@ pub enum HirTy<'hir> {
     Unit(HirUnitTy),
     Boolean(HirBooleanTy),
     String(HirStringTy),
-    List(HirListTy<'hir>),
+    Slice(HirSliceTy<'hir>),
+    InlineArray(HirInlineArrayTy<'hir>),
     Named(HirNamedTy<'hir>),
     Uninitialized(HirUninitializedTy),
     Nullable(HirNullableTy<'hir>),
@@ -222,7 +233,10 @@ impl HirTy<'_> {
             HirTy::Unit(_) => "unit".to_string(),
             HirTy::Boolean(_) => "bool".to_string(),
             HirTy::String(_) => "string".to_string(),
-            HirTy::List(ty) => format!("list_{}", ty.inner.get_valid_c_string()),
+            HirTy::Slice(ty) => format!("list_{}", ty.inner.get_valid_c_string()),
+            HirTy::InlineArray(ty) => {
+                format!("inlinearr_{}_{}", ty.inner.get_valid_c_string(), ty.size)
+            }
             HirTy::Named(ty) => ty.name.to_string(),
             HirTy::Uninitialized(_) => "uninitialized".to_string(),
             HirTy::Nullable(ty) => format!("nullable_{}", ty.inner.get_valid_c_string()),
@@ -265,16 +279,8 @@ impl fmt::Display for HirTy<'_> {
             HirTy::Unit(_) => write!(f, "unit"),
             HirTy::Boolean(_) => write!(f, "bool"),
             HirTy::String(_) => write!(f, "string"),
-            HirTy::List(ty) => write!(
-                f,
-                "[{}{}]",
-                ty.inner,
-                if let Some(size) = ty.size {
-                    format!("; {}", size)
-                } else {
-                    "".to_string()
-                }
-            ),
+            HirTy::Slice(ty) => write!(f, "[{}]", ty.inner),
+            HirTy::InlineArray(ty) => write!(f, "[{}; {}]", ty.inner, ty.size),
             HirTy::Named(ty) => write!(f, "{}", ty.name),
             HirTy::Uninitialized(_) => write!(f, "uninitialized"),
             HirTy::Nullable(ty) => write!(f, "{}?", ty.inner),
@@ -336,13 +342,23 @@ pub struct HirNullableTy<'hir> {
 pub struct HirCharTy {}
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
-pub struct HirListTy<'hir> {
+pub struct HirSliceTy<'hir> {
     pub inner: &'hir HirTy<'hir>,
-    pub size: Option<usize>,
 }
-impl fmt::Display for HirListTy<'_> {
+impl fmt::Display for HirSliceTy<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.inner)
+    }
+}
+
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
+pub struct HirInlineArrayTy<'hir> {
+    pub inner: &'hir HirTy<'hir>,
+    pub size: usize,
+}
+impl fmt::Display for HirInlineArrayTy<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}; {}", self.inner, self.size)
     }
 }
 

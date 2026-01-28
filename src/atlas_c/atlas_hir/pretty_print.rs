@@ -551,8 +551,8 @@ impl HirPrettyPrinter {
             }
             HirExpr::NewArray(new_array) => {
                 let ty = match new_array.ty {
-                    HirTy::List(l) => l.inner,
-                    _ => panic!("NewArray must have List type"),
+                    HirTy::InlineArray(l) => l.inner,
+                    _ => panic!("NewArray must have InlineArray type"),
                 };
                 self.write(&format!("new [{}; ", Self::type_str(ty)));
                 self.print_expr(&new_array.size);
@@ -629,15 +629,10 @@ impl HirPrettyPrinter {
             HirTy::String(_) => "string".to_string(),
             HirTy::Unit(_) => "unit".to_string(),
             HirTy::Named(n) => n.name.to_string(),
-            HirTy::List(l) => format!(
-                "[{}{}]",
-                Self::type_str(l.inner),
-                if let Some(size) = l.size {
-                    format!("; {}", size)
-                } else {
-                    "".to_string()
-                }
-            ),
+            HirTy::Slice(l) => format!("[{}]", Self::type_str(l.inner)),
+            HirTy::InlineArray(arr) => {
+                format!("[{}; {}]", Self::type_str(arr.inner), arr.size)
+            }
             HirTy::ReadOnlyReference(r) => format!("&const {}", Self::type_str(r.inner)),
             HirTy::MutableReference(r) => format!("&{}", Self::type_str(r.inner)),
             HirTy::Generic(g) => format!(

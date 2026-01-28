@@ -20,15 +20,44 @@ public struct CVec<T> {
 public:
     len: uint64;
     capacity: uint64;
-    // It takes in a [T], because the [T] types is safe in Atlas77. ptr<T> isn't as it's a entirely a raw pointer
-    CVec(data: [T], len: uint64, capacity: uint64) {
-        // This is 100% a lie, but trust
-        this.data = data as ptr<T>;
+private:
+    //! Private constructor (only used internally)
+    Cvec(data: [T], len: uint64, capacity: uint64) {
+        // Allocate memory using malloc
+        let data_ptr = malloc<T>(capacity * size_of<T>());
+        // Copy data into allocated memory
+        let i = 0u;
+        while i < len {
+            data_ptr[i] = data[i];
+            i = i + 1u;
+        }
+        this.data = data_ptr;
         this.len = len;
         this.capacity = capacity;
     }
+public:
+    //! Default constructor
+    CVec() {
+        // This is 100% a lie, but trust
+        // Minimum size is 16 elements
+        this.data = malloc<T>(size_of<T>() * 16u);
+        this.len = 0u;
+        this.capacity = 16u;
+    }
     ~CVec() {
         free<T>(this.data);
+    }
+    //! Create a CVec from a slice by copying the data
+    fun from(slice: [T]) -> CVec<T> 
+    where T: std::copyable
+    {
+
+    }
+    //! Create a CVec from a slice by moving the data
+    fun move_into(slice: [T]) -> CVec<T>
+    where T: std::moveable
+    {
+
     }
     fun with_capacity(capacity: uint64) -> CVec<T> {
         // Allocate memory using calloc

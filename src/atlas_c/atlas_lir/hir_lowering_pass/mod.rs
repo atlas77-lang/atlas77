@@ -793,6 +793,23 @@ impl<'hir> HirLoweringPass<'hir> {
                 })?;
                 Ok(dest)
             }
+            // This just allocate on the stack an array with 0-initialized elements
+            HirExpr::NewArray(new_arr) => {
+                let dest = self.new_temp();
+                let ty = self.hir_ty_to_lir_ty(new_arr.ty, new_arr.span);
+                let size = match ty {
+                    LirTy::ArrayTy { inner: _, size } => size,
+                    _ => {
+                        return Err(unknown_type_err(&ty.to_string(), new_arr.size.span()));
+                    }
+                };
+                self.emit(LirInstr::ConstructArray {
+                    dst: dest.clone(),
+                    size,
+                    ty,
+                })?;
+                Ok(dest)
+            }
 
             // === ObjLiteral ===
             HirExpr::ObjLiteral(obj_lit) => {
@@ -804,7 +821,7 @@ impl<'hir> HirLoweringPass<'hir> {
 
                 let dest = self.new_temp();
 
-                self.emit(LirInstr::RawObject {
+                self.emit(LirInstr::ConstructUnion {
                     ty: self.hir_ty_to_lir_ty(obj_lit.ty, obj_lit.span),
                     dst: dest.clone(),
                     field_values: args.into_iter().collect(),
@@ -1046,7 +1063,11 @@ impl<'hir> HirLoweringPass<'hir> {
                 eprintln!("{:?}", report);
                 std::process::exit(1);
             }
-            HirTy::List(l) => LirTy::Ptr(Box::new(self.hir_ty_to_lir_ty(l.inner, span))),
+            HirTy::Slice(l) => LirTy::Ptr(Box::new(self.hir_ty_to_lir_ty(l.inner, span))),
+            HirTy::InlineArray(arr) => LirTy::ArrayTy {
+                inner: Box::new(self.hir_ty_to_lir_ty(arr.inner, span)),
+                size: arr.size,
+            },
             HirTy::Named(n) => LirTy::StructType(n.name.to_string()),
             HirTy::Generic(g) => {
                 let mangled_name =
@@ -1280,7 +1301,10 @@ impl std::fmt::Display for LirInstr {
                     .join(", ");
                 write!(f, "{} = new {}({})", dst, ty, args_str)
             }
-            LirInstr::RawObject {
+            LirInstr::ConstructArray { ty, dst, size } => {
+                write!(f, "{} = new_array {}[{}]", dst, ty, size)
+            }
+            LirInstr::ConstructUnion {
                 ty,
                 dst,
                 field_values,
@@ -1357,6 +1381,7 @@ impl std::fmt::Display for LirTy {
             LirTy::Ptr(r) => write!(f, "ptr<{}>", r),
             LirTy::StructType(name) => write!(f, "struct {}", name),
             LirTy::UnionType(name) => write!(f, "union {}", name),
+            LirTy::ArrayTy { inner, size } => write!(f, "[{}; {}]", inner, size),
         }
     }
 }

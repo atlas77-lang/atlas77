@@ -148,6 +148,7 @@ impl CCodeGen {
             LirTy::StructType(name) => format!("{}*", name),
             // For union types, we don't use pointers for now
             LirTy::UnionType(name) => name.to_string(),
+            LirTy::ArrayTy { inner, size } => format!("{}[{}]", self.codegen_type(inner), size),
             _ => unimplemented!("Type codegen not implemented for {:?}", ty),
         }
     }
@@ -475,9 +476,23 @@ impl CCodeGen {
                 );
                 Self::write_to_file(&mut self.c_file, &line, self.indent_level);
             }
+            // Creates an array on the stack.
+            // C equivalent to T dest[size] = {0};
+            LirInstr::ConstructArray { ty, dst, size } => {
+                let dest_str = self.codegen_operand(dst);
+                // In C, arrays are defined as T name[size];
+                // This will probably not work for multi-dimensional arrays yet
+                let type_str = match ty {
+                    LirTy::ArrayTy { inner, .. } => self.codegen_type(inner),
+                    _ => panic!("ConstructArray expected ArrayTy"),
+                };
+                let type_name_str = type_str.trim_end_matches('*').to_string();
+                let line = format!("{} {}[{}] = {{0}};", type_name_str, dest_str, size);
+                Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+            }
             // Similar to {foo: bar, baz: qux}
             // It DOES NOT allocate memory, just creates a raw object on the stack
-            LirInstr::RawObject {
+            LirInstr::ConstructUnion {
                 ty,
                 dst,
                 field_values,
