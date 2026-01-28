@@ -9,9 +9,9 @@ use miette::NamedSource;
 
 use crate::atlas_c::atlas_frontend::parser::{
     ast::{
-        AstArg, AstEnum, AstEnumVariant, AstExternStruct, AstFlag, AstGlobalConst,
-        AstInlineArrayType, AstObjLiteralExpr, AstObjLiteralField, AstPtrTy, AstReadOnlyRefType,
-        AstStdGenericConstraint, AstUnion, ConstructorKind,
+        AstArg, AstBuiltinOp, AstBuiltinOpExpr, AstEnum, AstEnumVariant, AstExternStruct, AstFlag,
+        AstGlobalConst, AstInlineArrayType, AstObjLiteralExpr, AstObjLiteralField, AstPtrTy,
+        AstReadOnlyRefType, AstStdGenericConstraint, AstUnion, ConstructorKind,
     },
     error::{
         DestructorWithParametersError, FlagDoesntExistError, NoFieldInStructError,
@@ -1443,6 +1443,33 @@ impl<'ast> Parser<'ast> {
             }
             TokenKind::Identifier(_) => AstExpr::Identifier(self.parse_identifier()?),
             TokenKind::KwIf => AstExpr::IfElse(self.parse_if_expr()?),
+            TokenKind::KwSizeOf => {
+                let start = self.advance();
+                self.expect(TokenKind::LAngle)?;
+                eprintln!("Parsing sizeof type at {:?}", self.current().span());
+                let ty = self.parse_type()?;
+                self.expect(TokenKind::RAngle)?;
+                self.expect(TokenKind::LParen)?;
+                let end = self.expect(TokenKind::RParen)?;
+                AstExpr::BuiltInOperator(AstBuiltinOpExpr {
+                    span: Span::union_span(&start.span(), &end.span),
+                    kind: AstBuiltinOp::SizeOf,
+                    ty: self.arena.alloc(ty),
+                })
+            }
+            TokenKind::KwAlignOf => {
+                let start = self.advance();
+                self.expect(TokenKind::LAngle)?;
+                let ty = self.parse_type()?;
+                self.expect(TokenKind::RAngle)?;
+                self.expect(TokenKind::LParen)?;
+                let end = self.expect(TokenKind::RParen)?;
+                AstExpr::BuiltInOperator(AstBuiltinOpExpr {
+                    span: Span::union_span(&start.span(), &end.span),
+                    kind: AstBuiltinOp::AlignOf,
+                    ty: self.arena.alloc(ty),
+                })
+            }
             _ => {
                 return Err(self.unexpected_token_error(
                     TokenVec(vec![TokenKind::Identifier(

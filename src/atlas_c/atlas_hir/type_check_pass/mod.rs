@@ -11,7 +11,7 @@ use crate::atlas_c::atlas_hir::error::{
     UnionMustHaveAtLeastTwoVariantError, UnionVariantDefinedMultipleTimesError,
     VariableNameAlreadyDefinedError,
 };
-use crate::atlas_c::atlas_hir::expr::HirNewObjExpr;
+use crate::atlas_c::atlas_hir::expr::{HirBuiltinOp, HirNewObjExpr};
 use crate::atlas_c::atlas_hir::item::{HirStructConstructor, HirUnion};
 use crate::atlas_c::atlas_hir::pretty_print::HirPrettyPrinter;
 use crate::atlas_c::atlas_hir::signature::{
@@ -1854,6 +1854,16 @@ impl<'hir> TypeChecker<'hir> {
                 copy_expr.ty = ty;
                 Ok(ty)
             }
+            HirExpr::BuiltInOperator(builtin) => match builtin.kind {
+                HirBuiltinOp::SizeOf => {
+                    //builtin.ty = self.arena.types().get_uint_ty(64);
+                    Ok(self.arena.types().get_uint_ty(64))
+                }
+                HirBuiltinOp::AlignOf => {
+                    //builtin.ty = self.arena.types().get_uint_ty(64);
+                    Ok(self.arena.types().get_uint_ty(64))
+                }
+            },
         }
     }
 

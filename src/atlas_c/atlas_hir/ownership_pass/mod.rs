@@ -762,7 +762,8 @@ impl<'hir> OwnershipPass<'hir> {
             | HirExpr::StringLiteral(_)
             | HirExpr::UnitLiteral(_)
             | HirExpr::UnsignedIntegerLiteral(_)
-            | HirExpr::ThisLiteral(_) => {}
+            | HirExpr::ThisLiteral(_)
+            | HirExpr::BuiltInOperator(_) => {}
             // Copy expressions - analyze inner expression
             HirExpr::Copy(cp) => {
                 self.collect_uses_in_expr(&cp.expr, true)?;

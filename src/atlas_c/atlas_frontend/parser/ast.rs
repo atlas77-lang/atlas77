@@ -489,6 +489,7 @@ pub enum AstExpr<'ast> {
     Block(AstBlock<'ast>),
     Assign(AstAssignStmt<'ast>),
     Casting(AstCastingExpr<'ast>),
+    BuiltInOperator(AstBuiltinOpExpr<'ast>),
 }
 
 impl AstExpr<'_> {
@@ -512,6 +513,7 @@ impl AstExpr<'_> {
             AstExpr::Block(e) => e.span,
             AstExpr::Assign(e) => e.span,
             AstExpr::Casting(e) => e.span,
+            AstExpr::BuiltInOperator(e) => e.span,
         }
     }
     pub(crate) fn kind(&self) -> &'static str {
@@ -534,8 +536,22 @@ impl AstExpr<'_> {
             AstExpr::Block(_) => "Block",
             AstExpr::Assign(_) => "Assign",
             AstExpr::Casting(_) => "Casting",
+            AstExpr::BuiltInOperator(_) => "BuiltInOperator",
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct AstBuiltinOpExpr<'ast> {
+    pub span: Span,
+    pub kind: AstBuiltinOp,
+    pub ty: &'ast AstType<'ast>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AstBuiltinOp {
+    SizeOf,
+    AlignOf,
 }
 
 #[derive(Debug, Clone)]

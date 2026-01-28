@@ -3,7 +3,7 @@ extern fun printf<T>(fmt: string, val: T);
 fun main() {
     printf("Hello, %s\n", "Atlas!");
     test();
-    let arr = new [int64; 5u];
+    let arr: [int64; 5u] = new [int64; 5u];
     arr[0u] = 10;
     arr[1u] = 20;
     arr[2u] = 30;
@@ -16,6 +16,8 @@ fun main() {
         printf("= %d\n", inline_arr.data[i]);
         i = i + 1u;
     }
+    // Let's test this
+    printf("size_of<[int64; 5u]> = %d\n", size_of<[int64; 5u]>());
 }
 
 

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::atlas_c::atlas_hir::signature::ConstantValue;
+use crate::atlas_c::atlas_hir::{expr::HirBuiltinOp, signature::ConstantValue};
 // TODO: Add Span info to Lir structures for better error reporting
 pub type Label = String;
 
@@ -288,6 +288,30 @@ pub enum LirInstr {
         dst: LirOperand,
         src: LirOperand,
     },
+    #[deprecated(
+        note = "This is only a temporary instruction. It's only purpose is to directly map those to \
+        the C backend while I implement the comptime features in Atlas77 directly.."
+    )]
+    BuiltInOperator {
+        ty: LirTy,
+        op: BuiltInOp,
+        dst: LirOperand,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuiltInOp {
+    SizeOf,
+    AlignOf,
+}
+
+impl From<HirBuiltinOp> for BuiltInOp {
+    fn from(op: HirBuiltinOp) -> Self {
+        match op {
+            HirBuiltinOp::SizeOf => BuiltInOp::SizeOf,
+            HirBuiltinOp::AlignOf => BuiltInOp::AlignOf,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

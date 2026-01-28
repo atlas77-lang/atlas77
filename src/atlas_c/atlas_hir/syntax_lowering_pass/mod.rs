@@ -27,9 +27,9 @@ use crate::atlas_c::{
             UnknownFileImportError, UnsupportedExpr, UnsupportedItemError, UselessError,
         },
         expr::{
-            HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr,
-            HirCharLiteralExpr, HirDeleteExpr, HirExpr, HirFieldAccessExpr, HirFieldInit,
-            HirFloatLiteralExpr, HirFunctionCallExpr, HirIdentExpr, HirIndexingExpr,
+            HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirBuiltinOpExpr,
+            HirCastExpr, HirCharLiteralExpr, HirDeleteExpr, HirExpr, HirFieldAccessExpr,
+            HirFieldInit, HirFloatLiteralExpr, HirFunctionCallExpr, HirIdentExpr, HirIndexingExpr,
             HirIntegerLiteralExpr, HirListLiteralExpr, HirNewArrayExpr, HirNewObjExpr,
             HirObjLiteralExpr, HirStaticAccessExpr, HirStringLiteralExpr, HirThisLiteral,
             HirUnaryOp, HirUnitLiteralExpr, HirUnsignedIntegerLiteralExpr, UnaryOpExpr,
@@ -1537,6 +1537,14 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         ty: self.arena.types().get_uninitialized_ty(),
                     }),
                     ty: self.arena.types().get_uninitialized_ty(),
+                });
+                Ok(hir)
+            }
+            AstExpr::BuiltInOperator(builtin) => {
+                let hir = HirExpr::BuiltInOperator(HirBuiltinOpExpr {
+                    span: node.span(),
+                    kind: builtin.kind.into(),
+                    ty: self.visit_ty(builtin.ty)?,
                 });
                 Ok(hir)
             }

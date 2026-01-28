@@ -600,6 +600,18 @@ impl HirPrettyPrinter {
                 self.print_expr(&copy_expr.expr);
                 self.write(")");
             }
+            HirExpr::BuiltInOperator(builtin) => match builtin.kind {
+                HirBuiltinOp::SizeOf => {
+                    self.write("size_of<");
+                    self.write(&Self::type_str(builtin.ty));
+                    self.write(">()");
+                }
+                HirBuiltinOp::AlignOf => {
+                    self.write("align_of<");
+                    self.write(&Self::type_str(builtin.ty));
+                    self.write(">()");
+                }
+            },
         }
     }
 

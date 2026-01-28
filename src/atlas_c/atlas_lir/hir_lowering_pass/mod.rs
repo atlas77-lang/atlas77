@@ -19,8 +19,8 @@ use crate::atlas_c::{
             UnknownTypeError, UnsupportedHirExprError,
         },
         program::{
-            LirBlock, LirExternFunction, LirFunction, LirInstr, LirOperand, LirProgram, LirStruct,
-            LirTerminator, LirTy, LirUnion,
+            BuiltInOp, LirBlock, LirExternFunction, LirFunction, LirInstr, LirOperand, LirProgram,
+            LirStruct, LirTerminator, LirTy, LirUnion,
         },
     },
     utils::{self, Span},
@@ -998,6 +998,17 @@ impl<'hir> HirLoweringPass<'hir> {
                 self.lower_expr(&copy_expr.expr)
             }
 
+            HirExpr::BuiltInOperator(builtin) => {
+                let dst = self.new_temp();
+                let ty = self.hir_ty_to_lir_ty(builtin.ty, builtin.span);
+                self.emit(LirInstr::BuiltInOperator {
+                    ty,
+                    dst: dst.clone(),
+                    op: builtin.kind.into(),
+                })?;
+                Ok(dst)
+            }
+
             HirExpr::Delete(delete_expr) => {
                 let dst = self.new_temp(); // Placeholder
                 let src = self.lower_expr(&delete_expr.expr)?;
@@ -1333,6 +1344,19 @@ impl std::fmt::Display for LirInstr {
             LirInstr::Cast { ty, from, dst, src } => {
                 write!(f, "{} = cast {}->{} {}", dst, from, ty, src)
             }
+            LirInstr::BuiltInOperator { ty, op, dst } => {
+                write!(f, "{} = builtin_{}.{}", dst, op, ty)
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for BuiltInOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            // C syntax
+            BuiltInOp::SizeOf => write!(f, "sizeof"),
+            BuiltInOp::AlignOf => write!(f, "alignof"),
         }
     }
 }

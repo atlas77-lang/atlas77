@@ -1,7 +1,11 @@
 use core::fmt;
 
 use super::ty::{HirTy, HirUnitTy};
-use crate::atlas_c::utils::Span;
+use crate::atlas_c::{
+    atlas_frontend::parser::ast::{AstBuiltinOp, AstBuiltinOpExpr},
+    atlas_hir::ty::HirUnsignedIntTy,
+    utils::Span,
+};
 
 #[derive(Debug, Clone)]
 //todo: Add arrays/struct & class init literal
@@ -30,10 +34,7 @@ pub enum HirExpr<'hir> {
     /// Copy semantics: creates a new owned copy via copy constructor.
     /// The source variable remains valid after this operation.
     Copy(HirCopyExpr<'hir>),
-}
-
-pub fn is_self_access(field_access_expr: &HirFieldAccessExpr) -> bool {
-    matches!(field_access_expr.target.as_ref(), HirExpr::ThisLiteral(_))
+    BuiltInOperator(HirBuiltinOpExpr<'hir>),
 }
 
 impl<'hir> HirExpr<'hir> {
@@ -61,6 +62,7 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::Indexing(expr) => expr.span,
             HirExpr::StaticAccess(expr) => expr.span,
             HirExpr::Copy(expr) => expr.span,
+            HirExpr::BuiltInOperator(expr) => expr.span,
         }
     }
 
@@ -88,6 +90,7 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::Indexing(_) => "Indexing Expression",
             HirExpr::StaticAccess(_) => "Static Access Expression",
             HirExpr::Copy(_) => "Copy Expression",
+            HirExpr::BuiltInOperator(_) => "Built-in Operator Expression",
         }
     }
 
@@ -115,6 +118,31 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::Indexing(expr) => expr.ty,
             HirExpr::StaticAccess(expr) => expr.ty,
             HirExpr::Copy(expr) => expr.ty,
+            HirExpr::BuiltInOperator(expr) => {
+                &HirTy::UnsignedInteger(HirUnsignedIntTy { size_in_bits: 64 })
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct HirBuiltinOpExpr<'hir> {
+    pub span: Span,
+    pub kind: HirBuiltinOp,
+    pub ty: &'hir HirTy<'hir>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HirBuiltinOp {
+    SizeOf,
+    AlignOf,
+}
+
+impl From<AstBuiltinOp> for HirBuiltinOp {
+    fn from(ast_op: AstBuiltinOp) -> Self {
+        match ast_op {
+            AstBuiltinOp::SizeOf => HirBuiltinOp::SizeOf,
+            AstBuiltinOp::AlignOf => HirBuiltinOp::AlignOf,
         }
     }
 }
