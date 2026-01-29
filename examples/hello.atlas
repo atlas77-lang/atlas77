@@ -48,3 +48,38 @@ fun take_and_return_arr(arr: [int64; 5u]) -> InlineArray5<int64> {
     }
     return inline_arr;
 }
+
+fun test_new_ref_model() {
+    let a: int64 = 10;
+    // Like in C++, no need to use '&' to create a reference
+    // It is just an alias
+    let lval_a: &int64 = a;
+    take_a_lval(lval_a);
+    // Modifying 'a' through its name
+    a = 20;
+    take_a_lval(lval_a);
+    lval_a = 30; // Modifying 'a' through its reference
+    take_a_lval(lval_a);
+
+    take_a_lval(25); // Should error lval to rvalue conversion
+    let const_lval_a: &const int64 = a;
+    take_a_const_lval(const_lval_a);
+    take_a_const_lval(50); // Should be OK: rvalue to const ref conversion
+
+    let rval_a: &&int64 = &a;
+    take_a_rval(rval_a);
+    take_a_rval(&100); // Should be OK: rvalue to rvalue ref conversion
+}
+
+fun take_a_rval(rval_a: &&int64) {
+    printf("rval_a = %d\n", rval_a);
+}
+
+fun take_a_const_lval(const_lval_a: &const int64) {
+    printf("const_lval_a = %d\n", const_lval_a);
+    const_lval_a = 20; // Should error: cannot modify through const ref
+}
+
+fun take_a_lval(lval_a: &int64) {
+    printf("lval_a = %d\n", lval_a);
+}
