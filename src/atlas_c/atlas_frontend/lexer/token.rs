@@ -229,6 +229,8 @@ pub enum TokenKind {
     #[token("where")]
     //Used for generics constraints and bounds (i.e. fn foo<T>(arg: T) -> T where T: Add)
     KwWhere,
+    #[token("null")]
+    KwNull,
     #[token("extern")]
     KwExtern,
     #[token("struct")]

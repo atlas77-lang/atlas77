@@ -118,7 +118,10 @@ pub enum LirTy {
     // Unicode Character
     Char,
     Unit,
-    Ptr(Box<LirTy>),
+    Ptr {
+        is_const: bool,
+        inner: Box<LirTy>
+    },
     StructType(String),
     UnionType(String),
     ArrayTy { inner: Box<LirTy>, size: usize },
@@ -134,7 +137,7 @@ impl LirTy {
             LirTy::Char => 4, // Unicode scalar value (4 bytes)
             LirTy::Str
             | LirTy::Unit
-            | LirTy::Ptr(_)
+            | LirTy::Ptr { .. }
             // TOOD: Adjust size_of for Structs and Unions based on their definitions
             | LirTy::StructType(_)
             | LirTy::UnionType(_) => 8, // Pointer size

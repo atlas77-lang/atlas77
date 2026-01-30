@@ -11,7 +11,7 @@ use crate::atlas_c::{
         monomorphization_pass::MonomorphizationPass,
         signature::{ConstantValue, HirStructMethodModifier},
         stmt::HirStatement,
-        ty::{HirGenericTy, HirTy},
+        ty::{HirGenericTy, HirReferenceKind, HirTy},
     },
     atlas_lir::{
         error::{
@@ -252,9 +252,9 @@ impl<'hir> HirLoweringPass<'hir> {
 
         self.param_map.insert("this", 0);
         let mut args = Vec::new();
-        args.push(LirTy::Ptr(Box::new(LirTy::StructType(
+        args.push(LirTy::Ptr { is_const: false, inner: Box::new(LirTy::StructType(
             struct_name.to_string(),
-        ))));
+        ))});
         // Build parameter map
         for (idx, param) in ctor.params.iter().enumerate() {
             self.param_map.insert(param.name, (idx + 1) as u8);
@@ -299,15 +299,19 @@ impl<'hir> HirLoweringPass<'hir> {
         let mut args = Vec::new();
         if matches!(
             method.signature.modifier,
-            HirStructMethodModifier::Const
                 | HirStructMethodModifier::Mutable
                 | HirStructMethodModifier::Consuming
         ) {
             // The first parameter is always "this"
             self.param_map.insert("this", 0);
-            args.push(LirTy::Ptr(Box::new(LirTy::StructType(
+            args.push(LirTy::Ptr { is_const: false, inner: Box::new(LirTy::StructType(
                 struct_name.to_string(),
-            ))));
+            ))});
+        } else {
+            self.param_map.insert("this", 0);
+            args.push(LirTy::Ptr { is_const: true, inner: Box::new(LirTy::StructType(
+                struct_name.to_string(),
+            ))});
         }
         // Build parameter map
         for param in method.signature.params.iter() {
@@ -1063,18 +1067,18 @@ impl<'hir> HirLoweringPass<'hir> {
             HirTy::Unit(_) => LirTy::Unit,
             HirTy::ReadOnlyReference(r) => {
                 let inner = self.hir_ty_to_lir_ty(r.inner, span);
-                LirTy::Ptr(Box::new(inner))
+                LirTy::Ptr { is_const: true, inner: Box::new(inner) }
             }
             HirTy::MutableReference(r) => {
                 let inner = self.hir_ty_to_lir_ty(r.inner, span);
-                LirTy::Ptr(Box::new(inner))
+                LirTy::Ptr { is_const: false, inner: Box::new(inner) }
             }
             HirTy::Uninitialized(_) => {
                 let report: miette::Report = (*unknown_type_err(&format!("{}", ty), span)).into();
                 eprintln!("{:?}", report);
                 std::process::exit(1);
             }
-            HirTy::Slice(l) => LirTy::Ptr(Box::new(self.hir_ty_to_lir_ty(l.inner, span))),
+            HirTy::Slice(l) => LirTy::Ptr { is_const: false, inner: Box::new(self.hir_ty_to_lir_ty(l.inner, span)) },
             HirTy::InlineArray(arr) => LirTy::ArrayTy {
                 inner: Box::new(self.hir_ty_to_lir_ty(arr.inner, span)),
                 size: arr.size,
@@ -1101,7 +1105,11 @@ impl<'hir> HirLoweringPass<'hir> {
             }
             HirTy::PtrTy(ptr_ty) => {
                 let inner = self.hir_ty_to_lir_ty(ptr_ty.inner, span);
-                LirTy::Ptr(Box::new(inner))
+                LirTy::Ptr { is_const: false, inner: Box::new(inner) }
+            }
+            HirTy::Reference(r) => {
+                let inner = self.hir_ty_to_lir_ty(r.inner, span);
+                LirTy::Ptr { is_const: r.kind == HirReferenceKind::ReadOnly, inner: Box::new(inner) }
             }
             _ => {
                 let report: miette::Report = (*unknown_type_err(&format!("{}", ty), span)).into();
@@ -1402,7 +1410,7 @@ impl std::fmt::Display for LirTy {
             LirTy::Char => write!(f, "char"),
             LirTy::Str => write!(f, "str"),
             LirTy::Unit => write!(f, "unit"),
-            LirTy::Ptr(r) => write!(f, "ptr<{}>", r),
+            LirTy::Ptr { is_const, inner } => write!(f, "ptr<{}>", inner),
             LirTy::StructType(name) => write!(f, "struct {}", name),
             LirTy::UnionType(name) => write!(f, "union {}", name),
             LirTy::ArrayTy { inner, size } => write!(f, "[{}; {}]", inner, size),

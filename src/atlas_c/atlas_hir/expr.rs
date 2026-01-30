@@ -24,6 +24,7 @@ pub enum HirExpr<'hir> {
     ThisLiteral(HirThisLiteral<'hir>),
     StringLiteral(HirStringLiteralExpr<'hir>),
     ListLiteral(HirListLiteralExpr<'hir>),
+    NullLiteral(HirNullLiteralExpr<'hir>),
     NewArray(HirNewArrayExpr<'hir>),
     NewObj(HirNewObjExpr<'hir>),
     ObjLiteral(HirObjLiteralExpr<'hir>),
@@ -48,6 +49,7 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::CharLiteral(expr) => expr.span,
             HirExpr::UnitLiteral(expr) => expr.span,
             HirExpr::ThisLiteral(expr) => expr.span,
+            HirExpr::NullLiteral(expr) => expr.span,
             HirExpr::Unary(expr) => expr.span,
             HirExpr::Casting(expr) => expr.span,
             HirExpr::HirBinaryOperation(expr) => expr.span,
@@ -76,6 +78,7 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::CharLiteral(_) => "Char Literal",
             HirExpr::UnitLiteral(_) => "Unit Literal",
             HirExpr::ThisLiteral(_) => "This Literal",
+            HirExpr::NullLiteral(_) => "Null Literal",
             HirExpr::Unary(_) => "Unary Expression",
             HirExpr::Casting(_) => "Casting Expression",
             HirExpr::HirBinaryOperation(_) => "Binary Operation Expression",
@@ -104,6 +107,7 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::CharLiteral(expr) => expr.ty,
             HirExpr::UnitLiteral(expr) => expr.ty,
             HirExpr::ThisLiteral(expr) => expr.ty,
+            HirExpr::NullLiteral(expr) => expr.ty,
             HirExpr::Unary(expr) => expr.ty,
             HirExpr::Casting(expr) => expr.target_ty,
             HirExpr::HirBinaryOperation(expr) => expr.ty,
@@ -123,6 +127,12 @@ impl<'hir> HirExpr<'hir> {
             }
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct HirNullLiteralExpr<'hir> {
+    pub span: Span,
+    pub ty: &'hir HirTy<'hir>,
 }
 
 #[derive(Debug, Clone)]

@@ -32,8 +32,9 @@ use crate::atlas_c::{
             HirCastExpr, HirCharLiteralExpr, HirDeleteExpr, HirExpr, HirFieldAccessExpr,
             HirFieldInit, HirFloatLiteralExpr, HirFunctionCallExpr, HirIdentExpr, HirIndexingExpr,
             HirIntegerLiteralExpr, HirListLiteralExpr, HirNewArrayExpr, HirNewObjExpr,
-            HirObjLiteralExpr, HirStaticAccessExpr, HirStringLiteralExpr, HirThisLiteral,
-            HirUnaryOp, HirUnitLiteralExpr, HirUnsignedIntegerLiteralExpr, UnaryOpExpr,
+            HirNullLiteralExpr, HirObjLiteralExpr, HirStaticAccessExpr, HirStringLiteralExpr,
+            HirThisLiteral, HirUnaryOp, HirUnitLiteralExpr, HirUnsignedIntegerLiteralExpr,
+            UnaryOpExpr,
         },
         item::{
             HirEnum, HirEnumVariant, HirFunction, HirStruct, HirStructConstructor, HirStructMethod,
@@ -109,7 +110,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             eprintln!("{:?}", report);
         }
 
-        // Now we can generate all the copy constructors for the every structs
+        // Now we can generate all the copy constructors for all the structs
         // Collect struct names and info first to avoid borrow checker conflicts
         self.generate_all_copy_constructors()?;
         self.generate_all_destructors()?;
@@ -1482,6 +1483,10 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     }
                     AstLiteral::ThisLiteral(_) => HirExpr::ThisLiteral(HirThisLiteral {
                         span: l.span(),
+                        ty: self.arena.types().get_uninitialized_ty(),
+                    }),
+                    AstLiteral::NullLiteral(n) => HirExpr::NullLiteral(HirNullLiteralExpr {
+                        span: n.span,
                         ty: self.arena.types().get_uninitialized_ty(),
                     }),
                     AstLiteral::Char(ast_char) => HirExpr::CharLiteral(HirCharLiteralExpr {

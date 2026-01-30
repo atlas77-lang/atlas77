@@ -743,6 +743,7 @@ pub enum AstLiteral<'ast> {
     Char(AstCharLiteral),
     Unit(AstUnitLiteral),
     ThisLiteral(AstThisLiteral),
+    NullLiteral(AstNullLiteral),
     String(AstStringLiteral<'ast>),
     Boolean(AstBooleanLiteral),
     List(AstListLiteral<'ast>),
@@ -757,11 +758,17 @@ impl AstLiteral<'_> {
             AstLiteral::Char(l) => l.span,
             AstLiteral::Unit(l) => l.span,
             AstLiteral::ThisLiteral(l) => l.span,
+            AstLiteral::NullLiteral(l) => l.span,
             AstLiteral::String(l) => l.span,
             AstLiteral::Boolean(l) => l.span,
             AstLiteral::List(l) => l.span,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct AstNullLiteral {
+    pub span: Span,
 }
 
 #[derive(Debug, Clone)]
@@ -861,9 +868,11 @@ impl AstType<'_> {
             AstType::Reference(t) => t.span,
         }
     }
-}
 
-impl<'ast> AstType<'ast> {
+    pub fn is_ref(&self) -> bool {
+        matches!(self, AstType::Reference(_))
+    }
+
     pub fn name(&self) -> String {
         match self {
             AstType::Unit(_) => "unit".to_owned(),

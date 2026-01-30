@@ -92,3 +92,25 @@ fun return_a_ref() -> int64& {
     let a: int64 = 10;
     return a; // Should error: returning reference to local variable
 }
+
+fun test_move_ref() {
+    let nm = new NonMoveable(42);
+    printf("nm.data = %d\n", *(nm.data));
+    let nm_ref: NonMoveable&& = nm;
+    printf("nm_ref.data = %d\n", *(nm_ref.data));
+}
+
+extern fun malloc<T>(size: uint64) -> ptr<T>;
+
+struct NonMoveable {
+public:
+    data: ptr<int64>;
+    NonMoveable(data: int64) {
+        let data_ptr = malloc<int64>(size_of<int64>());
+        this.data = data_ptr;
+    }
+    NonMoveable(from: NonMoveable&&) {
+        this.data = from.data;
+        from.data = null;
+    }
+}

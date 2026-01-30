@@ -14,7 +14,7 @@ pub type HirResult<T> = Result<T, HirError>;
 //todo: Implement my own error type, because miette doesn't let me return just warnings
 declare_error_type! {
     #[error("semantic error: {0}")]
-    pub enum HirError {
+    pub(crate) enum HirError {
         UnknownFileImport(UnknownFileImportError),
         NotEnoughGenerics(NotEnoughGenericsError),
         NotEnoughArguments(NotEnoughArgumentsError),
@@ -22,7 +22,7 @@ declare_error_type! {
         BreakOutsideLoop(BreakOutsideLoopError),
         ContinueOutsideLoop(ContinueOutsideLoopError),
         TypeMismatch(TypeMismatchError),
-        UnsupportedStatement(UnsupportedStatement),
+        UnsupportedStatement(UnsupportedStatementError),
         UnsupportedExpr(UnsupportedExpr),
         UnsupportedType(UnsupportedTypeError),
         TryingToNegateUnsigned(TryingToNegateUnsignedError),
@@ -71,6 +71,7 @@ declare_error_type! {
         CannotTransferOwnershipInBorrowingMethod(CannotTransferOwnershipInBorrowingMethodError),
         CannotMoveOutOfContainer(CannotMoveOutOfContainerError),
         CannotMoveOutOfReference(CannotMoveOutOfReferenceError),
+        TypeIsNotMoveable(TypeIsNotMoveableError),
         RecursiveCopyConstructor(RecursiveCopyConstructorError),
         StdNonCopyableStructCannotHaveCopyConstructor(StdNonCopyableStructCannotHaveCopyConstructorError),
         CopyConstructorParameterMustBeCopyable(CopyConstructorParameterMustBeCopyableError),
@@ -131,7 +132,7 @@ impl HirError {
     help("ensure the index is within the bounds of the list")
 )]
 #[error("list index {index} is out of bounds for list of size {size}")]
-pub struct ListIndexOutOfBoundsError {
+pub(crate) struct ListIndexOutOfBoundsError {
     #[label = "index {index} is out of bounds for list of size {size}"]
     pub span: Span,
     pub index: usize,
@@ -146,7 +147,7 @@ pub struct ListIndexOutOfBoundsError {
     help("reduce the number of reference levels")
 )]
 #[error("type has too many reference levels")]
-pub struct TooManyReferenceLevelsError {
+pub(crate) struct TooManyReferenceLevelsError {
     #[label = "type has too many reference levels"]
     pub span: Span,
     #[source_code]
@@ -161,7 +162,7 @@ pub struct TooManyReferenceLevelsError {
     )
 )]
 #[error("cannot return reference to local variable `{var_name}`")]
-pub struct ReturningReferenceToLocalVariableError {
+pub(crate) struct ReturningReferenceToLocalVariableError {
     #[label = "returns a reference to local variable `{var_name}`"]
     pub span: Span,
     pub var_name: String,
@@ -175,7 +176,7 @@ pub struct ReturningReferenceToLocalVariableError {
     help("consider renaming one of the variables")
 )]
 #[error("variable name `{name}` is already defined")]
-pub struct VariableNameAlreadyDefinedError {
+pub(crate) struct VariableNameAlreadyDefinedError {
     pub name: String,
     pub first_definition_span: Span,
     pub second_definition_span: Span,
@@ -190,7 +191,7 @@ pub struct VariableNameAlreadyDefinedError {
 #[error(
     "Invalid special method signature for method '{method_name}': expected {expected} but found {actual}"
 )]
-pub struct InvalidSpecialMethodSignatureError {
+pub(crate) struct InvalidSpecialMethodSignatureError {
     #[label = "invalid special method signature"]
     pub span: Span,
     pub expected: String,
@@ -206,7 +207,7 @@ pub struct InvalidSpecialMethodSignatureError {
     help("implement the required constraint for this type")
 )]
 #[error("type `{ty}` does not implement required constraint `{constraint}`")]
-pub struct TypeDoesNotImplementRequiredConstraintError {
+pub(crate) struct TypeDoesNotImplementRequiredConstraintError {
     #[label = "type `{ty}` does not implement required constraint `{constraint}`"]
     pub span: Span,
     pub ty: String,
@@ -221,7 +222,7 @@ pub struct TypeDoesNotImplementRequiredConstraintError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic()]
 #[error("")]
-pub struct TypeDoesNotImplementRequiredConstraintOrigin {
+pub(crate) struct TypeDoesNotImplementRequiredConstraintOrigin {
     #[label = "the constraint is required here"]
     pub span: Span,
     #[source_code]
@@ -231,7 +232,7 @@ pub struct TypeDoesNotImplementRequiredConstraintOrigin {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::trying_to_create_an_union_with_more_than_one_active_field))]
 #[error("trying to create an union with more than one active field")]
-pub struct TryingToCreateAnUnionWithMoreThanOneActiveFieldError {
+pub(crate) struct TryingToCreateAnUnionWithMoreThanOneActiveFieldError {
     #[label = "multiple active fields were provided here"]
     pub span: Span,
     #[source_code]
@@ -244,7 +245,7 @@ pub struct TryingToCreateAnUnionWithMoreThanOneActiveFieldError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic()]
 #[error("")]
-pub struct TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin {
+pub(crate) struct TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin {
     #[label = "unions can only have one active field at a time"]
     pub span: Span,
     #[source_code]
@@ -257,7 +258,7 @@ pub struct TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin {
     help("consider using a mutable reference instead")
 )]
 #[error("trying to mutate a const reference")]
-pub struct TryingToMutateConstReferenceError {
+pub(crate) struct TryingToMutateConstReferenceError {
     #[label = "cannot mutate `{ty}` as it is a const reference"]
     pub span: Span,
     pub ty: String,
@@ -273,7 +274,7 @@ pub struct TryingToMutateConstReferenceError {
     )
 )]
 #[error("calling a consuming method on a mutable reference")]
-pub struct CallingConsumingMethodOnMutableReferenceError {
+pub(crate) struct CallingConsumingMethodOnMutableReferenceError {
     #[label = "method called on mutable reference here"]
     pub call_span: Span,
     #[source_code]
@@ -286,7 +287,7 @@ pub struct CallingConsumingMethodOnMutableReferenceError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic()]
 #[error("")]
-pub struct CallingConsumingMethodOnMutableReferenceOrigin {
+pub(crate) struct CallingConsumingMethodOnMutableReferenceOrigin {
     #[label = "method is marked as consuming here"]
     pub method_span: Span,
     #[source_code]
@@ -299,7 +300,7 @@ pub struct CallingConsumingMethodOnMutableReferenceOrigin {
     help("consider making the method const, or using a mutable reference")
 )]
 #[error("calling a non-const method on a const reference")]
-pub struct CallingNonConstMethodOnConstReferenceError {
+pub(crate) struct CallingNonConstMethodOnConstReferenceError {
     #[label = "method called on const reference here"]
     pub call_span: Span,
     #[source_code]
@@ -312,7 +313,7 @@ pub struct CallingNonConstMethodOnConstReferenceError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic()]
 #[error("")]
-pub struct CallingNonConstMethodOnConstReferenceOrigin {
+pub(crate) struct CallingNonConstMethodOnConstReferenceOrigin {
     #[label = "method is not marked as const here"]
     pub method_span: Span,
     #[source_code]
@@ -325,7 +326,7 @@ pub struct CallingNonConstMethodOnConstReferenceOrigin {
     help("consider cloning the value before deleting it, or using a reference")
 )]
 #[error("trying to access a deleted value")]
-pub struct TryingToAccessADeletedValueError {
+pub(crate) struct TryingToAccessADeletedValueError {
     #[label = "value was deleted here"]
     pub delete_span: Span,
     #[label = "trying to access deleted value here"]
@@ -340,7 +341,7 @@ pub struct TryingToAccessADeletedValueError {
     help("consider cloning the value before moving it, or using a reference")
 )]
 #[error("trying to access a moved value")]
-pub struct TryingToAccessAMovedValueError {
+pub(crate) struct TryingToAccessAMovedValueError {
     #[label = "value was moved here"]
     pub move_span: Span,
     #[label = "trying to access moved value here"]
@@ -355,7 +356,7 @@ pub struct TryingToAccessAMovedValueError {
     help("consider cloning the value before moving it, or using a reference")
 )]
 #[error("trying to access a potentially moved value")]
-pub struct TryingToAccessAPotentiallyMovedValueError {
+pub(crate) struct TryingToAccessAPotentiallyMovedValueError {
     #[label = "value was potentially moved here"]
     pub move_span: Span,
     #[label = "trying to access potentially moved value here"]
@@ -367,7 +368,7 @@ pub struct TryingToAccessAPotentiallyMovedValueError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::nullable_type_requires_std_library))]
 #[error("nullable types require the standard library")]
-pub struct NullableTypeRequiresStdLibraryError {
+pub(crate) struct NullableTypeRequiresStdLibraryError {
     #[label = "nullable types require the standard library"]
     pub span: Span,
     #[source_code]
@@ -377,7 +378,7 @@ pub struct NullableTypeRequiresStdLibraryError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::trying_to_access_field_on_non_object_type))]
 #[error("Trying to access field on non-object type: {ty}")]
-pub struct TryingToAccessFieldOnNonObjectTypeError {
+pub(crate) struct TryingToAccessFieldOnNonObjectTypeError {
     #[label = "trying to access field on non-object type"]
     pub span: Span,
     pub ty: String,
@@ -388,7 +389,7 @@ pub struct TryingToAccessFieldOnNonObjectTypeError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::unsupported_item))]
 #[error("{item} aren't supported yet")]
-pub struct UnsupportedItemError {
+pub(crate) struct UnsupportedItemError {
     #[label = "unsupported item"]
     pub span: Span,
     pub item: String,
@@ -402,7 +403,7 @@ pub struct UnsupportedItemError {
     help("Provide the required number of arguments")
 )]
 #[error("Not enough arguments provided to {kind}, expected {} but found {found}", origin.expected)]
-pub struct NotEnoughArgumentsError {
+pub(crate) struct NotEnoughArgumentsError {
     //The kind of callable (function, method, constructor, destructor etc.)
     pub kind: String,
     pub found: usize,
@@ -416,7 +417,7 @@ pub struct NotEnoughArgumentsError {
 }
 #[derive(Error, Diagnostic, Debug)]
 #[error("")]
-pub struct NotEnoughArgumentsOrigin {
+pub(crate) struct NotEnoughArgumentsOrigin {
     pub expected: usize,
     #[label = "function requires {expected} arguments"]
     pub span: Span,
@@ -430,7 +431,7 @@ pub struct NotEnoughArgumentsOrigin {
     help("Mark the function {name} as public")
 )]
 #[error("{name} is marked as private, so you cannot call it outside of its file.")]
-pub struct AccessingPrivateFunctionError {
+pub(crate) struct AccessingPrivateFunctionError {
     pub name: String,
     #[source_code]
     pub src: NamedSource<String>,
@@ -443,7 +444,7 @@ pub struct AccessingPrivateFunctionError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic()]
 #[error("")]
-pub struct AccessingPrivateFunctionOrigin {
+pub(crate) struct AccessingPrivateFunctionOrigin {
     #[label = "You marked it as private"]
     pub span: Span,
     #[source_code]
@@ -456,7 +457,7 @@ pub struct AccessingPrivateFunctionOrigin {
     help("ensure that the operation is valid for the given type")
 )]
 #[error("Incompatible {operation} on {ty}")]
-pub struct IllegalUnaryOperationError {
+pub(crate) struct IllegalUnaryOperationError {
     pub operation: String,
     pub ty: String,
     #[label("Incompatible {operation} on {ty}")]
@@ -471,7 +472,7 @@ pub struct IllegalUnaryOperationError {
     help("ensure that the operation is valid for the given types")
 )]
 #[error("Incompatible {operation} on {ty1} & {ty2}")]
-pub struct IllegalOperationError {
+pub(crate) struct IllegalOperationError {
     #[source_code]
     pub src: NamedSource<String>,
     pub operation: String,
@@ -486,7 +487,7 @@ pub struct IllegalOperationError {
 #[error(
     "{name} is marked as private, so you cannot accessing it from outside of its declaration file."
 )]
-pub struct AccessingPrivateStructError {
+pub(crate) struct AccessingPrivateStructError {
     pub name: String,
     #[source_code]
     pub src: NamedSource<String>,
@@ -502,7 +503,7 @@ pub struct AccessingPrivateStructError {
 #[error(
     "{name} is marked as private, so you cannot accessing it from outside of its declaration file."
 )]
-pub struct AccessingPrivateUnionError {
+pub(crate) struct AccessingPrivateUnionError {
     pub name: String,
     #[source_code]
     pub src: NamedSource<String>,
@@ -515,7 +516,7 @@ pub struct AccessingPrivateUnionError {
 
 #[derive(Error, Diagnostic, Debug)]
 #[error("")]
-pub struct AccessingPrivateObjectOrigin {
+pub(crate) struct AccessingPrivateObjectOrigin {
     #[label = "It's marked as private here"]
     pub span: Span,
     #[source_code]
@@ -530,7 +531,7 @@ pub struct AccessingPrivateObjectOrigin {
 #[error(
     "a function that is not of type `unit` must end with a return statement. NB: the compiler won't notice if you actually return in a loop. We still don't do Control Flow Graph analysis to check that."
 )]
-pub struct NoReturnInFunctionError {
+pub(crate) struct NoReturnInFunctionError {
     #[label("function {func_name} requires a return statement")]
     pub span: Span,
     #[source_code]
@@ -541,7 +542,7 @@ pub struct NoReturnInFunctionError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::struct_name_cannot_be_one_letter))]
 #[error("Struct names cannot be a single letter.")]
-pub struct StructNameCannotBeOneLetterError {
+pub(crate) struct StructNameCannotBeOneLetterError {
     #[source_code]
     pub src: NamedSource<String>,
     #[label = "Struct names cannot be a single letter. One letter name is reserved for generic type parameters."]
@@ -551,7 +552,7 @@ pub struct StructNameCannotBeOneLetterError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::cannot_delete_primitive_type))]
 #[error("cannot delete a value of primitive type {ty}")]
-pub struct CannotDeletePrimitiveTypeError {
+pub(crate) struct CannotDeletePrimitiveTypeError {
     #[label("cannot delete a value of primitive type")]
     pub span: Span,
     #[source_code]
@@ -562,7 +563,7 @@ pub struct CannotDeletePrimitiveTypeError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::accessing_private_constructor))]
 #[error("Can't access private {kind} outside of its class")]
-pub struct AccessingPrivateConstructorError {
+pub(crate) struct AccessingPrivateConstructorError {
     #[label("Trying to access a private {kind}")]
     pub span: Span,
     #[source_code]
@@ -578,7 +579,7 @@ pub struct AccessingPrivateConstructorError {
 )]
 #[error("only reference types can be const")]
 //A const type can only hold a reference. It doesn't make sense to have a `const T` where T is not a reference.
-pub struct InvalidReadOnlyTypeError {
+pub(crate) struct InvalidReadOnlyTypeError {
     #[label = "only reference types can be const"]
     pub span: Span,
     #[source_code]
@@ -589,12 +590,12 @@ pub struct InvalidReadOnlyTypeError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::this_should_not_appear))]
 #[error("This is just a useless error that should not appear")]
-pub struct UselessError {}
+pub(crate) struct UselessError {}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::trying_to_index_non_indexable_type))]
 #[error("trying to index a non-indexable type {ty}")]
-pub struct TryingToIndexNonIndexableTypeError {
+pub(crate) struct TryingToIndexNonIndexableTypeError {
     #[label = "type {ty} is not indexable"]
     pub span: Span,
     pub ty: String,
@@ -605,7 +606,7 @@ pub struct TryingToIndexNonIndexableTypeError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::not_valid_struct_construction))]
 #[error("You cannot construct non-struct types")]
-pub struct CanOnlyConstructStructsError {
+pub(crate) struct CanOnlyConstructStructsError {
     #[label = "only struct types can be constructed"]
     pub span: Span,
     #[source_code]
@@ -617,7 +618,7 @@ pub struct CanOnlyConstructStructsError {
 #[error(
     "It seems like you are trying to use a copy constructor on a struct that does not have one."
 )]
-pub struct ThisStructDoesNotHaveACopyConstructorError {
+pub(crate) struct ThisStructDoesNotHaveACopyConstructorError {
     #[label = "trying to use copy constructor, but this struct does not have one defined"]
     pub span: Span,
     #[source_code]
@@ -629,7 +630,7 @@ pub struct ThisStructDoesNotHaveACopyConstructorError {
 #[error(
     "It seems like you are trying to use a move constructor on a struct that does not have one."
 )]
-pub struct ThisStructDoesNotHaveAMoveConstructorError {
+pub(crate) struct ThisStructDoesNotHaveAMoveConstructorError {
     #[label = "trying to use move constructor, but this struct does not have one defined"]
     pub span: Span,
     #[source_code]
@@ -639,7 +640,7 @@ pub struct ThisStructDoesNotHaveAMoveConstructorError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::unknown_file_import))]
 #[error("imported file {file_name} could not be found")]
-pub struct UnknownFileImportError {
+pub(crate) struct UnknownFileImportError {
     pub file_name: String,
     #[label = "could not find import file {file_name}"]
     pub span: Span,
@@ -652,7 +653,7 @@ pub struct UnknownFileImportError {
 #[error(
     "not enough generics provided {ty_name} requires {} generics, but only {found} were provided", origin.expected
 )]
-pub struct NotEnoughGenericsError {
+pub(crate) struct NotEnoughGenericsError {
     pub ty_name: String,
     pub found: usize,
     #[label = "only {found} generics were provided"]
@@ -665,7 +666,7 @@ pub struct NotEnoughGenericsError {
 }
 #[derive(Error, Diagnostic, Debug)]
 #[error("")]
-pub struct NotEnoughGenericsOrigin {
+pub(crate) struct NotEnoughGenericsOrigin {
     pub expected: usize,
     #[label = "{expected} generics were expected"]
     pub declaration_span: Span,
@@ -676,7 +677,7 @@ pub struct NotEnoughGenericsOrigin {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::const_ty_to_non_const_ty))]
 #[error("Can't assign a constant type to a non constant type")]
-pub struct ConstTyToNonConstTyError {
+pub(crate) struct ConstTyToNonConstTyError {
     #[label("This is of type {const_type} which is a constant type")]
     pub const_val: Span,
     pub const_type: String,
@@ -690,7 +691,7 @@ pub struct ConstTyToNonConstTyError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::non_constant_value))]
 #[error("You can't assign a non-constant value to a constant field")]
-pub struct NonConstantValueError {
+pub(crate) struct NonConstantValueError {
     #[label("Trying to assign a non-constant value to a constant field")]
     pub span: Span,
     #[source_code]
@@ -700,7 +701,7 @@ pub struct NonConstantValueError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::self_access_outside_class))]
 #[error("Can't access private {kind} `{field_name}` outside of its class")]
-pub struct AccessingPrivateFieldError {
+pub(crate) struct AccessingPrivateFieldError {
     #[label("Trying to access private {kind} `{field_name}` from outside its class")]
     pub span: Span,
     pub kind: FieldKind,
@@ -728,7 +729,7 @@ impl fmt::Display for FieldKind {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::self_access_outside_class))]
 #[error("Can't access fields of self outside of a class")]
-pub struct AccessingClassFieldOutsideClassError {
+pub(crate) struct AccessingClassFieldOutsideClassError {
     #[label("Trying to access a class field from `self` while outside of a class")]
     pub span: Span,
     #[source_code]
@@ -738,7 +739,7 @@ pub struct AccessingClassFieldOutsideClassError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::empty_list_literal))]
 #[error("empty list literals are not allowed")]
-pub struct EmptyListLiteralError {
+pub(crate) struct EmptyListLiteralError {
     pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
@@ -747,7 +748,7 @@ pub struct EmptyListLiteralError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::trying_to_mutate_immutable))]
 #[error("trying to mutate an immutable variable")]
-pub struct TryingToMutateImmutableVariableError {
+pub(crate) struct TryingToMutateImmutableVariableError {
     #[label = "{var_name} is immutable, try to use `let` instead"]
     pub const_loc: Span,
     pub var_name: String,
@@ -760,7 +761,7 @@ pub struct TryingToMutateImmutableVariableError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::trying_to_negate_unsigned))]
 #[error("trying to negate an unsigned integer")]
-pub struct TryingToNegateUnsignedError {
+pub(crate) struct TryingToNegateUnsignedError {
     #[label = "unsigned integers cannot be negated"]
     pub span: Span,
     #[source_code]
@@ -770,7 +771,7 @@ pub struct TryingToNegateUnsignedError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::unsupported_expr))]
 #[error("{expr} isn't supported yet")]
-pub struct UnsupportedExpr {
+pub(crate) struct UnsupportedExpr {
     #[label = "unsupported expr"]
     pub span: Span,
     pub expr: String,
@@ -781,7 +782,7 @@ pub struct UnsupportedExpr {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::unsupported_type))]
 #[error("{ty} isn't supported yet")]
-pub struct UnsupportedTypeError {
+pub(crate) struct UnsupportedTypeError {
     #[label = "unsupported type"]
     pub span: Span,
     pub ty: String,
@@ -792,7 +793,7 @@ pub struct UnsupportedTypeError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::unsupported_stmt))]
 #[error("{stmt} isn't supported yet")]
-pub struct UnsupportedStatement {
+pub(crate) struct UnsupportedStatementError {
     #[label = "unsupported statement"]
     pub span: Span,
     pub stmt: String,
@@ -803,7 +804,7 @@ pub struct UnsupportedStatement {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::unknown_type))]
 #[error("{name} is not a known type")]
-pub struct UnknownTypeError {
+pub(crate) struct UnknownTypeError {
     pub name: String,
     #[label = "could not find type {name}"]
     pub span: Span,
@@ -814,7 +815,7 @@ pub struct UnknownTypeError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::break_outside_loop))]
 #[error("break statement outside of loop")]
-pub struct BreakOutsideLoopError {
+pub(crate) struct BreakOutsideLoopError {
     #[label = "there is no enclosing loop"]
     pub span: Span,
     #[source_code]
@@ -824,7 +825,7 @@ pub struct BreakOutsideLoopError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::continue_outside_loop))]
 #[error("continue statement outside of loop")]
-pub struct ContinueOutsideLoopError {
+pub(crate) struct ContinueOutsideLoopError {
     #[label = "there is no enclosing loop"]
     pub span: Span,
     #[source_code]
@@ -834,7 +835,7 @@ pub struct ContinueOutsideLoopError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::type_mismatch), help("ensure that both types are the same"))]
 #[error("type mismatch error, found `{}` but expected `{expected_ty}`", actual.actual_ty)]
-pub struct TypeMismatchError {
+pub(crate) struct TypeMismatchError {
     #[label("expected {expected_ty}")]
     pub span: Span,
     pub expected_ty: String,
@@ -848,7 +849,7 @@ pub struct TypeMismatchError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic()]
 #[error("")]
-pub struct TypeMismatchActual {
+pub(crate) struct TypeMismatchActual {
     pub actual_ty: String,
     #[label = "found {actual_ty}"]
     pub span: Span,
@@ -864,7 +865,7 @@ pub struct TypeMismatchActual {
     )
 )]
 #[error("cannot copy value of type `{ty}` because it does not implement a copy constructor")]
-pub struct TryingToCopyNonCopyableTypeError {
+pub(crate) struct TryingToCopyNonCopyableTypeError {
     #[label = "trying to copy this value"]
     pub span: Span,
     pub ty: String,
@@ -880,7 +881,7 @@ pub struct TryingToCopyNonCopyableTypeError {
     )
 )]
 #[error("value has already been moved")]
-pub struct DoubleMoveError {
+pub(crate) struct DoubleMoveError {
     #[label = "value was first moved here"]
     pub first_move_span: Span,
     #[label = "trying to move again here"]
@@ -895,7 +896,7 @@ pub struct DoubleMoveError {
     help("check the variable name for typos, or ensure it is declared before use")
 )]
 #[error("cannot find value `{name}` in this scope")]
-pub struct UnknownIdentifierError {
+pub(crate) struct UnknownIdentifierError {
     pub name: String,
     #[label = "not found in this scope"]
     pub span: Span,
@@ -909,7 +910,7 @@ pub struct UnknownIdentifierError {
     help("check the field name for typos, or ensure the struct has this field")
 )]
 #[error("no field `{field_name}` on type `{ty_name}`")]
-pub struct UnknownFieldError {
+pub(crate) struct UnknownFieldError {
     pub field_name: String,
     pub ty_name: String,
     #[label = "unknown field"]
@@ -924,7 +925,7 @@ pub struct UnknownFieldError {
     help("check the method name for typos, or ensure the type has this method")
 )]
 #[error("no method `{method_name}` found for type `{ty_name}`")]
-pub struct UnknownMethodError {
+pub(crate) struct UnknownMethodError {
     pub method_name: String,
     pub ty_name: String,
     #[label = "method not found"]
@@ -943,7 +944,7 @@ pub struct UnknownMethodError {
 #[error(
     "{member_kind} `{member_name}` is not available on `{ty_name}` because its constraints are not satisfied"
 )]
-pub struct MethodConstraintNotSatisfiedError {
+pub(crate) struct MethodConstraintNotSatisfiedError {
     pub member_kind: String,
     pub member_name: String,
     pub ty_name: String,
@@ -961,7 +962,7 @@ pub struct MethodConstraintNotSatisfiedError {
     )
 )]
 #[error("cannot transfer ownership of `{value_name}` in a borrowing method")]
-pub struct CannotTransferOwnershipInBorrowingMethodError {
+pub(crate) struct CannotTransferOwnershipInBorrowingMethodError {
     #[label = "this method borrows `this` (uses `&this`), it does not own it"]
     pub method_span: Span,
     #[label = "trying to transfer ownership here"]
@@ -979,7 +980,7 @@ pub struct CannotTransferOwnershipInBorrowingMethodError {
     )
 )]
 #[error("cannot move non-copyable type `{ty_name}` out of container")]
-pub struct CannotMoveOutOfContainerError {
+pub(crate) struct CannotMoveOutOfContainerError {
     #[label = "attempting to move `{ty_name}` out of array/container here"]
     pub span: Span,
     pub ty_name: String,
@@ -995,8 +996,24 @@ pub struct CannotMoveOutOfContainerError {
     )
 )]
 #[error("cannot dereference non-copyable type `{ty_name}` from a reference")]
-pub struct CannotMoveOutOfReferenceError {
+pub(crate) struct CannotMoveOutOfReferenceError {
     #[label = "trying to dereference `{ty_name}` here, but it's not copyable"]
+    pub span: Span,
+    pub ty_name: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::cannot_move_value),
+    help(
+        "type `{ty_name}` is not moveable. Consider implementing a move constructor (`{ty_name}(dying_obj: {ty_name}&&)` constructor) for this type if it should be moveable"
+    )
+)]
+#[error("Trying to move a non-moveable type `{ty_name}`")]
+pub(crate) struct TypeIsNotMoveableError {
+    #[label = "trying to move a non-moveable type here"]
     pub span: Span,
     pub ty_name: String,
     #[source_code]
@@ -1011,7 +1028,7 @@ pub struct CannotMoveOutOfReferenceError {
     )
 )]
 #[error("cannot move variable `{var_name}` inside loop")]
-pub struct CannotMoveOutOfLoopError {
+pub(crate) struct CannotMoveOutOfLoopError {
     #[label = "loop starts here"]
     pub loop_span: Span,
     #[label = "variable `{var_name}` is moved here"]
@@ -1029,7 +1046,7 @@ pub struct CannotMoveOutOfLoopError {
     )
 )]
 #[error("cannot delete variable `{var_name}` inside loop")]
-pub struct CannotDeleteOutOfLoopError {
+pub(crate) struct CannotDeleteOutOfLoopError {
     #[label = "loop starts here"]
     pub loop_span: Span,
     #[label = "variable `{var_name}` is deleted here"]
@@ -1047,7 +1064,7 @@ pub struct CannotDeleteOutOfLoopError {
     )
 )]
 #[error("recursive copy detected in the Copy constructor for type `{type_name}`")]
-pub struct RecursiveCopyConstructorError {
+pub(crate) struct RecursiveCopyConstructorError {
     #[label = "copy constructor defined here"]
     pub method_span: Span,
     #[label = "attempting to copy `{type_name}` inside its own copy constructor"]
@@ -1067,14 +1084,14 @@ pub struct RecursiveCopyConstructorError {
 #[error(
     "struct `{struct_name}` is marked as `std::non_copyable` and cannot have a copy constructor"
 )]
-pub struct StdNonCopyableStructCannotHaveCopyConstructorError {
+pub(crate) struct StdNonCopyableStructCannotHaveCopyConstructorError {
     #[label = "copy constructor defined here"]
     pub copy_ctor_span: Span,
     #[label = "`std::non_copyable` flag set here"]
     pub flag_span: Span,
     #[source_code]
     pub src: NamedSource<String>,
-    pub struct_name: String,
+    pub(crate) struct_name: String,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -1087,12 +1104,12 @@ pub struct StdNonCopyableStructCannotHaveCopyConstructorError {
 #[error(
     "copy constructor for `{struct_name}` cannot be used because it contains non-copyable fields"
 )]
-pub struct CopyConstructorParameterMustBeCopyableError {
+pub(crate) struct CopyConstructorParameterMustBeCopyableError {
     #[label = "copy constructor defined here"]
     pub copy_ctor_span: Span,
     #[label = "but `{struct_name}` contains fields that are not copyable"]
-    pub struct_span: Span,
-    pub struct_name: String,
+    pub(crate) struct_span: Span,
+    pub(crate) struct_name: String,
     #[source_code]
     pub src: NamedSource<String>,
 }
@@ -1112,10 +1129,10 @@ Solutions:
     )
 )]
 #[error("struct `{struct_name}` contains a cyclic reference to itself")]
-pub struct StructCannotHaveAFieldOfItsOwnTypeError {
-    pub struct_name: String,
+pub(crate) struct StructCannotHaveAFieldOfItsOwnTypeError {
+    pub(crate) struct_name: String,
     #[label = "struct `{struct_name}` defined here"]
-    pub struct_span: Span,
+    pub(crate) struct_span: Span,
     #[label(collection)]
     pub cycle_path: Vec<miette::LabeledSpan>,
     #[source_code]
@@ -1130,7 +1147,7 @@ pub struct StructCannotHaveAFieldOfItsOwnTypeError {
     )
 )]
 #[error("{union_name} must have at least two variants")]
-pub struct UnionMustHaveAtLeastTwoVariantError {
+pub(crate) struct UnionMustHaveAtLeastTwoVariantError {
     pub union_name: String,
     #[label = "{union_name} must have at least two variants"]
     pub span: Span,
@@ -1145,7 +1162,7 @@ pub struct UnionMustHaveAtLeastTwoVariantError {
     )
 )]
 #[error("union `{union_name}` has a variant of type `{variant_ty}` defined multiple times")]
-pub struct UnionVariantDefinedMultipleTimesError {
+pub(crate) struct UnionVariantDefinedMultipleTimesError {
     pub union_name: String,
     pub variant_ty: String,
     #[label = "first definition of variant of type `{variant_ty}`"]
@@ -1166,7 +1183,7 @@ pub struct UnionVariantDefinedMultipleTimesError {
     )
 )]
 #[error("`{value_name}`'s lifetime is tied to `{origin_name}`'s lifetime")]
-pub struct LifetimeDependencyViolationError {
+pub(crate) struct LifetimeDependencyViolationError {
     pub value_name: String,
     pub origin_name: String,
     #[label = "`{origin_name}` was deleted/moved here"]
@@ -1188,7 +1205,7 @@ pub struct LifetimeDependencyViolationError {
     )
 )]
 #[error("`{value_name}`'s lifetime is tied to local variable `{origin_name}`")]
-pub struct ReturningValueWithLocalLifetimeDependencyError {
+pub(crate) struct ReturningValueWithLocalLifetimeDependencyError {
     pub value_name: String,
     pub origin_name: String,
     #[label = "`{origin_name}` is declared here as a local variable"]
@@ -1207,7 +1224,7 @@ pub struct ReturningValueWithLocalLifetimeDependencyError {
     )
 )]
 #[error("constructors cannot have where clauses, they aren't conditionally defined")]
-pub struct ConstructorCannotHaveAWhereClauseError {
+pub(crate) struct ConstructorCannotHaveAWhereClauseError {
     #[label = "constructors cannot have where clauses"]
     pub span: Span,
     #[source_code]
@@ -1220,7 +1237,7 @@ pub struct ConstructorCannotHaveAWhereClauseError {
     help("assignments are statements and do not produce a value")
 )]
 #[error("assignments cannot be used as expressions")]
-pub struct AssignmentCannotBeAnExpressionError {
+pub(crate) struct AssignmentCannotBeAnExpressionError {
     #[label = "assignments cannot be used as expressions"]
     pub span: Span,
     #[source_code]
@@ -1237,7 +1254,7 @@ pub struct AssignmentCannotBeAnExpressionError {
     )
 )]
 #[error("cannot automatically generate a destructor for type `{type_name}`")]
-pub struct CannotGenerateADestructorForThisTypeError {
+pub(crate) struct CannotGenerateADestructorForThisTypeError {
     #[source_code]
     pub src: NamedSource<String>,
     #[label = "field requiring custom destructor is defined here"]
@@ -1257,7 +1274,7 @@ pub struct CannotGenerateADestructorForThisTypeError {
     )
 )]
 #[error("cannot implicitly copy non-copyable value `{var_name}` of type `{ty_name}`")]
-pub struct CannotImplicitlyCopyNonCopyableValueError {
+pub(crate) struct CannotImplicitlyCopyNonCopyableValueError {
     pub var_name: String,
     pub ty_name: String,
     #[label = "attempting to implicitly copy `{var_name}` here"]
@@ -1269,7 +1286,7 @@ pub struct CannotImplicitlyCopyNonCopyableValueError {
 #[derive(Error, Diagnostic, Debug)]
 #[error("Cannot move from rvalue")]
 #[diagnostic(code(atlas::ownership::cannot_move_from_rvalue))]
-pub struct CannotMoveFromRvalueError {
+pub(crate) struct CannotMoveFromRvalueError {
     #[source_code]
     pub src: NamedSource<String>,
 
@@ -1283,7 +1300,7 @@ pub struct CannotMoveFromRvalueError {
 #[derive(Error, Diagnostic, Debug)]
 #[error("Type is not copyable")]
 #[diagnostic(code(atlas::ownership::type_not_copyable))]
-pub struct TypeNotCopyableError {
+pub(crate) struct TypeNotCopyableError {
     #[source_code]
     pub src: NamedSource<String>,
 

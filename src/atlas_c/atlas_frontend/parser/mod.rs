@@ -10,9 +10,9 @@ use miette::NamedSource;
 use crate::atlas_c::atlas_frontend::parser::{
     ast::{
         AstArg, AstBuiltinOp, AstBuiltinOpExpr, AstEnum, AstEnumVariant, AstExternStruct, AstFlag,
-        AstGlobalConst, AstInlineArrayType, AstObjLiteralExpr, AstObjLiteralField, AstPtrTy,
-        AstReadOnlyRefType, AstReferenceKind, AstReferenceType, AstStdGenericConstraint, AstUnion,
-        ConstructorKind,
+        AstGlobalConst, AstInlineArrayType, AstNullLiteral, AstObjLiteralExpr, AstObjLiteralField,
+        AstPtrTy, AstReadOnlyRefType, AstReferenceKind, AstReferenceType, AstStdGenericConstraint,
+        AstUnion, ConstructorKind,
     },
     error::{
         DestructorWithParametersError, FlagDoesntExistError, NoFieldInStructError,
@@ -495,7 +495,7 @@ impl<'ast> Parser<'ast> {
         )?;
 
         self.expect(TokenKind::LBrace)?;
-        let mut fields = vec![];
+        let mut fields: Vec<AstObjField<'_>> = vec![];
         let mut constructor: Option<&'ast AstConstructor<'ast>> = None;
         let mut copy_constructor: Option<&'ast AstConstructor<'ast>> = None;
         let mut move_constructor: Option<&'ast AstConstructor<'ast>> = None;
@@ -687,11 +687,13 @@ impl<'ast> Parser<'ast> {
     ) -> ConstructorKind {
         if constructor.args.len() == 1 {
             match constructor.args[0].ty {
-                AstType::ReadOnlyRef(AstReadOnlyRefType {
+                AstType::Reference(AstReferenceType {
+                    kind: AstReferenceKind::ReadOnly,
                     inner: AstType::Named(AstNamedType { name: ident, .. }),
                     ..
                 })
-                | AstType::ReadOnlyRef(AstReadOnlyRefType {
+                | AstType::Reference(AstReferenceType {
+                    kind: AstReferenceKind::ReadOnly,
                     inner: AstType::Generic(AstGenericType { name: ident, .. }),
                     ..
                 }) => {
@@ -699,11 +701,13 @@ impl<'ast> Parser<'ast> {
                         return ConstructorKind::Copy;
                     }
                 }
-                AstType::MutableRef(AstMutableRefType {
+                AstType::Reference(AstReferenceType {
+                    kind: AstReferenceKind::Moveable,
                     inner: AstType::Named(AstNamedType { name: ident, .. }),
                     ..
                 })
-                | AstType::MutableRef(AstMutableRefType {
+                | AstType::Reference(AstReferenceType {
+                    kind: AstReferenceKind::Moveable,
                     inner: AstType::Generic(AstGenericType { name: ident, .. }),
                     ..
                 }) => {
@@ -1405,6 +1409,12 @@ impl<'ast> Parser<'ast> {
             }
             TokenKind::KwNew => self.parse_new_obj()?,
             TokenKind::KwDelete => self.parse_delete_obj()?,
+            TokenKind::KwNull => {
+                let node =
+                    AstExpr::Literal(AstLiteral::NullLiteral(AstNullLiteral { span: tok.span() }));
+                let _ = self.advance();
+                node
+            }
             TokenKind::LParen => {
                 self.expect(TokenKind::LParen)?;
                 if self.current().kind() == TokenKind::RParen {
@@ -2209,8 +2219,7 @@ impl<'ast> Parser<'ast> {
         };
         Ok(node)
     }
-    //TODO: THIS DOESN'T SUPPORT GENERIC TYPES WTF?
-    //It crashes on Array[T] for example... fix it
+
     fn parse_type(&mut self) -> ParseResult<AstType<'ast>> {
         let token = self.current();
         let start = self.current().span();
@@ -2473,7 +2482,6 @@ impl<'ast> Parser<'ast> {
         // Maybe this should be a match statement?
         let node = if self.current().kind == TokenKind::Interrogation {
             let _ = self.advance();
-
             AstType::Nullable(AstNullableType {
                 span: Span::union_span(&start, &self.current().span()),
                 inner: self.arena.alloc(ty),
@@ -2481,6 +2489,14 @@ impl<'ast> Parser<'ast> {
         } else if self.current().kind() == TokenKind::Ampersand {
             // Handle reference types
             let _ = self.advance();
+            if ty.is_ref() {
+                return Err(self.unexpected_token_error(
+                    TokenVec(vec![TokenKind::Identifier(
+                        "Non-reference Type".to_string(),
+                    )]),
+                    &start,
+                ));
+            }
             AstType::Reference(AstReferenceType {
                 span: Span::union_span(&start, &self.current().span()),
                 inner: self.arena.alloc(ty),
@@ -2489,6 +2505,14 @@ impl<'ast> Parser<'ast> {
         } else if self.current().kind() == TokenKind::OpAnd {
             // Handle moveable reference types
             let _ = self.advance();
+            if ty.is_ref() {
+                return Err(self.unexpected_token_error(
+                    TokenVec(vec![TokenKind::Identifier(
+                        "Non-reference Type".to_string(),
+                    )]),
+                    &start,
+                ));
+            }
             AstType::Reference(AstReferenceType {
                 span: Span::union_span(&start, &self.current().span()),
                 inner: self.arena.alloc(ty),

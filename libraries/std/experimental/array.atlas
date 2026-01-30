@@ -32,41 +32,41 @@ public:
         this.data = new [T; N];
     }
     // Copy constructor
-    array(from: &const array<T, N>)
+    array(from: const array<T, N>&)
         where T: std::copyable
     {
         // ensure this doesn't require std::default
         this.data = new [T; N];
         let i = 0u;
         while i < N {
-            (*this).data[i] = (*from).data[i];
+            this.data[i] = from.data[i];
             i = i + 1u;
         }
     }
     // Move constructor
-    array(from: &array<T, N>)
+    array(from: array<T, N>&&)
         where T: std::moveable
     {
         // ensure this doesn't require std::default
         this.data = new [T; N];
         let i = 0u;
         while i < N {
-            (*this).data[i] = move<T>(&(*from).data[i]);
+            this.data[i] = move<T>(from.data[i]);
             i = i + 1u;
         }
     }
     ~array() {
         let i = 0u;
         while i < N {
-            delete &(*this).data[i];
+            delete this.data[i];
             i = i + 1u;
         }
     }
-    operator [](&const this, index: uint64) -> &const T {
-        return (*this).data.get(index);
+    operator [](const this&, index: uint64) -> const T& {
+        return this.data.get(index);
     }
-    operator []=(&this, index: uint64, value: T) {
-        let slot = (*this).data.get_mut(index);
+    operator []=(this&, index: uint64, value: T) {
+        let slot = this.data.get_mut(index);
         *slot = value;
     }
     fun from_slice(slice: [T]) -> array<T, N> {
@@ -76,31 +76,31 @@ public:
         let arr = new array<T, N>();
         let i = 0u;
         while i < N {
-            (*arr).data[i] = slice[i];
+            arr.data[i] = slice[i];
             i = i + 1u;
         }
         return arr;
     }
     #[inline]
-    fun get(&const this, index: uint64) -> &const T {
+    fun get(const this&, index: uint64) -> const T& {
         if index >= N {
             panic("Index out of bounds");
         }
-        return (*this).data.get(index);
+        return this.data.get(index);
     }
     #[inline]
-    fun get_mut(&this, index: uint64) -> &T {
+    fun get_mut(&this, index: uint64) -> T& {
         if index >= N {
             panic("Index out of bounds");
         }
-        return (*this).data.get_mut(index);
+        return this.data.get_mut(index);
     }
     #[inline]
     fun set(&this, index: uint64, value: T) {
         if index >= N {
             panic("Index out of bounds");
         }
-        (*this).data.set(index, value);
+        this.data.set(index, value);
     }
     #[inline]
     const fun len(&const this) -> uint64 {

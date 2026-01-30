@@ -126,14 +126,22 @@ impl HirPrettyPrinter {
 
         // Type parameters (from generics in signature)
         if !struct_def.signature.generics.is_empty() {
-            self.write("<");
+            self.write("where ");
             for (i, generic) in struct_def.signature.generics.iter().enumerate() {
                 if i > 0 {
                     self.write(", ");
                 }
                 self.write(generic.generic_name);
+                if generic.kind.is_empty() {
+                    self.write(": no_constraints");
+                    continue;
+                } else {
+                    self.write(": ");
+                }
+                for kind in &generic.kind {
+                    self.print_constraint_kind(kind);
+                }
             }
-            self.write(">");
         }
 
         self.writeln(" {");
@@ -484,6 +492,9 @@ impl HirPrettyPrinter {
             }
             HirExpr::UnitLiteral(_) => {
                 self.write("()");
+            }
+            HirExpr::NullLiteral(_) => {
+                self.write("null");
             }
             HirExpr::ThisLiteral(_) => {
                 self.write("this");

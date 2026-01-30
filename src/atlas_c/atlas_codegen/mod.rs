@@ -145,13 +145,13 @@ impl CCodeGen {
             LirTy::Boolean => "bool".to_string(),
             LirTy::Char => "uint32_t".to_string(),
             LirTy::Str => "char*".to_string(),
-            LirTy::Ptr(inner) => {
+            LirTy::Ptr { is_const, inner } => {
                 let inner_type = self.codegen_type(inner);
                 if inner_type.ends_with('*') {
                     // Avoid double pointers for now
                     inner_type
                 } else {
-                    format!("{}*", inner_type)
+                    format!("{}{}*", if *is_const { "const " } else { "" }, inner_type)
                 }
             }
             // For struct types, we use pointers

@@ -1,4 +1,5 @@
 use crate::atlas_c::atlas_frontend::parser::ast::AstReferenceKind;
+use crate::atlas_c::atlas_hir::signature::HirModuleSignature;
 use crate::atlas_c::utils::Span;
 use std::fmt;
 use std::fmt::Formatter;
@@ -235,6 +236,33 @@ impl HirTy<'_> {
                 | HirTy::String(_)
         )
     }
+
+    pub fn is_moveable(&self, signatures: &HirModuleSignature<'_>) -> bool {
+        if self.is_primitive() {
+            return true;
+        }
+        match self {
+            HirTy::Named(named_ty) => {
+                if let Some(struct_sig) = signatures.structs.get(named_ty.name) {
+                    struct_sig.move_constructor.is_some()
+                } else {
+                    false
+                }
+            }
+            HirTy::Generic(generic_ty) => {
+                // No need to monomorphize the name. This is ready for the next rework of the passes.
+                // The monomorphization pass will happen AFTER the type checking pass in the future.
+                if let Some(struct_sig) = signatures.structs.get(generic_ty.name) {
+                    struct_sig.move_constructor.is_some()
+                } else {
+                    false
+                }
+            }
+            HirTy::Reference(_) => true,
+            _ => false,
+        }
+    }
+
     pub fn is_raw_ptr(&self) -> bool {
         matches!(self, HirTy::PtrTy(_))
     }

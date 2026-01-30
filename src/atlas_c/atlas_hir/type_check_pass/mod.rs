@@ -8,8 +8,8 @@ use crate::atlas_c::atlas_hir::error::{
     CallingConsumingMethodOnMutableReferenceOrigin, ListIndexOutOfBoundsError,
     StdNonCopyableStructCannotHaveCopyConstructorError, StructCannotHaveAFieldOfItsOwnTypeError,
     ThisStructDoesNotHaveACopyConstructorError, ThisStructDoesNotHaveAMoveConstructorError,
-    UnionMustHaveAtLeastTwoVariantError, UnionVariantDefinedMultipleTimesError,
-    VariableNameAlreadyDefinedError,
+    TypeIsNotMoveableError, UnionMustHaveAtLeastTwoVariantError,
+    UnionVariantDefinedMultipleTimesError, VariableNameAlreadyDefinedError,
 };
 use crate::atlas_c::atlas_hir::expr::{HirBuiltinOp, HirNewObjExpr};
 use crate::atlas_c::atlas_hir::item::{HirStructConstructor, HirUnion};
@@ -18,6 +18,7 @@ use crate::atlas_c::atlas_hir::signature::{
     HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier,
     HirStructSignature, HirVisibility,
 };
+use crate::atlas_c::atlas_hir::ty::{HirReferenceKind, HirReferenceTy};
 use crate::atlas_c::atlas_hir::{
     error::{
         AccessingClassFieldOutsideClassError, AccessingPrivateConstructorError,
@@ -359,39 +360,42 @@ impl<'hir> TypeChecker<'hir> {
                 self.check_expr(&mut e.expr)?;
                 Ok(())
             }
-            HirStatement::Return(r) => {
-                let actual_ret_ty = self.check_expr(&mut r.value)?;
+            HirStatement::Return(ret) => {
+                let actual_ret_ty = self.check_expr(&mut ret.value)?;
 
                 // Check for returning a reference to a local variable (directly or through a struct)
-                let local_refs = self.get_local_ref_targets(&r.value);
+                let local_refs = self.get_local_ref_targets(&ret.value);
                 if let Some(local_var_name) = local_refs.first() {
-                    let path = r.span.path;
+                    let path = ret.span.path;
                     let src = utils::get_file_content(path).unwrap();
                     return Err(HirError::ReturningReferenceToLocalVariable(
                         ReturningReferenceToLocalVariableError {
-                            span: r.value.span(),
+                            span: ret.value.span(),
                             var_name: local_var_name.to_string(),
                             src: NamedSource::new(path, src),
                         },
                     ));
                 }
 
-                let mut expected_ret_ty = self.arena.types().get_uninitialized_ty();
-                let span = if let Some(name) = self.current_class_name {
+                let (expected_ret_ty, span) = if let Some(name) = self.current_class_name {
                     //This means we're in a class method
                     let class = self.signature.structs.get(name).unwrap();
                     let method = class.methods.get(self.current_func_name.unwrap()).unwrap();
-                    expected_ret_ty = self.arena.intern(method.clone().return_ty);
-                    method.return_ty_span.unwrap_or(r.span)
+                    (
+                        self.arena.intern(method.clone().return_ty) as &_,
+                        method.return_ty_span.unwrap_or(ret.span),
+                    )
                 } else if let Some(name) = self.current_func_name {
                     //This means we're in a standalone function
                     let func_ret_from = self.signature.functions.get(name).unwrap();
-                    expected_ret_ty = self.arena.intern(func_ret_from.return_ty.clone());
-                    func_ret_from.return_ty_span.unwrap_or(r.span)
+                    (
+                        self.arena.intern(func_ret_from.return_ty.clone()) as &_,
+                        func_ret_from.return_ty_span.unwrap_or(ret.span),
+                    )
                 } else {
-                    r.span
+                    (self.arena.types().get_uninitialized_ty(), ret.span)
                 };
-                self.is_equivalent_ty(expected_ret_ty, span, actual_ret_ty, r.value.span())
+                self.is_equivalent_ty(expected_ret_ty, span, actual_ret_ty, ret.value.span())
             }
             HirStatement::While(w) => {
                 let cond_ty = self.check_expr(&mut w.condition)?;
@@ -705,6 +709,12 @@ impl<'hir> TypeChecker<'hir> {
                     }
                 }
             }
+            // TODO: Null literal should either have a pointer type, or a nullptr_t
+            HirExpr::NullLiteral(n) => {
+                let ptr_ty = self.arena.types().get_unit_ty();
+                n.ty = ptr_ty;
+                Ok(ptr_ty)
+            }
             HirExpr::Unary(u) => {
                 let ty = self.check_expr(&mut u.expr)?;
                 match u.op {
@@ -720,7 +730,7 @@ impl<'hir> TypeChecker<'hir> {
                         Ok(ty)
                     }
                     Some(HirUnaryOp::AsRef) => {
-                        let ref_ty = self.arena.types().get_mutable_ref_ty(ty);
+                        let ref_ty = self.arena.types().get_ptr_ty(ty);
                         u.ty = ref_ty;
                         Ok(ref_ty)
                     }
@@ -732,6 +742,10 @@ impl<'hir> TypeChecker<'hir> {
                         HirTy::ReadOnlyReference(r) => {
                             u.ty = r.inner;
                             Ok(r.inner)
+                        }
+                        HirTy::PtrTy(ptr) => {
+                            u.ty = ptr.inner;
+                            Ok(ptr.inner)
                         }
                         _ => Err(Self::illegal_unary_operation_err(
                             ty,
@@ -2247,6 +2261,63 @@ impl<'hir> TypeChecker<'hir> {
                     ))
                 }
             }
+            (HirTy::Reference(r1), HirTy::Reference(r2)) => {
+                // A T& can become a T&& but not the other way around
+                // A T& can become a const T& but not the other way around
+                // A const T& can become a const T&& but not the other way around
+                //TODO: Improve error messages here to specify which kind of reference mismatch occurred
+                match (&r1.kind, &r2.kind) {
+                    // A T&& cannot become a T&
+                    (HirReferenceKind::Mutable, HirReferenceKind::Moveable) => {
+                        return Err(Self::type_mismatch_err(
+                            &format!("{}", expected_ty),
+                            &expected_span,
+                            &format!("{}", found_ty),
+                            &found_span,
+                        ));
+                    }
+                    // A const T& cannot become a T&
+                    (HirReferenceKind::Mutable, HirReferenceKind::ReadOnly) => {
+                        return Err(Self::type_mismatch_err(
+                            &format!("{}", expected_ty),
+                            &expected_span,
+                            &format!("{}", found_ty),
+                            &found_span,
+                        ));
+                    }
+                    // A T&& cannot become a const T&
+                    (HirReferenceKind::ReadOnly, HirReferenceKind::Moveable) => {
+                        return Err(Self::type_mismatch_err(
+                            &format!("{}", expected_ty),
+                            &expected_span,
+                            &format!("{}", found_ty),
+                            &found_span,
+                        ));
+                    }
+                    _ => self.is_equivalent_ty(r1.inner, expected_span, r2.inner, found_span),
+                }
+            }
+            (HirTy::Reference(r), found) => {
+                self.is_equivalent_ty(r.inner, expected_span, found_ty, found_span)?;
+                if r.kind == HirReferenceKind::Moveable {
+                    // check if found is moveable
+                    if found.is_moveable(&self.signature) {
+                        return Ok(());
+                    } else {
+                        return Err(HirError::TypeIsNotMoveable(TypeIsNotMoveableError {
+                            span: found_span,
+                            ty_name: found_ty.to_string(),
+                            src: NamedSource::new(
+                                found_span.path,
+                                utils::get_file_content(found_span.path).unwrap(),
+                            ),
+                        }));
+                    }
+                }
+                Ok(())
+            }
+            // TODO: Replace Unit type with a proper nullptr_t type
+            (HirTy::PtrTy(_), HirTy::Unit(_)) => Ok(()),
             _ => {
                 if HirTyId::from(expected_ty) == HirTyId::from(found_ty) {
                     Ok(())
@@ -2287,6 +2358,7 @@ impl<'hir> TypeChecker<'hir> {
             }
             HirTy::ReadOnlyReference(read_only) => self.get_class_name_of_type(read_only.inner),
             HirTy::MutableReference(mutable) => self.get_class_name_of_type(mutable.inner),
+            HirTy::Reference(r) => self.get_class_name_of_type(r.inner),
             _ => None,
         }
     }
