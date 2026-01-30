@@ -11,7 +11,9 @@ use super::ty::{
     HirUnitTy, HirUnsignedIntTy,
 };
 use crate::atlas_c::{
-    atlas_hir::ty::{HirFunctionTy, HirPtrTy, HirReadOnlyReferenceTy},
+    atlas_hir::ty::{
+        HirFunctionTy, HirPtrTy, HirReadOnlyReferenceTy, HirReferenceKind, HirReferenceTy,
+    },
     utils::Span,
 };
 use bumpalo::Bump;
@@ -215,14 +217,29 @@ impl<'arena> TypeArena<'arena> {
         })
     }
 
+    pub fn get_ref_ty(
+        &'arena self,
+        inner: &'arena HirTy<'arena>,
+        kind: HirReferenceKind,
+        span: Span,
+    ) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_ref_ty_id(&HirTyId::from(inner), kind);
+        self.intern.borrow_mut().entry(id).or_insert_with(|| {
+            self.allocator
+                .alloc(HirTy::Reference(HirReferenceTy { inner, kind, span }))
+        })
+    }
+
+    #[deprecated(note = "Use Reference types instead")]
     pub fn get_mutable_ref_ty(&'arena self, inner: &'arena HirTy<'arena>) -> &'arena HirTy<'arena> {
-        let id = HirTyId::compute_ref_ty_id(&HirTyId::from(inner));
+        let id = HirTyId::compute_mut_ref_ty_id(&HirTyId::from(inner));
         self.intern.borrow_mut().entry(id).or_insert_with(|| {
             self.allocator
                 .alloc(HirTy::MutableReference(HirMutableReferenceTy { inner }))
         })
     }
 
+    #[deprecated(note = "Use Reference types instead")]
     pub fn get_readonly_ref_ty(
         &'arena self,
         inner: &'arena HirTy<'arena>,

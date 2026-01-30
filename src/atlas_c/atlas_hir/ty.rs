@@ -1,3 +1,4 @@
+use crate::atlas_c::atlas_frontend::parser::ast::AstReferenceKind;
 use crate::atlas_c::utils::Span;
 use std::fmt;
 use std::fmt::Formatter;
@@ -20,7 +21,10 @@ const NULLABLE_TY_ID: u8 = 0x40;
 const UNINITIALIZED_TY_ID: u8 = 0x50;
 const NAMED_TY_ID: u8 = 0x60;
 const GENERIC_TY_ID: u8 = 0x70;
+const REFERENCE_TY_ID: u8 = 0x80;
+#[deprecated(note = "Use Reference types instead")]
 const MUT_REFERENCE_TY_ID: u8 = 0x80;
+#[deprecated(note = "Use Reference types instead")]
 const CONST_REFERENCE_TY_ID: u8 = 0x81;
 const POINTER_TY_ID: u8 = 0x90;
 
@@ -110,7 +114,13 @@ impl HirTyId {
         Self(hasher.finish())
     }
 
-    pub fn compute_ref_ty_id(inner: &HirTyId) -> Self {
+    pub fn compute_ref_ty_id(inner: &HirTyId, kind: HirReferenceKind) -> Self {
+        let mut hasher = DefaultHasher::new();
+        (REFERENCE_TY_ID, kind, inner).hash(&mut hasher);
+        Self(hasher.finish())
+    }
+
+    pub fn compute_mut_ref_ty_id(inner: &HirTyId) -> Self {
         let mut hasher = DefaultHasher::new();
         (MUT_REFERENCE_TY_ID, inner).hash(&mut hasher);
         Self(hasher.finish())
@@ -150,7 +160,7 @@ impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
                 let params = g.inner.iter().map(HirTyId::from).collect::<Vec<_>>();
                 HirTyId::compute_generic_ty_id(g.name, &params)
             }
-            HirTy::MutableReference(ty) => Self::compute_ref_ty_id(&HirTyId::from(ty.inner)),
+            HirTy::MutableReference(ty) => Self::compute_mut_ref_ty_id(&HirTyId::from(ty.inner)),
             HirTy::ReadOnlyReference(ty) => {
                 Self::compute_readonly_ref_ty_id(&HirTyId::from(ty.inner))
             }
@@ -160,6 +170,7 @@ impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
                 let ret_ty = HirTyId::from(f.ret_ty);
                 HirTyId::compute_function_ty_id(&ret_ty, &parameters)
             }
+            HirTy::Reference(r) => HirTyId::compute_ref_ty_id(&HirTyId::from(r.inner), r.kind),
         }
     }
 }
@@ -177,28 +188,34 @@ pub enum HirTy<'hir> {
     InlineArray(HirInlineArrayTy<'hir>),
     Named(HirNamedTy<'hir>),
     Uninitialized(HirUninitializedTy),
+    #[deprecated(note = "Use Option types instead of Nullable types")]
     Nullable(HirNullableTy<'hir>),
     Generic(HirGenericTy<'hir>),
+    #[deprecated(note = "Use Reference types instead")]
     MutableReference(HirMutableReferenceTy<'hir>),
+    #[deprecated(note = "Use Reference types instead")]
     ReadOnlyReference(HirReadOnlyReferenceTy<'hir>),
     Function(HirFunctionTy<'hir>),
     PtrTy(HirPtrTy<'hir>),
+    Reference(HirReferenceTy<'hir>),
 }
 
 impl HirTy<'_> {
     pub fn is_const(&self) -> bool {
-        matches!(self, HirTy::ReadOnlyReference(_))
-    }
-    pub fn is_ref(&self) -> bool {
         matches!(
             self,
-            HirTy::ReadOnlyReference(_) | HirTy::MutableReference(_)
+            HirTy::Reference(HirReferenceTy {
+                kind: HirReferenceKind::ReadOnly,
+                ..
+            })
         )
+    }
+    pub fn is_ref(&self) -> bool {
+        matches!(self, HirTy::Reference(_))
     }
     pub fn get_inner_ref_ty(&self) -> Option<&HirTy<'_>> {
         match self {
-            HirTy::ReadOnlyReference(ty) => Some(ty.inner),
-            HirTy::MutableReference(ty) => Some(ty.inner),
+            HirTy::Reference(ref_ty) => Some(ref_ty.inner),
             _ => None,
         }
     }
@@ -214,6 +231,7 @@ impl HirTy<'_> {
                 | HirTy::Boolean(_)
                 | HirTy::Unit(_)
                 | HirTy::Char(_)
+                // TODO: string should not be a primitive anymore
                 | HirTy::String(_)
         )
     }
@@ -265,6 +283,11 @@ impl HirTy<'_> {
                     .join("_");
                 format!("fn_{}_ret_{}", params, func.ret_ty.get_valid_c_string())
             }
+            HirTy::Reference(r) => match r.kind {
+                HirReferenceKind::Mutable => format!("{}_mutrf", r.inner.get_valid_c_string()),
+                HirReferenceKind::ReadOnly => format!("{}_cstrf", r.inner.get_valid_c_string()),
+                HirReferenceKind::Moveable => format!("{}_movrf", r.inner.get_valid_c_string()),
+            },
         }
     }
 }
@@ -309,6 +332,11 @@ impl fmt::Display for HirTy<'_> {
                     .join(", ");
                 write!(f, "({}) -> {}", params, func.ret_ty)
             }
+            HirTy::Reference(r) => match r.kind {
+                HirReferenceKind::Mutable => write!(f, "{}&", r.inner),
+                HirReferenceKind::ReadOnly => write!(f, "const {}&", r.inner),
+                HirReferenceKind::Moveable => write!(f, "{}&&", r.inner),
+            },
         }
     }
 }
@@ -319,18 +347,46 @@ pub struct HirPtrTy<'hir> {
 }
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
+#[deprecated(note = "Use Reference types instead")]
 pub struct HirMutableReferenceTy<'hir> {
     pub inner: &'hir HirTy<'hir>,
 }
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
+#[deprecated(note = "Use Reference types instead")]
 pub struct HirReadOnlyReferenceTy<'hir> {
     pub inner: &'hir HirTy<'hir>,
 }
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
+pub struct HirReferenceTy<'hir> {
+    pub span: Span,
+    pub inner: &'hir HirTy<'hir>,
+    pub kind: HirReferenceKind,
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]
+pub enum HirReferenceKind {
+    Mutable,
+    ReadOnly,
+    Moveable,
+}
+
+impl From<AstReferenceKind> for HirReferenceKind {
+    fn from(value: AstReferenceKind) -> Self {
+        match value {
+            AstReferenceKind::Mutable => HirReferenceKind::Mutable,
+            AstReferenceKind::ReadOnly => HirReferenceKind::ReadOnly,
+            AstReferenceKind::Moveable => HirReferenceKind::Moveable,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 //TODO: remove HirNullableTy as this will be replaced by option types
 //e.g.: T? -> Option<T>
+#[deprecated(note = "Use Option types instead of Nullable types")]
 pub struct HirNullableTy<'hir> {
     pub inner: &'hir HirTy<'hir>,
 }

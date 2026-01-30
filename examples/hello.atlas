@@ -66,9 +66,9 @@ fun test_new_ref_model() {
     take_a_const_lval(const_lval_a);
     take_a_const_lval(50); // Should be OK: rvalue to const ref conversion
 
-    let rval_a: int64&& = &a;
+    let rval_a: int64&& = a;
     take_a_rval(rval_a);
-    take_a_rval(&100); // Should be OK: rvalue to rvalue ref conversion
+    take_a_rval(100); // Should be OK: rvalue to rvalue ref conversion
 }
 
 fun take_a_rval(rval_a: int64&&) {
@@ -88,7 +88,7 @@ fun take_and_return_ref(a: int64&) -> int64& {
     return a; // Should be OK
 }
 
-fun return_a_ref() -> &int64 {
+fun return_a_ref() -> int64& {
     let a: int64 = 10;
-    return &a; // Should error: returning reference to local variable
+    return a; // Should error: returning reference to local variable
 }

@@ -4,7 +4,7 @@ use crate::atlas_c::atlas_hir::{
         HirFlag, HirGenericConstraint, HirGenericConstraintKind, HirStructMethodModifier,
         HirStructMethodSignature,
     },
-    ty::HirGenericTy,
+    ty::{HirGenericTy, HirReferenceKind},
 };
 
 use super::{
@@ -647,6 +647,17 @@ impl HirPrettyPrinter {
             }
             HirTy::ReadOnlyReference(r) => format!("&const {}", Self::type_str(r.inner)),
             HirTy::MutableReference(r) => format!("&{}", Self::type_str(r.inner)),
+            HirTy::Reference(r) => match r.kind {
+                HirReferenceKind::Mutable => {
+                    format!("{}&", Self::type_str(r.inner))
+                }
+                HirReferenceKind::ReadOnly => {
+                    format!("const {}&", Self::type_str(r.inner))
+                }
+                HirReferenceKind::Moveable => {
+                    format!("{}&&", Self::type_str(r.inner))
+                }
+            },
             HirTy::Generic(g) => format!(
                 "{}<{}>",
                 g.name,

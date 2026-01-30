@@ -2393,6 +2393,10 @@ impl<'hir> OwnershipPass<'hir> {
             HirTy::Uninitialized(_) | HirTy::Nullable(_) => {
                 panic!("Ownership pass should not see Uninitialized or Nullable types")
             }
+            HirTy::Reference(_) => {
+                // TODO: Still need to check the behaviours of the reference types here.
+                true
+            }
         }
     }
 
@@ -3054,6 +3058,10 @@ impl<'hir> OwnershipPass<'hir> {
 
             // Other types
             HirTy::Uninitialized(_) | HirTy::PtrTy(_) | HirTy::Function(_) => false,
+            HirTy::Reference(_) => {
+                // Maybe T&& does, but I don't think so
+                false
+            },
         }
     }
 
