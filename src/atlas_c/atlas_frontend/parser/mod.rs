@@ -11,7 +11,8 @@ use crate::atlas_c::atlas_frontend::parser::{
     ast::{
         AstArg, AstBuiltinOp, AstBuiltinOpExpr, AstEnum, AstEnumVariant, AstExternStruct, AstFlag,
         AstGlobalConst, AstInlineArrayType, AstObjLiteralExpr, AstObjLiteralField, AstPtrTy,
-        AstReadOnlyRefType, AstStdGenericConstraint, AstUnion, ConstructorKind,
+        AstReadOnlyRefType, AstReferenceKind, AstReferenceType, AstStdGenericConstraint, AstUnion,
+        ConstructorKind,
     },
     error::{
         DestructorWithParametersError, FlagDoesntExistError, NoFieldInStructError,
@@ -2436,6 +2437,27 @@ impl<'ast> Parser<'ast> {
                     span: Span::union_span(&start, &self.current().span()),
                 })
             }
+            // For readonly references: const T&
+            TokenKind::KwConst => {
+                let _ = self.advance();
+                let ty = self.parse_type()?;
+                let ty = match ty {
+                    AstType::Reference(r) if r.kind == AstReferenceKind::Mutable => r.inner,
+                    // we error out for now. We don't have const T types yet.
+                    _ => {
+                        return Err(self.unexpected_token_error(
+                            TokenVec(vec![TokenKind::Identifier("Reference Type".to_string())]),
+                            &start,
+                        ));
+                    }
+                };
+                // we return directly to avoid nested types
+                return Ok(AstType::Reference(AstReferenceType {
+                    span: Span::union_span(&start, &self.current().span()),
+                    inner: ty,
+                    kind: AstReferenceKind::ReadOnly,
+                }));
+            }
             _ => {
                 return Err(self.unexpected_token_error(
                     TokenVec(vec![
@@ -2448,12 +2470,29 @@ impl<'ast> Parser<'ast> {
                 ));
             }
         };
+        // Maybe this should be a match statement?
         let node = if self.current().kind == TokenKind::Interrogation {
             let _ = self.advance();
 
             AstType::Nullable(AstNullableType {
                 span: Span::union_span(&start, &self.current().span()),
                 inner: self.arena.alloc(ty),
+            })
+        } else if self.current().kind() == TokenKind::Ampersand {
+            // Handle reference types
+            let _ = self.advance();
+            AstType::Reference(AstReferenceType {
+                span: Span::union_span(&start, &self.current().span()),
+                inner: self.arena.alloc(ty),
+                kind: AstReferenceKind::Mutable,
+            })
+        } else if self.current().kind() == TokenKind::OpAnd {
+            // Handle moveable reference types
+            let _ = self.advance();
+            AstType::Reference(AstReferenceType {
+                span: Span::union_span(&start, &self.current().span()),
+                inner: self.arena.alloc(ty),
+                kind: AstReferenceKind::Moveable,
             })
         } else {
             ty

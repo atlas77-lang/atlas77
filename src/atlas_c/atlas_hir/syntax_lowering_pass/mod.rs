@@ -21,10 +21,7 @@ use crate::atlas_c::{
         HirImport, HirModule, HirModuleBody,
         arena::HirArena,
         error::{
-            AssignmentCannotBeAnExpressionError, CannotGenerateADestructorForThisTypeError,
-            ConstructorCannotHaveAWhereClauseError, HirError, HirResult, NonConstantValueError,
-            NullableTypeRequiresStdLibraryError, StructNameCannotBeOneLetterError,
-            UnknownFileImportError, UnsupportedExpr, UnsupportedItemError, UselessError,
+            AssignmentCannotBeAnExpressionError, CannotGenerateADestructorForThisTypeError, ConstructorCannotHaveAWhereClauseError, HirError, HirResult, NonConstantValueError, NullableTypeRequiresStdLibraryError, StructNameCannotBeOneLetterError, UnknownFileImportError, UnknownTypeError, UnsupportedExpr, UnsupportedItemError, UselessError
         },
         expr::{
             HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirBuiltinOpExpr,
@@ -1761,6 +1758,15 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 self.arena
                     .types()
                     .get_function_ty(parameters, return_ty, span)
+            }
+            _ => {
+                let path = node.span().path;
+                let src = crate::atlas_c::utils::get_file_content(path).unwrap();
+                return Err(HirError::UnknownType(UnknownTypeError {
+                    span: node.span(),
+                    name: format!("{:?}", node),
+                    src: NamedSource::new(path, src),
+                }));
             }
         };
         Ok(ty)

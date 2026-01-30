@@ -835,6 +835,7 @@ pub enum AstType<'ast> {
     InlineArray(AstInlineArrayType<'ast>),
     Generic(AstGenericType<'ast>),
     PtrTy(AstPtrTy<'ast>),
+    Reference(AstReferenceType<'ast>),
 }
 
 impl AstType<'_> {
@@ -857,6 +858,7 @@ impl AstType<'_> {
             AstType::InlineArray(t) => t.span,
             AstType::Generic(t) => t.span,
             AstType::PtrTy(t) => t.span,
+            AstType::Reference(t) => t.span,
         }
     }
 }
@@ -893,6 +895,11 @@ impl<'ast> AstType<'ast> {
             }
             //AstType::Function(_) => "fn".to_owned(),
             AstType::PtrTy(ptr_ty) => format!("ptr<{}>", ptr_ty.inner.name()),
+            AstType::Reference(ref_ty) => match ref_ty.kind {
+                AstReferenceKind::Mutable => format!("{}&", ref_ty.inner.name()),
+                AstReferenceKind::ReadOnly => format!("const {}&", ref_ty.inner.name()),
+                AstReferenceKind::Moveable => format!("{}&&", ref_ty.inner.name()),
+            },
             _ => {
                 panic!("Type does not have a name yet")
             }
@@ -954,6 +961,25 @@ pub struct AstFunctionType<'ast> {
     pub span: Span,
     pub args: &'ast [&'ast AstType<'ast>],
     pub ret: &'ast AstType<'ast>,
+}
+
+#[derive(Debug, Clone)]
+///A reference type in atlas as the form of `T&`, `const T&` or `T&&`
+pub struct AstReferenceType<'ast> {
+    pub span: Span,
+    pub inner: &'ast AstType<'ast>,
+    pub kind: AstReferenceKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AstReferenceKind {
+    /// T& - mutable reference
+    Mutable,
+    /// const T& - read-only reference
+    ReadOnly,
+    /// T&& - moveable reference
+    /// e.g., `fun take_ownership(obj: T&&) { ... }`
+    Moveable,
 }
 
 #[derive(Debug, Clone)]
