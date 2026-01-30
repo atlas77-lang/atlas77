@@ -89,6 +89,9 @@ declare_error_type! {
         CannotMoveFromRvalue(CannotMoveFromRvalueError),
         TypeNotCopyable(TypeNotCopyableError),
         ListIndexOutOfBounds(ListIndexOutOfBoundsError),
+        IncorrectIntrinsicCallArguments(IncorrectIntrinsicCallArgumentsError),
+        //T&& cannot become T&
+        RvalueReferenceToLvalueReferenceError(RvalueReferenceToLvalueReferenceError),
     }
 }
 
@@ -590,7 +593,12 @@ pub(crate) struct InvalidReadOnlyTypeError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::this_should_not_appear))]
 #[error("This is just a useless error that should not appear")]
-pub(crate) struct UselessError {}
+pub(crate) struct UselessError {
+    #[label = "useless error"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::trying_to_index_non_indexable_type))]
@@ -1308,4 +1316,38 @@ pub(crate) struct TypeNotCopyableError {
     pub span: Span,
 
     pub type_name: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::incorrect_intrinsic_call_arguments),
+    help("provide the correct number of arguments ({expected}) to the intrinsic function")
+)]
+#[error("intrinsic function `{name}` expected {expected} arguments, but found {found}")]
+pub(crate) struct IncorrectIntrinsicCallArgumentsError {
+    pub expected: usize,
+    pub found: usize,
+    pub name: String,
+    #[label = "only {found} were provided"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+/*
+TODO: this should work accross different files
+*/
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::rvalue_reference_assigned_to_lvalue_reference),
+    help("an rvalue reference cannot be assigned to an lvalue reference")
+)]
+#[error("cannot assign rvalue reference to lvalue reference")]
+pub(crate) struct RvalueReferenceToLvalueReferenceError {
+    #[label = "rvalue reference found here"]
+    pub r_val_span: Span,
+    #[label = "lvalue reference expected here"]
+    pub l_val_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
 }

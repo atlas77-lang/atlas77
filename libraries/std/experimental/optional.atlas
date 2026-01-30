@@ -1,63 +1,153 @@
-//! An `optional<T>` type for representing values that may be absent.
-//! Safe wrapper to avoid null pointers and uninitialized values.
+//! Internal storage for optional<T>
+private union optional_storage<T> { 
+    value: T;
+    empty: unit;
+}
+
 public struct Optional<T> {
 private:
-    val: ptr<T>;
+    data: optional_storage<T>;  // Inline storage
     has_value: bool;
-    Optional(val: ptr<T>, has_value: bool) {
-        this.val = val;
+    
+    // Private constructor
+    Optional(data: optional_storage<T>, has_value: bool) {
+        this.data = data;
         this.has_value = has_value;
     }
+    
 public:
-    //! Default constructor: creates an empty `optional<T>`.
+    // Default constructor
     Optional() {
-        this.val = null;
+        this.data.empty = ();
         this.has_value = false;
     }
-    Optional(from: const Optional<T>&)
-        where T: std::copyable
-    {
+    
+    // Copy constructor
+    Optional(from: const Optional<T>&) where T: std::copyable {
         this.has_value = from.has_value;
         if (this.has_value) {
-            this.val = from.val;
+            this.data.value = from.data.value;  // Deep copy
         } else {
-            this.val = null;
-            this.has_value = false;
+            this.data.empty = ();
         }
     }
-    Optional(dying_obj: Optional<T>&&)
-    {
-        this.has_value = dying_obj.has_value;
-        this.val = dying_obj.val;
-        dying_obj.has_value = false;
-        dying_obj.val = null;
+    
+    // Move constructor
+    Optional(from: Optional<T>&&) where T: std::moveable {
+        this.has_value = from.has_value;
+        if (this.has_value) {
+            this.data.value = move<T>(from.data.value);  // Move
+            from.has_value = false;
+        } else {
+            this.data.empty = ();
+        }
     }
-    //! Destructor: deletes the contained value if present.
+    
+    // Destructor
     ~Optional() {
         if (this.has_value) {
-            /*
-            Note to myself:
-            `delete` on `ptr<T>` will generate this code in C:
-                if (ptr != NULL) {
-                    t_destructor(ptr);
-                    free(ptr);
-                }
-             */
-            delete this.val;
+            delete this.data.value;  // Call T's destructor
         }
     }
-    //! Construct an `optional<T>` containing `value`.
-    //! Example:
-    //!     let opt = optional<int64>::of(42);
-    //!
-    //! NB: Takes ownership of `value`
+    
+    // Create optional with value (STACK ALLOCATED)
     fun of(value: T) -> Optional<T> {
-        let val_ptr = malloc<T>(size_of<T>());
-        *val_ptr = value;
-        return new Optional<T>(val_ptr, true);
+        return new Optional<T>(
+            optional_storage<T> { .value = value },
+            true
+        );
     }
-    //! Check if the optional contains a value.
-    fun has_value(const this&) -> bool {
+    
+    // Create empty optional
+    fun empty() -> Optional<T> {
+        return new Optional<T>(
+            optional_storage<T> { .empty = () },
+            false
+        );
+    }
+    
+    // Check if value present
+    fun has_value(this&) -> bool {
         return this.has_value;
+    }
+    
+    // Extract value (CONSUMING)
+    fun value(this) -> T {
+        if (!this.has_value) {
+            panic("Called value() on empty optional");
+        }
+        
+        // Move value out with a bitwise move
+        let result = move_bits<T>(this.data.value);
+        
+        // Mark as empty (prevent destructor from running on moved value)
+        this.has_value = false;
+        
+        // this is consumed, destructor won't try to delete value
+        return result;
+    }
+    
+    // Extract value or default
+    fun value_or(this, default: T) -> T {
+        if (this.has_value) {
+            let result = move_bits<T>(this.data.value);
+            this.has_value = false;
+            return result;
+        } else {
+            return default;
+        }
+    }
+}
+
+//! Bitwise move intrinsic
+// TODO: Remove "std::" prefix. It's not part of std library.
+#[std::intrinsic]
+extern fun __intrinsic_move_bits<T>(src: T&, size: uint64) -> T;
+#[std::intrinsic]
+extern fun size_of<T>() -> uint64;
+#[std::intrinsic]
+extern fun align_of<T>() -> uint64;
+
+extern fun printf<T>(fmt: string, arg: T);
+extern fun panic(msg: string);
+
+//! Bitwise move: copies bytes from source without calling constructors.
+//!
+//! UNSAFE CONTRACT:
+//! - Source must not be used after this call
+//! - Source destructor must not run
+//! - Caller must ensure source is properly invalidated
+//!
+//! This is a low-level operation for implementing containers.
+//! Most code should use std::move instead.
+fun move_bits<T>(src: T&) -> T {
+    // Compiler intrinsic - implemented as memcpy
+    return __intrinsic_move_bits<T>(src, size_of<T>());
+}
+
+//! This ONLY exists for stupid people not being able to write the little underscore between "size" and "of"
+/*const*/ fun sizeof<T>() -> uint64 {
+    return size_of<T>();
+}
+
+// Made-up intrinsic for testing
+extern fun __intrinsic_move<T>(src: T&&) -> T;
+
+fun move<T>(value: T&&) -> T {
+    // Todo: This should call the move constructor if one exists
+    return __intrinsic_move<T>(value);
+}
+
+fun main() {
+    // Example usage
+    let opt_int = Optional<int64>::of(42);
+    if (opt_int.has_value()) {
+        let value = opt_int.value();
+        printf("Value: %d\n", value);
+    }
+    
+    let empty_opt = Optional<int64>::empty();
+    if (!empty_opt.has_value()) {
+        printf("Optional %s\n", "is empty");
     }
 }

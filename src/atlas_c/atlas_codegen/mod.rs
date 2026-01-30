@@ -556,18 +556,6 @@ impl CCodeGen {
                     Self::write_to_file(&mut self.c_file, &line, self.indent_level);
                 }
             }
-            LirInstr::BuiltInOperator { ty, op, dst } => {
-                let dest_str = self.codegen_operand(dst);
-                eprintln!("sizeof({})", self.codegen_type(ty));
-                let line = format!(
-                    "{} {} = {}({});",
-                    self.codegen_type(&LirTy::UInt64),
-                    dest_str,
-                    op,
-                    self.codegen_type(ty)
-                );
-                Self::write_to_file(&mut self.c_file, &line, self.indent_level);
-            }
             _ => {
                 eprintln!("Instruction codegen not implemented for {:?}", instr)
             }

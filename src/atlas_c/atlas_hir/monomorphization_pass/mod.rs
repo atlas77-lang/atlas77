@@ -13,7 +13,7 @@ use crate::atlas_c::{
         stmt::HirStatement,
         ty::{
             HirGenericTy, HirInlineArrayTy, HirMutableReferenceTy, HirPtrTy,
-            HirReadOnlyReferenceTy, HirSliceTy, HirTy,
+            HirReadOnlyReferenceTy, HirReferenceTy, HirSliceTy, HirTy,
         },
     },
     utils::{self, Span},
@@ -55,7 +55,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             module.signature.functions.remove(instance.name);
         }
         for (name, signature) in module.signature.functions.clone().iter() {
-            if !signature.is_instantiated && !signature.is_external {
+            if !signature.is_instantiated && !signature.is_external && !signature.is_intrinsic {
                 module.signature.functions.remove(name);
                 module.body.functions.remove(name);
             }
@@ -97,7 +97,11 @@ impl<'hir> MonomorphizationPass<'hir> {
             .body
             .functions
             .iter()
-            .filter(|(_, func)| func.signature.generics.is_empty() && !func.signature.is_external)
+            .filter(|(_, func)| {
+                func.signature.generics.is_empty()
+                    && !func.signature.is_external
+                    && !func.signature.is_intrinsic
+            })
             .map(|(_, func)| func.name)
             .collect();
 
@@ -802,6 +806,18 @@ impl<'hir> MonomorphizationPass<'hir> {
         module: &HirModule<'hir>,
     ) -> HirResult<()> {
         match expr {
+            HirExpr::Ident(_)
+            | HirExpr::FloatLiteral(_)
+            | HirExpr::CharLiteral(_)
+            | HirExpr::IntegerLiteral(_)
+            | HirExpr::UnsignedIntegerLiteral(_)
+            | HirExpr::UnitLiteral(_)
+            | HirExpr::BooleanLiteral(_)
+            | HirExpr::ThisLiteral(_)
+            | HirExpr::StringLiteral(_)
+            | HirExpr::NullLiteral(_)
+            | HirExpr::Copy(_)
+            | HirExpr::FieldAccess(_) => {}
             HirExpr::NewObj(new_obj_expr) => {
                 if let HirTy::Generic(_g) = new_obj_expr.ty {
                     let monomorphized_ty =
@@ -945,7 +961,17 @@ impl<'hir> MonomorphizationPass<'hir> {
 
                 static_access.target = monomorphized_ty;
             }
-            _ => {}
+            HirExpr::IntrinsicCall(intrinsic) => {
+                eprintln!("[DEBUG] Monomorphizing intrinsic call: {}", intrinsic.name);
+                for arg_ty in intrinsic.args_ty.iter_mut() {
+                    let monomorphized_ty =
+                        self.swap_generic_types_in_ty(*arg_ty, types_to_change.clone());
+                    *arg_ty = monomorphized_ty;
+                }
+                for arg in intrinsic.args.iter_mut() {
+                    self.monomorphize_expression(arg, types_to_change.clone(), module)?;
+                }
+            }
         }
 
         Ok(())
@@ -1038,6 +1064,14 @@ impl<'hir> MonomorphizationPass<'hir> {
                 let new_inner = self.swap_generic_types_in_ty(ptr_ty.inner, types_to_change);
                 self.arena
                     .intern(HirTy::PtrTy(HirPtrTy { inner: new_inner }))
+            }
+            HirTy::Reference(r_ty) => {
+                let new_inner = self.swap_generic_types_in_ty(r_ty.inner, types_to_change);
+                self.arena.intern(HirTy::Reference(HirReferenceTy {
+                    inner: new_inner,
+                    kind: r_ty.kind,
+                    span: r_ty.span,
+                }))
             }
             _ => ty,
         }
@@ -1177,6 +1211,11 @@ impl<'hir> MonomorphizationPass<'hir> {
             }
             HirTy::PtrTy(ptr_ty) => self.arena.intern(HirTy::PtrTy(HirPtrTy {
                 inner: self.change_inner_type(ptr_ty.inner, generic_name, new_type, module),
+            })),
+            HirTy::Reference(r_ty) => self.arena.intern(HirTy::Reference(HirReferenceTy {
+                inner: self.change_inner_type(r_ty.inner, generic_name, new_type, module),
+                kind: r_ty.kind,
+                span: r_ty.span,
             })),
             _ => type_to_change,
         }

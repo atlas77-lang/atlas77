@@ -109,7 +109,7 @@ impl HirPrettyPrinter {
             HirFlag::Copyable(_) => {
                 self.writeln("#[std::copyable]");
             }
-            HirFlag::None => {}
+            _ => {}
         }
 
         let struct_name = if let Some(pre_mangled_ty) = struct_def.pre_mangled_ty {
@@ -611,18 +611,27 @@ impl HirPrettyPrinter {
                 self.print_expr(&copy_expr.expr);
                 self.write(")");
             }
-            HirExpr::BuiltInOperator(builtin) => match builtin.kind {
-                HirBuiltinOp::SizeOf => {
-                    self.write("size_of<");
-                    self.write(&Self::type_str(builtin.ty));
-                    self.write(">()");
+            HirExpr::IntrinsicCall(intrinsic) => {
+                self.write(&intrinsic.name);
+                if !intrinsic.args_ty.is_empty() {
+                    self.write("<");
+                    for (i, ty) in intrinsic.args_ty.iter().enumerate() {
+                        if i > 0 {
+                            self.write(", ");
+                        }
+                        self.write(&Self::type_str(ty));
+                    }
+                    self.write(">");
                 }
-                HirBuiltinOp::AlignOf => {
-                    self.write("align_of<");
-                    self.write(&Self::type_str(builtin.ty));
-                    self.write(">()");
+                self.write("(");
+                for (i, arg) in intrinsic.args.iter().enumerate() {
+                    if i > 0 {
+                        self.write(", ");
+                    }
+                    self.print_expr(arg);
                 }
-            },
+                self.write(")");
+            }
         }
     }
 

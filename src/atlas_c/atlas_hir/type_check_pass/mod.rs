@@ -6,19 +6,19 @@ use super::{
 use crate::atlas_c::atlas_hir::error::{
     AccessingPrivateUnionError, CallingConsumingMethodOnMutableReferenceError,
     CallingConsumingMethodOnMutableReferenceOrigin, ListIndexOutOfBoundsError,
-    StdNonCopyableStructCannotHaveCopyConstructorError, StructCannotHaveAFieldOfItsOwnTypeError,
-    ThisStructDoesNotHaveACopyConstructorError, ThisStructDoesNotHaveAMoveConstructorError,
-    TypeIsNotMoveableError, UnionMustHaveAtLeastTwoVariantError,
-    UnionVariantDefinedMultipleTimesError, VariableNameAlreadyDefinedError,
+    RvalueReferenceToLvalueReferenceError, StdNonCopyableStructCannotHaveCopyConstructorError,
+    StructCannotHaveAFieldOfItsOwnTypeError, ThisStructDoesNotHaveACopyConstructorError,
+    ThisStructDoesNotHaveAMoveConstructorError, TypeIsNotMoveableError,
+    UnionMustHaveAtLeastTwoVariantError, UnionVariantDefinedMultipleTimesError,
+    VariableNameAlreadyDefinedError,
 };
-use crate::atlas_c::atlas_hir::expr::{HirBuiltinOp, HirNewObjExpr};
 use crate::atlas_c::atlas_hir::item::{HirStructConstructor, HirUnion};
 use crate::atlas_c::atlas_hir::pretty_print::HirPrettyPrinter;
 use crate::atlas_c::atlas_hir::signature::{
     HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier,
     HirStructSignature, HirVisibility,
 };
-use crate::atlas_c::atlas_hir::ty::{HirReferenceKind, HirReferenceTy};
+use crate::atlas_c::atlas_hir::ty::HirReferenceKind;
 use crate::atlas_c::atlas_hir::{
     error::{
         AccessingClassFieldOutsideClassError, AccessingPrivateConstructorError,
@@ -36,7 +36,7 @@ use crate::atlas_c::atlas_hir::{
         UnsupportedExpr,
     },
     expr::{
-        HirBinaryOperator, HirExpr, HirFunctionCallExpr, HirIdentExpr, HirUnaryOp,
+        HirBinaryOperator, HirExpr, HirIdentExpr, HirNewObjExpr, HirUnaryOp,
         HirUnsignedIntegerLiteralExpr,
     },
     item::{HirStruct, HirStructMethod},
@@ -79,7 +79,7 @@ impl<'hir> TypeChecker<'hir> {
         }
     }
 
-    pub fn check(
+    pub(crate) fn check(
         &mut self,
         hir: &'hir mut HirModule<'hir>,
     ) -> HirResult<&'hir mut HirModule<'hir>> {
@@ -322,7 +322,7 @@ impl<'hir> TypeChecker<'hir> {
         }
     }
 
-    pub fn check_func(&mut self, func: &mut HirFunction<'hir>) -> HirResult<()> {
+    fn check_func(&mut self, func: &mut HirFunction<'hir>) -> HirResult<()> {
         self.context_functions.push(HashMap::new());
         self.context_functions.last_mut().unwrap().insert(
             self.current_func_name.unwrap().to_string(),
@@ -354,7 +354,7 @@ impl<'hir> TypeChecker<'hir> {
         Ok(())
     }
 
-    pub fn check_stmt(&mut self, stmt: &mut HirStatement<'hir>) -> HirResult<()> {
+    fn check_stmt(&mut self, stmt: &mut HirStatement<'hir>) -> HirResult<()> {
         match stmt {
             HirStatement::Expr(e) => {
                 self.check_expr(&mut e.expr)?;
@@ -609,7 +609,7 @@ impl<'hir> TypeChecker<'hir> {
             })),
         }
     }
-    pub fn check_expr(&mut self, expr: &mut HirExpr<'hir>) -> HirResult<&'hir HirTy<'hir>> {
+    fn check_expr(&mut self, expr: &mut HirExpr<'hir>) -> HirResult<&'hir HirTy<'hir>> {
         match expr {
             HirExpr::IntegerLiteral(i) => Ok(i.ty),
             HirExpr::FloatLiteral(f) => Ok(f.ty),
@@ -677,6 +677,8 @@ impl<'hir> TypeChecker<'hir> {
                 if function_name == "constructor"
                     || function_name == "destructor"
                     || function_name == "copy_ctor"
+                    || function_name == "move_ctor"
+                    || function_name == "default_ctor"
                 {
                     s.ty = self_ty;
                     return Ok(self_ty);
@@ -684,12 +686,20 @@ impl<'hir> TypeChecker<'hir> {
                 let method = class.methods.get(function_name).unwrap();
                 match method.modifier {
                     HirStructMethodModifier::Const => {
-                        let readonly_self_ty = self.arena.types().get_readonly_ref_ty(self_ty);
+                        let readonly_self_ty = self.arena.types().get_ref_ty(
+                            self_ty,
+                            HirReferenceKind::ReadOnly,
+                            method.span,
+                        );
                         s.ty = readonly_self_ty;
                         Ok(readonly_self_ty)
                     }
                     HirStructMethodModifier::Mutable => {
-                        let mutable_self_ty = self.arena.types().get_mutable_ref_ty(self_ty);
+                        let mutable_self_ty = self.arena.types().get_ref_ty(
+                            self_ty,
+                            HirReferenceKind::Mutable,
+                            method.span,
+                        );
                         s.ty = mutable_self_ty;
                         Ok(mutable_self_ty)
                     }
@@ -1068,44 +1078,44 @@ impl<'hir> TypeChecker<'hir> {
 
                 Ok(obj_lit.ty)
             }
-            HirExpr::NewObj(obj) => {
+            HirExpr::NewObj(new_obj_expr) => {
                 let struct_ty;
-                let struct_signature = if let HirTy::Named(n) = obj.ty {
+                let struct_signature = if let HirTy::Named(n) = new_obj_expr.ty {
                     struct_ty = n;
                     let tmp = match self.signature.structs.get(n.name) {
                         Some(c) => c,
                         None => {
-                            return Err(Self::unknown_type_err(n.name, &obj.span));
+                            return Err(Self::unknown_type_err(n.name, &new_obj_expr.span));
                         }
                     };
                     *tmp
-                } else if let HirTy::Generic(g) = obj.ty {
+                } else if let HirTy::Generic(g) = new_obj_expr.ty {
                     let name = MonomorphizationPass::generate_mangled_name(self.arena, g, "struct");
                     struct_ty = self.arena.intern(HirNamedTy { name, span: g.span })
                         as &'hir HirNamedTy<'hir>;
                     let tmp = match self.signature.structs.get(name) {
                         Some(c) => c,
                         None => {
-                            return Err(Self::unknown_type_err(name, &obj.span));
+                            return Err(Self::unknown_type_err(name, &new_obj_expr.span));
                         }
                     };
                     *tmp
                 } else {
-                    let path = obj.span.path;
+                    let path = new_obj_expr.span.path;
                     let src = utils::get_file_content(path).unwrap();
                     return Err(HirError::CanOnlyConstructStructs(
                         CanOnlyConstructStructsError {
-                            span: obj.span,
+                            span: new_obj_expr.span,
                             src: NamedSource::new(path, src),
                         },
                     ));
                 };
-                if struct_signature.name_span.path != obj.span.path
+                if struct_signature.name_span.path != new_obj_expr.span.path
                     && struct_signature.vis != HirVisibility::Public
                 {
                     let origin_path = struct_signature.name_span.path;
                     let origin_src = utils::get_file_content(origin_path).unwrap();
-                    let obj_path = obj.span.path;
+                    let obj_path = new_obj_expr.span.path;
                     let obj_src = utils::get_file_content(obj_path).unwrap();
                     return Err(HirError::AccessingPrivateStruct(
                         AccessingPrivateStructError {
@@ -1114,7 +1124,7 @@ impl<'hir> TypeChecker<'hir> {
                             } else {
                                 struct_ty.name.to_owned()
                             },
-                            span: obj.span,
+                            span: new_obj_expr.span,
                             src: NamedSource::new(obj_path, obj_src),
                             origin: AccessingPrivateObjectOrigin {
                                 span: struct_signature.name_span,
@@ -1124,15 +1134,15 @@ impl<'hir> TypeChecker<'hir> {
                     ));
                 }
                 let mut is_copy_ctor_call = false;
-                if struct_signature.constructor.params.len() != obj.args.len() {
-                    if self.is_copy_constructor_call(obj) {
+                if struct_signature.constructor.params.len() != new_obj_expr.args.len() {
+                    if self.is_copy_constructor_call(new_obj_expr) {
                         is_copy_ctor_call = true;
                     } else {
                         return Err(Self::type_mismatch_err(
                             &format!("{} argument(s)", struct_signature.constructor.params.len()),
                             &struct_signature.constructor.span,
-                            &format!("{} parameter(s)", obj.args.len()),
-                            &obj.span,
+                            &format!("{} parameter(s)", new_obj_expr.args.len()),
+                            &new_obj_expr.span,
                         ));
                     }
                 }
@@ -1141,11 +1151,11 @@ impl<'hir> TypeChecker<'hir> {
                     if struct_signature.constructor.vis != HirVisibility::Public
                         && self.current_class_name != Some(struct_ty.name)
                     {
-                        let path = obj.span.path;
+                        let path = new_obj_expr.span.path;
                         let src = utils::get_file_content(path).unwrap();
                         return Err(HirError::AccessingPrivateConstructor(
                             AccessingPrivateConstructorError {
-                                span: obj.span,
+                                span: new_obj_expr.span,
                                 kind: String::from("constructor"),
                                 src: NamedSource::new(path, src),
                             },
@@ -1155,7 +1165,7 @@ impl<'hir> TypeChecker<'hir> {
                         .constructor
                         .params
                         .iter()
-                        .zip(obj.args.iter_mut())
+                        .zip(new_obj_expr.args.iter_mut())
                     {
                         let arg_ty = self.check_expr(arg)?;
                         self.is_equivalent_ty(param.ty, param.span, arg_ty, arg.span())?;
@@ -1165,7 +1175,7 @@ impl<'hir> TypeChecker<'hir> {
                     if let Some(copy_ctor) = &struct_signature.copy_constructor {
                         // Check if copy constructor's where_clause constraints are satisfied
                         if !copy_ctor.is_constraint_satisfied {
-                            let path = obj.span.path;
+                            let path = new_obj_expr.span.path;
                             let src = utils::get_file_content(path).unwrap();
                             return Err(HirError::MethodConstraintNotSatisfied(
                                 MethodConstraintNotSatisfiedError {
@@ -1180,34 +1190,34 @@ impl<'hir> TypeChecker<'hir> {
                                     } else {
                                         struct_ty.name.to_string()
                                     },
-                                    span: obj.span,
+                                    span: new_obj_expr.span,
                                     src: NamedSource::new(path, src),
                                 },
                             ));
                         }
 
                         let param = &copy_ctor.params.first().unwrap();
-                        let arg = obj.args.first_mut().unwrap();
+                        let arg = new_obj_expr.args.first_mut().unwrap();
                         let arg_ty = self.check_expr(arg)?;
                         self.is_equivalent_ty(param.ty, param.span, arg_ty, arg.span())?;
-                        obj.is_copy_constructor_call = true;
+                        new_obj_expr.is_copy_constructor_call = true;
                     } else {
                         return Err(HirError::ThisStructDoesNotHaveACopyConstructor(
                             ThisStructDoesNotHaveACopyConstructorError {
-                                span: obj.span,
+                                span: new_obj_expr.span,
                                 src: NamedSource::new(
-                                    obj.span.path,
-                                    utils::get_file_content(obj.span.path).unwrap(),
+                                    new_obj_expr.span.path,
+                                    utils::get_file_content(new_obj_expr.span.path).unwrap(),
                                 ),
                             },
                         ));
                     }
                 }
-                obj.ty = self
+                new_obj_expr.ty = self
                     .arena
                     .types()
                     .get_named_ty(struct_ty.name, struct_ty.span);
-                Ok(obj.ty)
+                Ok(new_obj_expr.ty)
             }
             HirExpr::Call(func_expr) => {
                 let path = func_expr.span.path;
@@ -1217,10 +1227,19 @@ impl<'hir> TypeChecker<'hir> {
                     HirExpr::Ident(i) => {
                         // First check if the function is external by looking up the base name
                         let base_func = self.signature.functions.get(i.name);
-                        let is_external = base_func.map(|f| f.is_external).unwrap_or(false);
+                        let (is_external, is_intrinsic) = base_func
+                            .map(|f| (f.is_external, f.is_intrinsic))
+                            .unwrap_or((false, false));
 
                         // Only mangle the name if it's NOT external and has generics
-                        let name = if func_expr.generics.is_empty() || is_external {
+                        let name = if func_expr.generics.is_empty() || is_external || is_intrinsic {
+                            eprintln!(
+                                "[DEBUG] Not mangling function name: {} (external: {}, intrinsic: {}, generics: {})",
+                                i.name,
+                                is_external,
+                                is_intrinsic,
+                                func_expr.generics.is_empty()
+                            );
                             i.name
                         } else {
                             MonomorphizationPass::generate_mangled_name(
@@ -1279,9 +1298,13 @@ impl<'hir> TypeChecker<'hir> {
 
                         //Only check if it's an external function with generics (e.g. `extern foo<T>(a: T) -> T`)
                         if func.is_external && !func.generics.is_empty() {
-                            let ty = self
-                                .arena
-                                .intern(self.check_extern_fn(name, func_expr, func)?);
+                            let ty = self.arena.intern(self.check_extern_fn(
+                                name,
+                                &mut func_expr.args_ty,
+                                &mut func_expr.args,
+                                func_expr.span,
+                                func,
+                            )?);
                             func_expr.ty = ty;
                             return Ok(ty);
                         }
@@ -1868,16 +1891,18 @@ impl<'hir> TypeChecker<'hir> {
                 copy_expr.ty = ty;
                 Ok(ty)
             }
-            HirExpr::BuiltInOperator(builtin) => match builtin.kind {
-                HirBuiltinOp::SizeOf => {
-                    //builtin.ty = self.arena.types().get_uint_ty(64);
-                    Ok(self.arena.types().get_uint_ty(64))
-                }
-                HirBuiltinOp::AlignOf => {
-                    //builtin.ty = self.arena.types().get_uint_ty(64);
-                    Ok(self.arena.types().get_uint_ty(64))
-                }
-            },
+            HirExpr::IntrinsicCall(intrinsic) => {
+                // Intrinsic functions are defined as external functions with special handling
+                //Let's just use the extern fn checker for now
+                let signature = self.signature.functions.get(intrinsic.name).unwrap();
+                self.check_extern_fn(
+                    intrinsic.name,
+                    &mut intrinsic.args_ty,
+                    &mut intrinsic.args,
+                    intrinsic.span,
+                    signature,
+                )
+            }
         }
     }
 
@@ -1923,17 +1948,18 @@ impl<'hir> TypeChecker<'hir> {
     fn check_extern_fn(
         &mut self,
         name: &'hir str,
-        call_expr: &mut HirFunctionCallExpr<'hir>,
+        call_expr_generics: &mut Vec<&'hir HirTy<'hir>>,
+        call_expr_args: &mut Vec<HirExpr<'hir>>,
+        call_expr_span: Span,
         signature: &'hir HirFunctionSignature<'hir>,
     ) -> HirResult<&'hir HirTy<'hir>> {
-        let args_ty = call_expr
-            .args
+        let args_ty = call_expr_args
             .iter_mut()
             .map(|a| self.check_expr(a))
             .collect::<HirResult<Vec<_>>>()?;
 
         // Create cache key including explicit generics to distinguish calls like default::<int64>() from default::<string>()
-        let explicit_generics = call_expr.generics.clone();
+        let explicit_generics = call_expr_generics.clone();
         let monomorphized =
             self.extern_monomorphized
                 .get(&(name, args_ty.clone(), explicit_generics.clone()));
@@ -1945,11 +1971,11 @@ impl<'hir> TypeChecker<'hir> {
         let mut params = vec![];
 
         // Check if explicit generic type arguments are provided (e.g., `default::<Int64>()`)
-        if !call_expr.generics.is_empty() {
+        if !call_expr_generics.is_empty() {
             // Use explicit type arguments from the function call
             if !signature.generics.is_empty() {
                 for (generic_param, concrete_ty) in
-                    signature.generics.iter().zip(call_expr.generics.iter())
+                    signature.generics.iter().zip(call_expr_generics.iter())
                 {
                     generics.push((generic_param.generic_name, concrete_ty));
                 }
@@ -1990,7 +2016,7 @@ impl<'hir> TypeChecker<'hir> {
                     } else {
                         return Err(Self::type_mismatch_err(
                             &format!("{}", arg),
-                            &call_expr.args[i].span(),
+                            &call_expr_args[i].span(),
                             &format!("{}", param.ty),
                             &param.span,
                         ));
@@ -2023,12 +2049,12 @@ impl<'hir> TypeChecker<'hir> {
                 };
                 params.push(param_sign);
             }
-        } else if call_expr.generics.is_empty() {
+        } else if call_expr_generics.is_empty() {
             // Parameterless function with no explicit type arguments - error
             if !signature.generics.is_empty() {
                 return Err(Self::type_mismatch_err(
                     "parameterless generic function",
-                    &call_expr.span,
+                    &call_expr_span,
                     "explicit type arguments (e.g., `function::<Int64>()`)",
                     &signature.span,
                 ));
@@ -2061,8 +2087,6 @@ impl<'hir> TypeChecker<'hir> {
 
         monomorphized.generics = vec![];
         let signature = self.arena.intern(monomorphized);
-        // Assign the computed return type to the call expression so callers can rely on it
-        call_expr.ty = self.arena.intern(signature.return_ty.clone());
         self.extern_monomorphized
             .insert((name, args_ty, explicit_generics), signature);
         Ok(self.arena.intern(signature.return_ty.clone()))
@@ -2269,11 +2293,15 @@ impl<'hir> TypeChecker<'hir> {
                 match (&r1.kind, &r2.kind) {
                     // A T&& cannot become a T&
                     (HirReferenceKind::Mutable, HirReferenceKind::Moveable) => {
-                        return Err(Self::type_mismatch_err(
-                            &format!("{}", expected_ty),
-                            &expected_span,
-                            &format!("{}", found_ty),
-                            &found_span,
+                        return Err(HirError::RvalueReferenceToLvalueReferenceError(
+                            RvalueReferenceToLvalueReferenceError {
+                                r_val_span: found_span,
+                                l_val_span: expected_span,
+                                src: NamedSource::new(
+                                    expected_span.path,
+                                    utils::get_file_content(expected_span.path).unwrap(),
+                                ),
+                            },
                         ));
                     }
                     // A const T& cannot become a T&

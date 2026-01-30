@@ -74,7 +74,7 @@ struct Result<T, E> {
         panic("Unwrap called on an Err"); 
       } 
 }"#;
-        let mut lexer = super::AtlasLexer::new("test.atlas".into(), source.to_string());
+        let mut lexer = super::AtlasLexer::new("hello.atlas".into(), source.to_string());
         let tokens = match lexer.tokenize() {
             Ok(tokens) => tokens,
             Err((e, span)) => {

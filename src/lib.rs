@@ -349,6 +349,11 @@ pub fn build(
     let mut lower = AstSyntaxLoweringPass::new(&hir_arena, &program, &ast_arena, true);
     let hir = lower.lower()?;
 
+    let mut hir_printer = HirPrettyPrinter::new();
+    let hir_output = hir_printer.print_module(hir);
+    let mut file_hir = std::fs::File::create("./build/unfinished_output.atlas").unwrap();
+    file_hir.write_all(hir_output.as_bytes()).unwrap();
+
     //monomorphize
     let mut monomorphizer = MonomorphizationPass::new(&hir_arena, lower.generic_pool);
     let hir = monomorphizer.monomorphize(hir)?;

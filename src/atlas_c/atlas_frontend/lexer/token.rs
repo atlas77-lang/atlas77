@@ -311,12 +311,6 @@ pub enum TokenKind {
     // === Keywords for compile-time ===
     #[token("comptime")]
     KwComptime,
-    #[token("size_of")]
-    KwSizeOf,
-    #[token("align_of")]
-    KwAlignOf,
-    #[token("type_of")]
-    KwTypeOf,
     #[token("then")] // Then is used in compile-time ifs
     KwThen,
     EoI,

@@ -131,6 +131,7 @@ impl From<AstFlag> for HirFlag {
         match ast_flag {
             AstFlag::Copyable(span) => HirFlag::Copyable(span),
             AstFlag::NonCopyable(span) => HirFlag::NonCopyable(span),
+            AstFlag::Intrinsic(_) => HirFlag::None,
             AstFlag::None => HirFlag::None,
         }
     }
@@ -297,6 +298,7 @@ pub struct HirFunctionSignature<'hir> {
     /// The span of the return type, if it exists.
     pub return_ty_span: Option<Span>,
     pub is_external: bool,
+    pub is_intrinsic: bool,
     /// If the function name is mangled, this contains the pre-mangled type
     pub pre_mangled_ty: Option<&'hir HirGenericTy<'hir>>,
     pub docstring: Option<&'hir str>,

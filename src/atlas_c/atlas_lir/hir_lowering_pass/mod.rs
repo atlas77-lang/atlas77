@@ -19,8 +19,8 @@ use crate::atlas_c::{
             UnknownTypeError, UnsupportedHirExprError,
         },
         program::{
-            BuiltInOp, LirBlock, LirExternFunction, LirFunction, LirInstr, LirOperand, LirProgram,
-            LirStruct, LirTerminator, LirTy, LirUnion,
+            LirBlock, LirExternFunction, LirFunction, LirInstr, LirOperand, LirProgram, LirStruct,
+            LirTerminator, LirTy, LirUnion,
         },
     },
     utils::{self, Span},
@@ -252,9 +252,10 @@ impl<'hir> HirLoweringPass<'hir> {
 
         self.param_map.insert("this", 0);
         let mut args = Vec::new();
-        args.push(LirTy::Ptr { is_const: false, inner: Box::new(LirTy::StructType(
-            struct_name.to_string(),
-        ))});
+        args.push(LirTy::Ptr {
+            is_const: false,
+            inner: Box::new(LirTy::StructType(struct_name.to_string())),
+        });
         // Build parameter map
         for (idx, param) in ctor.params.iter().enumerate() {
             self.param_map.insert(param.name, (idx + 1) as u8);
@@ -299,19 +300,20 @@ impl<'hir> HirLoweringPass<'hir> {
         let mut args = Vec::new();
         if matches!(
             method.signature.modifier,
-                | HirStructMethodModifier::Mutable
-                | HirStructMethodModifier::Consuming
+            |HirStructMethodModifier::Mutable| HirStructMethodModifier::Consuming
         ) {
             // The first parameter is always "this"
             self.param_map.insert("this", 0);
-            args.push(LirTy::Ptr { is_const: false, inner: Box::new(LirTy::StructType(
-                struct_name.to_string(),
-            ))});
+            args.push(LirTy::Ptr {
+                is_const: false,
+                inner: Box::new(LirTy::StructType(struct_name.to_string())),
+            });
         } else {
             self.param_map.insert("this", 0);
-            args.push(LirTy::Ptr { is_const: true, inner: Box::new(LirTy::StructType(
-                struct_name.to_string(),
-            ))});
+            args.push(LirTy::Ptr {
+                is_const: true,
+                inner: Box::new(LirTy::StructType(struct_name.to_string())),
+            });
         }
         // Build parameter map
         for param in method.signature.params.iter() {
@@ -1002,17 +1004,6 @@ impl<'hir> HirLoweringPass<'hir> {
                 self.lower_expr(&copy_expr.expr)
             }
 
-            HirExpr::BuiltInOperator(builtin) => {
-                let dst = self.new_temp();
-                let ty = self.hir_ty_to_lir_ty(builtin.ty, builtin.span);
-                self.emit(LirInstr::BuiltInOperator {
-                    ty,
-                    dst: dst.clone(),
-                    op: builtin.kind.into(),
-                })?;
-                Ok(dst)
-            }
-
             HirExpr::Delete(delete_expr) => {
                 let dst = self.new_temp(); // Placeholder
                 let src = self.lower_expr(&delete_expr.expr)?;
@@ -1067,18 +1058,27 @@ impl<'hir> HirLoweringPass<'hir> {
             HirTy::Unit(_) => LirTy::Unit,
             HirTy::ReadOnlyReference(r) => {
                 let inner = self.hir_ty_to_lir_ty(r.inner, span);
-                LirTy::Ptr { is_const: true, inner: Box::new(inner) }
+                LirTy::Ptr {
+                    is_const: true,
+                    inner: Box::new(inner),
+                }
             }
             HirTy::MutableReference(r) => {
                 let inner = self.hir_ty_to_lir_ty(r.inner, span);
-                LirTy::Ptr { is_const: false, inner: Box::new(inner) }
+                LirTy::Ptr {
+                    is_const: false,
+                    inner: Box::new(inner),
+                }
             }
             HirTy::Uninitialized(_) => {
                 let report: miette::Report = (*unknown_type_err(&format!("{}", ty), span)).into();
                 eprintln!("{:?}", report);
                 std::process::exit(1);
             }
-            HirTy::Slice(l) => LirTy::Ptr { is_const: false, inner: Box::new(self.hir_ty_to_lir_ty(l.inner, span)) },
+            HirTy::Slice(l) => LirTy::Ptr {
+                is_const: false,
+                inner: Box::new(self.hir_ty_to_lir_ty(l.inner, span)),
+            },
             HirTy::InlineArray(arr) => LirTy::ArrayTy {
                 inner: Box::new(self.hir_ty_to_lir_ty(arr.inner, span)),
                 size: arr.size,
@@ -1105,11 +1105,17 @@ impl<'hir> HirLoweringPass<'hir> {
             }
             HirTy::PtrTy(ptr_ty) => {
                 let inner = self.hir_ty_to_lir_ty(ptr_ty.inner, span);
-                LirTy::Ptr { is_const: false, inner: Box::new(inner) }
+                LirTy::Ptr {
+                    is_const: false,
+                    inner: Box::new(inner),
+                }
             }
             HirTy::Reference(r) => {
                 let inner = self.hir_ty_to_lir_ty(r.inner, span);
-                LirTy::Ptr { is_const: r.kind == HirReferenceKind::ReadOnly, inner: Box::new(inner) }
+                LirTy::Ptr {
+                    is_const: r.kind == HirReferenceKind::ReadOnly,
+                    inner: Box::new(inner),
+                }
             }
             _ => {
                 let report: miette::Report = (*unknown_type_err(&format!("{}", ty), span)).into();
@@ -1352,19 +1358,6 @@ impl std::fmt::Display for LirInstr {
             LirInstr::Cast { ty, from, dst, src } => {
                 write!(f, "{} = cast {}->{} {}", dst, from, ty, src)
             }
-            LirInstr::BuiltInOperator { ty, op, dst } => {
-                write!(f, "{} = builtin_{}.{}", dst, op, ty)
-            }
-        }
-    }
-}
-
-impl std::fmt::Display for BuiltInOp {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            // C syntax
-            BuiltInOp::SizeOf => write!(f, "sizeof"),
-            BuiltInOp::AlignOf => write!(f, "alignof"),
         }
     }
 }

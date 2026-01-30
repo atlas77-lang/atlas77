@@ -11,9 +11,9 @@ use crate::atlas_c::{
             arena::AstArena,
             ast::{
                 AstArg, AstBinaryOp, AstBlock, AstConstructor, AstDestructor, AstEnum, AstExpr,
-                AstExternFunction, AstFunction, AstGeneric, AstGenericConstraint, AstIdentifier,
-                AstImport, AstItem, AstLiteral, AstMethod, AstMethodModifier, AstProgram,
-                AstStatement, AstStruct, AstType, AstUnaryOp, AstUnion,
+                AstExternFunction, AstFlag, AstFunction, AstGeneric, AstGenericConstraint,
+                AstIdentifier, AstImport, AstItem, AstLiteral, AstMethod, AstMethodModifier,
+                AstProgram, AstStatement, AstStruct, AstType, AstUnaryOp, AstUnion,
             },
         },
     },
@@ -22,19 +22,20 @@ use crate::atlas_c::{
         arena::HirArena,
         error::{
             AssignmentCannotBeAnExpressionError, CannotGenerateADestructorForThisTypeError,
-            ConstructorCannotHaveAWhereClauseError, HirError, HirResult, NonConstantValueError,
-            NullableTypeRequiresStdLibraryError, StructNameCannotBeOneLetterError,
-            UnknownFileImportError, UnknownTypeError, UnsupportedExpr, UnsupportedItemError,
-            UselessError,
+            ConstructorCannotHaveAWhereClauseError, HirError, HirResult,
+            IncorrectIntrinsicCallArgumentsError, NonConstantValueError, NotEnoughArgumentsOrigin,
+            NotEnoughGenericsError, NullableTypeRequiresStdLibraryError,
+            StructNameCannotBeOneLetterError, UnknownFileImportError, UnknownTypeError,
+            UnsupportedExpr, UnsupportedItemError, UselessError,
         },
         expr::{
-            HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirBuiltinOpExpr,
-            HirCastExpr, HirCharLiteralExpr, HirDeleteExpr, HirExpr, HirFieldAccessExpr,
-            HirFieldInit, HirFloatLiteralExpr, HirFunctionCallExpr, HirIdentExpr, HirIndexingExpr,
-            HirIntegerLiteralExpr, HirListLiteralExpr, HirNewArrayExpr, HirNewObjExpr,
-            HirNullLiteralExpr, HirObjLiteralExpr, HirStaticAccessExpr, HirStringLiteralExpr,
-            HirThisLiteral, HirUnaryOp, HirUnitLiteralExpr, HirUnsignedIntegerLiteralExpr,
-            UnaryOpExpr,
+            HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr,
+            HirCharLiteralExpr, HirDeleteExpr, HirExpr, HirFieldAccessExpr, HirFieldInit,
+            HirFloatLiteralExpr, HirFunctionCallExpr, HirIdentExpr, HirIndexingExpr,
+            HirIntegerLiteralExpr, HirIntrinsicCallExpr, HirListLiteralExpr, HirNewArrayExpr,
+            HirNewObjExpr, HirNullLiteralExpr, HirObjLiteralExpr, HirStaticAccessExpr,
+            HirStringLiteralExpr, HirThisLiteral, HirUnaryOp, HirUnitLiteralExpr,
+            HirUnsignedIntegerLiteralExpr, UnaryOpExpr,
         },
         item::{
             HirEnum, HirEnumVariant, HirFunction, HirStruct, HirStructConstructor, HirStructMethod,
@@ -409,6 +410,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             } else {
                 None
             },
+            is_intrinsic: matches!(ast_extern_func.flag, AstFlag::Intrinsic(_)),
         });
         self.module_signature.functions.insert(name, hir);
         Ok(())
@@ -530,7 +532,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             None
         };
         let move_constructor = if node.move_constructor.is_some() {
-            Some(self.visit_constructor(node.name_span, node.move_constructor, &fields, false)?)
+            Some(self.visit_constructor(node.name_span, node.move_constructor, &fields, true)?)
         } else {
             None
         };
@@ -728,6 +730,15 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 AstMethodModifier::Static => HirStructMethodModifier::Static,
                 AstMethodModifier::Mutable => HirStructMethodModifier::Mutable,
                 AstMethodModifier::Consuming => HirStructMethodModifier::Consuming,
+                AstMethodModifier::Dying => {
+                    return Err(HirError::UselessError(UselessError {
+                        span: node.name.span,
+                        src: NamedSource::new(
+                            node.name.span.path,
+                            utils::get_file_content(node.name.span.path).unwrap(),
+                        ),
+                    }));
+                }
             },
             span: node.span,
             vis: node.vis.into(),
@@ -1095,7 +1106,13 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
             Ok((new_hir, ast_lowering_pass.generic_pool))
         } else {
-            Err(HirError::UselessError(UselessError {}))
+            Err(HirError::UselessError(UselessError {
+                span: node.span,
+                src: NamedSource::new(
+                    node.span.path,
+                    utils::get_file_content(node.span.path).unwrap(),
+                ),
+            }))
         }
     }
 
@@ -1316,6 +1333,92 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
             AstExpr::Call(c) => {
                 let callee = self.visit_expr(c.callee)?;
+                match &callee {
+                    HirExpr::Ident(ident) => {
+                        match ident.name {
+                            "size_of" => {
+                                if c.generics.len() != 1 {
+                                    let path = node.span().path;
+                                    let src =
+                                        crate::atlas_c::utils::get_file_content(path).unwrap();
+                                    return Err(HirError::IncorrectIntrinsicCallArguments(
+                                        IncorrectIntrinsicCallArgumentsError {
+                                            span: node.span(),
+                                            name: "size_of".to_string(),
+                                            expected: 1,
+                                            found: c.generics.len(),
+                                            src: NamedSource::new(path, src),
+                                        },
+                                    ));
+                                }
+                                let ty = self.visit_ty(c.generics[0])?;
+                                let hir = HirExpr::IntrinsicCall(HirIntrinsicCallExpr {
+                                    name: "size_of",
+                                    args: vec![],
+                                    args_ty: vec![ty],
+                                    span: node.span(),
+                                    ty,
+                                });
+                                return Ok(hir);
+                            }
+                            "align_of" => {
+                                if c.generics.len() != 1 {
+                                    let path = node.span().path;
+                                    let src =
+                                        crate::atlas_c::utils::get_file_content(path).unwrap();
+                                    return Err(HirError::IncorrectIntrinsicCallArguments(
+                                        IncorrectIntrinsicCallArgumentsError {
+                                            span: node.span(),
+                                            name: "align_of".to_string(),
+                                            expected: 1,
+                                            found: c.generics.len(),
+                                            src: NamedSource::new(path, src),
+                                        },
+                                    ));
+                                }
+                                let ty = self.visit_ty(c.generics[0])?;
+                                let hir = HirExpr::IntrinsicCall(HirIntrinsicCallExpr {
+                                    name: "align_of",
+                                    args: vec![],
+                                    args_ty: vec![ty],
+                                    span: node.span(),
+                                    ty,
+                                });
+                                return Ok(hir);
+                            }
+                            "__intrinsic_move_bits" => {
+                                // __intrinsic_move_bits<T>(src: &T, size: uint64) -> T
+                                if c.generics.len() != 1 && c.args.len() != 2 {
+                                    let path = node.span().path;
+                                    let src =
+                                        crate::atlas_c::utils::get_file_content(path).unwrap();
+                                    return Err(HirError::IncorrectIntrinsicCallArguments(
+                                        IncorrectIntrinsicCallArgumentsError {
+                                            span: node.span(),
+                                            name: "__intrinsic_move_bits".to_string(),
+                                            expected: 1,
+                                            found: c.generics.len(),
+                                            src: NamedSource::new(path, src),
+                                        },
+                                    ));
+                                }
+                                let ty = self.visit_ty(c.generics[0])?;
+                                let src_expr = self.visit_expr(&c.args[0])?;
+                                let size_expr = self.visit_expr(&c.args[1])?;
+                                let hir = HirExpr::IntrinsicCall(HirIntrinsicCallExpr {
+                                    name: "__intrinsic_move_bits",
+                                    args: vec![src_expr, size_expr],
+                                    args_ty: vec![ty],
+                                    span: node.span(),
+                                    ty,
+                                });
+                                return Ok(hir);
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {}
+                }
                 let args = c
                     .args
                     .iter()
@@ -1546,14 +1649,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 });
                 Ok(hir)
             }
-            AstExpr::BuiltInOperator(builtin) => {
-                let hir = HirExpr::BuiltInOperator(HirBuiltinOpExpr {
-                    span: node.span(),
-                    kind: builtin.kind.into(),
-                    ty: self.visit_ty(builtin.ty)?,
-                });
-                Ok(hir)
-            }
             _ => {
                 //todo: if/else as an expression
                 let path = node.span().path;
@@ -1638,6 +1733,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             return_ty: ret_type,
             return_ty_span: Some(ret_type_span),
             is_external: false,
+            is_intrinsic: false,
             pre_mangled_ty: None,
             docstring: if let Some(docstring) = node.docstring {
                 Some(self.arena.names().get(docstring))

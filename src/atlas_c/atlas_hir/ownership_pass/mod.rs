@@ -754,6 +754,11 @@ impl<'hir> OwnershipPass<'hir> {
                 self.collect_uses_in_expr(&del.expr, true)?;
             }
             HirExpr::StaticAccess(_) => {}
+            HirExpr::IntrinsicCall(_) => {
+                // For now, assume intrinsics don't consume ownership of their arguments
+                // (they typically operate on raw pointers or perform low-level operations)
+                // If specific intrinsics need ownership semantics, handle them here
+            }
             // Literals don't use variables
             HirExpr::IntegerLiteral(_)
             | HirExpr::FloatLiteral(_)
@@ -763,8 +768,7 @@ impl<'hir> OwnershipPass<'hir> {
             | HirExpr::UnitLiteral(_)
             | HirExpr::UnsignedIntegerLiteral(_)
             | HirExpr::ThisLiteral(_)
-            | HirExpr::NullLiteral(_)
-            | HirExpr::BuiltInOperator(_) => {}
+            | HirExpr::NullLiteral(_) => {}
             // Copy expressions - analyze inner expression
             HirExpr::Copy(cp) => {
                 self.collect_uses_in_expr(&cp.expr, true)?;

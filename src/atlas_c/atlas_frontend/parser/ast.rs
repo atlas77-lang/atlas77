@@ -41,6 +41,7 @@ impl AstItem<'_> {
     pub fn set_flag(&mut self, flag: AstFlag) {
         match self {
             AstItem::Struct(v) => v.flag = flag,
+            AstItem::ExternFunction(f) => f.flag = flag,
             _ => {}
         }
     }
@@ -150,6 +151,7 @@ impl<'ast> AstItem<'ast> {
 pub enum AstFlag {
     Copyable(Span),
     NonCopyable(Span),
+    Intrinsic(Span),
     #[default]
     None,
 }
@@ -270,6 +272,8 @@ pub enum AstMethodModifier {
     ///
     /// e.g.: `fun push(&this, val: T) { ... }`
     Mutable,
+    /// this&&
+    Dying,
     /// Method that consumes ownership of `this`
     ///
     /// e.g.: `fun into_iter(this) -> Iter<T> { ... }`
@@ -409,6 +413,7 @@ pub struct AstExternFunction<'ast> {
     // e.g., "C", "C++", "Rust", "Python", etc.
     pub language: &'ast str,
     pub vis: AstVisibility,
+    pub flag: AstFlag,
     pub docstring: Option<&'ast str>,
 }
 
@@ -489,7 +494,6 @@ pub enum AstExpr<'ast> {
     Block(AstBlock<'ast>),
     Assign(AstAssignStmt<'ast>),
     Casting(AstCastingExpr<'ast>),
-    BuiltInOperator(AstBuiltinOpExpr<'ast>),
 }
 
 impl AstExpr<'_> {
@@ -513,7 +517,6 @@ impl AstExpr<'_> {
             AstExpr::Block(e) => e.span,
             AstExpr::Assign(e) => e.span,
             AstExpr::Casting(e) => e.span,
-            AstExpr::BuiltInOperator(e) => e.span,
         }
     }
     pub(crate) fn kind(&self) -> &'static str {
@@ -536,22 +539,8 @@ impl AstExpr<'_> {
             AstExpr::Block(_) => "Block",
             AstExpr::Assign(_) => "Assign",
             AstExpr::Casting(_) => "Casting",
-            AstExpr::BuiltInOperator(_) => "BuiltInOperator",
         }
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct AstBuiltinOpExpr<'ast> {
-    pub span: Span,
-    pub kind: AstBuiltinOp,
-    pub ty: &'ast AstType<'ast>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum AstBuiltinOp {
-    SizeOf,
-    AlignOf,
 }
 
 #[derive(Debug, Clone)]
