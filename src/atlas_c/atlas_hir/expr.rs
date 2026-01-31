@@ -190,6 +190,8 @@ pub struct HirUnitLiteralExpr<'hir> {
 }
 
 #[derive(Debug, Clone)]
+#[deprecated(note = "This will be changed to use the HirNewExpr instead. \
+It doesn't make sense to have the `new` keywords if it's on the stack by default")]
 pub struct HirNewArrayExpr<'hir> {
     pub span: Span,
     pub ty: &'hir HirTy<'hir>,
@@ -203,12 +205,22 @@ pub struct HirDeleteExpr<'hir> {
 }
 
 #[derive(Debug, Clone)]
+#[deprecated(note = "This will be changed to use the HirNewExpr instead.")]
 pub struct HirNewObjExpr<'hir> {
     pub span: Span,
     pub ty: &'hir HirTy<'hir>,
     pub args: Vec<HirExpr<'hir>>,
     pub args_ty: Vec<&'hir HirTy<'hir>>,
     pub is_copy_constructor_call: bool,
+}
+
+// TODO: Maybe we should make it so the `new` keyword just wraps an expression
+// which means it allocates the value on the heap, returns a pointer and 
+// register it for scope clean up in the ownership pass.
+pub struct HirNewExpr<'hir> {
+    pub span: Span,
+    pub ty: &'hir HirTy<'hir>,
+    pub expr: Box<HirExpr<'hir>>,
 }
 
 #[derive(Debug, Clone)]
@@ -258,6 +270,20 @@ pub struct HirFunctionCallExpr<'hir> {
     pub generics: Vec<&'hir HirTy<'hir>>,
     /// Result type of the call
     pub ty: &'hir HirTy<'hir>,
+    // TODO: Add metada to the function call so after typechecking,
+    // every pass doesn't have to recheck it all the time.
+    // pub kind: HirFunctionKind,
+}
+
+pub enum HirFunctionKind {
+    Constructor,
+    DefaultConstructor,
+    MoveConstructor,
+    CopyConstructor,
+    Method,
+    StaticMethod,
+    Function,
+    ExternFunction,
 }
 
 #[derive(Debug, Clone)]

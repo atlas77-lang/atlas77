@@ -1,9 +1,6 @@
-extern printf<T>(fmt: string, n: T);
-extern timer_now_ns() -> uint64;
-extern timer_elapsed_s(start: uint64) -> float64;
-
-// Should we get an owned value from calloc?
-extern calloc<T>(amount: uint64, size: int64) -> &T;
+extern fun printf<T>(fmt: string, n: T);
+extern fun timer_now_ns() -> uint64;
+extern fun timer_elapsed_s(start: uint64) -> float64;
 
 fun fib(n: int64) -> int64 {
     if n <= 1 {
@@ -18,11 +15,4 @@ fun main() {
     printf("%ld\n", fib(40));
     let elapsed = timer_elapsed_s(start_time);
     printf("%f\n", elapsed);
-    test_calloc();
-}
-
-fun test_calloc() {
-    let ptr: &int64 = calloc<int64>(1, 8);
-    *ptr = 42;
-    printf("%ld\n", *ptr);
 }
