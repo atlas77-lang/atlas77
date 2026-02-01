@@ -962,7 +962,6 @@ impl<'hir> MonomorphizationPass<'hir> {
                 static_access.target = monomorphized_ty;
             }
             HirExpr::IntrinsicCall(intrinsic) => {
-                eprintln!("[DEBUG] Monomorphizing intrinsic call: {}", intrinsic.name);
                 for arg_ty in intrinsic.args_ty.iter_mut() {
                     let monomorphized_ty =
                         self.swap_generic_types_in_ty(*arg_ty, types_to_change.clone());

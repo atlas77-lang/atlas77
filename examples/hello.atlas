@@ -1,5 +1,6 @@
 extern fun printf<T>(fmt: string, val: T);
-
+#[std::intrinsic]
+extern fun size_of<T>() -> uint64;
 fun main() {
     printf("Hello, %s\n", "Atlas!");
     test();

@@ -107,6 +107,7 @@ impl<'ast> Parser<'ast> {
         // Scan ahead to find matching `>` and check if `(` follows
         // This handles nested generics like `Box<Result<Vector<i64>, Error>>`
         let mut depth = 0;
+        let mut bracket_depth = 0;
         let mut offset = 1;
 
         // Scan ahead to find the matching `>`
@@ -125,8 +126,22 @@ impl<'ast> Parser<'ast> {
                     }
                     depth -= 1;
                 }
+                TokenKind::LBracket => {
+                    bracket_depth += 1;
+                },
+                TokenKind::RBracket => {
+                    bracket_depth -= 1;
+                }
+                // In some cases, like size_of<[int64; N]>(), we should check if we are at l_bracket_depth > 1;
+                // TODO: There might still be some weirdly ambiguous posibility.
+                TokenKind::Semicolon => {
+                    if bracket_depth == 0 {
+                        // In this case, we are sure
+                        return false
+                    }
+                },
                 // If we hit tokens that definitely indicate this is not a generic type, bail out
-                TokenKind::Semicolon | TokenKind::RBrace => return false,
+                TokenKind::RBrace => return false,
                 // Comparison operators are unlikely in generic type parameters
                 TokenKind::OpGreaterThanEq
                 | TokenKind::LFatArrow

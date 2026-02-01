@@ -1233,13 +1233,6 @@ impl<'hir> TypeChecker<'hir> {
 
                         // Only mangle the name if it's NOT external and has generics
                         let name = if func_expr.generics.is_empty() || is_external || is_intrinsic {
-                            eprintln!(
-                                "[DEBUG] Not mangling function name: {} (external: {}, intrinsic: {}, generics: {})",
-                                i.name,
-                                is_external,
-                                is_intrinsic,
-                                func_expr.generics.is_empty()
-                            );
                             i.name
                         } else {
                             MonomorphizationPass::generate_mangled_name(
@@ -1894,7 +1887,10 @@ impl<'hir> TypeChecker<'hir> {
             HirExpr::IntrinsicCall(intrinsic) => {
                 // Intrinsic functions are defined as external functions with special handling
                 //Let's just use the extern fn checker for now
-                let signature = self.signature.functions.get(intrinsic.name).unwrap();
+                let signature =  match self.signature.functions.get(intrinsic.name) {
+                    Some(sig) => sig,
+                    None => todo!("Add error when the intrinsic is not declared (shouldn't happen though)")
+                };
                 self.check_extern_fn(
                     intrinsic.name,
                     &mut intrinsic.args_ty,
