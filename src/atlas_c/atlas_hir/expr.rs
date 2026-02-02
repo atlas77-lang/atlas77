@@ -215,7 +215,7 @@ pub struct HirNewObjExpr<'hir> {
 }
 
 // TODO: Maybe we should make it so the `new` keyword just wraps an expression
-// which means it allocates the value on the heap, returns a pointer and 
+// which means it allocates the value on the heap, returns a pointer and
 // register it for scope clean up in the ownership pass.
 pub struct HirNewExpr<'hir> {
     pub span: Span,

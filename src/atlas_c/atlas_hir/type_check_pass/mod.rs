@@ -1293,7 +1293,7 @@ impl<'hir> TypeChecker<'hir> {
                         if func.is_external && !func.generics.is_empty() {
                             let ty = self.arena.intern(self.check_extern_fn(
                                 name,
-                                &mut func_expr.args_ty,
+                                &mut func_expr.generics,
                                 &mut func_expr.args,
                                 func_expr.span,
                                 func,
@@ -1887,9 +1887,11 @@ impl<'hir> TypeChecker<'hir> {
             HirExpr::IntrinsicCall(intrinsic) => {
                 // Intrinsic functions are defined as external functions with special handling
                 //Let's just use the extern fn checker for now
-                let signature =  match self.signature.functions.get(intrinsic.name) {
+                let signature = match self.signature.functions.get(intrinsic.name) {
                     Some(sig) => sig,
-                    None => todo!("Add error when the intrinsic is not declared (shouldn't happen though)")
+                    None => todo!(
+                        "Add error when the intrinsic is not declared (shouldn't happen though)"
+                    ),
                 };
                 self.check_extern_fn(
                     intrinsic.name,
@@ -2066,10 +2068,16 @@ impl<'hir> TypeChecker<'hir> {
                 Some((_, ty)) => *ty,
                 None => {
                     return Err(Self::type_mismatch_err(
-                        &format!("{}", monomorphized.return_ty),
-                        &monomorphized.return_ty_span.unwrap_or(monomorphized.span),
-                        "concrete type (check explicit type arguments match generic parameters)",
+                        &format!(
+                            "generic parameter `{}` should be inferred from function arguments",
+                            name
+                        ),
                         &signature.span,
+                        &format!(
+                            "inferred type for `{}` from the return type `{}`",
+                            name, monomorphized.return_ty
+                        ),
+                        &call_expr_span,
                     ));
                 }
             };
@@ -2093,6 +2101,7 @@ impl<'hir> TypeChecker<'hir> {
             HirTy::Slice(l) => Self::get_generic_name(l.inner),
             HirTy::ReadOnlyReference(r) => Self::get_generic_name(r.inner),
             HirTy::MutableReference(m) => Self::get_generic_name(m.inner),
+            HirTy::Reference(r) => Self::get_generic_name(r.inner),
             HirTy::Named(n) => Some(n.name),
             HirTy::PtrTy(ptr_ty) => Self::get_generic_name(ptr_ty.inner),
             _ => None,
@@ -2126,13 +2135,18 @@ impl<'hir> TypeChecker<'hir> {
                 .arena
                 .types()
                 .get_ptr_ty(self.get_generic_ret_ty(ptr_ty.inner, actual_generic_ty)),
-
+            HirTy::Reference(r) => self.arena.types().get_ref_ty(
+                self.get_generic_ret_ty(r.inner, actual_generic_ty),
+                r.kind,
+                r.span,
+            ),
             _ => actual_generic_ty,
         }
     }
 
     /// Return the type of the generic after monormophization
     /// e.g. `foo<T>(a: T) -> T` with `foo(42)` will return `int64`
+    /// e.g. `foo<T>(a: T&&) -> T` with `foo(value)` where value is int64&& will return `int64`
     fn get_generic_ty(
         ty: &'hir HirTy<'hir>,
         given_ty: &'hir HirTy<'hir>,
@@ -2149,11 +2163,16 @@ impl<'hir> TypeChecker<'hir> {
             (HirTy::MutableReference(m1), HirTy::MutableReference(m2)) => {
                 Self::get_generic_ty(m1.inner, m2.inner)
             }
+            (HirTy::Reference(ref1), HirTy::Reference(ref2)) => {
+                Self::get_generic_ty(ref1.inner, ref2.inner)
+            }
             (HirTy::Named(_), _) => Some(given_ty),
             (HirTy::ReadOnlyReference(r1), _) => Self::get_generic_ty(r1.inner, given_ty),
             (HirTy::MutableReference(m1), _) => Self::get_generic_ty(m1.inner, given_ty),
+            (HirTy::Reference(r1), _) => Self::get_generic_ty(r1.inner, given_ty),
             (_, HirTy::ReadOnlyReference(r2)) => Self::get_generic_ty(ty, r2.inner),
             (_, HirTy::MutableReference(m2)) => Self::get_generic_ty(ty, m2.inner),
+            (_, HirTy::Reference(r2)) => Self::get_generic_ty(ty, r2.inner),
             _ => None,
         }
     }

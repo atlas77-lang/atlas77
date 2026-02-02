@@ -128,7 +128,7 @@ impl<'ast> Parser<'ast> {
                 }
                 TokenKind::LBracket => {
                     bracket_depth += 1;
-                },
+                }
                 TokenKind::RBracket => {
                     bracket_depth -= 1;
                 }
@@ -137,9 +137,9 @@ impl<'ast> Parser<'ast> {
                 TokenKind::Semicolon => {
                     if bracket_depth == 0 {
                         // In this case, we are sure
-                        return false
+                        return false;
                     }
-                },
+                }
                 // If we hit tokens that definitely indicate this is not a generic type, bail out
                 TokenKind::RBrace => return false,
                 // Comparison operators are unlikely in generic type parameters
