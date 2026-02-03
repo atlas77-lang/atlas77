@@ -823,8 +823,6 @@ pub enum AstType<'ast> {
     ThisTy(AstThisType),
     String(AstStringType),
     Named(AstNamedType<'ast>),
-    MutableRef(AstMutableRefType<'ast>),
-    ReadOnlyRef(AstReadOnlyRefType<'ast>),
     Function(AstFunctionType<'ast>),
     Nullable(AstNullableType<'ast>),
     Slice(AstSliceType<'ast>),
@@ -846,10 +844,8 @@ impl AstType<'_> {
             AstType::ThisTy(t) => t.span,
             AstType::String(t) => t.span,
             AstType::Named(t) => t.span,
-            AstType::MutableRef(t) => t.span,
             AstType::Function(t) => t.span,
             AstType::Nullable(t) => t.span,
-            AstType::ReadOnlyRef(t) => t.span,
             AstType::Slice(t) => t.span,
             AstType::InlineArray(t) => t.span,
             AstType::Generic(t) => t.span,
@@ -873,9 +869,7 @@ impl AstType<'_> {
             AstType::ThisTy(_) => "This".to_owned(),
             AstType::String(_) => "string".to_owned(),
             AstType::Named(t) => t.name.name.to_owned(),
-            AstType::MutableRef(t) => format!("&{}", t.inner.name()),
             AstType::Nullable(t) => format!("{}?", t.inner.name()),
-            AstType::ReadOnlyRef(t) => format!("&const {}", t.inner.name()),
             AstType::Slice(t) => format!("[{}]", t.inner.name()),
             AstType::InlineArray(t) => format!("[{}; {}]", t.inner.name(), t.size),
             AstType::Generic(t) => {
@@ -978,19 +972,6 @@ pub enum AstReferenceKind {
     /// T&& - moveable reference
     /// e.g., `fun take_ownership(obj: T&&) { ... }`
     Moveable,
-}
-
-#[derive(Debug, Clone)]
-///A pointer type in atlas as the form of `&T`
-pub struct AstMutableRefType<'ast> {
-    pub span: Span,
-    pub inner: &'ast AstType<'ast>,
-}
-
-#[derive(Debug, Clone)]
-pub struct AstReadOnlyRefType<'ast> {
-    pub span: Span,
-    pub inner: &'ast AstType<'ast>,
 }
 
 #[derive(Debug, Clone)]

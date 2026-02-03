@@ -164,26 +164,7 @@ impl<'hir> HirGenericPool<'hir> {
                         self.register_struct_instance(g.clone(), module);
                     }
                 }
-                HirTy::ReadOnlyReference(r) => match r.inner {
-                    HirTy::Named(n) => {
-                        // Check if this is actually a defined struct/union in the module
-                        if n.name.len() == 1
-                            && !module.structs.contains_key(n.name)
-                            && !module.unions.contains_key(n.name)
-                        {
-                            is_instantiated = false;
-                        }
-                    }
-                    HirTy::Generic(g) => {
-                        if !self.is_generic_instantiated(g, module) {
-                            is_instantiated = false;
-                        } else {
-                            self.register_struct_instance(g.clone(), module);
-                        }
-                    }
-                    _ => continue,
-                },
-                HirTy::MutableReference(r) => match r.inner {
+                HirTy::Reference(r) => match r.inner {
                     HirTy::Named(n) => {
                         // Check if this is actually a defined struct/union in the module
                         if n.name.len() == 1
@@ -323,7 +304,7 @@ impl<'hir> HirGenericPool<'hir> {
     }
 
     /// This is currently the only generic constraint supported.
-    /// Checks if a type implements `std::copyable` e.g. If it's a primitive type or a struct that has the `_copy` method.
+    /// Checks if a type implements `std::copyable` e.g. If it's a primitive type or a struct that has a copy constructor defined.
     pub fn implements_std_copyable(
         &self,
         module: &HirModuleSignature<'hir>,
@@ -336,10 +317,9 @@ impl<'hir> HirGenericPool<'hir> {
             | HirTy::Char(_)
             | HirTy::String(_)
             | HirTy::UnsignedInteger(_)
-            // References are copyable as they are just pointers
-            | HirTy::ReadOnlyReference(_)
-            | HirTy::MutableReference(_)
             | HirTy::PtrTy(_)
+            // References are copyable as they are just pointers
+            | HirTy::Reference(_)
             // Function pointers are copyable, though I am still not sure if I want this behavior...
             // Maybe closures that capture environment shouldn't be copyable?
             | HirTy::Function(_) => true,
@@ -381,8 +361,7 @@ impl<'hir> HirGenericPool<'hir> {
             | HirTy::String(_)
             | HirTy::UnsignedInteger(_)
             // References are moveable as they are just pointers
-            | HirTy::ReadOnlyReference(_)
-            | HirTy::MutableReference(_)
+            | HirTy::Reference(_)
             // Function pointers are moveable
             | HirTy::Function(_) => true,
             // For now we consider lists as moveable until we have a better way to handle them

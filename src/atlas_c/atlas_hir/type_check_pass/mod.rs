@@ -18,7 +18,7 @@ use crate::atlas_c::atlas_hir::signature::{
     HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier,
     HirStructSignature, HirVisibility,
 };
-use crate::atlas_c::atlas_hir::ty::HirReferenceKind;
+use crate::atlas_c::atlas_hir::ty::{HirReferenceKind, HirReferenceTy};
 use crate::atlas_c::atlas_hir::{
     error::{
         AccessingClassFieldOutsideClassError, AccessingPrivateConstructorError,
@@ -745,14 +745,6 @@ impl<'hir> TypeChecker<'hir> {
                         Ok(ref_ty)
                     }
                     Some(HirUnaryOp::Deref) => match ty {
-                        HirTy::MutableReference(r) => {
-                            u.ty = r.inner;
-                            Ok(r.inner)
-                        }
-                        HirTy::ReadOnlyReference(r) => {
-                            u.ty = r.inner;
-                            Ok(r.inner)
-                        }
                         HirTy::PtrTy(ptr) => {
                             u.ty = ptr.inner;
                             Ok(ptr.inner)
@@ -1734,16 +1726,28 @@ impl<'hir> TypeChecker<'hir> {
                                 Some((_, var)) => {
                                     // Preserve reference type from target_ty like struct field access does
                                     if self.is_const_ty(target_ty) {
-                                        field_access.ty =
-                                            self.arena.types().get_readonly_ref_ty(var.ty);
-                                        field_access.field.ty =
-                                            self.arena.types().get_readonly_ref_ty(var.ty);
+                                        field_access.ty = self.arena.types().get_ref_ty(
+                                            var.ty,
+                                            HirReferenceKind::ReadOnly,
+                                            field_access.span,
+                                        );
+                                        field_access.field.ty = self.arena.types().get_ref_ty(
+                                            var.ty,
+                                            HirReferenceKind::ReadOnly,
+                                            field_access.span,
+                                        );
                                         return Ok(field_access.ty);
                                     } else if self.is_mutable_ref_ty(target_ty) {
-                                        field_access.ty =
-                                            self.arena.types().get_mutable_ref_ty(var.ty);
-                                        field_access.field.ty =
-                                            self.arena.types().get_mutable_ref_ty(var.ty);
+                                        field_access.ty = self.arena.types().get_ref_ty(
+                                            var.ty,
+                                            HirReferenceKind::Mutable,
+                                            field_access.span,
+                                        );
+                                        field_access.field.ty = self.arena.types().get_ref_ty(
+                                            var.ty,
+                                            HirReferenceKind::Mutable,
+                                            field_access.span,
+                                        );
                                         return Ok(field_access.ty);
                                     } else {
                                         field_access.ty = var.ty;
@@ -1783,14 +1787,27 @@ impl<'hir> TypeChecker<'hir> {
                         ));
                     }
                     if self.is_const_ty(target_ty) {
-                        field_access.ty =
-                            self.arena.types().get_readonly_ref_ty(field_signature.ty);
-                        field_access.field.ty =
-                            self.arena.types().get_readonly_ref_ty(field_signature.ty);
+                        field_access.ty = self.arena.types().get_ref_ty(
+                            field_signature.ty,
+                            HirReferenceKind::ReadOnly,
+                            field_access.span,
+                        );
+                        field_access.field.ty = self.arena.types().get_ref_ty(
+                            field_signature.ty,
+                            HirReferenceKind::ReadOnly,
+                            field_access.span,
+                        );
                     } else if self.is_mutable_ref_ty(target_ty) {
-                        field_access.ty = self.arena.types().get_mutable_ref_ty(field_signature.ty);
-                        field_access.field.ty =
-                            self.arena.types().get_mutable_ref_ty(field_signature.ty);
+                        field_access.ty = self.arena.types().get_ref_ty(
+                            field_signature.ty,
+                            HirReferenceKind::Mutable,
+                            field_access.span,
+                        );
+                        field_access.field.ty = self.arena.types().get_ref_ty(
+                            field_signature.ty,
+                            HirReferenceKind::Mutable,
+                            field_access.span,
+                        );
                     } else {
                         field_access.ty = field_signature.ty;
                         field_access.field.ty = field_signature.ty;
@@ -1925,9 +1942,11 @@ impl<'hir> TypeChecker<'hir> {
                     return false;
                 }
             };
-            self.arena
-                .types()
-                .get_readonly_ref_ty(self.arena.types().get_named_ty(struct_name, new_obj.span))
+            self.arena.types().get_ref_ty(
+                self.arena.types().get_named_ty(struct_name, new_obj.span),
+                HirReferenceKind::Mutable,
+                new_obj.span,
+            )
         };
         let arg_ty = arg_ty.unwrap();
         if self
@@ -2099,8 +2118,6 @@ impl<'hir> TypeChecker<'hir> {
     fn get_generic_name(ty: &'hir HirTy<'hir>) -> Option<&'hir str> {
         match ty {
             HirTy::Slice(l) => Self::get_generic_name(l.inner),
-            HirTy::ReadOnlyReference(r) => Self::get_generic_name(r.inner),
-            HirTy::MutableReference(m) => Self::get_generic_name(m.inner),
             HirTy::Reference(r) => Self::get_generic_name(r.inner),
             HirTy::Named(n) => Some(n.name),
             HirTy::PtrTy(ptr_ty) => Self::get_generic_name(ptr_ty.inner),
@@ -2123,14 +2140,6 @@ impl<'hir> TypeChecker<'hir> {
                 arr.size,
             ),
             HirTy::Named(_) => actual_generic_ty,
-            HirTy::ReadOnlyReference(r) => self
-                .arena
-                .types()
-                .get_readonly_ref_ty(self.get_generic_ret_ty(r.inner, actual_generic_ty)),
-            HirTy::MutableReference(r) => self
-                .arena
-                .types()
-                .get_mutable_ref_ty(self.get_generic_ret_ty(r.inner, actual_generic_ty)),
             HirTy::PtrTy(ptr_ty) => self
                 .arena
                 .types()
@@ -2153,25 +2162,11 @@ impl<'hir> TypeChecker<'hir> {
     ) -> Option<&'hir HirTy<'hir>> {
         match (ty, given_ty) {
             (HirTy::Slice(l1), HirTy::Slice(l2)) => Self::get_generic_ty(l1.inner, l2.inner),
-            (HirTy::ReadOnlyReference(r1), HirTy::ReadOnlyReference(r2)) => {
-                Self::get_generic_ty(r1.inner, r2.inner)
-            }
-            // A mutable reference can be used where a read-only reference is expected
-            (HirTy::ReadOnlyReference(r1), HirTy::MutableReference(m2)) => {
-                Self::get_generic_ty(r1.inner, m2.inner)
-            }
-            (HirTy::MutableReference(m1), HirTy::MutableReference(m2)) => {
-                Self::get_generic_ty(m1.inner, m2.inner)
-            }
             (HirTy::Reference(ref1), HirTy::Reference(ref2)) => {
                 Self::get_generic_ty(ref1.inner, ref2.inner)
             }
             (HirTy::Named(_), _) => Some(given_ty),
-            (HirTy::ReadOnlyReference(r1), _) => Self::get_generic_ty(r1.inner, given_ty),
-            (HirTy::MutableReference(m1), _) => Self::get_generic_ty(m1.inner, given_ty),
             (HirTy::Reference(r1), _) => Self::get_generic_ty(r1.inner, given_ty),
-            (_, HirTy::ReadOnlyReference(r2)) => Self::get_generic_ty(ty, r2.inner),
-            (_, HirTy::MutableReference(m2)) => Self::get_generic_ty(ty, m2.inner),
             (_, HirTy::Reference(r2)) => Self::get_generic_ty(ty, r2.inner),
             _ => None,
         }
@@ -2194,11 +2189,23 @@ impl<'hir> TypeChecker<'hir> {
     }
 
     fn is_const_ty(&self, ty: &HirTy<'_>) -> bool {
-        matches!(ty, HirTy::ReadOnlyReference(_))
+        matches!(
+            ty,
+            HirTy::Reference(HirReferenceTy {
+                kind: HirReferenceKind::ReadOnly,
+                ..
+            })
+        )
     }
 
     fn is_mutable_ref_ty(&self, ty: &HirTy<'_>) -> bool {
-        matches!(ty, HirTy::MutableReference(_))
+        matches!(
+            ty,
+            HirTy::Reference(HirReferenceTy {
+                kind: HirReferenceKind::Mutable,
+                ..
+            })
+        )
     }
 
     /// Check if two types are equivalent, considering generics and references
@@ -2237,21 +2244,6 @@ impl<'hir> TypeChecker<'hir> {
                         &found_span,
                     ))
                 }
-            }
-            (HirTy::ReadOnlyReference(read_only1), HirTy::ReadOnlyReference(read_only2)) => self
-                .is_equivalent_ty(
-                    read_only1.inner,
-                    expected_span,
-                    read_only2.inner,
-                    found_span,
-                ),
-            (HirTy::ReadOnlyReference(r1), HirTy::MutableReference(m2)) => {
-                // A mutable reference (&T) can be coerced to a read-only reference (&const T)
-                // ty1 = &const T (expected), ty2 = &T (actual) - this is valid
-                self.is_equivalent_ty(r1.inner, expected_span, m2.inner, found_span)
-            }
-            (HirTy::MutableReference(mutable1), HirTy::MutableReference(mutable2)) => {
-                self.is_equivalent_ty(mutable1.inner, expected_span, mutable2.inner, found_span)
             }
             (HirTy::InlineArray(list1), HirTy::InlineArray(list2)) => {
                 if list1.size != list2.size {
@@ -2399,8 +2391,6 @@ impl<'hir> TypeChecker<'hir> {
                 }
                 None
             }
-            HirTy::ReadOnlyReference(read_only) => self.get_class_name_of_type(read_only.inner),
-            HirTy::MutableReference(mutable) => self.get_class_name_of_type(mutable.inner),
             HirTy::Reference(r) => self.get_class_name_of_type(r.inner),
             _ => None,
         }
@@ -2421,9 +2411,6 @@ impl<'hir> TypeChecker<'hir> {
         current_field_span: Span,
     ) -> bool {
         match ty {
-            // References are OK - they don't cause infinite size
-            HirTy::ReadOnlyReference(_) | HirTy::MutableReference(_) => false,
-
             // Check named struct type
             HirTy::Named(named) => {
                 // If it's the target struct, we found a cycle
@@ -2567,10 +2554,6 @@ impl<'hir> TypeChecker<'hir> {
                     .join(", ");
                 format!("{}<{}>", g.name, args)
             }
-            HirTy::ReadOnlyReference(r) => {
-                format!("&const {}", Self::get_type_display_name(r.inner))
-            }
-            HirTy::MutableReference(m) => format!("&{}", Self::get_type_display_name(m.inner)),
             HirTy::Boolean(_) => "bool".to_string(),
             HirTy::Integer(_) => "int64".to_string(),
             HirTy::Float(_) => "float64".to_string(),
@@ -2579,6 +2562,17 @@ impl<'hir> TypeChecker<'hir> {
             HirTy::String(_) => "string".to_string(),
             HirTy::Unit(_) => "unit".to_string(),
             HirTy::Slice(l) => format!("[{}]", Self::get_type_display_name(l.inner)),
+            HirTy::Reference(r) => match r.kind {
+                HirReferenceKind::Mutable => format!("{}&", Self::get_type_display_name(r.inner)),
+                HirReferenceKind::ReadOnly => {
+                    format!("const {}&", Self::get_type_display_name(r.inner))
+                }
+                HirReferenceKind::Moveable => format!("{}&&", Self::get_type_display_name(r.inner)),
+            },
+            HirTy::PtrTy(p) => format!("*{}", Self::get_type_display_name(p.inner)),
+            HirTy::InlineArray(arr) => {
+                format!("[{}; {}]", Self::get_type_display_name(arr.inner), arr.size)
+            }
             _ => "<unknown>".to_string(),
         }
     }
@@ -2913,10 +2907,7 @@ impl<'hir> TypeChecker<'hir> {
             | HirTy::Float(_)
             | HirTy::Char(_)
             | HirTy::Boolean(_)
-            | HirTy::Unit(_)
-            // You can compare references for equality
-            | HirTy::ReadOnlyReference(_)
-            | HirTy::MutableReference(_) => true,
+            | HirTy::Unit(_) => true,
             HirTy::Named(n) => self.signature.enums.contains_key(n.name),
             _ => false,
         }

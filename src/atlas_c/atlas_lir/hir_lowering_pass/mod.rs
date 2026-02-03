@@ -1056,20 +1056,6 @@ impl<'hir> HirLoweringPass<'hir> {
             HirTy::Char(_) => LirTy::Char,
             HirTy::String(_) => LirTy::Str,
             HirTy::Unit(_) => LirTy::Unit,
-            HirTy::ReadOnlyReference(r) => {
-                let inner = self.hir_ty_to_lir_ty(r.inner, span);
-                LirTy::Ptr {
-                    is_const: true,
-                    inner: Box::new(inner),
-                }
-            }
-            HirTy::MutableReference(r) => {
-                let inner = self.hir_ty_to_lir_ty(r.inner, span);
-                LirTy::Ptr {
-                    is_const: false,
-                    inner: Box::new(inner),
-                }
-            }
             HirTy::Uninitialized(_) => {
                 let report: miette::Report = (*unknown_type_err(&format!("{}", ty), span)).into();
                 eprintln!("{:?}", report);

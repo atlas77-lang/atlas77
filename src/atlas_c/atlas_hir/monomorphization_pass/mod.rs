@@ -11,10 +11,7 @@ use crate::atlas_c::{
         monomorphization_pass::generic_pool::HirGenericPool,
         signature::{HirGenericConstraint, HirGenericConstraintKind, HirModuleSignature},
         stmt::HirStatement,
-        ty::{
-            HirGenericTy, HirInlineArrayTy, HirMutableReferenceTy, HirPtrTy,
-            HirReadOnlyReferenceTy, HirReferenceTy, HirSliceTy, HirTy,
-        },
+        ty::{HirGenericTy, HirInlineArrayTy, HirPtrTy, HirReferenceTy, HirSliceTy, HirTy},
     },
     utils::{self, Span},
 };
@@ -1045,20 +1042,6 @@ impl<'hir> MonomorphizationPass<'hir> {
                     span: g.span,
                 }))
             }
-            HirTy::MutableReference(m) => {
-                let new_inner = self.swap_generic_types_in_ty(m.inner, types_to_change.clone());
-                self.arena
-                    .intern(HirTy::MutableReference(HirMutableReferenceTy {
-                        inner: new_inner,
-                    }))
-            }
-            HirTy::ReadOnlyReference(r) => {
-                let new_inner = self.swap_generic_types_in_ty(r.inner, types_to_change.clone());
-                self.arena
-                    .intern(HirTy::ReadOnlyReference(HirReadOnlyReferenceTy {
-                        inner: new_inner,
-                    }))
-            }
             HirTy::PtrTy(ptr_ty) => {
                 let new_inner = self.swap_generic_types_in_ty(ptr_ty.inner, types_to_change);
                 self.arena
@@ -1195,18 +1178,6 @@ impl<'hir> MonomorphizationPass<'hir> {
                         .register_union_instance(&generic_ty, &module.signature);
                 }
                 res
-            }
-            HirTy::MutableReference(m) => {
-                self.arena
-                    .intern(HirTy::MutableReference(HirMutableReferenceTy {
-                        inner: self.change_inner_type(m.inner, generic_name, new_type, module),
-                    }))
-            }
-            HirTy::ReadOnlyReference(r) => {
-                self.arena
-                    .intern(HirTy::ReadOnlyReference(HirReadOnlyReferenceTy {
-                        inner: self.change_inner_type(r.inner, generic_name, new_type, module),
-                    }))
             }
             HirTy::PtrTy(ptr_ty) => self.arena.intern(HirTy::PtrTy(HirPtrTy {
                 inner: self.change_inner_type(ptr_ty.inner, generic_name, new_type, module),

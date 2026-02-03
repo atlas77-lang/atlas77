@@ -23,10 +23,6 @@ const UNINITIALIZED_TY_ID: u8 = 0x50;
 const NAMED_TY_ID: u8 = 0x60;
 const GENERIC_TY_ID: u8 = 0x70;
 const REFERENCE_TY_ID: u8 = 0x80;
-#[deprecated(note = "Use Reference types instead")]
-const MUT_REFERENCE_TY_ID: u8 = 0x80;
-#[deprecated(note = "Use Reference types instead")]
-const CONST_REFERENCE_TY_ID: u8 = 0x81;
 const POINTER_TY_ID: u8 = 0x90;
 
 impl HirTyId {
@@ -121,18 +117,6 @@ impl HirTyId {
         Self(hasher.finish())
     }
 
-    pub fn compute_mut_ref_ty_id(inner: &HirTyId) -> Self {
-        let mut hasher = DefaultHasher::new();
-        (MUT_REFERENCE_TY_ID, inner).hash(&mut hasher);
-        Self(hasher.finish())
-    }
-
-    pub fn compute_readonly_ref_ty_id(inner: &HirTyId) -> Self {
-        let mut hasher = DefaultHasher::new();
-        (CONST_REFERENCE_TY_ID, inner).hash(&mut hasher);
-        Self(hasher.finish())
-    }
-
     pub fn compute_pointer_ty_id(inner: &HirTyId) -> Self {
         let mut hasher = DefaultHasher::new();
         (POINTER_TY_ID, inner).hash(&mut hasher);
@@ -156,14 +140,9 @@ impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
             }
             HirTy::Named(ty) => HirTyId::compute_name_ty_id(ty.name),
             HirTy::Uninitialized(_) => Self::compute_uninitialized_ty_id(),
-            HirTy::Nullable(ty) => HirTyId::compute_nullable_ty_id(&HirTyId::from(ty.inner)),
             HirTy::Generic(g) => {
                 let params = g.inner.iter().map(HirTyId::from).collect::<Vec<_>>();
                 HirTyId::compute_generic_ty_id(g.name, &params)
-            }
-            HirTy::MutableReference(ty) => Self::compute_mut_ref_ty_id(&HirTyId::from(ty.inner)),
-            HirTy::ReadOnlyReference(ty) => {
-                Self::compute_readonly_ref_ty_id(&HirTyId::from(ty.inner))
             }
             HirTy::PtrTy(ptr_ty) => HirTyId::compute_pointer_ty_id(&HirTyId::from(ptr_ty.inner)),
             HirTy::Function(f) => {
@@ -189,13 +168,7 @@ pub enum HirTy<'hir> {
     InlineArray(HirInlineArrayTy<'hir>),
     Named(HirNamedTy<'hir>),
     Uninitialized(HirUninitializedTy),
-    #[deprecated(note = "Use Option types instead of Nullable types")]
-    Nullable(HirNullableTy<'hir>),
     Generic(HirGenericTy<'hir>),
-    #[deprecated(note = "Use Reference types instead")]
-    MutableReference(HirMutableReferenceTy<'hir>),
-    #[deprecated(note = "Use Reference types instead")]
-    ReadOnlyReference(HirReadOnlyReferenceTy<'hir>),
     Function(HirFunctionTy<'hir>),
     PtrTy(HirPtrTy<'hir>),
     Reference(HirReferenceTy<'hir>),
@@ -285,7 +258,6 @@ impl HirTy<'_> {
             }
             HirTy::Named(ty) => ty.name.to_string(),
             HirTy::Uninitialized(_) => "uninitialized".to_string(),
-            HirTy::Nullable(ty) => format!("nullable_{}", ty.inner.get_valid_c_string()),
             HirTy::Generic(ty) => {
                 if ty.inner.is_empty() {
                     ty.name.to_string()
@@ -299,8 +271,6 @@ impl HirTy<'_> {
                     format!("{}_{}", ty.name, params)
                 }
             }
-            HirTy::MutableReference(ty) => format!("{}_mutptr", ty.inner.get_valid_c_string()),
-            HirTy::ReadOnlyReference(ty) => format!("{}_ptr", ty.inner.get_valid_c_string()),
             HirTy::PtrTy(ptr_ty) => format!("ptr_{}", ptr_ty.inner.get_valid_c_string()),
             HirTy::Function(func) => {
                 let params = func
@@ -334,7 +304,6 @@ impl fmt::Display for HirTy<'_> {
             HirTy::InlineArray(ty) => write!(f, "[{}; {}]", ty.inner, ty.size),
             HirTy::Named(ty) => write!(f, "{}", ty.name),
             HirTy::Uninitialized(_) => write!(f, "uninitialized"),
-            HirTy::Nullable(ty) => write!(f, "{}?", ty.inner),
             HirTy::Generic(ty) => {
                 if ty.inner.is_empty() {
                     write!(f, "{}", ty.name)
@@ -348,8 +317,6 @@ impl fmt::Display for HirTy<'_> {
                     write!(f, "{}<{}>", ty.name, params)
                 }
             }
-            HirTy::MutableReference(ty) => write!(f, "&{}", ty.inner),
-            HirTy::ReadOnlyReference(ty) => write!(f, "&const {}", ty.inner),
             HirTy::PtrTy(ptr_ty) => write!(f, "ptr<{}>", ptr_ty.inner),
             HirTy::Function(func) => {
                 let params = func
@@ -371,18 +338,6 @@ impl fmt::Display for HirTy<'_> {
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct HirPtrTy<'hir> {
-    pub inner: &'hir HirTy<'hir>,
-}
-
-#[derive(Debug, Clone, Eq, Hash, PartialEq)]
-#[deprecated(note = "Use Reference types instead")]
-pub struct HirMutableReferenceTy<'hir> {
-    pub inner: &'hir HirTy<'hir>,
-}
-
-#[derive(Debug, Clone, Eq, Hash, PartialEq)]
-#[deprecated(note = "Use Reference types instead")]
-pub struct HirReadOnlyReferenceTy<'hir> {
     pub inner: &'hir HirTy<'hir>,
 }
 

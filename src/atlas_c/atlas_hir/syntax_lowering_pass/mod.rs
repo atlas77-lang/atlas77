@@ -54,7 +54,7 @@ use crate::atlas_c::{
             HirVariableStmt, HirWhileStmt,
         },
         syntax_lowering_pass::case::Case,
-        ty::{HirGenericTy, HirNamedTy, HirTy},
+        ty::{HirGenericTy, HirNamedTy, HirReferenceKind, HirTy},
         warning::{
             CannotGenerateACopyConstructorForThisTypeWarning, HirWarning,
             NameShouldBeInDifferentCaseWarning, ThisTypeIsStillUnstableWarning,
@@ -1822,10 +1822,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     .types()
                     .get_generic_ty("Option", vec![ty], n.span)
             }
-            AstType::ReadOnlyRef(const_ref) => {
-                let inner_ty = self.visit_ty(const_ref.inner)?;
-                self.arena.types().get_readonly_ref_ty(inner_ty)
-            }
             AstType::Generic(g) => {
                 let inner_types = g
                     .inner_types
@@ -1841,10 +1837,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     self.register_generic_type(g);
                 }
                 ty
-            }
-            AstType::MutableRef(ptr) => {
-                let inner_ty = self.visit_ty(ptr.inner)?;
-                self.arena.types().get_mutable_ref_ty(inner_ty)
             }
             //The "this" ty is replaced during the type checking phase
             AstType::ThisTy(_) => self.arena.types().get_uninitialized_ty(),
@@ -2081,7 +2073,10 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 span,
                 name: self.arena.names().get("from"),
                 name_span: span,
-                ty: self.arena.types().get_readonly_ref_ty(ty),
+                ty: self
+                    .arena
+                    .types()
+                    .get_ref_ty(ty, HirReferenceKind::ReadOnly, span),
                 ty_span: span,
             }];
 
@@ -2127,7 +2122,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                             target: Box::new(HirExpr::Ident(HirIdentExpr {
                                 span,
                                 name: self.arena.names().get("from"),
-                                ty: self.arena.types().get_readonly_ref_ty(ty),
+                                ty: self.arena.types().get_ref_ty(
+                                    ty,
+                                    HirReferenceKind::ReadOnly,
+                                    span,
+                                ),
                             })),
                             field: Box::new(HirIdentExpr {
                                 span: field.span,
@@ -2158,7 +2157,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
     /// A type can be copyable if:
     /// - It's a primitive type (int, float, bool, char, uint, string)
-    /// - It's a reference type (&T, &const T) - references are pointers
     /// - If it has a copy constructor defined AND no pre define destructor (to avoid double free)
     /// - If all its fields are copyable
     fn can_be_copyable(&self, ty: &'hir HirTy<'hir>) -> bool {
@@ -2170,8 +2168,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             | HirTy::UnsignedInteger(_)
             | HirTy::String(_)
             | HirTy::Unit(_)
-            | HirTy::MutableReference(_)
-            | HirTy::ReadOnlyReference(_)
+            | HirTy::Reference(_)
             | HirTy::Function(_) => true,
             // TODO: Add support for list copy constructors
             // HirTy::List(list) => self.can_be_copyable(list.inner, module),
@@ -2212,7 +2209,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 }
                 false
             }
-            HirTy::Nullable(nullable) => self.can_be_copyable(nullable.inner),
             // We just assume other types are not copyable for now
             _ => false,
         }

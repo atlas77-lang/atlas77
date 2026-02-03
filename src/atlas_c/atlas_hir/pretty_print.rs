@@ -665,8 +665,6 @@ impl HirPrettyPrinter {
             HirTy::InlineArray(arr) => {
                 format!("[{}; {}]", Self::type_str(arr.inner), arr.size)
             }
-            HirTy::ReadOnlyReference(r) => format!("&const {}", Self::type_str(r.inner)),
-            HirTy::MutableReference(r) => format!("&{}", Self::type_str(r.inner)),
             HirTy::Reference(r) => match r.kind {
                 HirReferenceKind::Mutable => {
                     format!("{}&", Self::type_str(r.inner))
@@ -688,7 +686,6 @@ impl HirPrettyPrinter {
                     .join(", ")
             ),
             HirTy::Uninitialized(_) => "<uninit>".to_string(),
-            HirTy::Nullable(n) => format!("{}?", Self::type_str(n.inner)),
             HirTy::PtrTy(ptr_ty) => format!("ptr<{}>", Self::type_str(ptr_ty.inner)),
             HirTy::Function(f) => {
                 let params = f

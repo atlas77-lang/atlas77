@@ -11,8 +11,7 @@ use crate::atlas_c::atlas_frontend::parser::{
     ast::{
         AstArg, AstEnum, AstEnumVariant, AstExternStruct, AstFlag, AstGlobalConst,
         AstInlineArrayType, AstNullLiteral, AstObjLiteralExpr, AstObjLiteralField, AstPtrTy,
-        AstReadOnlyRefType, AstReferenceKind, AstReferenceType, AstStdGenericConstraint, AstUnion,
-        ConstructorKind,
+        AstReferenceKind, AstReferenceType, AstStdGenericConstraint, AstUnion, ConstructorKind,
     },
     error::{
         DestructorWithParametersError, FlagDoesntExistError, NoFieldInStructError,
@@ -24,10 +23,9 @@ use ast::{
     AstAssignStmt, AstBinaryOp, AstBinaryOpExpr, AstBlock, AstBooleanLiteral, AstBooleanType,
     AstCallExpr, AstConst, AstExpr, AstExternFunction, AstFieldAccessExpr, AstFloatLiteral,
     AstFloatType, AstFunction, AstFunctionType, AstIdentifier, AstIfElseExpr, AstImport,
-    AstIntegerLiteral, AstIntegerType, AstItem, AstLet, AstLiteral, AstMutableRefType,
-    AstNamedType, AstObjField, AstProgram, AstReturnStmt, AstStatement, AstStringLiteral,
-    AstStringType, AstType, AstUnaryOp, AstUnaryOpExpr, AstUnitType, AstUnsignedIntegerLiteral,
-    AstUnsignedIntegerType, AstWhileExpr,
+    AstIntegerLiteral, AstIntegerType, AstItem, AstLet, AstLiteral, AstNamedType, AstObjField,
+    AstProgram, AstReturnStmt, AstStatement, AstStringLiteral, AstStringType, AstType, AstUnaryOp,
+    AstUnaryOpExpr, AstUnitType, AstUnsignedIntegerLiteral, AstUnsignedIntegerType, AstWhileExpr,
 };
 
 use crate::atlas_c::atlas_frontend::lexer::{
@@ -2300,25 +2298,6 @@ impl<'ast> Parser<'ast> {
                 AstType::ThisTy(AstThisType {
                     span: Span::union_span(&start, &self.current().span()),
                 })
-            }
-            TokenKind::Ampersand => {
-                let _ = self.advance();
-                if self.current().kind == TokenKind::KwConst {
-                    let _ = self.advance();
-                    let ty = self.parse_type()?;
-
-                    AstType::ReadOnlyRef(AstReadOnlyRefType {
-                        span: Span::union_span(&start, &ty.span()),
-                        inner: self.arena.alloc(ty),
-                    })
-                } else {
-                    let ty = self.parse_type()?;
-
-                    AstType::MutableRef(AstMutableRefType {
-                        span: Span::union_span(&start, &ty.span()),
-                        inner: self.arena.alloc(ty),
-                    })
-                }
             }
             TokenKind::Identifier(_) => {
                 let name = self.parse_identifier()?;

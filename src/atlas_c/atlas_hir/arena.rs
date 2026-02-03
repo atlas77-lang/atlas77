@@ -6,14 +6,11 @@ use std::{
 };
 
 use super::ty::{
-    HirBooleanTy, HirCharTy, HirFloatTy, HirGenericTy, HirIntegerTy, HirMutableReferenceTy,
-    HirNamedTy, HirNullableTy, HirSliceTy, HirStringTy, HirTy, HirTyId, HirUninitializedTy,
-    HirUnitTy, HirUnsignedIntTy,
+    HirBooleanTy, HirCharTy, HirFloatTy, HirGenericTy, HirIntegerTy, HirNamedTy, HirSliceTy,
+    HirStringTy, HirTy, HirTyId, HirUninitializedTy, HirUnitTy, HirUnsignedIntTy,
 };
 use crate::atlas_c::{
-    atlas_hir::ty::{
-        HirFunctionTy, HirPtrTy, HirReadOnlyReferenceTy, HirReferenceKind, HirReferenceTy,
-    },
+    atlas_hir::ty::{HirFunctionTy, HirPtrTy, HirReferenceKind, HirReferenceTy},
     utils::Span,
 };
 use bumpalo::Bump;
@@ -143,14 +140,6 @@ impl<'arena> TypeArena<'arena> {
             .or_insert_with(|| self.allocator.alloc(HirTy::String(HirStringTy {})))
     }
 
-    pub fn get_nullable_ty(&'arena self, inner: &'arena HirTy<'arena>) -> &'arena HirTy<'arena> {
-        let id = HirTyId::compute_nullable_ty_id(&HirTyId::from(inner));
-        self.intern.borrow_mut().entry(id).or_insert_with(|| {
-            self.allocator
-                .alloc(HirTy::Nullable(HirNullableTy { inner }))
-        })
-    }
-
     pub fn get_unit_ty(&'arena self) -> &'arena HirTy<'arena> {
         let id = HirTyId::compute_unit_ty_id();
         self.intern
@@ -227,27 +216,6 @@ impl<'arena> TypeArena<'arena> {
         self.intern.borrow_mut().entry(id).or_insert_with(|| {
             self.allocator
                 .alloc(HirTy::Reference(HirReferenceTy { inner, kind, span }))
-        })
-    }
-
-    #[deprecated(note = "Use Reference types instead")]
-    pub fn get_mutable_ref_ty(&'arena self, inner: &'arena HirTy<'arena>) -> &'arena HirTy<'arena> {
-        let id = HirTyId::compute_mut_ref_ty_id(&HirTyId::from(inner));
-        self.intern.borrow_mut().entry(id).or_insert_with(|| {
-            self.allocator
-                .alloc(HirTy::MutableReference(HirMutableReferenceTy { inner }))
-        })
-    }
-
-    #[deprecated(note = "Use Reference types instead")]
-    pub fn get_readonly_ref_ty(
-        &'arena self,
-        inner: &'arena HirTy<'arena>,
-    ) -> &'arena HirTy<'arena> {
-        let id = HirTyId::compute_readonly_ref_ty_id(&HirTyId::from(inner));
-        self.intern.borrow_mut().entry(id).or_insert_with(|| {
-            self.allocator
-                .alloc(HirTy::ReadOnlyReference(HirReadOnlyReferenceTy { inner }))
         })
     }
 
