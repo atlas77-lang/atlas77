@@ -1,0 +1,28 @@
+// Test double move - should be warning, not error
+
+fun move<T: std::moveable>(val: T&&) -> T {
+    return T::__mov_ctor(val);
+}
+
+struct Foo {
+public:
+    a: int64;
+    Foo(value: int64) {
+        this.a = value;
+    }
+    
+    Foo(dying_obj: Foo&&) {
+        this.a = dying_obj.a;
+    }
+    
+    Foo(from: const Foo&) {
+        this.a = from.a;
+    }
+}
+
+fun main() {
+    let f: Foo = new Foo(42);
+    let f2: Foo = move<Foo>(f);
+    // WARNING: use-after-move
+    let f3: Foo = move<Foo>(f);  // Double move - warning instead of error
+}

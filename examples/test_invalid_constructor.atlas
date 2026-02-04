@@ -1,0 +1,15 @@
+// Test file to verify mutable self-reference constructor error
+
+struct BadStruct {
+public:
+    value: int64;
+    
+    // This should trigger an error - mutable self-reference constructor
+    BadStruct(other: BadStruct&) {
+        this.value = other.value;
+    }
+}
+
+fun main() {
+    let b: BadStruct = new BadStruct();
+}

@@ -8,7 +8,7 @@ use crate::atlas_c::atlas_hir::error::{
     CallingConsumingMethodOnMutableReferenceOrigin, ListIndexOutOfBoundsError,
     RvalueReferenceToLvalueReferenceError, StdNonCopyableStructCannotHaveCopyConstructorError,
     StructCannotHaveAFieldOfItsOwnTypeError, ThisStructDoesNotHaveACopyConstructorError,
-    ThisStructDoesNotHaveAMoveConstructorError, TypeIsNotMoveableError,
+    ThisStructDoesNotHaveAMoveConstructorError, TypeIsNotCopyableError, TypeIsNotMoveableError,
     UnionMustHaveAtLeastTwoVariantError, UnionVariantDefinedMultipleTimesError,
     VariableNameAlreadyDefinedError,
 };
@@ -170,7 +170,7 @@ impl<'hir> TypeChecker<'hir> {
         self.current_func_name = Some("constructor");
         self.check_constructor(&mut class.constructor)?;
         if let Some(copy_ctor) = &mut class.move_constructor {
-            if class.flag.is_non_copyable() {
+            if class.flag.is_non_moveable() {
                 let path = class.span.path;
                 let src = utils::get_file_content(path).unwrap();
                 return Err(HirError::StdNonCopyableStructCannotHaveCopyConstructor(
@@ -1297,6 +1297,8 @@ impl<'hir> TypeChecker<'hir> {
                         for (param, arg) in func.params.iter().zip(func_expr.args.iter_mut()) {
                             let arg_ty = self.check_expr(arg)?;
                             self.is_equivalent_ty(param.ty, param.span, arg_ty, arg.span())?;
+                            // Store the expected parameter type for ownership analysis
+                            func_expr.args_ty.push(param.ty);
                         }
                         func_expr.ty = self.arena.intern(func.return_ty.clone());
                         Ok(self.arena.intern(func.return_ty.clone()))
@@ -1404,7 +1406,7 @@ impl<'hir> TypeChecker<'hir> {
                                 ));
                             }
 
-                            if self.is_const_ty(target_ty)
+                            if self.is_readonly_ref_ty(target_ty)
                                 && method_signature.modifier != HirStructMethodModifier::Const
                             {
                                 return Err(Self::calling_non_const_method_on_const_reference_err(
@@ -1435,6 +1437,8 @@ impl<'hir> TypeChecker<'hir> {
                             {
                                 let arg_ty = self.check_expr(arg)?;
                                 self.is_equivalent_ty(param.ty, param.span, arg_ty, arg.span())?;
+                                // Store the expected parameter type for ownership analysis
+                                func_expr.args_ty.push(param.ty);
                             }
                             field_access.ty = self.arena.intern(method_signature.return_ty.clone());
                             func_expr.ty = self.arena.intern(method_signature.return_ty.clone());
@@ -1523,6 +1527,8 @@ impl<'hir> TypeChecker<'hir> {
                             {
                                 let arg_ty = self.check_expr(arg)?;
                                 self.is_equivalent_ty(param.ty, param.span, arg_ty, arg.span())?;
+                                // Store the expected parameter type for ownership analysis
+                                func_expr.args_ty.push(param.ty);
                             }
 
                             static_access.ty =
@@ -1559,6 +1565,8 @@ impl<'hir> TypeChecker<'hir> {
                                             arg_ty,
                                             arg.span(),
                                         )?;
+                                        // Store the expected parameter type for ownership analysis
+                                        func_expr.args_ty.push(param.ty);
                                     }
                                     let ret_ty = self
                                         .arena
@@ -1600,6 +1608,8 @@ impl<'hir> TypeChecker<'hir> {
                                         found_ty,
                                         func_expr.args[0].span(),
                                     )?;
+                                    // Store the expected parameter type for ownership analysis
+                                    func_expr.args_ty.push(expected_ty);
                                     let ret_ty = self
                                         .arena
                                         .types()
@@ -1640,6 +1650,8 @@ impl<'hir> TypeChecker<'hir> {
                                         found_ty,
                                         func_expr.args[0].span(),
                                     )?;
+                                    // Store the expected parameter type for ownership analysis
+                                    func_expr.args_ty.push(expected_ty);
                                     let ret_ty = self
                                         .arena
                                         .types()
@@ -1725,7 +1737,7 @@ impl<'hir> TypeChecker<'hir> {
                             match variant {
                                 Some((_, var)) => {
                                     // Preserve reference type from target_ty like struct field access does
-                                    if self.is_const_ty(target_ty) {
+                                    if self.is_readonly_ref_ty(target_ty) {
                                         field_access.ty = self.arena.types().get_ref_ty(
                                             var.ty,
                                             HirReferenceKind::ReadOnly,
@@ -1786,7 +1798,7 @@ impl<'hir> TypeChecker<'hir> {
                             },
                         ));
                     }
-                    if self.is_const_ty(target_ty) {
+                    if self.is_readonly_ref_ty(target_ty) {
                         field_access.ty = self.arena.types().get_ref_ty(
                             field_signature.ty,
                             HirReferenceKind::ReadOnly,
@@ -2188,7 +2200,7 @@ impl<'hir> TypeChecker<'hir> {
         }
     }
 
-    fn is_const_ty(&self, ty: &HirTy<'_>) -> bool {
+    fn is_readonly_ref_ty(&self, ty: &HirTy<'_>) -> bool {
         matches!(
             ty,
             HirTy::Reference(HirReferenceTy {
@@ -2331,6 +2343,40 @@ impl<'hir> TypeChecker<'hir> {
                     }
                     _ => self.is_equivalent_ty(r1.inner, expected_span, r2.inner, found_span),
                 }
+            }
+            // If it expects a value type, but found a reference, it should only works if the reference is copyable
+            (expected, HirTy::Reference(r)) => {
+                self.is_equivalent_ty(expected, expected_span, r.inner, found_span)?;
+                // check if found is copyable
+                match expected {
+                    HirTy::Reference(HirReferenceTy {
+                        kind: HirReferenceKind::Mutable,
+                        inner,
+                        ..
+                    })
+                    | HirTy::Reference(HirReferenceTy {
+                        kind: HirReferenceKind::ReadOnly,
+                        inner,
+                        ..
+                    }) => {
+                        if inner.is_copyable(&self.signature) {
+                            return Ok(());
+                        }
+                    }
+                    _ => {
+                        if expected.is_copyable(&self.signature) {
+                            return Ok(());
+                        }
+                    }
+                }
+                return Err(HirError::TypeIsNotCopyable(TypeIsNotCopyableError {
+                    span: found_span,
+                    type_name: found_ty.to_string(),
+                    src: NamedSource::new(
+                        found_span.path,
+                        utils::get_file_content(found_span.path).unwrap(),
+                    ),
+                }));
             }
             (HirTy::Reference(r), found) => {
                 self.is_equivalent_ty(r.inner, expected_span, found_ty, found_span)?;

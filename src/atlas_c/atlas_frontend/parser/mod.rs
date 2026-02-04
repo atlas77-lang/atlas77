@@ -14,9 +14,9 @@ use crate::atlas_c::atlas_frontend::parser::{
         AstReferenceKind, AstReferenceType, AstStdGenericConstraint, AstUnion, ConstructorKind,
     },
     error::{
-        DestructorWithParametersError, FlagDoesntExistError, NoFieldInStructError,
-        OnlyOneConstructorAllowedError, ParseResult, SizeOfArrayMustBeKnownAtCompileTimeError,
-        SyntaxError, UnexpectedTokenError,
+        DestructorWithParametersError, FlagDoesntExistError, MutableSelfReferenceConstructorError,
+        NoFieldInStructError, OnlyOneConstructorAllowedError, ParseResult,
+        SizeOfArrayMustBeKnownAtCompileTimeError, SyntaxError, UnexpectedTokenError,
     },
 };
 use ast::{
@@ -561,6 +561,12 @@ impl<'ast> Parser<'ast> {
                         docs.clear();
                         let kind = self.constructor_kind(struct_identifier.name, &ctor);
                         match kind {
+                            ConstructorKind::Invalid => {
+                                return Err(self.mutable_self_reference_constructor_error(
+                                    &ctor.span,
+                                    struct_identifier.name.to_string(),
+                                ));
+                            }
                             ConstructorKind::Regular => {
                                 if constructor.is_none() {
                                     constructor = Some(self.arena.alloc(ctor));
@@ -730,6 +736,20 @@ impl<'ast> Parser<'ast> {
                 }) => {
                     if ident.name == struct_name {
                         return ConstructorKind::Move;
+                    }
+                }
+                AstType::Reference(AstReferenceType {
+                    kind: AstReferenceKind::Mutable,
+                    inner: AstType::Named(AstNamedType { name: ident, .. }),
+                    ..
+                })
+                | AstType::Reference(AstReferenceType {
+                    kind: AstReferenceKind::Mutable,
+                    inner: AstType::Generic(AstGenericType { name: ident, .. }),
+                    ..
+                }) => {
+                    if ident.name == struct_name {
+                        return ConstructorKind::Invalid;
                     }
                 }
                 _ => return ConstructorKind::Regular,
@@ -2509,6 +2529,22 @@ impl<'ast> Parser<'ast> {
             OnlyOneConstructorAllowedError {
                 span: *span,
                 kind,
+                src: NamedSource::new(path, src),
+            },
+        ))
+    }
+
+    fn mutable_self_reference_constructor_error(
+        &self,
+        span: &Span,
+        struct_name: String,
+    ) -> Box<SyntaxError> {
+        let path = span.path;
+        let src = get_file_content(path).expect("Failed to read source file");
+        Box::new(SyntaxError::MutableSelfReferenceConstructor(
+            MutableSelfReferenceConstructorError {
+                span: *span,
+                struct_name,
                 src: NamedSource::new(path, src),
             },
         ))

@@ -87,7 +87,7 @@ declare_error_type! {
         CannotGenerateADestructorForThisType(CannotGenerateADestructorForThisTypeError),
         CannotImplicitlyCopyNonCopyableValue(CannotImplicitlyCopyNonCopyableValueError),
         CannotMoveFromRvalue(CannotMoveFromRvalueError),
-        TypeNotCopyable(TypeNotCopyableError),
+        TypeIsNotCopyable(TypeIsNotCopyableError),
         ListIndexOutOfBounds(ListIndexOutOfBoundsError),
         IncorrectIntrinsicCallArguments(IncorrectIntrinsicCallArgumentsError),
         //T&& cannot become T&
@@ -1308,7 +1308,7 @@ pub(crate) struct CannotMoveFromRvalueError {
 #[derive(Error, Diagnostic, Debug)]
 #[error("Type is not copyable")]
 #[diagnostic(code(atlas::ownership::type_not_copyable))]
-pub(crate) struct TypeNotCopyableError {
+pub(crate) struct TypeIsNotCopyableError {
     #[source_code]
     pub src: NamedSource<String>,
 

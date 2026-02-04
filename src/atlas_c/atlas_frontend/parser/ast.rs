@@ -324,6 +324,7 @@ pub enum ConstructorKind {
     Copy,
     Move,
     Default,
+    Invalid, // Mutable self-reference - not allowed
 }
 
 #[derive(Debug, Clone)]

@@ -1011,6 +1011,27 @@ impl<'hir> HirLoweringPass<'hir> {
                 self.emit(LirInstr::Delete { ty, src })?;
                 Ok(dst)
             }
+
+            HirExpr::IntrinsicCall(intrinsic) => {
+                /* TODO: Have a separate function that handles the specific case for each intrinsic */
+                /* e.g.: size_of should take its args_ty[0] as argument */
+                let mut args = Vec::new();
+                for arg in &intrinsic.args {
+                    args.push(self.lower_expr(arg)?);
+                }
+                let dest = if matches!(intrinsic.ty, HirTy::Unit(_)) {
+                    None
+                } else {
+                    Some(self.new_temp())
+                };
+                self.emit(LirInstr::Call {
+                    ty: self.hir_ty_to_lir_ty(intrinsic.ty, intrinsic.span),
+                    dst: dest.clone(),
+                    func_name: intrinsic.name.to_string(),
+                    args,
+                })?;
+                Ok(dest.unwrap_or(LirOperand::ImmInt(0))) // unit value
+            }
             _ => Err(unsupported_expr(expr.span())),
         }
     }

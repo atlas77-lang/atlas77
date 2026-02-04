@@ -122,6 +122,7 @@ impl From<AstVisibility> for HirVisibility {
 pub enum HirFlag {
     Copyable(Span),
     NonCopyable(Span),
+    NonMoveable(Span),
     #[default]
     None,
 }
@@ -142,6 +143,7 @@ impl HirFlag {
         match self {
             HirFlag::Copyable(span) => Some(*span),
             HirFlag::NonCopyable(span) => Some(*span),
+            HirFlag::NonMoveable(span) => Some(*span),
             HirFlag::None => None,
         }
     }
@@ -150,6 +152,9 @@ impl HirFlag {
     }
     pub fn is_copyable(&self) -> bool {
         matches!(self, HirFlag::Copyable(_))
+    }
+    pub fn is_non_moveable(&self) -> bool {
+        matches!(self, HirFlag::NonMoveable(_))
     }
     pub fn is_no_flag(&self) -> bool {
         matches!(self, HirFlag::None)

@@ -20,6 +20,7 @@ declare_error_type! {
         DestructorWithParameters(DestructorWithParametersError),
         FlagDoesntExist(FlagDoesntExistError),
         SizeOfArrayMustBeKnownAtCompileTime(SizeOfArrayMustBeKnownAtCompileTimeError),
+        MutableSelfReferenceConstructor(MutableSelfReferenceConstructorError),
     }
 }
 
@@ -126,4 +127,20 @@ pub struct SizeOfArrayMustBeKnownAtCompileTimeError {
     pub src: NamedSource<String>,
     #[label("size of array must be known at compile time")]
     pub span: Span,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(syntax::mutable_self_reference_constructor),
+    help(
+        "Use 'const {struct_name}&' for a copy constructor or '{struct_name}&&' for a move constructor"
+    )
+)]
+#[error("constructor cannot take a mutable reference to itself")]
+pub struct MutableSelfReferenceConstructorError {
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label("constructor cannot take a mutable reference to the same type")]
+    pub span: Span,
+    pub struct_name: String,
 }
