@@ -16,7 +16,9 @@ pub(crate) mod context;
 
 use crate::atlas_c::atlas_hir::arena::HirArena;
 use crate::atlas_c::atlas_hir::error::{
-    CannotDeleteOutOfLoopError, DoubleMoveError, HirError, HirResult,
+    BorrowConflictError, CannotBorrowAsMutableWhileSharedBorrowExistsError,
+    CannotBorrowAsSharedWhileMutableBorrowExistsError, CannotDeleteOutOfLoopError,
+    CannotMutateWhileBorrowedError, DoubleMoveError, HirError, HirResult,
     ReturningReferenceToLocalVariableError, TryingToAccessADeletedValueError,
 };
 use crate::atlas_c::atlas_hir::expr::{HirExpr, HirIdentExpr};
@@ -28,7 +30,8 @@ use crate::atlas_c::atlas_hir::warning::{MoveInLoopWarning, UseAfterMoveWarning}
 use crate::atlas_c::atlas_hir::{HirFunction, HirModule};
 use crate::atlas_c::utils::{self, Span};
 use context::{
-    LifetimeScope, OwnershipFunction, OwnershipVariable, TypeCategory, VarId, VarStatus,
+    BorrowInfo, BorrowKind, LifetimeScope, OwnershipFunction, OwnershipVariable, TypeCategory,
+    VarId, VarStatus,
 };
 use miette::{ErrReport, NamedSource};
 use std::collections::HashMap;
@@ -422,6 +425,69 @@ impl<'hir> OwnershipPass<'hir> {
                 // Get reference origins if the value is a reference
                 let refs_locals = self.get_reference_origins(&let_stmt.value);
 
+                // If this is a reference type, check for borrow conflicts and record the borrow
+                if let HirTy::Reference(ref_ty) = let_stmt.ty {
+                    let borrow_kind = match ref_ty.kind {
+                        HirReferenceKind::Mutable => BorrowKind::Mutable,
+                        HirReferenceKind::ReadOnly => BorrowKind::Shared,
+                        HirReferenceKind::Moveable => BorrowKind::Mutable, // Moveable refs are exclusive
+                    };
+
+                    // Check for borrow conflicts on each origin variable
+                    for &origin_var_id in &refs_locals {
+                        if let Some(conflict) = self
+                            .current_function
+                            .check_borrow_conflict(origin_var_id, borrow_kind)
+                        {
+                            let conflict_span = conflict.span;
+                            let conflict_kind = conflict.kind;
+                            let origin_name = self
+                                .current_function
+                                .get_variable(origin_var_id)
+                                .map(|v| v.name)
+                                .unwrap_or("unknown");
+
+                            let path = let_stmt.span.path;
+                            let src = utils::get_file_content(path).unwrap();
+
+                            match (borrow_kind, conflict_kind) {
+                                (BorrowKind::Mutable, BorrowKind::Shared) => {
+                                    return Err(HirError::CannotBorrowAsMutableWhileSharedBorrowExists(
+                                        CannotBorrowAsMutableWhileSharedBorrowExistsError {
+                                            var_name: origin_name.to_string(),
+                                            mutable_borrow_span: let_stmt.span,
+                                            shared_borrow_span: conflict_span,
+                                            src: NamedSource::new(path, src),
+                                        },
+                                    ));
+                                }
+                                (BorrowKind::Shared, BorrowKind::Mutable) => {
+                                    return Err(HirError::CannotBorrowAsSharedWhileMutableBorrowExists(
+                                        CannotBorrowAsSharedWhileMutableBorrowExistsError {
+                                            var_name: origin_name.to_string(),
+                                            shared_borrow_span: let_stmt.span,
+                                            mutable_borrow_span: conflict_span,
+                                            src: NamedSource::new(path, src),
+                                        },
+                                    ));
+                                }
+                                (BorrowKind::Mutable, BorrowKind::Mutable) => {
+                                    return Err(HirError::BorrowConflict(BorrowConflictError {
+                                        var_name: origin_name.to_string(),
+                                        new_borrow_kind: "mutable (&)".to_string(),
+                                        existing_borrow_kind: "mutable (&)".to_string(),
+                                        new_borrow_span: let_stmt.span,
+                                        existing_borrow_span: conflict_span,
+                                        src: NamedSource::new(path, src),
+                                    }));
+                                }
+                                // Shared + Shared is always OK
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+
                 // Register the new variable
                 let var_id = self.current_function.create_var_id();
                 let category = self.classify_type(let_stmt.ty);
@@ -437,8 +503,29 @@ impl<'hir> OwnershipPass<'hir> {
                         scope_id: self.current_function.current_scope_id(),
                         can_escape: false, // Local variables cannot escape
                     },
-                    refs_locals,
+                    refs_locals: refs_locals.clone(),
                 });
+
+                // If this is a reference type, record the borrow on origin variables
+                if let HirTy::Reference(ref_ty) = let_stmt.ty {
+                    let borrow_kind = match ref_ty.kind {
+                        HirReferenceKind::Mutable => BorrowKind::Mutable,
+                        HirReferenceKind::ReadOnly => BorrowKind::Shared,
+                        HirReferenceKind::Moveable => BorrowKind::Mutable,
+                    };
+
+                    for &origin_var_id in &refs_locals {
+                        self.current_function.record_borrow(
+                            origin_var_id,
+                            BorrowInfo {
+                                ref_var: var_id,
+                                kind: borrow_kind,
+                                active: true,
+                                span: let_stmt.span,
+                            },
+                        );
+                    }
+                }
             }
 
             HirStatement::Const(const_stmt) => {
@@ -467,6 +554,31 @@ impl<'hir> OwnershipPass<'hir> {
             HirStatement::Assign(assign_stmt) => {
                 // Analyze the value expression first
                 self.analyze_expr(&mut assign_stmt.val)?;
+
+                // Check if the destination variable is currently borrowed
+                // (cannot mutate a variable while it is borrowed)
+                if let HirExpr::Ident(ident) = &assign_stmt.dst {
+                    if let Some(var_id) = self.current_function.lookup_variable_id(ident.name) {
+                        if let Some(borrows) = self.current_function.is_borrowed(var_id) {
+                            // Find the first active borrow to report
+                            if let Some(active_borrow) =
+                                borrows.iter().find(|b| b.active)
+                            {
+                                let borrow_span = active_borrow.span;
+                                let path = assign_stmt.span.path;
+                                let src = utils::get_file_content(path).unwrap();
+                                return Err(HirError::CannotMutateWhileBorrowed(
+                                    CannotMutateWhileBorrowedError {
+                                        var_name: ident.name.to_string(),
+                                        assign_span: assign_stmt.span,
+                                        borrow_span,
+                                        src: NamedSource::new(path, src),
+                                    },
+                                ));
+                            }
+                        }
+                    }
+                }
 
                 // Analyze the destination
                 self.analyze_expr(&mut assign_stmt.dst)?;

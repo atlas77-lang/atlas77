@@ -1,0 +1,153 @@
+// ============================================================================
+// REFERENCE LIFETIME AND SCOPE TESTS
+// ============================================================================
+// Tests scope-based lifetime enforcement for references. References must
+// not outlive the values they borrow from.
+//
+// Includes both valid patterns and error patterns (commented out).
+
+import "std/io";
+
+struct Resource {
+public:
+    name: int64;
+
+    Resource(name: int64) {
+        this.name = name;
+    }
+
+    Resource(from: &const Resource) {
+        this.name = *from.name;
+    }
+
+    ~Resource() {}
+
+    fun get_name(&const this) -> int64 {
+        return *this.name;
+    }
+
+    fun set_name(&this, n: int64) {
+        this.name = n;
+    }
+}
+
+// ============================================================================
+// TEST 1: Reference within same scope (valid)
+// ============================================================================
+fun test_same_scope() {
+    println("=== TEST 1: Same scope ref ===");
+
+    let r = new Resource(1);
+    let ref_r: &const Resource = &r;
+    let v = ref_r.get_name();
+    println("same scope read ok");
+
+    println("Same scope test passed!");
+}
+
+// ============================================================================
+// TEST 2: Nested scopes - ref in inner scope to outer value (valid)
+// ============================================================================
+fun test_inner_scope_ref() {
+    println("=== TEST 2: Inner scope ref ===");
+
+    let r = new Resource(42);
+    {
+        let ref_r: &const Resource = &r;
+        let v = ref_r.get_name();
+        println("inner scope read ok");
+    }
+    // ref_r is gone, r is still alive
+    println("Inner scope test passed!");
+}
+
+// ============================================================================
+// TEST 3: Multiple nested scopes with borrows (valid)
+// ============================================================================
+fun test_nested_scopes() {
+    println("=== TEST 3: Nested scopes ===");
+
+    let r = new Resource(100);
+    {
+        let r1: &const Resource = &r;
+        let v1 = r1.get_name();
+        println("nested scope level 1 ok");
+        {
+            let r2: &const Resource = &r;
+            let v2 = r2.get_name();
+            println("nested scope level 2 ok");
+        }
+        // r2 expired, r1 still valid
+        let v3 = r1.get_name();
+        println("r1 still valid after r2 expired");
+    }
+    // Both expired, can take mut ref
+    let rw: &Resource = &r;
+    rw.set_name(200);
+    println("Nested scopes test passed!");
+}
+
+// ============================================================================
+// ERROR TEST: Return reference to local (should error)
+// ============================================================================
+// Uncomment to test:
+// fun error_return_ref_to_local() -> &const Resource {
+//     let r = new Resource(999);
+//     return &r;  // ERROR: returning reference to local variable
+// }
+
+// ============================================================================
+// TEST 4: Return reference to parameter (valid - parameter outlives call)
+// ============================================================================
+fun get_ref(r: &const Resource) -> &const Resource {
+    return r;  // OK: returning a reference that was passed in
+}
+
+fun test_return_param_ref() {
+    println("=== TEST 4: Return param ref ===");
+
+    let r = new Resource(55);
+    let ref_r = get_ref(&r);
+    let v = ref_r.get_name();
+    println("return param ref read ok");
+
+    println("Return param ref test passed!");
+}
+
+// ============================================================================
+// TEST 5: Borrow through function calls (valid)
+// ============================================================================
+fun read_resource(r: &const Resource) -> int64 {
+    return r.get_name();
+}
+
+fun mutate_resource(r: &Resource, val: int64) {
+    r.set_name(val);
+}
+
+fun test_function_borrows() {
+    println("=== TEST 5: Function borrows ===");
+
+    let r = new Resource(10);
+    let v1 = read_resource(&r);
+    println("function read ok");
+
+    mutate_resource(&r, 77);
+
+    let v2 = read_resource(&r);
+    println("function mutate + re-read ok");
+
+    println("Function borrows test passed!");
+}
+
+// ============================================================================
+// MAIN
+// ============================================================================
+fun main() {
+    test_same_scope();
+    test_inner_scope_ref();
+    test_nested_scopes();
+    test_return_param_ref();
+    test_function_borrows();
+    println("All lifetime scope tests passed!");
+}

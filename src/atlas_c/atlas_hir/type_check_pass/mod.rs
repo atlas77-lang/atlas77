@@ -6,7 +6,8 @@ use super::{
 use crate::atlas_c::atlas_hir::error::{
     AccessingPrivateUnionError, CallingConsumingMethodOnMutableReferenceError,
     CallingConsumingMethodOnMutableReferenceOrigin, ListIndexOutOfBoundsError,
-    RvalueReferenceToLvalueReferenceError, StdNonCopyableStructCannotHaveCopyConstructorError,
+    ReferenceToReferenceError, RvalueReferenceToLvalueReferenceError,
+    StdNonCopyableStructCannotHaveCopyConstructorError,
     StructCannotHaveAFieldOfItsOwnTypeError, ThisStructDoesNotHaveACopyConstructorError,
     ThisStructDoesNotHaveAMoveConstructorError, TypeIsNotCopyableError, TypeIsNotMoveableError,
     UnionMustHaveAtLeastTwoVariantError, UnionVariantDefinedMultipleTimesError,
@@ -740,7 +741,23 @@ impl<'hir> TypeChecker<'hir> {
                         Ok(ty)
                     }
                     Some(HirUnaryOp::AsRef) => {
-                        let ref_ty = self.arena.types().get_ptr_ty(ty);
+                        // Forbid reference nesting: &(&T) is not allowed
+                        if matches!(ty, HirTy::Reference(_)) {
+                            let path = u.expr.span().path;
+                            let src = utils::get_file_content(path).unwrap();
+                            return Err(HirError::ReferenceToReference(
+                                ReferenceToReferenceError {
+                                    span: u.span,
+                                    src: NamedSource::new(path, src),
+                                },
+                            ));
+                        }
+                        // & creates a mutable (exclusive) reference by default
+                        let ref_ty = self.arena.types().get_ref_ty(
+                            ty,
+                            HirReferenceKind::Mutable,
+                            u.span,
+                        );
                         u.ty = ref_ty;
                         Ok(ref_ty)
                     }
@@ -748,6 +765,10 @@ impl<'hir> TypeChecker<'hir> {
                         HirTy::PtrTy(ptr) => {
                             u.ty = ptr.inner;
                             Ok(ptr.inner)
+                        }
+                        HirTy::Reference(ref_ty) => {
+                            u.ty = ref_ty.inner;
+                            Ok(ref_ty.inner)
                         }
                         _ => Err(Self::illegal_unary_operation_err(
                             ty,
@@ -1416,12 +1437,11 @@ impl<'hir> TypeChecker<'hir> {
                             }
 
                             if self.is_mutable_ref_ty(target_ty)
-                                && (method_signature.modifier == HirStructMethodModifier::Mutable
-                                    || method_signature.modifier == HirStructMethodModifier::Const)
+                                && method_signature.modifier == HirStructMethodModifier::Consuming
                             {
-                                // Here we can either auto deref if target_ty.inner is copyable
-                                // Or we can just error out and ask the user to deref manually
-                                // For simplicity, we error out for now
+                                // Consuming methods take ownership of `this`, which is not
+                                // possible through a reference. &const this and &this methods
+                                // are fine to call on mutable references.
                                 return Err(
                                     Self::calling_consuming_method_on_mutable_reference_err(
                                         &method_signature.span,

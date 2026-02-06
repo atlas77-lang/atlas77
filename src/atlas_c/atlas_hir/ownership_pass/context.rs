@@ -78,13 +78,26 @@ pub struct LifetimeScope {
     pub can_escape: bool,
 }
 
+/// The kind of borrow being performed
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BorrowKind {
+    /// `&T` - exclusive mutable borrow.
+    /// While active, no other borrows (mutable or immutable) can exist on the same variable.
+    Mutable,
+    /// `&const T` - shared immutable borrow.
+    /// Multiple shared borrows can coexist, but no mutable borrows can exist simultaneously.
+    Shared,
+}
+
 /// Information about an active borrow
 #[derive(Debug, Clone)]
 pub struct BorrowInfo {
     /// The variable ID of the reference
     pub ref_var: VarId,
-    /// Whether it's a mutable borrow
-    pub is_mutable: bool,
+    /// The kind of borrow (Mutable = exclusive, Shared = can coexist)
+    pub kind: BorrowKind,
+    /// Whether this borrow is still active (for NLL: becomes false after last use)
+    pub active: bool,
     /// Where the borrow occurred
     pub span: Span,
 }
@@ -211,8 +224,30 @@ impl<'hir> OwnershipFunction<'hir> {
         scope_id
     }
 
-    /// Exit the current scope
+    /// Exit the current scope and release all borrows held by variables in this scope.
     pub fn exit_scope(&mut self) -> Option<OwnershipScope<'hir>> {
+        if let Some(scope) = self.scopes.last() {
+            // Collect all variable IDs declared in this scope
+            let var_ids: Vec<VarId> = scope.variables.values().copied().collect();
+
+            // Deactivate any borrows that these variables hold as references
+            for var_id in &var_ids {
+                // For each borrow record on other variables, if the borrow's ref_var
+                // is one of the variables leaving scope, deactivate it
+                for borrows in self.active_borrows.values_mut() {
+                    for borrow in borrows.iter_mut() {
+                        if borrow.ref_var == *var_id {
+                            borrow.active = false;
+                        }
+                    }
+                }
+            }
+
+            // Clean up fully inactive borrow entries
+            for borrows in self.active_borrows.values_mut() {
+                borrows.retain(|b| b.active);
+            }
+        }
         self.scopes.pop()
     }
 
@@ -345,9 +380,79 @@ impl<'hir> OwnershipFunction<'hir> {
         }
     }
 
+    /// Deactivate borrows by a specific reference variable (NLL: mark as no longer active)
+    pub fn deactivate_borrow(&mut self, ref_var: VarId) {
+        for borrows in self.active_borrows.values_mut() {
+            for b in borrows.iter_mut() {
+                if b.ref_var == ref_var {
+                    b.active = false;
+                }
+            }
+        }
+        // Clean up fully inactive entries
+        for borrows in self.active_borrows.values_mut() {
+            borrows.retain(|b| b.active);
+        }
+    }
+
     /// Check if a variable is currently borrowed
     pub fn is_borrowed(&self, var_id: VarId) -> Option<&[BorrowInfo]> {
-        self.active_borrows.get(&var_id).map(|v| v.as_slice())
+        self.active_borrows.get(&var_id).and_then(|v| {
+            let active: Vec<&BorrowInfo> = v.iter().filter(|b| b.active).collect();
+            if active.is_empty() {
+                None
+            } else {
+                Some(v.as_slice())
+            }
+        })
+    }
+
+    /// Check if a variable has any active mutable borrows
+    pub fn has_active_mutable_borrow(&self, var_id: VarId) -> Option<&BorrowInfo> {
+        self.active_borrows.get(&var_id).and_then(|borrows| {
+            borrows
+                .iter()
+                .find(|b| b.active && b.kind == BorrowKind::Mutable)
+        })
+    }
+
+    /// Check if a variable has any active shared (immutable) borrows
+    pub fn has_active_shared_borrows(&self, var_id: VarId) -> Vec<&BorrowInfo> {
+        self.active_borrows
+            .get(&var_id)
+            .map(|borrows| {
+                borrows
+                    .iter()
+                    .filter(|b| b.active && b.kind == BorrowKind::Shared)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Check if creating a new borrow would conflict with existing borrows.
+    /// Returns the conflicting borrow info if there is a conflict.
+    ///
+    /// Rules:
+    /// - Mutable borrow: conflicts with ANY existing active borrow (mutable or shared)
+    /// - Shared borrow: conflicts only with existing active mutable borrows
+    pub fn check_borrow_conflict(
+        &self,
+        var_id: VarId,
+        new_kind: BorrowKind,
+    ) -> Option<&BorrowInfo> {
+        let borrows = self.active_borrows.get(&var_id)?;
+        match new_kind {
+            BorrowKind::Mutable => {
+                // Mutable borrow conflicts with ANY active borrow
+                borrows.iter().find(|b| b.active)
+            }
+            BorrowKind::Shared => {
+                // Shared borrow only conflicts with active mutable borrows
+                borrows
+                    .iter()
+                    .find(|b| b.active && b.kind == BorrowKind::Mutable)
+            }
+        }
     }
 
     /// Track reference origin

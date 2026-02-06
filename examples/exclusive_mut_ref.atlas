@@ -1,0 +1,176 @@
+// ============================================================================
+// EXCLUSIVE MUTABLE REFERENCE TESTS
+// ============================================================================
+// Tests the core invariant: at any given time, you can have EITHER
+// one mutable reference (&T) OR any number of shared references (&const T),
+// but NOT both.
+//
+// This file demonstrates valid patterns that should compile successfully.
+
+import "std/io";
+
+struct Counter {
+public:
+    count: int64;
+
+    Counter(count: int64) {
+        this.count = count;
+    }
+
+    Counter(from: &const Counter) {
+        this.count = *from.count;
+    }
+
+    ~Counter() {}
+
+    fun get(&const this) -> int64 {
+        return *this.count;
+    }
+
+    fun increment(&this) {
+        this.count = *this.count + 1;
+    }
+
+    fun reset(&this) {
+        this.count = 0;
+    }
+}
+
+// ============================================================================
+// TEST 1: Exclusive mutable reference - basic pattern
+// ============================================================================
+fun test_exclusive_mut() {
+    println("=== TEST 1: Exclusive mutable ref ===");
+
+    let c = new Counter(0);
+
+    // Only one mutable reference at a time
+    let r: &Counter = &c;
+    r.increment();
+    r.increment();
+    r.increment();
+    let v = r.get();
+    println("exclusive mut incremented ok");
+
+    println("Exclusive mutable ref test passed!");
+}
+
+// ============================================================================
+// TEST 2: Shared references can coexist
+// ============================================================================
+fun test_shared_coexist() {
+    println("=== TEST 2: Shared refs coexist ===");
+
+    let c = new Counter(42);
+
+    let r1: &const Counter = &c;
+    let r2: &const Counter = &c;
+    let r3: &const Counter = &c;
+
+    // All shared refs can read simultaneously
+    let v1 = r1.get();
+    let v2 = r2.get();
+    let v3 = r3.get();
+    println("shared refs coexist ok");
+
+    println("Shared refs coexist test passed!");
+}
+
+// ============================================================================
+// TEST 3: Mutable ref after all shared refs expire
+// ============================================================================
+fun test_mut_after_shared_expire() {
+    println("=== TEST 3: Mut after shared expire ===");
+
+    let c = new Counter(10);
+
+    // Shared borrows in inner scope
+    {
+        let r1: &const Counter = &c;
+        let r2: &const Counter = &c;
+        let v1 = r1.get();
+        let v2 = r2.get();
+        println("shared reads in inner scope ok");
+    }
+    // All shared borrows expired
+
+    // Now a mutable borrow is allowed
+    let mut_r: &Counter = &c;
+    mut_r.increment();
+    let v = mut_r.get();
+    println("mut after shared expire ok");
+
+    println("Mut after shared expire test passed!");
+}
+
+// ============================================================================
+// TEST 4: Shared refs after mutable ref expires
+// ============================================================================
+fun test_shared_after_mut_expire() {
+    println("=== TEST 4: Shared after mut expire ===");
+
+    let c = new Counter(0);
+
+    // Mutable borrow in inner scope
+    {
+        let mut_r: &Counter = &c;
+        mut_r.increment();
+        mut_r.increment();
+    }
+    // Mutable borrow expired
+
+    // Now shared borrows are allowed
+    let r1: &const Counter = &c;
+    let r2: &const Counter = &c;
+    let v1 = r1.get();
+    let v2 = r2.get();
+    println("shared after mut expire ok");
+
+    println("Shared after mut expire test passed!");
+}
+
+// ============================================================================
+// TEST 5: Alternating mutable borrows in sequence
+// ============================================================================
+fun test_alternating_borrows() {
+    println("=== TEST 5: Alternating borrows ===");
+
+    let c = new Counter(0);
+
+    {
+        let r: &Counter = &c;
+        r.increment();
+    }
+
+    {
+        let r: &const Counter = &c;
+        let v = r.get();
+        println("alternating read 1 ok");
+    }
+
+    {
+        let r: &Counter = &c;
+        r.increment();
+        r.increment();
+    }
+
+    {
+        let r: &const Counter = &c;
+        let v = r.get();
+        println("alternating read 2 ok");
+    }
+
+    println("Alternating borrows test passed!");
+}
+
+// ============================================================================
+// MAIN
+// ============================================================================
+fun main() {
+    test_exclusive_mut();
+    test_shared_coexist();
+    test_mut_after_shared_expire();
+    test_shared_after_mut_expire();
+    test_alternating_borrows();
+    println("All exclusive mutable reference tests passed!");
+}

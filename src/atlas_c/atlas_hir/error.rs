@@ -92,6 +92,12 @@ declare_error_type! {
         IncorrectIntrinsicCallArguments(IncorrectIntrinsicCallArgumentsError),
         //T&& cannot become T&
         RvalueReferenceToLvalueReferenceError(RvalueReferenceToLvalueReferenceError),
+        // Borrow checking errors
+        BorrowConflict(BorrowConflictError),
+        CannotBorrowAsMutableWhileSharedBorrowExists(CannotBorrowAsMutableWhileSharedBorrowExistsError),
+        CannotBorrowAsSharedWhileMutableBorrowExists(CannotBorrowAsSharedWhileMutableBorrowExistsError),
+        CannotMutateWhileBorrowed(CannotMutateWhileBorrowedError),
+        ReferenceToReference(ReferenceToReferenceError),
     }
 }
 
@@ -1348,6 +1354,108 @@ pub(crate) struct RvalueReferenceToLvalueReferenceError {
     pub r_val_span: Span,
     #[label = "lvalue reference expected here"]
     pub l_val_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+// =========================================================================
+// Borrow Checking Errors
+// =========================================================================
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::borrow_conflict),
+    help(
+        "a variable can only be borrowed mutably (`&T`) when no other borrows exist, \
+        or borrowed immutably (`&const T`) when no mutable borrows exist. \
+        This ensures memory safety by preventing data races at compile time."
+    )
+)]
+#[error("cannot borrow `{var_name}` as {new_borrow_kind} because it is already borrowed as {existing_borrow_kind}")]
+pub(crate) struct BorrowConflictError {
+    pub var_name: String,
+    pub new_borrow_kind: String,
+    pub existing_borrow_kind: String,
+    #[label = "cannot borrow as {new_borrow_kind} here"]
+    pub new_borrow_span: Span,
+    #[label = "already borrowed as {existing_borrow_kind} here"]
+    pub existing_borrow_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::cannot_borrow_mutable_while_shared),
+    help(
+        "you cannot create a mutable reference (`&T`) while shared references (`&const T`) \
+        to the same variable exist. Either drop the shared references first, or restructure \
+        your code to avoid overlapping borrows."
+    )
+)]
+#[error("cannot borrow `{var_name}` as mutable (`&{var_name}`) because it is also borrowed as immutable")]
+pub(crate) struct CannotBorrowAsMutableWhileSharedBorrowExistsError {
+    pub var_name: String,
+    #[label = "mutable borrow attempted here"]
+    pub mutable_borrow_span: Span,
+    #[label = "immutable borrow still active here"]
+    pub shared_borrow_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::cannot_borrow_shared_while_mutable),
+    help(
+        "you cannot create a shared reference (`&const T`) while a mutable reference (`&T`) \
+        to the same variable exists. The mutable borrow has exclusive access. \
+        Wait until the mutable reference is no longer used."
+    )
+)]
+#[error("cannot borrow `{var_name}` as immutable (`&const {var_name}`) because it is also borrowed as mutable")]
+pub(crate) struct CannotBorrowAsSharedWhileMutableBorrowExistsError {
+    pub var_name: String,
+    #[label = "immutable borrow attempted here"]
+    pub shared_borrow_span: Span,
+    #[label = "mutable borrow still active here"]
+    pub mutable_borrow_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::cannot_mutate_while_borrowed),
+    help(
+        "you cannot mutate a variable while it has active borrows. \
+        Ensure all references to the variable have gone out of scope or are no longer used \
+        before attempting to mutate it."
+    )
+)]
+#[error("cannot assign to `{var_name}` because it is currently borrowed")]
+pub(crate) struct CannotMutateWhileBorrowedError {
+    pub var_name: String,
+    #[label = "cannot assign here while borrowed"]
+    pub assign_span: Span,
+    #[label = "borrow of `{var_name}` occurs here"]
+    pub borrow_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::reference_to_reference),
+    help(
+        "nested references (e.g., `&&T` or `&const &T`) are not allowed in Atlas77. \
+        Use a single level of reference instead."
+    )
+)]
+#[error("cannot create a reference to a reference type")]
+pub(crate) struct ReferenceToReferenceError {
+    #[label = "attempted to create a reference to an already-reference type here"]
+    pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }

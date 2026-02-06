@@ -1,0 +1,28 @@
+import "std/io";
+
+struct Widget {
+public:
+    id: int64;
+
+    Widget(id: int64) {
+        this.id = id;
+    }
+
+    Widget(from: &const Widget) {
+        this.id = *from.id;
+    }
+
+    ~Widget() {}
+
+    fun get_id(&const this) -> int64 {
+        return *this.id;
+    }
+}
+
+fun return_shared_ref(w: &const Widget) -> &const Widget {
+    return w;
+}
+
+fun main() {
+    println("hello from main");
+}

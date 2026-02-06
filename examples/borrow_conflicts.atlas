@@ -1,0 +1,144 @@
+// ============================================================================
+// BORROW CONFLICT TESTS
+// ============================================================================
+// This file contains test cases that SHOULD produce compiler errors.
+// Each test function demonstrates a different borrow violation.
+//
+// Expected: Every test function should trigger a borrow checker error.
+// Uncomment one function at a time to verify the error message.
+
+import "std/io";
+
+struct Data {
+public:
+    value: int64;
+
+    Data(value: int64) {
+        this.value = value;
+    }
+
+    Data(from: &const Data) {
+        this.value = *from.value;
+    }
+
+    ~Data() {}
+
+    fun get(&const this) -> int64 {
+        return *this.value;
+    }
+
+    fun set(&this, v: int64) {
+        this.value = v;
+    }
+}
+
+// ============================================================================
+// ERROR TEST 1: Cannot take mutable borrow while shared borrow exists
+// ============================================================================
+// Uncomment to test:
+// fun error_mut_while_shared() {
+//     let d = new Data(42);
+//     let shared_ref: &const Data = &d;   // shared borrow
+//     let mut_ref: &Data = &d;            // ERROR: cannot borrow as mutable while shared borrow exists
+//     println(shared_ref.get());
+// }
+
+// ============================================================================
+// ERROR TEST 2: Cannot take shared borrow while mutable borrow exists
+// ============================================================================
+// Uncomment to test:
+// fun error_shared_while_mut() {
+//     let d = new Data(42);
+//     let mut_ref: &Data = &d;            // mutable borrow
+//     let shared_ref: &const Data = &d;   // ERROR: cannot borrow as shared while mutable borrow exists
+//     println(mut_ref.get());
+// }
+
+// ============================================================================
+// ERROR TEST 3: Cannot take two mutable borrows
+// ============================================================================
+// Uncomment to test:
+// fun error_double_mut() {
+//     let d = new Data(42);
+//     let r1: &Data = &d;    // first mutable borrow
+//     let r2: &Data = &d;    // ERROR: cannot borrow as mutable, already mutably borrowed
+//     r1.set(10);
+//     r2.set(20);
+// }
+
+// ============================================================================
+// ERROR TEST 4: Cannot assign to variable while borrowed
+// ============================================================================
+// Uncomment to test:
+// fun error_assign_while_borrowed() {
+//     let d = new Data(42);
+//     let r: &const Data = &d;    // shared borrow
+//     d = new Data(99);           // ERROR: cannot assign to `d` because it is currently borrowed
+//     println(r.get());
+// }
+
+// ============================================================================
+// ERROR TEST 5: Cannot mutate through mutable ref while another borrow exists
+// ============================================================================
+// Uncomment to test:
+// fun error_mut_assign_while_borrowed() {
+//     let d = new Data(42);
+//     let r: &Data = &d;       // mutable borrow
+//     d = new Data(99);        // ERROR: cannot assign to `d` because it is currently borrowed
+//     r.set(10);
+// }
+
+// ============================================================================
+// OK TEST: Borrows expire at scope boundaries (no conflict)
+// ============================================================================
+fun ok_scope_release() {
+    let d = new Data(42);
+    {
+        let r: &Data = &d;    // mutable borrow in inner scope
+        r.set(100);
+    }
+    // Borrow r expired when inner scope ended.
+    // Taking a new borrow should be fine:
+    let r2: &const Data = &d;
+    let v = r2.get();
+    println("scope release re-borrow ok");
+}
+
+// ============================================================================
+// OK TEST: Multiple shared borrows are fine
+// ============================================================================
+fun ok_multiple_shared() {
+    let d = new Data(7);
+    let r1: &const Data = &d;
+    let r2: &const Data = &d;
+    let r3: &const Data = &d;
+    let v1 = r1.get();
+    let v2 = r2.get();
+    let v3 = r3.get();
+    println("multiple shared reads ok");
+}
+
+// ============================================================================
+// OK TEST: Sequential borrows (previous one released)
+// ============================================================================
+fun ok_sequential() {
+    let d = new Data(1);
+    {
+        let r1: &Data = &d;
+        r1.set(2);
+    }
+    {
+        let r2: &Data = &d;
+        r2.set(3);
+    }
+    let r3: &const Data = &d;
+    let v = r3.get();
+    println("sequential borrows ok");
+}
+
+fun main() {
+    ok_scope_release();
+    ok_multiple_shared();
+    ok_sequential();
+    println("All valid borrow conflict tests passed!");
+}

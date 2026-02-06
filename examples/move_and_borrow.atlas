@@ -1,0 +1,118 @@
+// ============================================================================
+// MOVE SEMANTICS WITH REFERENCES TEST
+// ============================================================================
+// Tests interaction between move semantics and the borrow checker.
+// Moving a value while it's borrowed should be an error.
+// Moving an unborrowed value should work normally.
+
+import "std/io";
+
+struct Buffer {
+public:
+    size: int64;
+
+    Buffer(size: int64) {
+        this.size = size;
+    }
+
+    Buffer(from: &const Buffer) {
+        this.size = *from.size;
+    }
+
+    Buffer(dying: Buffer&&) {
+        this.size = dying.size;
+    }
+
+    ~Buffer() {}
+
+    fun get_size(&const this) -> int64 {
+        return *this.size;
+    }
+
+    fun resize(&this, new_size: int64) {
+        this.size = new_size;
+    }
+}
+
+// Function that takes ownership (move)
+fun consume_buffer(buf: Buffer&&) {
+    let s = buf.size;
+    println("buffer consumed ok");
+}
+
+// ============================================================================
+// TEST 1: Move of unborrowed value (valid)
+// ============================================================================
+fun test_move_ok() {
+    println("=== TEST 1: Move unborrowed ===");
+
+    let buf = new Buffer(1024);
+    consume_buffer(buf);
+    // buf is moved, cannot use it anymore
+
+    println("Move test passed!");
+}
+
+// ============================================================================
+// ERROR TEST: Move while borrowed (should error)
+// ============================================================================
+// Uncomment to test:
+// fun error_move_while_borrowed() {
+//     let buf = new Buffer(512);
+//     let r: &const Buffer = &buf;  // shared borrow
+//     consume_buffer(buf);           // ERROR: cannot move `buf` while borrowed
+//     println(r.get_size());
+// }
+
+// ============================================================================
+// TEST 2: Move after borrow expires (valid)
+// ============================================================================
+fun test_move_after_borrow() {
+    println("=== TEST 2: Move after borrow expires ===");
+
+    let buf = new Buffer(256);
+    {
+        let r: &const Buffer = &buf;
+        let v = r.get_size();
+        println("borrow read before move ok");
+    }
+    // Borrow expired
+
+    consume_buffer(buf);  // OK: borrow is gone
+    println("Move after borrow test passed!");
+}
+
+// ============================================================================
+// TEST 3: Copy and borrow coexist for trivial types
+// ============================================================================
+fun test_trivial_copy() {
+    println("=== TEST 3: Trivial copy ===");
+
+    let x: int64 = 42;
+    let y: int64 = x;  // Copy
+    let z: int64 = x;  // Copy again, x still valid
+
+    println("trivial copies ok");
+
+    println("Trivial copy test passed!");
+}
+
+// ============================================================================
+// TEST 4: Use-after-move detection
+// ============================================================================
+// Uncomment to test (should produce a warning):
+// fun warn_use_after_move() {
+//     let buf = new Buffer(64);
+//     consume_buffer(buf);  // moves buf
+//     println(buf.size);    // WARNING: use after move
+// }
+
+// ============================================================================
+// MAIN
+// ============================================================================
+fun main() {
+    test_move_ok();
+    test_move_after_borrow();
+    test_trivial_copy();
+    println("All move semantics tests passed!");
+}

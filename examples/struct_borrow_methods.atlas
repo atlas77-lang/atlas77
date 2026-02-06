@@ -1,0 +1,164 @@
+// ============================================================================
+// STRUCT METHODS AND BORROW SEMANTICS TEST
+// ============================================================================
+// Tests how struct methods interact with the borrow checker.
+// Methods taking &const this are shared borrows.
+// Methods taking &this are mutable borrows.
+// Methods taking this consume the object.
+
+import "std/io";
+
+struct Account {
+public:
+    balance: int64;
+    id: int64;
+
+    Account(id: int64, balance: int64) {
+        this.id = id;
+        this.balance = balance;
+    }
+
+    Account(from: &const Account) {
+        this.id = *from.id;
+        this.balance = *from.balance;
+    }
+
+    ~Account() {}
+
+    // Shared borrow method - can be called on &const Account
+    fun get_balance(&const this) -> int64 {
+        return *this.balance;
+    }
+
+    // Shared borrow method
+    fun get_id(&const this) -> int64 {
+        return *this.id;
+    }
+
+    // Mutable borrow method - requires &this (mutable ref)
+    fun deposit(&this, amount: int64) {
+        this.balance = *this.balance + amount;
+    }
+
+    // Mutable borrow method
+    fun withdraw(&this, amount: int64) -> bool {
+        if *this.balance >= amount {
+            this.balance = *this.balance - amount;
+            return true;
+        }
+        return false;
+    }
+}
+
+// ============================================================================
+// TEST 1: Shared methods through shared reference
+// ============================================================================
+fun test_shared_methods() {
+    println("=== TEST 1: Shared methods ===");
+
+    let acc = new Account(1, 1000);
+    let r: &const Account = &acc;
+
+    let v1 = r.get_id();
+    let v2 = r.get_balance();
+    println("shared method reads ok");
+
+    println("Shared methods test passed!");
+}
+
+// ============================================================================
+// TEST 2: Mutable methods through mutable reference
+// ============================================================================
+fun test_mutable_methods() {
+    println("=== TEST 2: Mutable methods ===");
+
+    let acc = new Account(2, 500);
+    let r: &Account = &acc;
+
+    r.deposit(200);
+    let v1 = r.get_balance();
+    println("deposit ok");
+
+    r.withdraw(100);
+    let v2 = r.get_balance();
+    println("withdraw ok");
+
+    println("Mutable methods test passed!");
+}
+
+// ============================================================================
+// TEST 3: Passing struct to functions by reference
+// ============================================================================
+fun print_account(acc: &const Account) {
+    let id = acc.get_id();
+    let bal = acc.get_balance();
+    println("account read ok");
+}
+
+fun double_balance(acc: &Account) {
+    let current = acc.get_balance();
+    acc.deposit(current);
+}
+
+fun test_function_refs() {
+    println("=== TEST 3: Function refs ===");
+
+    let acc = new Account(3, 100);
+    print_account(&acc);  // 3, 100
+
+    double_balance(&acc);
+    print_account(&acc);  // 3, 200
+
+    println("Function refs test passed!");
+}
+
+// ============================================================================
+// TEST 4: Scope-limited mutations
+// ============================================================================
+fun test_scoped_mutation() {
+    println("=== TEST 4: Scoped mutation ===");
+
+    let acc = new Account(4, 0);
+
+    // Deposit in a scope
+    {
+        let r: &Account = &acc;
+        r.deposit(100);
+        r.deposit(50);
+    }
+
+    // Read in another scope
+    {
+        let r1: &const Account = &acc;
+        let r2: &const Account = &acc;
+        let v1 = r1.get_balance();
+        let v2 = r2.get_balance();
+        println("scoped multi-read ok");
+    }
+
+    // Mutate again
+    {
+        let r: &Account = &acc;
+        r.withdraw(30);
+    }
+
+    // Final read
+    {
+        let r: &const Account = &acc;
+        let v = r.get_balance();
+        println("final read ok");
+    }
+
+    println("Scoped mutation test passed!");
+}
+
+// ============================================================================
+// MAIN
+// ============================================================================
+fun main() {
+    test_shared_methods();
+    test_mutable_methods();
+    test_function_refs();
+    test_scoped_mutation();
+    println("All struct method borrow tests passed!");
+}

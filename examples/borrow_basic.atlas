@@ -1,0 +1,161 @@
+// ============================================================================
+// BASIC BORROW CHECKER TEST
+// ============================================================================
+// Tests fundamental borrow semantics: mutable (&T) and shared (&const T)
+// references, scope-based lifetime, and basic usage patterns.
+//
+// Expected: This file should compile and run without errors.
+
+import "std/io";
+
+// Simple struct to test borrowing on non-trivial types
+struct Point {
+public:
+    x: int64;
+    y: int64;
+
+    Point(x: int64, y: int64) {
+        this.x = x;
+        this.y = y;
+    }
+
+    Point(from: &const Point) {
+        this.x = *from.x;
+        this.y = *from.y;
+    }
+
+    ~Point() {
+        // destructor
+    }
+
+    fun get_x(&const this) -> int64 {
+        return *this.x;
+    }
+
+    fun get_y(&const this) -> int64 {
+        return *this.y;
+    }
+
+    fun set_x(&this, new_x: int64) {
+        this.x = new_x;
+    }
+}
+
+// ============================================================================
+// TEST 1: Basic shared (immutable) borrow
+// ============================================================================
+fun test_shared_borrow() {
+    println("=== TEST 1: Shared borrow ===");
+
+    let p = new Point(10, 20);
+
+    // Multiple shared borrows are allowed simultaneously
+    let r1: &const Point = &p;
+    let r2: &const Point = &p;
+
+    // Both shared borrows can read
+    let v1 = r1.get_x();
+    let v2 = r2.get_y();
+    println("Shared borrows can read ok");
+
+    println("Shared borrow test passed!");
+}
+
+// ============================================================================
+// TEST 2: Basic mutable borrow
+// ============================================================================
+fun test_mutable_borrow() {
+    println("=== TEST 2: Mutable borrow ===");
+
+    let p = new Point(10, 20);
+
+    // A single mutable borrow is allowed
+    let r: &Point = &p;
+
+    // Mutable borrow can read
+    let v1 = r.get_x();
+
+    // Mutable borrow can mutate through method
+    r.set_x(42);
+    let v2 = r.get_x();
+    println("Mutable borrow read and write ok");
+
+    println("Mutable borrow test passed!");
+}
+
+// ============================================================================
+// TEST 3: Borrow expires at scope exit
+// ============================================================================
+fun test_scope_borrow() {
+    println("=== TEST 3: Scope-based borrow release ===");
+
+    let p = new Point(1, 2);
+
+    // Borrow in inner scope
+    {
+        let r: &Point = &p;
+        r.set_x(100);
+    }
+    // r is out of scope, borrow is released
+
+    // Now we can borrow again (no conflict)
+    let r2: &Point = &p;
+    let v = r2.get_x();
+    println("Scope borrow re-borrow ok");
+
+    println("Scope borrow test passed!");
+}
+
+// ============================================================================
+// TEST 4: Passing references to functions
+// ============================================================================
+fun read_point(p: &const Point) -> int64 {
+    return p.get_x();
+}
+
+fun write_point(p: &Point, val: int64) {
+    p.set_x(val);
+}
+
+fun test_function_borrows() {
+    println("=== TEST 4: Function borrows ===");
+
+    let p = new Point(5, 10);
+
+    let val = read_point(&p);
+    println("read_point returned ok");
+
+    write_point(&p, 99);
+
+    let val2 = read_point(&p);
+    println("write_point + re-read ok");
+
+    println("Function borrow test passed!");
+}
+
+// ============================================================================
+// TEST 5: Primitives are always copyable (no borrow conflicts)
+// ============================================================================
+fun test_primitives() {
+    println("=== TEST 5: Primitives ===");
+
+    let x: int64 = 42;
+    let y: int64 = x;  // Copy, not move
+    let z: int64 = x;  // Still valid, primitives are trivial
+
+    println("Primitives copy ok");
+
+    println("Primitives test passed!");
+}
+
+// ============================================================================
+// MAIN
+// ============================================================================
+fun main() {
+    test_shared_borrow();
+    test_mutable_borrow();
+    test_scope_borrow();
+    test_function_borrows();
+    test_primitives();
+    println("All basic borrow tests passed!");
+}

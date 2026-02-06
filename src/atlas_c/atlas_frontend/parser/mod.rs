@@ -1979,36 +1979,60 @@ impl<'ast> Parser<'ast> {
                 span: self.current().span,
                 name: self.arena.alloc("this"),
             };
-            let ty = if self.current().kind == TokenKind::Ampersand {
-                let _ = self.advance();
-                AstType::Reference(AstReferenceType {
-                    span: self.current().span(),
-                    inner: self
-                        .arena
-                        .alloc(AstType::ThisTy(AstThisType { span: name.span })),
-                    kind: AstReferenceKind::Mutable,
-                })
-            } else if self.current().kind == TokenKind::OpAnd {
-                let _ = self.advance();
-                AstType::Reference(AstReferenceType {
-                    span: self.current().span(),
-                    inner: self
-                        .arena
-                        .alloc(AstType::ThisTy(AstThisType { span: name.span })),
-                    kind: AstReferenceKind::Moveable,
-                })
-            } else {
-                AstType::ThisTy(AstThisType { span: name.span })
-            };
             let node = AstArg {
                 span: self.current().span,
                 name: self.arena.alloc(name.clone()),
-                ty: self.arena.alloc(ty),
+                ty: self
+                    .arena
+                    .alloc(AstType::ThisTy(AstThisType { span: name.span })),
             };
             return Ok(node);
-        } else if self.current().kind == TokenKind::KwConst {
-            // Can be const this&, const this & const this&&
+        } else if self.current().kind == TokenKind::Ampersand {
+            // Parse `&const this` or `&this`
+            let start_span = self.current().span();
+            self.expect(TokenKind::Ampersand)?;
 
+            // Check if it's `&const this` or just `&this`
+            if self.current().kind == TokenKind::KwConst {
+                // `&const this` - immutable reference
+                self.expect(TokenKind::KwConst)?;
+                let end_span = self.expect(TokenKind::KwThis)?.span;
+                let name = AstIdentifier {
+                    span: Span::union_span(&start_span, &end_span),
+                    name: self.arena.alloc("this"),
+                };
+                let node = AstArg {
+                    span: Span::union_span(&start_span, &end_span),
+                    name: self.arena.alloc(name.clone()),
+                    ty: self.arena.alloc(AstType::Reference(AstReferenceType {
+                        span: Span::union_span(&start_span, &end_span),
+                        inner: self
+                            .arena
+                            .alloc(AstType::ThisTy(AstThisType { span: name.span })),
+                        kind: AstReferenceKind::ReadOnly,
+                    })),
+                };
+                return Ok(node);
+            } else if self.current().kind == TokenKind::KwThis {
+                // `&this` - mutable reference
+                let end_span = self.expect(TokenKind::KwThis)?.span;
+                let name = AstIdentifier {
+                    span: Span::union_span(&start_span, &end_span),
+                    name: self.arena.alloc("this"),
+                };
+                let node = AstArg {
+                    span: Span::union_span(&start_span, &end_span),
+                    name: self.arena.alloc(name.clone()),
+                    ty: self.arena.alloc(AstType::Reference(AstReferenceType {
+                        span: Span::union_span(&start_span, &end_span),
+                        inner: self
+                            .arena
+                            .alloc(AstType::ThisTy(AstThisType { span: name.span })),
+                        kind: AstReferenceKind::Mutable,
+                    })),
+                };
+                return Ok(node);
+            }
             // Not a this reference, fall through to parse regular field
         }
         let name = self.parse_identifier()?;
@@ -2317,6 +2341,39 @@ impl<'ast> Parser<'ast> {
                 let _ = self.advance();
                 AstType::ThisTy(AstThisType {
                     span: Span::union_span(&start, &self.current().span()),
+                })
+            }
+            TokenKind::Ampersand => {
+                let start = self.advance().span;
+                let kind;
+                let inner_ty = match self.current().kind {
+                    TokenKind::KwConst => {
+                        let _ = self.advance();
+                        kind = AstReferenceKind::ReadOnly;
+                        self.parse_type()?
+                    }
+                    TokenKind::Identifier(ref s) if s == "move" => {
+                        let _ = self.advance();
+                        kind = AstReferenceKind::Moveable;
+                        self.parse_type()?
+                    }
+                    _ => {
+                        kind = AstReferenceKind::Mutable;
+                        self.parse_type()?
+                    }
+                };
+                if inner_ty.is_ref() {
+                    return Err(self.unexpected_token_error(
+                        TokenVec(vec![TokenKind::Identifier(
+                            "Non-reference Type".to_string(),
+                        )]),
+                        &start,
+                    ));
+                }
+                AstType::Reference(AstReferenceType {
+                    span: Span::union_span(&start, &self.current().span()),
+                    inner: self.arena.alloc(inner_ty),
+                    kind,
                 })
             }
             TokenKind::Identifier(_) => {

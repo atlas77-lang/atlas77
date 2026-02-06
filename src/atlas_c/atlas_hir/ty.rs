@@ -354,9 +354,9 @@ impl fmt::Display for HirTy<'_> {
                 write!(f, "({}) -> {}", params, func.ret_ty)
             }
             HirTy::Reference(r) => match r.kind {
-                HirReferenceKind::Mutable => write!(f, "{}&", r.inner),
-                HirReferenceKind::ReadOnly => write!(f, "const {}&", r.inner),
-                HirReferenceKind::Moveable => write!(f, "{}&&", r.inner),
+                HirReferenceKind::Mutable => write!(f, "&{}", r.inner),
+                HirReferenceKind::ReadOnly => write!(f, "&const {}", r.inner),
+                HirReferenceKind::Moveable => write!(f, "&move {}", r.inner),
             },
         }
     }

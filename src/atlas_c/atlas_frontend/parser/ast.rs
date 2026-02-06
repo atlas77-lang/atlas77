@@ -889,9 +889,9 @@ impl AstType<'_> {
             //AstType::Function(_) => "fn".to_owned(),
             AstType::PtrTy(ptr_ty) => format!("ptr<{}>", ptr_ty.inner.name()),
             AstType::Reference(ref_ty) => match ref_ty.kind {
-                AstReferenceKind::Mutable => format!("{}&", ref_ty.inner.name()),
-                AstReferenceKind::ReadOnly => format!("const {}&", ref_ty.inner.name()),
-                AstReferenceKind::Moveable => format!("{}&&", ref_ty.inner.name()),
+                AstReferenceKind::Mutable => format!("&{}", ref_ty.inner.name()),
+                AstReferenceKind::ReadOnly => format!("&const {}", ref_ty.inner.name()),
+                AstReferenceKind::Moveable => format!("&move {}", ref_ty.inner.name()),
             },
             _ => {
                 panic!("Type does not have a name yet")
@@ -957,7 +957,7 @@ pub struct AstFunctionType<'ast> {
 }
 
 #[derive(Debug, Clone)]
-///A reference type in atlas as the form of `T&`, `const T&` or `T&&`
+///A reference type in atlas has the form of `&T`, `&const T` or `&move T`
 pub struct AstReferenceType<'ast> {
     pub span: Span,
     pub inner: &'ast AstType<'ast>,
@@ -966,11 +966,11 @@ pub struct AstReferenceType<'ast> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AstReferenceKind {
-    /// T& - mutable reference
+    /// &T - mutable reference (exclusive borrow)
     Mutable,
-    /// const T& - read-only reference
+    /// &const T - read-only reference (shared borrow)
     ReadOnly,
-    /// T&& - moveable reference
+    /// &move T - moveable reference (rvalue reference)
     /// e.g., `fun take_ownership(obj: T&&) { ... }`
     Moveable,
 }

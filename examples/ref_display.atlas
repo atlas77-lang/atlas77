@@ -1,0 +1,98 @@
+// ============================================================================
+// REFERENCE TYPE DISPLAY FORMAT TEST
+// ============================================================================
+// Tests that reference types display correctly in error messages.
+// The new format uses prefix syntax:
+//   &T       - mutable (exclusive) reference
+//   &const T - shared (immutable) reference
+//   &move T  - moveable (rvalue) reference
+//
+// This file tests correct parsing and display of all reference kinds.
+
+import "std/io";
+
+struct Widget {
+public:
+    id: int64;
+
+    Widget(id: int64) {
+        this.id = id;
+    }
+
+    Widget(from: &const Widget) {
+        this.id = *from.id;
+    }
+
+    ~Widget() {}
+
+    fun get_id(&const this) -> int64 {
+        return *this.id;
+    }
+}
+
+// ============================================================================
+// Mutable reference (&T)
+// ============================================================================
+fun takes_mut_ref(w: &Widget) -> int64 {
+    return w.get_id();
+}
+
+// ============================================================================
+// Shared reference (&const T)
+// ============================================================================
+fun takes_shared_ref(w: &const Widget) -> int64 {
+    return w.get_id();
+}
+
+// ============================================================================
+// Move reference (&move T) / (T&&)
+// ============================================================================
+fun takes_move_ref(w: &move Widget) -> int64 {
+    return w.id;
+}
+
+// ============================================================================
+// TEST: Function signatures with different reference kinds
+// ============================================================================
+fun test_ref_kinds() {
+    println("=== Reference kinds test ===");
+
+    let w = new Widget(42);
+
+    // Test shared ref
+    let val1 = takes_shared_ref(&w);
+    println("shared ref returned value ok");
+
+    // Test mut ref
+    let val2 = takes_mut_ref(&w);
+    println("mut ref returned value ok");
+
+    println("Reference kinds test passed!");
+}
+
+// ============================================================================
+// TEST: Returning references  
+// ============================================================================
+fun return_shared_ref(w: &const Widget) -> &const Widget {
+    return w;
+}
+
+fun test_return_ref() {
+    println("=== Return ref test ===");
+
+    let w = new Widget(99);
+    let r = return_shared_ref(&w);
+    let id = r.get_id();
+    println("returned ref method call ok");
+
+    println("Return ref test passed!");
+}
+
+// ============================================================================
+// MAIN
+// ============================================================================
+fun main() {
+    test_ref_kinds();
+    test_return_ref();
+    println("All reference display tests passed!");
+}
