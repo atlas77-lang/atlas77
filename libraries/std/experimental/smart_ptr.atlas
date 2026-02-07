@@ -1,7 +1,7 @@
 import "std/io";
 
-extern forget<T>(val: T);
-extern mem_alloc<T>() -> &T;
+extern fun forget<T>(val: T);
+extern fun malloc<T>() -> ptr<T>;
 
 //! Internal reference-count block used by `rc_ptr`.
 #[std::non_copyable]
@@ -31,9 +31,9 @@ public:
 public struct rc_ptr<T> {
 private:
     //! Pointer to the shared block.
-    block: &RcBlock<T>;
+    block: ptr<RcBlock<T>>;
     //! Private constructor used to create an `rc_ptr` from an existing block.
-    rc_ptr(block: &RcBlock<T>) {
+    rc_ptr(block: ptr<RcBlock<T>>) {
         this.block = block;
     }
 public:
@@ -48,18 +48,23 @@ public:
         (*this.block.strong) = strong + 1u;
     }
     //! Move
-    rc_ptr(from: &rc_ptr<T>) {
-
+    rc_ptr(dying_obj: &move rc_ptr<T>) {
+        this.block = dying_obj.block;
+        // Invalidate the moved-from object to prevent double release.
+        dying_obj.block = null;
     }
     //! Allocate a new `rc_ptr` owning `val`.
-    fun new_rc_ptr(val: T) -> rc_ptr<T> {
-        let block: &RcBlock<T> = mem_alloc<RcBlock<T>>();
-        block.set(1u, val);
+    fun make(val: T) -> rc_ptr<T> {
+        let block: ptr<RcBlock<T>> = malloc<RcBlock<T>>();
+        (*block).set(1u, val);
         return new rc_ptr<T>(block);
     }
 
     //! Release ownership; free block when count hits zero.
     fun release(this) {
+        if this.block == null {
+            return; // No block to release (moved-from state).
+        }
         let old = *this.block.strong;
         if old == 0u {
             panic("double release");
@@ -74,35 +79,59 @@ public:
 
     //! Return a const reference to the value.
     fun get(&this) -> &const T {
+        if this.block == null {
+            panic("dereferencing moved-from rc_ptr");
+        } else if *this.block.strong == 0u {
+            panic("dereferencing released rc_ptr");
+        }
         return this.block.value;
     }
 
     //! Return a mutable reference to the value.
     fun get_mut(&this) -> &T {
+        if this.block == null {
+            panic("dereferencing moved-from rc_ptr");
+        } else if *this.block.strong == 0u {
+            panic("dereferencing released rc_ptr");
+        }
         return this.block.value;
+    }
+
+    fun take(this) -> T {
+        if this.block == null {
+            panic("taking from moved-from rc_ptr");
+        } else if *this.block.strong == 0u {
+            panic("taking from released rc_ptr");
+        }
+        let val = this.block.value;
+        this.block.strong = 0u; // Mark as released to prevent double release.
+        // Invalidate the block to prevent double release.
+        this.block = null;
+        return val;
     }
 }
 
-extern len<T>(data: &[T]) -> uint64;
+extern fun len<T>(data: &[T]) -> uint64;
 
 struct vector<T> {
 public:
-    data: [T];
+    // Just for testing
+    data: [T; 5];
     length: uint64;
 public:
-    vector(data: [T]) {
+    vector(data: [T; 5]) {
         this.length = len(&data);
         this.data = data;
     }
 }
 
 fun main() {
-    let vec = new vector<int64>(new [int64; 3]);
-    let rc_vec = rc_ptr::<vector<int64>>::new_rc_ptr(vec);
+    let vec = new vector<int64>([1, 2, 3, 4, 5]);
+    let rc_vec = rc_ptr::<vector<int64>>::make(vec);
     // This should trigger the copy constructor
     let rc_vec_clone = rc_vec;
-    println("Length of rc_vec: ");
-    println(rc_vec.get().length);
-    println("Length of rc_vec_clone: ");
-    println(rc_vec_clone.get().length);
+    print("Length of rc_vec: ");
+    printf("%d\n", rc_vec.get().length);
+    print("Length of rc_vec_clone: ");
+    printf("%d\n", rc_vec_clone.get().length);
 }

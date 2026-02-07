@@ -54,7 +54,7 @@ fun test_new_ref_model() {
     let a: int64 = 10;
     // Like in C++, no need to use '&' to create a reference
     // It is just an alias
-    let lval_a: int64& = a;
+    let lval_a: &int64 = a;
     take_a_lval(lval_a);
     // Modifying 'a' through its name
     a = 20;
@@ -63,33 +63,33 @@ fun test_new_ref_model() {
     take_a_lval(lval_a);
 
     take_a_lval(25); // Should error lval to rvalue conversion
-    let const_lval_a: const int64& = a;
+    let const_lval_a: &const int64 = a;
     take_a_const_lval(const_lval_a);
     take_a_const_lval(50); // Should be OK: rvalue to const ref conversion
 
-    let rval_a: int64&& = a;
+    let rval_a: &move int64 = a;
     take_a_rval(rval_a);
     take_a_rval(100); // Should be OK: rvalue to rvalue ref conversion
 }
 
-fun take_a_rval(rval_a: int64&&) {
+fun take_a_rval(rval_a: &move int64) {
     printf("rval_a = %d\n", rval_a);
 }
 
-fun take_a_const_lval(const_lval_a: const int64&) {
+fun take_a_const_lval(const_lval_a: &const int64) {
     printf("const_lval_a = %d\n", const_lval_a);
     const_lval_a = 20; // Should error: cannot modify through const ref
 }
 
-fun take_a_lval(lval_a: int64&) {
+fun take_a_lval(lval_a: &int64) {
     printf("lval_a = %d\n", lval_a);
 }
 
-fun take_and_return_ref(a: int64&) -> int64& {
+fun take_and_return_ref(a: &int64) -> &int64 {
     return a; // Should be OK
 }
 
-fun return_a_ref() -> int64& {
+fun return_a_ref() -> &int64 {
     let a: int64 = 10;
     return a; // Should error: returning reference to local variable
 }
@@ -97,7 +97,7 @@ fun return_a_ref() -> int64& {
 fun test_move_ref() {
     let nm = new NonMoveable(42);
     printf("nm.data = %d\n", *(nm.data));
-    let nm_ref: NonMoveable&& = nm;
+    let nm_ref: &move NonMoveable = nm;
     printf("nm_ref.data = %d\n", *(nm_ref.data));
 }
 
@@ -110,7 +110,7 @@ public:
         let data_ptr = malloc<int64>(size_of<int64>());
         this.data = data_ptr;
     }
-    NonMoveable(from: NonMoveable&&) {
+    NonMoveable(from: &move NonMoveable) {
         this.data = from.data;
         from.data = null;
     }
