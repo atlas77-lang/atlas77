@@ -7,11 +7,10 @@ use crate::atlas_c::atlas_hir::error::{
     AccessingPrivateUnionError, CallingConsumingMethodOnMutableReferenceError,
     CallingConsumingMethodOnMutableReferenceOrigin, ListIndexOutOfBoundsError,
     ReferenceToReferenceError, RvalueReferenceToLvalueReferenceError,
-    StdNonCopyableStructCannotHaveCopyConstructorError,
-    StructCannotHaveAFieldOfItsOwnTypeError, ThisStructDoesNotHaveACopyConstructorError,
-    ThisStructDoesNotHaveAMoveConstructorError, TypeIsNotCopyableError, TypeIsNotMoveableError,
-    UnionMustHaveAtLeastTwoVariantError, UnionVariantDefinedMultipleTimesError,
-    VariableNameAlreadyDefinedError,
+    StdNonCopyableStructCannotHaveCopyConstructorError, StructCannotHaveAFieldOfItsOwnTypeError,
+    ThisStructDoesNotHaveACopyConstructorError, ThisStructDoesNotHaveAMoveConstructorError,
+    TypeIsNotCopyableError, TypeIsNotMoveableError, UnionMustHaveAtLeastTwoVariantError,
+    UnionVariantDefinedMultipleTimesError, VariableNameAlreadyDefinedError,
 };
 use crate::atlas_c::atlas_hir::item::{HirStructConstructor, HirUnion};
 use crate::atlas_c::atlas_hir::pretty_print::HirPrettyPrinter;
@@ -753,11 +752,10 @@ impl<'hir> TypeChecker<'hir> {
                             ));
                         }
                         // & creates a mutable (exclusive) reference by default
-                        let ref_ty = self.arena.types().get_ref_ty(
-                            ty,
-                            HirReferenceKind::Mutable,
-                            u.span,
-                        );
+                        let ref_ty =
+                            self.arena
+                                .types()
+                                .get_ref_ty(ty, HirReferenceKind::Mutable, u.span);
                         u.ty = ref_ty;
                         Ok(ref_ty)
                     }

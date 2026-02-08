@@ -1371,7 +1371,9 @@ pub(crate) struct RvalueReferenceToLvalueReferenceError {
         This ensures memory safety by preventing data races at compile time."
     )
 )]
-#[error("cannot borrow `{var_name}` as {new_borrow_kind} because it is already borrowed as {existing_borrow_kind}")]
+#[error(
+    "cannot borrow `{var_name}` as {new_borrow_kind} because it is already borrowed as {existing_borrow_kind}"
+)]
 pub(crate) struct BorrowConflictError {
     pub var_name: String,
     pub new_borrow_kind: String,
@@ -1393,7 +1395,9 @@ pub(crate) struct BorrowConflictError {
         your code to avoid overlapping borrows."
     )
 )]
-#[error("cannot borrow `{var_name}` as mutable (`&{var_name}`) because it is also borrowed as immutable")]
+#[error(
+    "cannot borrow `{var_name}` as mutable (`&{var_name}`) because it is also borrowed as immutable"
+)]
 pub(crate) struct CannotBorrowAsMutableWhileSharedBorrowExistsError {
     pub var_name: String,
     #[label = "mutable borrow attempted here"]
@@ -1413,7 +1417,9 @@ pub(crate) struct CannotBorrowAsMutableWhileSharedBorrowExistsError {
         Wait until the mutable reference is no longer used."
     )
 )]
-#[error("cannot borrow `{var_name}` as immutable (`&const {var_name}`) because it is also borrowed as mutable")]
+#[error(
+    "cannot borrow `{var_name}` as immutable (`&const {var_name}`) because it is also borrowed as mutable"
+)]
 pub(crate) struct CannotBorrowAsSharedWhileMutableBorrowExistsError {
     pub var_name: String,
     #[label = "immutable borrow attempted here"]

@@ -452,24 +452,28 @@ impl<'hir> OwnershipPass<'hir> {
 
                             match (borrow_kind, conflict_kind) {
                                 (BorrowKind::Mutable, BorrowKind::Shared) => {
-                                    return Err(HirError::CannotBorrowAsMutableWhileSharedBorrowExists(
-                                        CannotBorrowAsMutableWhileSharedBorrowExistsError {
-                                            var_name: origin_name.to_string(),
-                                            mutable_borrow_span: let_stmt.span,
-                                            shared_borrow_span: conflict_span,
-                                            src: NamedSource::new(path, src),
-                                        },
-                                    ));
+                                    return Err(
+                                        HirError::CannotBorrowAsMutableWhileSharedBorrowExists(
+                                            CannotBorrowAsMutableWhileSharedBorrowExistsError {
+                                                var_name: origin_name.to_string(),
+                                                mutable_borrow_span: let_stmt.span,
+                                                shared_borrow_span: conflict_span,
+                                                src: NamedSource::new(path, src),
+                                            },
+                                        ),
+                                    );
                                 }
                                 (BorrowKind::Shared, BorrowKind::Mutable) => {
-                                    return Err(HirError::CannotBorrowAsSharedWhileMutableBorrowExists(
-                                        CannotBorrowAsSharedWhileMutableBorrowExistsError {
-                                            var_name: origin_name.to_string(),
-                                            shared_borrow_span: let_stmt.span,
-                                            mutable_borrow_span: conflict_span,
-                                            src: NamedSource::new(path, src),
-                                        },
-                                    ));
+                                    return Err(
+                                        HirError::CannotBorrowAsSharedWhileMutableBorrowExists(
+                                            CannotBorrowAsSharedWhileMutableBorrowExistsError {
+                                                var_name: origin_name.to_string(),
+                                                shared_borrow_span: let_stmt.span,
+                                                mutable_borrow_span: conflict_span,
+                                                src: NamedSource::new(path, src),
+                                            },
+                                        ),
+                                    );
                                 }
                                 (BorrowKind::Mutable, BorrowKind::Mutable) => {
                                     return Err(HirError::BorrowConflict(BorrowConflictError {
@@ -561,9 +565,7 @@ impl<'hir> OwnershipPass<'hir> {
                     if let Some(var_id) = self.current_function.lookup_variable_id(ident.name) {
                         if let Some(borrows) = self.current_function.is_borrowed(var_id) {
                             // Find the first active borrow to report
-                            if let Some(active_borrow) =
-                                borrows.iter().find(|b| b.active)
-                            {
+                            if let Some(active_borrow) = borrows.iter().find(|b| b.active) {
                                 let borrow_span = active_borrow.span;
                                 let path = assign_stmt.span.path;
                                 let src = utils::get_file_content(path).unwrap();
