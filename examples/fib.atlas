@@ -17,12 +17,36 @@ fun main() {
     printf("%f\n", elapsed);
     let t = 0;
     ptr_test(&t);
+
+    let moveable: *Moveable = new Moveable(0);
+    let moveable_2 = move<Moveable>(moveable);
+    printf("moveable.i = %ld\n", moveable->i);
+    printf("moveable_2.i = %ld\n", moveable_2.i);
+}
+
+#[std::copyable]
+struct Moveable
+{
+public:
+    i: int64;
+    Moveable()
+    {
+        this.i = 42;
+    }
+    Moveable(dying_obj: *Moveable)
+    {
+        this->i = dying_obj->i;
+        dying_obj->i = 0;
+    }
 }
 
 fun ptr_test(t: *int64)
 {
     *t = 42;
     printf("%ld\n", *t);
-    let b = 5;
-    return &b;
+}
+
+fun move<T: std::moveable>(from: *T) -> T
+{
+    return T::__move_ctor(from);
 }

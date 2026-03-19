@@ -13,7 +13,7 @@ pub mod dead_code_elimination_pass;
 pub mod error;
 pub mod monomorphization_pass;
 /// Ownership analysis pass: implements MOVE/COPY semantics and destructor insertion
-/* pub mod ownership_pass; */
+pub mod ownership_pass;
 /// Pass not run in debug mode
 pub mod syntax_lowering_pass;
 pub mod type_check_pass;

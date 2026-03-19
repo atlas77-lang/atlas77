@@ -476,11 +476,11 @@ impl CCodeGen {
                     Self::write_to_file(&mut self.c_file, &line, self.indent_level);
                 }
             },
-            LirInstr::Delete { ty: _, src: _ } => {
+            LirInstr::Delete { ty: _, src } => {
                 // Delete instructions are ignored for now. We don't properly handle move semantics in C yet.
-                /* let src_str = self.codegen_operand(src);
+                let src_str = self.codegen_operand(src);
                 let line = format!("free({});", src_str);
-                Self::write_to_file(&mut self.c_file, &line, self.indent_level); */
+                Self::write_to_file(&mut self.c_file, &line, self.indent_level);
             }
             LirInstr::Construct { ty, dst, args } => {
                 let dest_str = self.codegen_operand(dst);
@@ -592,18 +592,17 @@ impl CCodeGen {
             LirOperand::FieldAccess {
                 src,
                 field_name,
-                ty: field_ty,
+                is_arrow,
+                ..
             } => {
                 let src_str = self.codegen_operand(src);
-                // We assume src is a pointer for now
-                if matches!(field_ty, LirTy::StructType(_)) {
+                if *is_arrow {
                     if let LirOperand::Deref(_) = **src {
                         format!("({}).{}", src_str, field_name)
                     } else {
                         format!("{}->{}", src_str, field_name)
                     }
                 } else {
-                    // For union types, we use dot operator
                     format!("({}).{}", src_str, field_name)
                 }
             }

@@ -2108,29 +2108,24 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         ty: field.ty,
                         is_arrow: true,
                     }),
-                    val: HirExpr::Unary(UnaryOpExpr {
+                    val: HirExpr::FieldAccess(HirFieldAccessExpr {
                         span: field.span,
-                        op: Some(HirUnaryOp::Deref),
-                        expr: Box::new(HirExpr::FieldAccess(HirFieldAccessExpr {
-                            span: field.span,
-                            target: Box::new(HirExpr::Ident(HirIdentExpr {
+                        target: Box::new(HirExpr::Ident(HirIdentExpr {
+                            span,
+                            name: self.arena.names().get("from"),
+                            // Copy constructor takes *const Self
+                            ty: self.arena.types().get_ptr_ty(
+                                ty, true, // is_const
                                 span,
-                                name: self.arena.names().get("from"),
-                                // Copy constructor takes *const Self
-                                ty: self.arena.types().get_ptr_ty(
-                                    ty, true, // is_const
-                                    span,
-                                ),
-                            })),
-                            field: Box::new(HirIdentExpr {
-                                span: field.span,
-                                name: field.name,
-                                ty: field.ty,
-                            }),
-                            ty: field.ty,
-                            is_arrow: true,
+                            ),
                         })),
+                        field: Box::new(HirIdentExpr {
+                            span: field.span,
+                            name: field.name,
+                            ty: field.ty,
+                        }),
                         ty: field.ty,
+                        is_arrow: true,
                     }),
                     ty: field.ty,
                 });

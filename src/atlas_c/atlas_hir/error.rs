@@ -57,7 +57,7 @@ declare_error_type! {
         CannotDeleteOutOfLoop(CannotDeleteOutOfLoopError),
         CallingNonConstMethodOnConstReference(CallingNonConstMethodOnConstReferenceError),
         CallingConsumingMethodOnMutableReference(CallingConsumingMethodOnMutableReferenceError),
-        TryingToMutateConstReference(TryingToMutateConstReferenceError),
+        TryingToMutateConstPointer(TryingToMutateConstPointerError),
         TryingToCreateAnUnionWithMoreThanOneActiveField(TryingToCreateAnUnionWithMoreThanOneActiveFieldError),
         TypeDoesNotImplementRequiredConstraint(TypeDoesNotImplementRequiredConstraintError),
         InvalidSpecialMethodSignature(InvalidSpecialMethodSignatureError),
@@ -68,9 +68,6 @@ declare_error_type! {
         UnknownIdentifier(UnknownIdentifierError),
         UnknownField(UnknownFieldError),
         UnknownMethod(UnknownMethodError),
-        CannotTransferOwnershipInBorrowingMethod(CannotTransferOwnershipInBorrowingMethodError),
-        CannotMoveOutOfContainer(CannotMoveOutOfContainerError),
-        CannotMoveOutOfReference(CannotMoveOutOfReferenceError),
         TypeIsNotMoveable(TypeIsNotMoveableError),
         RecursiveCopyConstructor(RecursiveCopyConstructorError),
         StdNonCopyableStructCannotHaveCopyConstructor(StdNonCopyableStructCannotHaveCopyConstructorError),
@@ -91,14 +88,7 @@ declare_error_type! {
         TypeIsNotCopyable(TypeIsNotCopyableError),
         ListIndexOutOfBounds(ListIndexOutOfBoundsError),
         IncorrectIntrinsicCallArguments(IncorrectIntrinsicCallArgumentsError),
-        //T&& cannot become T&
-        RvalueReferenceToLvalueReferenceError(RvalueReferenceToLvalueReferenceError),
-        // Borrow checking errors
-        BorrowConflict(BorrowConflictError),
-        CannotBorrowAsMutableWhileSharedBorrowExists(CannotBorrowAsMutableWhileSharedBorrowExistsError),
-        CannotBorrowAsSharedWhileMutableBorrowExists(CannotBorrowAsSharedWhileMutableBorrowExistsError),
-        CannotMutateWhileBorrowed(CannotMutateWhileBorrowedError),
-        ReferenceToReference(ReferenceToReferenceError),
+        CannotAccessFieldOfPointers(CannotAccessFieldOfPointersError),
     }
 }
 
@@ -264,12 +254,12 @@ pub struct TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
-    code(sema::trying_to_mutate_const_reference),
-    help("consider using a mutable reference instead")
+    code(sema::trying_to_mutate_const_pointer),
+    help("consider using a mutable pointer instead")
 )]
-#[error("trying to mutate a const reference")]
-pub struct TryingToMutateConstReferenceError {
-    #[label = "cannot mutate `{ty}` as it is a const reference"]
+#[error("trying to mutate a const pointer")]
+pub struct TryingToMutateConstPointerError {
+    #[label = "cannot mutate `{ty}` as it is a const pointer"]
     pub span: Span,
     pub ty: String,
     #[source_code]
@@ -971,56 +961,6 @@ pub struct MethodConstraintNotSatisfiedError {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
-    code(sema::cannot_transfer_ownership_in_borrowing_method),
-    help(
-        "change the method to use `this` instead of `&this` if it needs to transfer ownership, or copy the value if the type is copyable"
-    )
-)]
-#[error("cannot transfer ownership of `{value_name}` in a borrowing method")]
-pub struct CannotTransferOwnershipInBorrowingMethodError {
-    #[label = "this method borrows `this` (uses `&this`), it does not own it"]
-    pub method_span: Span,
-    #[label = "trying to transfer ownership here"]
-    pub transfer_span: Span,
-    pub value_name: String,
-    #[source_code]
-    pub src: NamedSource<String>,
-}
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
-    code(sema::cannot_move_out_of_container),
-    help(
-        "consider returning a reference (`&T` or `&const T`) instead, or implement `_copy` for this type to make it copyable"
-    )
-)]
-#[error("cannot move non-copyable type `{ty_name}` out of container")]
-pub struct CannotMoveOutOfContainerError {
-    #[label = "attempting to move `{ty_name}` out of array/container here"]
-    pub span: Span,
-    pub ty_name: String,
-    #[source_code]
-    pub src: NamedSource<String>,
-}
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
-    code(sema::cannot_move_out_of_reference),
-    help(
-        "cannot dereference (copy/move out of) a reference to a non-copyable type. \nTo fix this:\n  - Implement a copy constructor for `{ty_name}` if it should be copyable\n  - Or work with the reference directly without dereferencing it"
-    )
-)]
-#[error("cannot dereference non-copyable type `{ty_name}` from a reference")]
-pub struct CannotMoveOutOfReferenceError {
-    #[label = "trying to dereference `{ty_name}` here, but it's not copyable"]
-    pub span: Span,
-    pub ty_name: String,
-    #[source_code]
-    pub src: NamedSource<String>,
-}
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
     code(sema::cannot_move_value),
     help(
         "type `{ty_name}` is not moveable. Consider implementing a move constructor (`{ty_name}(dying_obj: {ty_name}&&)` constructor) for this type if it should be moveable"
@@ -1361,127 +1301,14 @@ pub struct IncorrectIntrinsicCallArgumentsError {
     pub src: NamedSource<String>,
 }
 
-/*
-TODO: this should work accross different files
-*/
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
-    code(sema::rvalue_reference_assigned_to_lvalue_reference),
-    help("an rvalue reference cannot be assigned to an lvalue reference")
+    code(sema::trying_to_access_field_of_pointer),
+    help("Try using the `->` operator to dereference and access the field.")
 )]
-#[error("cannot assign rvalue reference to lvalue reference")]
-pub struct RvalueReferenceToLvalueReferenceError {
-    #[label = "rvalue reference found here"]
-    pub r_val_span: Span,
-    #[label = "lvalue reference expected here"]
-    pub l_val_span: Span,
-    #[source_code]
-    pub src: NamedSource<String>,
-}
-
-// =========================================================================
-// Borrow Checking Errors
-// =========================================================================
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
-    code(sema::borrow_conflict),
-    help(
-        "a variable can only be borrowed mutably (`&T`) when no other borrows exist, \
-        or borrowed immutably (`&const T`) when no mutable borrows exist. \
-        This ensures memory safety by preventing data races at compile time."
-    )
-)]
-#[error(
-    "cannot borrow `{var_name}` as {new_borrow_kind} because it is already borrowed as {existing_borrow_kind}"
-)]
-pub struct BorrowConflictError {
-    pub var_name: String,
-    pub new_borrow_kind: String,
-    pub existing_borrow_kind: String,
-    #[label = "cannot borrow as {new_borrow_kind} here"]
-    pub new_borrow_span: Span,
-    #[label = "already borrowed as {existing_borrow_kind} here"]
-    pub existing_borrow_span: Span,
-    #[source_code]
-    pub src: NamedSource<String>,
-}
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
-    code(sema::cannot_borrow_mutable_while_shared),
-    help(
-        "you cannot create a mutable reference (`&T`) while shared references (`&const T`) \
-        to the same variable exist. Either drop the shared references first, or restructure \
-        your code to avoid overlapping borrows."
-    )
-)]
-#[error(
-    "cannot borrow `{var_name}` as mutable (`&{var_name}`) because it is also borrowed as immutable"
-)]
-pub struct CannotBorrowAsMutableWhileSharedBorrowExistsError {
-    pub var_name: String,
-    #[label = "mutable borrow attempted here"]
-    pub mutable_borrow_span: Span,
-    #[label = "immutable borrow still active here"]
-    pub shared_borrow_span: Span,
-    #[source_code]
-    pub src: NamedSource<String>,
-}
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
-    code(sema::cannot_borrow_shared_while_mutable),
-    help(
-        "you cannot create a shared reference (`&const T`) while a mutable reference (`&T`) \
-        to the same variable exists. The mutable borrow has exclusive access. \
-        Wait until the mutable reference is no longer used."
-    )
-)]
-#[error(
-    "cannot borrow `{var_name}` as immutable (`&const {var_name}`) because it is also borrowed as mutable"
-)]
-pub struct CannotBorrowAsSharedWhileMutableBorrowExistsError {
-    pub var_name: String,
-    #[label = "immutable borrow attempted here"]
-    pub shared_borrow_span: Span,
-    #[label = "mutable borrow still active here"]
-    pub mutable_borrow_span: Span,
-    #[source_code]
-    pub src: NamedSource<String>,
-}
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
-    code(sema::cannot_mutate_while_borrowed),
-    help(
-        "you cannot mutate a variable while it has active borrows. \
-        Ensure all references to the variable have gone out of scope or are no longer used \
-        before attempting to mutate it."
-    )
-)]
-#[error("cannot assign to `{var_name}` because it is currently borrowed")]
-pub struct CannotMutateWhileBorrowedError {
-    pub var_name: String,
-    #[label = "cannot assign here while borrowed"]
-    pub assign_span: Span,
-    #[label = "borrow of `{var_name}` occurs here"]
-    pub borrow_span: Span,
-    #[source_code]
-    pub src: NamedSource<String>,
-}
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
-    code(sema::reference_to_reference),
-    help(
-        "nested references (e.g., `&&T` or `&const &T`) are not allowed in Atlas77. \
-        Use a single level of reference instead."
-    )
-)]
-#[error("cannot create a reference to a reference type")]
-pub struct ReferenceToReferenceError {
-    #[label = "attempted to create a reference to an already-reference type here"]
+#[error("Cannot access a struct field directly from a pointer")]
+pub struct CannotAccessFieldOfPointersError {
+    #[label = "Try using `->` instead of `.`"]
     pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,

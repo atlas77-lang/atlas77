@@ -1,709 +1,410 @@
-//! # Ownership Pass
-//!
-//! The ownership pass enforces memory safety through:
-//! - **Type-based classification** (Trivial/Resource/View)
-//! - **Strict reference lifetime tracking** (compile errors on use-after-free)
-//! - **Explicit move semantics** (warnings on use-after-move)
-//! - **Automatic destructor insertion** (RAII cleanup)
-//!
-//! ## Design Philosophy
-//! - **References = Rust-level safety:** Use-after-free is compile error
-//! - **Values = C++-level safety:** Use-after-move is warning (UB)
-//! - **Explicit over implicit:** No automatic moves, require `std::move()`
-//! - **Zero-cost abstractions:** Trivial types bypass tracking entirely
-
-pub mod context;
+// TEMPORARY DESIGN (v0.8.0 MVP)
+//
+// This ownership pass uses raw pointers (*T, *const T) for all borrowing.
+// In v0.9+, references (&T, &const T) will be added with lifetime tracking.
+//
+// Current constructor signatures:
+//   - Copy: Foo(from: *const Foo)
+//   - Move: Foo(from: *Foo)
+//
+// Future constructor signatures:
+//   - Copy: Foo(from: &const Foo)
+//   - Move: Foo(from: &Foo)
+//
+// This is intentionally simplified to establish MVP baseline.
 
 use crate::atlas_c::atlas_hir::arena::HirArena;
 use crate::atlas_c::atlas_hir::error::{
-    BorrowConflictError, CannotBorrowAsMutableWhileSharedBorrowExistsError,
-    CannotBorrowAsSharedWhileMutableBorrowExistsError, CannotDeleteOutOfLoopError,
-    CannotMutateWhileBorrowedError, DoubleMoveError, HirError, HirResult,
-    ReturningReferenceToLocalVariableError, TryingToAccessADeletedValueError,
+    HirError, HirResult, TryingToAccessADeletedValueError, TypeIsNotCopyableError,
+    TypeIsNotMoveableError,
 };
-use crate::atlas_c::atlas_hir::expr::{HirExpr, HirIdentExpr};
+use crate::atlas_c::atlas_hir::expr::{
+    HirCopyExpr, HirDeleteExpr, HirExpr, HirFieldAccessExpr, HirFunctionCallExpr, HirIdentExpr,
+    HirUnaryOp,
+};
 use crate::atlas_c::atlas_hir::item::{HirStruct, HirStructConstructor, HirStructMethod};
 use crate::atlas_c::atlas_hir::signature::HirModuleSignature;
-use crate::atlas_c::atlas_hir::stmt::HirStatement;
-use crate::atlas_c::atlas_hir::ty::{HirReferenceKind, HirTy};
-use crate::atlas_c::atlas_hir::warning::{MoveInLoopWarning, UseAfterMoveWarning};
+use crate::atlas_c::atlas_hir::stmt::{HirBlock, HirExprStmt, HirStatement};
+use crate::atlas_c::atlas_hir::ty::HirTy;
+use crate::atlas_c::atlas_hir::warning::UseAfterMoveWarning;
 use crate::atlas_c::atlas_hir::{HirFunction, HirModule};
 use crate::atlas_c::utils::{self, Span};
-use context::{
-    BorrowInfo, BorrowKind, LifetimeScope, OwnershipFunction, OwnershipVariable, TypeCategory,
-    VarId, VarStatus,
-};
 use miette::{ErrReport, NamedSource};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-/// The ownership pass analyzes and transforms the HIR to enforce memory safety.
+#[derive(Debug, Clone)]
+enum MoveReason {
+    ExplicitMoveCall,
+    MoveConstructorCall,
+    MutablePointerParameter,
+}
+
+#[derive(Debug, Clone)]
+enum VarState<'hir> {
+    Valid,
+    Moved {
+        move_span: Span,
+        reason: MoveReason,
+    },
+    Deleted {
+        delete_span: Span,
+    },
+    PartiallyMoved {
+        moved_fields: HashSet<&'hir str>,
+        move_span: Span,
+    },
+    ConditionallyMoved {
+        move_span: Span,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct VarInfo<'hir> {
+    name: &'hir str,
+    ty: &'hir HirTy<'hir>,
+    state: VarState<'hir>,
+    is_param: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ScopeState<'hir> {
+    vars: HashMap<&'hir str, VarInfo<'hir>>,
+}
+
 pub struct OwnershipPass<'hir> {
-    /// Module signature for type lookups
     signature: HirModuleSignature<'hir>,
-    /// HIR arena for allocations
-    arena: &'hir HirArena<'hir>,
-    /// Current function context
-    current_function: OwnershipFunction<'hir>,
-    /// Collected warnings
+    _arena: &'hir HirArena<'hir>,
+    scopes: Vec<ScopeState<'hir>>,
     warnings: Vec<ErrReport>,
-    /// Current function name (for error messages)
-    current_func_name: Option<&'hir str>,
-    /// Current class name (for method analysis)
-    current_class_name: Option<&'hir str>,
+    emitted_ctor_warning: bool,
 }
 
 impl<'hir> OwnershipPass<'hir> {
     pub fn new(signature: HirModuleSignature<'hir>, arena: &'hir HirArena<'hir>) -> Self {
         Self {
             signature,
-            arena,
-            current_function: OwnershipFunction::new(),
+            _arena: arena,
+            scopes: Vec::new(),
             warnings: Vec::new(),
-            current_func_name: None,
-            current_class_name: None,
+            emitted_ctor_warning: false,
         }
     }
 
-    /// Run the ownership pass on the module.
-    /// Returns the modified module, or an error if ownership rules are violated.
     pub fn run(
         &mut self,
         hir: &'hir mut HirModule<'hir>,
     ) -> Result<&'hir mut HirModule<'hir>, (&'hir mut HirModule<'hir>, HirError)> {
         self.signature = hir.signature.clone();
 
-        // Analyze all functions
-        for (name, func) in hir.body.functions.iter_mut() {
-            self.current_func_name = Some(name);
+        for (_, func) in hir.body.functions.iter_mut() {
             if let Err(e) = self.analyze_function(func) {
                 self.emit_warnings();
                 return Err((hir, e));
             }
         }
 
-        // Analyze all struct methods
-        for (name, class) in hir.body.structs.iter_mut() {
-            self.current_class_name = Some(name);
+        for (_, class) in hir.body.structs.iter_mut() {
             if let Err(e) = self.analyze_class(class) {
                 self.emit_warnings();
                 return Err((hir, e));
             }
         }
 
-        // Emit all collected warnings
         self.emit_warnings();
-
         Ok(hir)
     }
 
-    /// Emit all collected warnings
     fn emit_warnings(&self) {
         for warning in &self.warnings {
-            // Use miette's error formatting for nice display
             eprintln!("{:?}", warning);
         }
     }
 
-    // =========================================================================
-    // Type Classification
-    // =========================================================================
+    fn enter_scope(&mut self) {
+        self.scopes.push(ScopeState::default());
+    }
 
-    /// Classify a type into Trivial, Resource, or View
-    fn classify_type(&self, ty: &HirTy<'hir>) -> TypeCategory {
-        match ty {
-            // Primitives are trivial
-            HirTy::Integer(_)
-            | HirTy::Float(_)
-            | HirTy::UnsignedInteger(_)
-            | HirTy::Boolean(_)
-            | HirTy::Unit(_)
-            | HirTy::Char(_) => TypeCategory::Trivial,
+    fn exit_scope(&mut self) {
+        let _ = self.scopes.pop();
+    }
 
-            // Raw pointers are trivial (no automatic cleanup)
-            HirTy::PtrTy(_) => TypeCategory::Trivial,
-
-            // References are view types (lifetime-tracked, no ownership)
-            HirTy::Reference(_) => TypeCategory::View,
-
-            // Strings are resources (own heap memory)
-            HirTy::String(_) => TypeCategory::Resource,
-
-            // Slices are view types (don't own their data)
-            HirTy::Slice(_) => TypeCategory::View,
-
-            // Inline arrays: trivial if element is trivial
-            HirTy::InlineArray(arr) => self.classify_type(arr.inner),
-
-            // Named types: check if struct has destructor
-            HirTy::Named(named) => self.classify_named_type(named.name),
-
-            // Generic types: check if struct has destructor
-            HirTy::Generic(generic) => self.classify_named_type(generic.name),
-
-            // Function types are trivial (just function pointers)
-            HirTy::Function(_) => TypeCategory::Trivial,
-
-            // Uninitialized types are trivial
-            HirTy::Uninitialized(_) => TypeCategory::Trivial,
+    fn declare_var(&mut self, name: &'hir str, ty: &'hir HirTy<'hir>, is_param: bool) {
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.vars.insert(
+                name,
+                VarInfo {
+                    name,
+                    ty,
+                    state: VarState::Valid,
+                    is_param,
+                },
+            );
         }
     }
 
-    /// Classify a named type (struct) based on its properties
-    fn classify_named_type(&self, name: &str) -> TypeCategory {
-        if let Some(struct_sig) = self.signature.structs.get(name) {
-            // If the struct has a user-defined destructor, it's a resource type
-            if struct_sig.had_user_defined_destructor {
-                return TypeCategory::Resource;
-            }
+    fn get_var(&self, name: &'hir str) -> Option<&VarInfo<'hir>> {
+        self.scopes.iter().rev().find_map(|s| s.vars.get(name))
+    }
 
-            // If the struct has a move constructor, it should be tracked as a resource
-            // (move semantics require tracking ownership state)
-            if struct_sig.had_user_defined_move_constructor {
-                return TypeCategory::Resource;
-            }
+    fn get_var_mut(&mut self, name: &'hir str) -> Option<&mut VarInfo<'hir>> {
+        self.scopes
+            .iter_mut()
+            .rev()
+            .find_map(|s| s.vars.get_mut(name))
+    }
 
-            // If the struct has a copy constructor, it's also a resource
-            // (explicit copy semantics indicate non-trivial data)
-            if struct_sig.had_user_defined_copy_constructor {
-                return TypeCategory::Resource;
-            }
+    fn mark_moved(&mut self, name: &'hir str, span: Span, reason: MoveReason) {
+        if let Some(var) = self.get_var_mut(name) {
+            var.state = VarState::Moved {
+                move_span: span,
+                reason,
+            };
+        }
+    }
 
-            // If any field is a resource, the struct is a resource
-            for field in struct_sig.fields.values() {
-                if matches!(self.classify_type(field.ty), TypeCategory::Resource) {
-                    return TypeCategory::Resource;
+    fn mark_field_moved(&mut self, base: &'hir str, field: &'hir str, span: Span) {
+        if let Some(var) = self.get_var_mut(base) {
+            match &mut var.state {
+                VarState::PartiallyMoved {
+                    moved_fields,
+                    move_span,
+                } => {
+                    moved_fields.insert(field);
+                    *move_span = span;
                 }
+                VarState::Valid | VarState::ConditionallyMoved { .. } => {
+                    let mut fields = HashSet::new();
+                    fields.insert(field);
+                    var.state = VarState::PartiallyMoved {
+                        moved_fields: fields,
+                        move_span: span,
+                    };
+                }
+                _ => {}
             }
-
-            // All fields trivial => struct is trivial
-            TypeCategory::Trivial
-        } else {
-            // Unknown type, assume trivial
-            TypeCategory::Trivial
         }
     }
 
-    /// Check if a type is trivial (can be bitwise copied, no cleanup needed)
+    fn mark_deleted(&mut self, name: &'hir str, span: Span) {
+        if let Some(var) = self.get_var_mut(name) {
+            var.state = VarState::Deleted { delete_span: span };
+        }
+    }
+
     fn is_trivial(&self, ty: &HirTy<'hir>) -> bool {
-        matches!(self.classify_type(ty), TypeCategory::Trivial)
+        matches!(
+            ty,
+            HirTy::Integer(_)
+                | HirTy::Float(_)
+                | HirTy::UnsignedInteger(_)
+                | HirTy::Boolean(_)
+                | HirTy::Unit(_)
+                | HirTy::Char(_)
+                | HirTy::PtrTy(_)
+        )
     }
 
-    /// Check if a type is a resource (owns heap resources, needs cleanup)
-    fn is_resource(&self, ty: &HirTy<'hir>) -> bool {
-        matches!(self.classify_type(ty), TypeCategory::Resource)
-    }
+    fn is_copyable(&self, ty: &HirTy<'hir>) -> bool {
+        if self.is_trivial(ty) {
+            return true;
+        }
 
-    /// Check if a type has a destructor
-    fn has_destructor(&self, ty: &HirTy<'hir>) -> bool {
         match ty {
-            HirTy::Named(named) => {
-                if let Some(struct_sig) = self.signature.structs.get(named.name) {
-                    struct_sig.destructor.is_some()
-                } else {
-                    false
-                }
-            }
-            HirTy::Generic(generic) => {
-                if let Some(struct_sig) = self.signature.structs.get(generic.name) {
-                    struct_sig.destructor.is_some()
-                } else {
-                    false
-                }
-            }
+            HirTy::String(_) => true,
+            HirTy::InlineArray(arr) => self.is_copyable(arr.inner),
+            HirTy::Named(named) => self
+                .signature
+                .structs
+                .get(named.name)
+                .is_some_and(|s| s.copy_constructor.is_some()),
+            HirTy::Generic(generic) => self
+                .signature
+                .structs
+                .get(generic.name)
+                .is_some_and(|s| s.copy_constructor.is_some()),
             _ => false,
         }
     }
 
-    /// Check if a type has a copy constructor
-    fn has_copy_constructor(&self, ty: &HirTy<'hir>) -> bool {
+    fn should_auto_delete_type(&self, ty: &HirTy<'hir>) -> bool {
         match ty {
-            HirTy::Named(named) => {
-                if let Some(struct_sig) = self.signature.structs.get(named.name) {
-                    struct_sig.had_user_defined_copy_constructor
-                        || struct_sig.copy_constructor.is_some()
-                } else {
-                    false
-                }
-            }
-            HirTy::Generic(generic) => {
-                if let Some(struct_sig) = self.signature.structs.get(generic.name) {
-                    struct_sig.had_user_defined_copy_constructor
-                        || struct_sig.copy_constructor.is_some()
-                } else {
-                    false
-                }
-            }
-            // Primitives are trivially copyable
-            _ => self.is_trivial(ty),
+            HirTy::String(_) => true,
+            HirTy::Named(named) => self
+                .signature
+                .structs
+                .get(named.name)
+                .is_some_and(|s| s.destructor.is_some()),
+            HirTy::Generic(generic) => self
+                .signature
+                .structs
+                .get(generic.name)
+                .is_some_and(|s| s.destructor.is_some()),
+            HirTy::InlineArray(arr) => self.should_auto_delete_type(arr.inner),
+            _ => false,
         }
     }
-
-    /// Check if a type has a move constructor
-    fn has_move_constructor(&self, ty: &HirTy<'hir>) -> bool {
-        match ty {
-            HirTy::Named(named) => {
-                if let Some(struct_sig) = self.signature.structs.get(named.name) {
-                    struct_sig.had_user_defined_move_constructor
-                        || struct_sig.move_constructor.is_some()
-                } else {
-                    false
-                }
-            }
-            HirTy::Generic(generic) => {
-                if let Some(struct_sig) = self.signature.structs.get(generic.name) {
-                    struct_sig.had_user_defined_move_constructor
-                        || struct_sig.move_constructor.is_some()
-                } else {
-                    false
-                }
-            }
-            // Primitives are trivially moveable
-            _ => self.is_trivial(ty),
-        }
-    }
-
-    // =========================================================================
-    // Function Analysis
-    // =========================================================================
 
     fn analyze_function(&mut self, func: &mut HirFunction<'hir>) -> HirResult<()> {
-        // Reset function context
-        self.current_function = OwnershipFunction::new();
+        self.scopes.clear();
+        self.enter_scope();
 
-        // Enter function scope
-        self.current_function.enter_scope(func.span, false);
-
-        // Register parameters
         for param in &func.signature.params {
-            let var_id = self.current_function.create_var_id();
-            let category = self.classify_type(param.ty);
-            self.current_function.declare_variable(OwnershipVariable {
-                name: param.name,
-                var_id,
-                ty: param.ty,
-                category,
-                status: VarStatus::Owned,
-                declaration_span: param.span,
-                is_param: true,
-                lifetime: LifetimeScope {
-                    scope_id: self.current_function.current_scope_id(),
-                    can_escape: true, // Parameters can escape (returned)
-                },
-                refs_locals: Vec::new(),
-            });
+            self.declare_var(param.name, param.ty, true);
         }
 
-        // Analyze body statements
-        for stmt in &mut func.body.statements {
-            self.analyze_statement(stmt)?;
-        }
-
-        // Exit function scope
-        self.current_function.exit_scope();
-
+        self.transform_block(&mut func.body)?;
+        self.exit_scope();
         Ok(())
     }
 
     fn analyze_class(&mut self, class: &mut HirStruct<'hir>) -> HirResult<()> {
-        // Analyze each method
+        self.validate_ctor_notice(class);
+
         for method in &mut class.methods {
-            self.current_func_name = Some(method.name);
             self.analyze_method(method)?;
         }
 
-        // Analyze constructor
-        self.current_func_name = Some("constructor");
         self.analyze_constructor(&mut class.constructor)?;
-
-        // Analyze copy constructor if present
         if let Some(copy_ctor) = &mut class.copy_constructor {
-            self.current_func_name = Some("_copy");
             self.analyze_constructor(copy_ctor)?;
         }
-
-        // Analyze move constructor if present
         if let Some(move_ctor) = &mut class.move_constructor {
-            self.current_func_name = Some("_move");
             self.analyze_constructor(move_ctor)?;
         }
-
-        // Analyze destructor if present
         if let Some(destructor) = &mut class.destructor {
-            self.current_func_name = Some("_destroy");
             self.analyze_constructor(destructor)?;
         }
 
         Ok(())
     }
 
+    fn validate_ctor_notice(&mut self, class: &HirStruct<'hir>) {
+        let has_temporary_ctor_shapes =
+            class.copy_constructor.is_some() || class.move_constructor.is_some();
+        if has_temporary_ctor_shapes && !self.emitted_ctor_warning {
+            eprintln!("┌─────────────────────────────────────────────────┐");
+            eprintln!("│ NOTICE: Temporary Constructor Signatures        │");
+            eprintln!("├─────────────────────────────────────────────────┤");
+            eprintln!("│ Copy: Foo(from: *const Foo)                     │");
+            eprintln!("│ Move: Foo(from: *Foo)                           │");
+            eprintln!("│                                                 │");
+            eprintln!("│ These will change to use references in v0.9+    │");
+            eprintln!("└─────────────────────────────────────────────────┘");
+            self.emitted_ctor_warning = true;
+        }
+    }
+
     fn analyze_method(&mut self, method: &mut HirStructMethod<'hir>) -> HirResult<()> {
-        // Reset function context
-        self.current_function = OwnershipFunction::new();
+        self.scopes.clear();
+        self.enter_scope();
 
-        // Enter method scope
-        self.current_function.enter_scope(method.span, false);
-
-        // Register parameters (including implicit 'this')
         for param in &method.signature.params {
-            let var_id = self.current_function.create_var_id();
-            let category = self.classify_type(param.ty);
-            self.current_function.declare_variable(OwnershipVariable {
-                name: param.name,
-                var_id,
-                ty: param.ty,
-                category,
-                status: VarStatus::Owned,
-                declaration_span: param.span,
-                is_param: true,
-                lifetime: LifetimeScope {
-                    scope_id: self.current_function.current_scope_id(),
-                    can_escape: true,
-                },
-                refs_locals: Vec::new(),
-            });
+            self.declare_var(param.name, param.ty, true);
         }
 
-        // Analyze body statements
-        for stmt in &mut method.body.statements {
-            self.analyze_statement(stmt)?;
-        }
-
-        // Exit method scope
-        self.current_function.exit_scope();
-
+        self.transform_block(&mut method.body)?;
+        self.exit_scope();
         Ok(())
     }
 
     fn analyze_constructor(&mut self, ctor: &mut HirStructConstructor<'hir>) -> HirResult<()> {
-        // Reset function context
-        self.current_function = OwnershipFunction::new();
+        self.scopes.clear();
+        self.enter_scope();
 
-        // Enter constructor scope
-        self.current_function.enter_scope(ctor.span, false);
-
-        // Register parameters
         for param in &ctor.params {
-            let var_id = self.current_function.create_var_id();
-            let category = self.classify_type(param.ty);
-            self.current_function.declare_variable(OwnershipVariable {
-                name: param.name,
-                var_id,
-                ty: param.ty,
-                category,
-                status: VarStatus::Owned,
-                declaration_span: param.span,
-                is_param: true,
-                lifetime: LifetimeScope {
-                    scope_id: self.current_function.current_scope_id(),
-                    can_escape: true,
-                },
-                refs_locals: Vec::new(),
-            });
+            self.declare_var(param.name, param.ty, true);
         }
 
-        // Analyze body statements
-        for stmt in &mut ctor.body.statements {
-            self.analyze_statement(stmt)?;
-        }
-
-        // Exit constructor scope
-        self.current_function.exit_scope();
-
+        self.transform_block(&mut ctor.body)?;
+        self.exit_scope();
         Ok(())
     }
 
-    // =========================================================================
-    // Statement Analysis
-    // =========================================================================
+    fn transform_block(&mut self, block: &mut HirBlock<'hir>) -> HirResult<()> {
+        self.enter_scope();
+
+        let old_statements = std::mem::take(&mut block.statements);
+        let mut new_statements = Vec::with_capacity(old_statements.len() + 4);
+
+        for mut stmt in old_statements {
+            self.analyze_statement(&mut stmt)?;
+
+            if matches!(stmt, HirStatement::Return(_)) {
+                let mut deletes = self.build_scope_auto_deletes(stmt.span());
+                new_statements.append(&mut deletes);
+                new_statements.push(stmt);
+            } else {
+                new_statements.push(stmt);
+            }
+        }
+
+        let mut tail_deletes = self.build_scope_auto_deletes(block.span);
+        new_statements.append(&mut tail_deletes);
+
+        block.statements = new_statements;
+        self.exit_scope();
+        Ok(())
+    }
 
     fn analyze_statement(&mut self, stmt: &mut HirStatement<'hir>) -> HirResult<()> {
         match stmt {
             HirStatement::Let(let_stmt) => {
-                // First analyze the value expression
                 self.analyze_expr(&mut let_stmt.value)?;
-
-                // Get reference origins if the value is a reference
-                let refs_locals = self.get_reference_origins(&let_stmt.value);
-
-                // If this is a reference type, check for borrow conflicts and record the borrow
-                if let HirTy::Reference(ref_ty) = let_stmt.ty {
-                    let borrow_kind = match ref_ty.kind {
-                        HirReferenceKind::Mutable => BorrowKind::Mutable,
-                        HirReferenceKind::ReadOnly => BorrowKind::Shared,
-                        HirReferenceKind::Moveable => BorrowKind::Mutable, // Moveable refs are exclusive
-                    };
-
-                    // Check for borrow conflicts on each origin variable
-                    for &origin_var_id in &refs_locals {
-                        if let Some(conflict) = self
-                            .current_function
-                            .check_borrow_conflict(origin_var_id, borrow_kind)
-                        {
-                            let conflict_span = conflict.span;
-                            let conflict_kind = conflict.kind;
-                            let origin_name = self
-                                .current_function
-                                .get_variable(origin_var_id)
-                                .map(|v| v.name)
-                                .unwrap_or("unknown");
-
-                            let path = let_stmt.span.path;
-                            let src = utils::get_file_content(path).unwrap();
-
-                            match (borrow_kind, conflict_kind) {
-                                (BorrowKind::Mutable, BorrowKind::Shared) => {
-                                    return Err(
-                                        HirError::CannotBorrowAsMutableWhileSharedBorrowExists(
-                                            CannotBorrowAsMutableWhileSharedBorrowExistsError {
-                                                var_name: origin_name.to_string(),
-                                                mutable_borrow_span: let_stmt.span,
-                                                shared_borrow_span: conflict_span,
-                                                src: NamedSource::new(path, src),
-                                            },
-                                        ),
-                                    );
-                                }
-                                (BorrowKind::Shared, BorrowKind::Mutable) => {
-                                    return Err(
-                                        HirError::CannotBorrowAsSharedWhileMutableBorrowExists(
-                                            CannotBorrowAsSharedWhileMutableBorrowExistsError {
-                                                var_name: origin_name.to_string(),
-                                                shared_borrow_span: let_stmt.span,
-                                                mutable_borrow_span: conflict_span,
-                                                src: NamedSource::new(path, src),
-                                            },
-                                        ),
-                                    );
-                                }
-                                (BorrowKind::Mutable, BorrowKind::Mutable) => {
-                                    return Err(HirError::BorrowConflict(BorrowConflictError {
-                                        var_name: origin_name.to_string(),
-                                        new_borrow_kind: "mutable (&)".to_string(),
-                                        existing_borrow_kind: "mutable (&)".to_string(),
-                                        new_borrow_span: let_stmt.span,
-                                        existing_borrow_span: conflict_span,
-                                        src: NamedSource::new(path, src),
-                                    }));
-                                }
-                                // Shared + Shared is always OK
-                                _ => {}
-                            }
-                        }
-                    }
-                }
-
-                // Register the new variable
-                let var_id = self.current_function.create_var_id();
-                let category = self.classify_type(let_stmt.ty);
-                self.current_function.declare_variable(OwnershipVariable {
-                    name: let_stmt.name,
-                    var_id,
-                    ty: let_stmt.ty,
-                    category,
-                    status: VarStatus::Owned,
-                    declaration_span: let_stmt.span,
-                    is_param: false,
-                    lifetime: LifetimeScope {
-                        scope_id: self.current_function.current_scope_id(),
-                        can_escape: false, // Local variables cannot escape
-                    },
-                    refs_locals: refs_locals.clone(),
-                });
-
-                // If this is a reference type, record the borrow on origin variables
-                if let HirTy::Reference(ref_ty) = let_stmt.ty {
-                    let borrow_kind = match ref_ty.kind {
-                        HirReferenceKind::Mutable => BorrowKind::Mutable,
-                        HirReferenceKind::ReadOnly => BorrowKind::Shared,
-                        HirReferenceKind::Moveable => BorrowKind::Mutable,
-                    };
-
-                    for &origin_var_id in &refs_locals {
-                        self.current_function.record_borrow(
-                            origin_var_id,
-                            BorrowInfo {
-                                ref_var: var_id,
-                                kind: borrow_kind,
-                                active: true,
-                                span: let_stmt.span,
-                            },
-                        );
-                    }
-                }
+                self.copy_by_default(&mut let_stmt.value, let_stmt.ty, let_stmt.span)?;
+                self.declare_var(let_stmt.name, let_stmt.ty, false);
             }
-
             HirStatement::Const(const_stmt) => {
-                // Analyze the value expression
                 self.analyze_expr(&mut const_stmt.value)?;
-
-                // Register the constant
-                let var_id = self.current_function.create_var_id();
-                let category = self.classify_type(const_stmt.ty);
-                self.current_function.declare_variable(OwnershipVariable {
-                    name: const_stmt.name,
-                    var_id,
-                    ty: const_stmt.ty,
-                    category,
-                    status: VarStatus::Owned,
-                    declaration_span: const_stmt.span,
-                    is_param: false,
-                    lifetime: LifetimeScope {
-                        scope_id: self.current_function.current_scope_id(),
-                        can_escape: false,
-                    },
-                    refs_locals: Vec::new(),
-                });
+                self.copy_by_default(&mut const_stmt.value, const_stmt.ty, const_stmt.span)?;
+                self.declare_var(const_stmt.name, const_stmt.ty, false);
             }
-
             HirStatement::Assign(assign_stmt) => {
-                // Analyze the value expression first
-                self.analyze_expr(&mut assign_stmt.val)?;
-
-                // Check if the destination variable is currently borrowed
-                // (cannot mutate a variable while it is borrowed)
-                if let HirExpr::Ident(ident) = &assign_stmt.dst {
-                    if let Some(var_id) = self.current_function.lookup_variable_id(ident.name) {
-                        if let Some(borrows) = self.current_function.is_borrowed(var_id) {
-                            // Find the first active borrow to report
-                            if let Some(active_borrow) = borrows.iter().find(|b| b.active) {
-                                let borrow_span = active_borrow.span;
-                                let path = assign_stmt.span.path;
-                                let src = utils::get_file_content(path).unwrap();
-                                return Err(HirError::CannotMutateWhileBorrowed(
-                                    CannotMutateWhileBorrowedError {
-                                        var_name: ident.name.to_string(),
-                                        assign_span: assign_stmt.span,
-                                        borrow_span,
-                                        src: NamedSource::new(path, src),
-                                    },
-                                ));
-                            }
-                        }
-                    }
-                }
-
-                // Analyze the destination
                 self.analyze_expr(&mut assign_stmt.dst)?;
+                self.analyze_expr(&mut assign_stmt.val)?;
+                self.copy_by_default(&mut assign_stmt.val, assign_stmt.ty, assign_stmt.span)?;
             }
-
             HirStatement::Expr(expr_stmt) => {
                 self.analyze_expr(&mut expr_stmt.expr)?;
             }
-
             HirStatement::Return(ret_stmt) => {
                 self.analyze_expr(&mut ret_stmt.value)?;
-
-                // Check for returning references to local variables
-                self.check_return_lifetime(&ret_stmt.value, ret_stmt.span)?;
+                self.copy_by_default(&mut ret_stmt.value, ret_stmt.ty, ret_stmt.span)?;
             }
-
             HirStatement::IfElse(if_stmt) => {
-                // Analyze condition
                 self.analyze_expr(&mut if_stmt.condition)?;
 
-                // Save current state for branch analysis
-                let state_before = self.current_function.clone_var_states();
+                let before = self.scopes.clone();
 
-                // Enter then branch scope
-                self.current_function
-                    .enter_scope(if_stmt.then_branch.span, false);
+                self.transform_block(&mut if_stmt.then_branch)?;
+                let then_state = self.scopes.clone();
 
-                // Analyze then branch
-                for stmt in &mut if_stmt.then_branch.statements {
-                    self.analyze_statement(stmt)?;
-                }
-
-                // Exit then branch scope
-                self.current_function.exit_scope();
-
-                // Save then branch state
-                let state_after_then = self.current_function.clone_var_states();
-
-                // Restore state for else branch
-                self.current_function
-                    .restore_var_states(state_before.clone());
-
-                // Analyze else branch if present
+                self.scopes = before.clone();
                 if let Some(else_branch) = &mut if_stmt.else_branch {
-                    self.current_function.enter_scope(else_branch.span, false);
-
-                    for stmt in &mut else_branch.statements {
-                        self.analyze_statement(stmt)?;
-                    }
-
-                    self.current_function.exit_scope();
+                    self.transform_block(else_branch)?;
                 }
+                let else_state = self.scopes.clone();
 
-                let state_after_else = self.current_function.clone_var_states();
-
-                // Merge branch states
-                self.merge_branch_states(state_after_then, state_after_else);
+                self.merge_branch_states(&before, &then_state, &else_state);
             }
-
             HirStatement::While(while_stmt) => {
-                // Analyze condition
                 self.analyze_expr(&mut while_stmt.condition)?;
-
-                // Save state before loop
-                let state_before = self.current_function.clone_var_states();
-
-                // Enter loop scope
-                self.current_function
-                    .enter_scope(while_stmt.span, true /* is_loop */);
-
-                // Analyze body
-                for stmt in &mut while_stmt.body.statements {
-                    self.analyze_statement(stmt)?;
-                }
-
-                // Exit loop scope
-                self.current_function.exit_scope();
-
-                // Check for moves inside loop and update to conditional moves
-                self.check_moves_in_loop(state_before);
+                let before = self.scopes.clone();
+                self.transform_block(&mut while_stmt.body)?;
+                let after = self.scopes.clone();
+                self.merge_loop_states(&before, &after);
             }
-
             HirStatement::Block(block) => {
-                self.current_function.enter_scope(block.span, false);
-
-                for stmt in &mut block.statements {
-                    self.analyze_statement(stmt)?;
-                }
-
-                self.current_function.exit_scope();
+                self.transform_block(block)?;
             }
-
-            HirStatement::Break(_) | HirStatement::Continue(_) => {
-                // No ownership implications
-            }
+            HirStatement::Break(_) | HirStatement::Continue(_) => {}
         }
 
         Ok(())
     }
 
-    // =========================================================================
-    // Expression Analysis
-    // =========================================================================
-
     fn analyze_expr(&mut self, expr: &mut HirExpr<'hir>) -> HirResult<()> {
         match expr {
-            // Literals don't have ownership implications
-            HirExpr::IntegerLiteral(_)
-            | HirExpr::FloatLiteral(_)
-            | HirExpr::UnsignedIntegerLiteral(_)
-            | HirExpr::BooleanLiteral(_)
-            | HirExpr::UnitLiteral(_)
-            | HirExpr::CharLiteral(_)
-            | HirExpr::StringLiteral(_)
-            | HirExpr::NullLiteral(_) => {}
-
-            HirExpr::Ident(ident) => {
-                self.check_variable_access(ident)?;
-            }
-
-            HirExpr::ThisLiteral(_) => {
-                // 'this' is always valid
-            }
+            HirExpr::Ident(ident) => self.check_variable_access(ident)?,
 
             HirExpr::HirBinaryOperation(bin_op) => {
                 self.analyze_expr(&mut bin_op.lhs)?;
@@ -715,24 +416,16 @@ impl<'hir> OwnershipPass<'hir> {
             }
 
             HirExpr::Call(call) => {
-                // Analyze callee
                 self.analyze_expr(&mut call.callee)?;
-
-                // Analyze arguments
                 for arg in &mut call.args {
                     self.analyze_expr(arg)?;
                 }
-
-                // Check for std::move calls
-                self.check_move_call(call)?;
+                self.apply_call_ownership(call)?;
             }
 
             HirExpr::FieldAccess(field_access) => {
                 self.analyze_expr(&mut field_access.target)?;
-            }
-
-            HirExpr::StaticAccess(_) => {
-                // Static access doesn't involve ownership
+                self.check_field_access_state(field_access);
             }
 
             HirExpr::Indexing(indexing) => {
@@ -766,9 +459,11 @@ impl<'hir> OwnershipPass<'hir> {
                 }
             }
 
-            HirExpr::Delete(delete) => {
-                self.analyze_expr(&mut delete.expr)?;
-                self.check_delete_expr(delete)?;
+            HirExpr::Delete(delete_expr) => {
+                self.analyze_expr(&mut delete_expr.expr)?;
+                if let Some((name, _)) = self.extract_move_target(&delete_expr.expr) {
+                    self.mark_deleted(name, delete_expr.span);
+                }
             }
 
             HirExpr::Copy(copy_expr) => {
@@ -780,358 +475,391 @@ impl<'hir> OwnershipPass<'hir> {
                     self.analyze_expr(arg)?;
                 }
             }
+
+            HirExpr::IntegerLiteral(_)
+            | HirExpr::FloatLiteral(_)
+            | HirExpr::UnsignedIntegerLiteral(_)
+            | HirExpr::BooleanLiteral(_)
+            | HirExpr::UnitLiteral(_)
+            | HirExpr::CharLiteral(_)
+            | HirExpr::StringLiteral(_)
+            | HirExpr::NullLiteral(_)
+            | HirExpr::ThisLiteral(_)
+            | HirExpr::StaticAccess(_) => {}
         }
 
         Ok(())
     }
 
-    // =========================================================================
-    // Ownership Checks
-    // =========================================================================
-
-    /// Check if accessing a variable is valid
     fn check_variable_access(&mut self, ident: &HirIdentExpr<'hir>) -> HirResult<()> {
-        if let Some(var_id) = self.current_function.lookup_variable_id(ident.name) {
-            if let Some(var) = self.current_function.get_variable(var_id) {
-                // Trivial types don't need tracking
-                if matches!(var.category, TypeCategory::Trivial) {
-                    return Ok(());
-                }
-
-                match &var.status {
-                    VarStatus::Moved { move_span } => {
-                        // Use-after-move is a warning (UB in C++ terms)
-                        let warning =
-                            self.use_after_move_warning(ident.name, ident.span, *move_span);
-                        self.warnings.push(warning);
-                    }
-                    VarStatus::ConditionallyMoved { move_span } => {
-                        // Possible use-after-move is also a warning
-                        let warning =
-                            self.use_after_move_warning(ident.name, ident.span, *move_span);
-                        self.warnings.push(warning);
-                    }
-                    VarStatus::Deleted { delete_span } => {
-                        // Use-after-delete is an error
-                        let path = ident.span.path;
-                        let src = utils::get_file_content(path).unwrap();
-                        return Err(HirError::TryingToAccessADeletedValue(
-                            TryingToAccessADeletedValueError {
-                                delete_span: *delete_span,
-                                access_span: ident.span,
-                                src: NamedSource::new(path, src),
-                            },
-                        ));
-                    }
-                    VarStatus::Owned | VarStatus::Borrowed { .. } => {
-                        // Valid access
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Check function calls for moveable reference parameters and mark variables as moved.
-    ///
-    /// When a variable is passed to a parameter with type `T&&` (moveable reference),
-    /// that variable should be marked as moved. This is independent of what the function
-    /// is called - any function taking a moveable reference will trigger a move.
-    fn check_move_call(
-        &mut self,
-        call: &mut crate::atlas_c::atlas_hir::expr::HirFunctionCallExpr<'hir>,
-    ) -> HirResult<()> {
-        // Iterate through arguments and their expected types
-        for (i, arg) in call.args.iter().enumerate() {
-            // Get the expected parameter type
-            let Some(param_ty) = call.args_ty.get(i) else {
-                continue;
-            };
-
-            // Check if this parameter expects a moveable reference
-            let is_moveable_ref = matches!(
-                param_ty,
-                HirTy::Reference(r) if r.kind == HirReferenceKind::Moveable
-            );
-
-            if !is_moveable_ref {
-                continue;
-            }
-
-            // The argument is being passed to a moveable reference parameter.
-            // Extract the variable being moved (handles both `var` and `&var` patterns).
-            let var_name = match arg {
-                HirExpr::Ident(ident) => Some((ident.name, ident.span)),
-                HirExpr::Unary(unary) => {
-                    // Handle &var being passed as T&&
-                    if let HirExpr::Ident(ident) = unary.expr.as_ref() {
-                        Some((ident.name, ident.span))
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            };
-
-            let Some((name, arg_span)) = var_name else {
-                continue;
-            };
-
-            let Some(var_id) = self.current_function.lookup_variable_id(name) else {
-                continue;
-            };
-
-            // Collect the variable IDs to mark as moved
-            // This includes the variable itself and any variables it references
-            let mut vars_to_mark_moved = vec![var_id];
-
-            // Check if already moved
-            if let Some(var) = self.current_function.get_variable(var_id) {
-                if let VarStatus::Moved { move_span } = &var.status {
-                    // Double move warning - valid in C++ but potentially dangerous
-                    let warning = self.use_after_move_warning(name, arg_span, *move_span);
+        if let Some(var) = self.get_var(ident.name) {
+            match &var.state {
+                VarState::Moved { move_span, reason } => {
+                    let warning =
+                        self.use_after_move_warning(ident.name, ident.span, *move_span, reason);
                     self.warnings.push(warning);
                 }
-
-                // Check if moving in a loop
-                if self.current_function.is_in_loop() {
-                    if let Some(loop_span) = self.current_function.get_innermost_loop_span() {
-                        let warning = self.move_in_loop_warning(name, arg_span, loop_span);
-                        self.warnings.push(warning);
-                    }
+                VarState::ConditionallyMoved { move_span } => {
+                    let warning = self.use_after_move_warning(
+                        ident.name,
+                        ident.span,
+                        *move_span,
+                        &MoveReason::MutablePointerParameter,
+                    );
+                    self.warnings.push(warning);
                 }
-
-                // If this variable is a reference, also mark the referenced variables as moved
-                if !var.refs_locals.is_empty() {
-                    vars_to_mark_moved.extend(var.refs_locals.iter().copied());
+                VarState::PartiallyMoved { move_span, .. } => {
+                    let warning = self.use_after_move_warning(
+                        ident.name,
+                        ident.span,
+                        *move_span,
+                        &MoveReason::MoveConstructorCall,
+                    );
+                    self.warnings.push(warning);
                 }
-            }
-
-            // Mark all variables as moved (the reference itself and any variables it references)
-            for vid in vars_to_mark_moved {
-                self.current_function.mark_moved(vid, arg_span);
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Check delete expressions
-    fn check_delete_expr(
-        &mut self,
-        delete: &crate::atlas_c::atlas_hir::expr::HirDeleteExpr<'hir>,
-    ) -> HirResult<()> {
-        // Check if deleting in a loop
-        if self.current_function.is_in_loop() {
-            if let HirExpr::Ident(ident) = delete.expr.as_ref() {
-                if let Some(loop_span) = self.current_function.get_innermost_loop_span() {
-                    let path = delete.span.path;
+                VarState::Deleted { delete_span } => {
+                    let path = ident.span.path;
                     let src = utils::get_file_content(path).unwrap();
-                    return Err(HirError::CannotDeleteOutOfLoop(
-                        CannotDeleteOutOfLoopError {
-                            loop_span,
-                            delete_span: delete.span,
-                            var_name: ident.name.to_string(),
+                    return Err(HirError::TryingToAccessADeletedValue(
+                        TryingToAccessADeletedValueError {
+                            delete_span: *delete_span,
+                            access_span: ident.span,
                             src: NamedSource::new(path, src),
                         },
                     ));
                 }
-            }
-        }
-
-        // Mark variable as deleted if it's an identifier
-        if let HirExpr::Ident(ident) = delete.expr.as_ref() {
-            if let Some(var_id) = self.current_function.lookup_variable_id(ident.name) {
-                self.current_function.mark_deleted(var_id, delete.span);
+                VarState::Valid => {}
             }
         }
 
         Ok(())
     }
 
-    /// Check return statement for reference lifetime issues
-    fn check_return_lifetime(&self, expr: &HirExpr<'hir>, return_span: Span) -> HirResult<()> {
-        let ty = expr.ty();
+    fn check_field_access_state(&mut self, field_access: &HirFieldAccessExpr<'hir>) {
+        if let HirExpr::Ident(base_ident) = field_access.target.as_ref() {
+            if let Some(var) = self.get_var(base_ident.name) {
+                if let VarState::PartiallyMoved {
+                    moved_fields,
+                    move_span,
+                } = &var.state
+                {
+                    if moved_fields.contains(field_access.field.name) {
+                        let warning = self.use_after_move_warning(
+                            base_ident.name,
+                            field_access.span,
+                            *move_span,
+                            &MoveReason::MoveConstructorCall,
+                        );
+                        self.warnings.push(warning);
+                    }
+                }
+            }
+        }
+    }
 
-        // Only check reference types
-        if !matches!(ty, HirTy::Reference(_)) {
+    fn apply_call_ownership(&mut self, call: &mut HirFunctionCallExpr<'hir>) -> HirResult<()> {
+        let move_reason = if self.is_std_move_call(call) {
+            Some(MoveReason::ExplicitMoveCall)
+        } else if self.is_move_constructor_call(call) {
+            Some(MoveReason::MoveConstructorCall)
+        } else {
+            None
+        };
+
+        for idx in 0..call.args.len() {
+            let param_ty = call.args_ty.get(idx).copied();
+            let is_mut_ptr_param = matches!(param_ty, Some(HirTy::PtrTy(p)) if !p.is_const);
+
+            let should_move = move_reason.is_some() || is_mut_ptr_param;
+
+            if should_move {
+                self.ensure_not_moving_from_const_ptr(&call.args[idx])?;
+
+                if let Some((var_name, field_name)) = self.extract_move_target(&call.args[idx]) {
+                    if let Some(field) = field_name {
+                        self.mark_field_moved(var_name, field, call.args[idx].span());
+                    } else {
+                        self.mark_moved(
+                            var_name,
+                            call.args[idx].span(),
+                            move_reason
+                                .clone()
+                                .unwrap_or(MoveReason::MutablePointerParameter),
+                        );
+                    }
+                }
+                continue;
+            }
+
+            if !matches!(param_ty, Some(HirTy::PtrTy(_))) {
+                let fallback_ty = call.args[idx].ty();
+                let arg_span = call.args[idx].span();
+                self.copy_by_default(&mut call.args[idx], fallback_ty, arg_span)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn ensure_not_moving_from_const_ptr(&self, expr: &HirExpr<'hir>) -> HirResult<()> {
+        if let HirExpr::Unary(unary) = expr {
+            if unary.op == Some(HirUnaryOp::Deref)
+                && matches!(unary.expr.ty(), HirTy::PtrTy(p) if p.is_const)
+            {
+                let path = expr.span().path;
+                let src = utils::get_file_content(path).unwrap();
+                return Err(HirError::TypeIsNotMoveable(TypeIsNotMoveableError {
+                    span: expr.span(),
+                    ty_name: format!("{}", unary.expr.ty()),
+                    src: NamedSource::new(path, src),
+                }));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn extract_move_target(&self, expr: &HirExpr<'hir>) -> Option<(&'hir str, Option<&'hir str>)> {
+        match expr {
+            HirExpr::Ident(ident) => Some((ident.name, None)),
+            HirExpr::FieldAccess(field_access) => {
+                if let HirExpr::Ident(base) = field_access.target.as_ref() {
+                    Some((base.name, Some(field_access.field.name)))
+                } else {
+                    None
+                }
+            }
+            HirExpr::Unary(unary)
+                if unary.op == Some(HirUnaryOp::AsRef) || unary.op == Some(HirUnaryOp::Deref) =>
+            {
+                self.extract_move_target(&unary.expr)
+            }
+            _ => None,
+        }
+    }
+
+    // TODO: Remove "is_std" and replace it by "is_intrinsic"
+    fn is_std_move_call(&self, call: &HirFunctionCallExpr<'hir>) -> bool {
+        match call.callee.as_ref() {
+            HirExpr::Ident(ident) => ident.name == "move",
+            HirExpr::StaticAccess(access) => access.field.name == "move",
+            _ => false,
+        }
+    }
+
+    fn is_move_constructor_call(&self, call: &HirFunctionCallExpr<'hir>) -> bool {
+        match call.callee.as_ref() {
+            HirExpr::Ident(ident) => ident.name == "__move_ctor",
+            HirExpr::StaticAccess(access) => access.field.name == "__move_ctor",
+            _ => false,
+        }
+    }
+
+    fn copy_by_default(
+        &mut self,
+        expr: &mut HirExpr<'hir>,
+        expected_ty: &'hir HirTy<'hir>,
+        span: Span,
+    ) -> HirResult<()> {
+        if self.is_explicit_move_expr(expr) || matches!(expr, HirExpr::Copy(_)) {
             return Ok(());
         }
 
-        // Get all local variables this expression references
-        let local_refs = self.get_local_ref_targets(expr);
-
-        for local_name in local_refs {
-            if let Some(var_id) = self.current_function.lookup_variable_id(local_name) {
-                if let Some(var) = self.current_function.get_variable(var_id) {
-                    // If the variable cannot escape (is a local), error
-                    if !var.lifetime.can_escape && !var.is_param {
-                        let path = return_span.path;
-                        let src = utils::get_file_content(path).unwrap();
-                        return Err(HirError::ReturningReferenceToLocalVariable(
-                            ReturningReferenceToLocalVariableError {
-                                span: return_span,
-                                var_name: local_name.to_string(),
-                                src: NamedSource::new(path, src),
-                            },
-                        ));
-                    }
-                }
-            }
+        let source_ty = expr.ty();
+        if self.is_trivial(source_ty) || self.is_trivial(expected_ty) {
+            return Ok(());
         }
+
+        if !self.is_copyable(source_ty) {
+            let path = span.path;
+            let src = utils::get_file_content(path).unwrap();
+            return Err(HirError::TypeIsNotCopyable(TypeIsNotCopyableError {
+                span,
+                type_name: format!("{}", source_ty),
+                src: NamedSource::new(path, src),
+            }));
+        }
+
+        if !self.should_wrap_copy_expr(expr) {
+            return Ok(());
+        }
+
+        let source_name = self.extract_copy_source_name(expr).unwrap_or("<tmp>");
+        let old = expr.clone();
+        *expr = HirExpr::Copy(HirCopyExpr {
+            span,
+            source_name,
+            expr: Box::new(old),
+            ty: source_ty,
+        });
 
         Ok(())
     }
 
-    /// Get all local variables that an expression references
-    fn get_local_ref_targets(&self, expr: &HirExpr<'hir>) -> Vec<&'hir str> {
+    fn should_wrap_copy_expr(&self, expr: &HirExpr<'hir>) -> bool {
+        matches!(
+            expr,
+            HirExpr::Ident(_)
+                | HirExpr::FieldAccess(_)
+                | HirExpr::Indexing(_)
+                | HirExpr::Unary(_)
+                | HirExpr::ThisLiteral(_)
+        )
+    }
+
+    fn extract_copy_source_name(&self, expr: &HirExpr<'hir>) -> Option<&'hir str> {
         match expr {
-            HirExpr::Ident(ident) => {
-                if let Some(var) = self.current_function.lookup_variable(ident.name) {
-                    if !var.is_param {
-                        return vec![ident.name];
-                    }
-                    // Include transitive references
-                    let mut result = Vec::new();
-                    for &origin_id in &var.refs_locals {
-                        if let Some(origin_var) = self.current_function.get_variable(origin_id) {
-                            if !origin_var.is_param {
-                                result.push(origin_var.name);
-                            }
-                        }
-                    }
-                    return result;
-                }
-                Vec::new()
-            }
-            HirExpr::Unary(unary) => {
-                // &x creates a reference to x
-                if unary.op == Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::AsRef) {
-                    return self.get_local_ref_targets(&unary.expr);
-                }
-                Vec::new()
-            }
+            HirExpr::Ident(ident) => Some(ident.name),
             HirExpr::FieldAccess(field) => {
-                // Field access inherits target's lifetime
-                self.get_local_ref_targets(&field.target)
-            }
-            _ => Vec::new(),
-        }
-    }
-
-    /// Get reference origins from an expression (for tracking what a reference points to)
-    fn get_reference_origins(&self, expr: &HirExpr<'hir>) -> Vec<VarId> {
-        match expr {
-            HirExpr::Ident(ident) => {
-                if let Some(var_id) = self.current_function.lookup_variable_id(ident.name) {
-                    vec![var_id]
+                if let HirExpr::Ident(base) = field.target.as_ref() {
+                    Some(base.name)
                 } else {
-                    Vec::new()
+                    None
                 }
             }
-            HirExpr::Unary(unary) => {
-                // &x creates a reference to x
-                // Also handle implicit conversions (op = None) for moveable references
-                if unary.op == Some(crate::atlas_c::atlas_hir::expr::HirUnaryOp::AsRef)
-                    || unary.op.is_none()
-                {
-                    return self.get_reference_origins(&unary.expr);
-                }
-                Vec::new()
-            }
-            HirExpr::FieldAccess(field) => self.get_reference_origins(&field.target),
-            _ => Vec::new(),
+            HirExpr::Unary(unary) => self.extract_copy_source_name(&unary.expr),
+            _ => None,
         }
     }
 
-    /// Merge variable states from two branches (if/else)
+    fn is_explicit_move_expr(&self, expr: &HirExpr<'hir>) -> bool {
+        matches!(expr, HirExpr::Call(call) if self.is_std_move_call(call) || self.is_move_constructor_call(call))
+    }
+
+    fn build_scope_auto_deletes(&mut self, span: Span) -> Vec<HirStatement<'hir>> {
+        let mut deletes = Vec::new();
+        let mut names_to_delete: Vec<&'hir str> = Vec::new();
+
+        if let Some(scope) = self.scopes.last() {
+            for var in scope.vars.values() {
+                if var.is_param {
+                    continue;
+                }
+                if !self.should_auto_delete_type(var.ty) {
+                    continue;
+                }
+                if matches!(var.state, VarState::Deleted { .. }) {
+                    continue;
+                }
+                names_to_delete.push(var.name);
+            }
+        }
+
+        for name in names_to_delete {
+            if let Some(var) = self.get_var(name) {
+                let ident = HirExpr::Ident(HirIdentExpr {
+                    name,
+                    span,
+                    ty: var.ty,
+                });
+                deletes.push(HirStatement::Expr(HirExprStmt {
+                    span,
+                    expr: HirExpr::Delete(HirDeleteExpr {
+                        span,
+                        expr: Box::new(ident),
+                    }),
+                }));
+            }
+            self.mark_deleted(name, span);
+        }
+
+        deletes
+    }
+
     fn merge_branch_states(
         &mut self,
-        then_states: HashMap<VarId, VarStatus>,
-        else_states: HashMap<VarId, VarStatus>,
+        before: &[ScopeState<'hir>],
+        then_state: &[ScopeState<'hir>],
+        else_state: &[ScopeState<'hir>],
     ) {
-        for (var_id, then_status) in then_states {
-            let else_status = else_states
-                .get(&var_id)
-                .cloned()
-                .unwrap_or(VarStatus::Owned);
+        let depth = before.len().min(then_state.len()).min(else_state.len());
 
-            let merged = match (&then_status, &else_status) {
-                (VarStatus::Moved { move_span: s1 }, VarStatus::Moved { .. }) => {
-                    // Moved in both branches → definitely moved
-                    VarStatus::Moved { move_span: *s1 }
-                }
-                (VarStatus::Moved { move_span }, _) | (_, VarStatus::Moved { move_span }) => {
-                    // Moved in one branch → conditionally moved
-                    VarStatus::ConditionallyMoved {
+        for idx in 0..depth {
+            let names: Vec<&'hir str> = before[idx].vars.keys().copied().collect();
+            for name in names {
+                let then_var = then_state[idx].vars.get(name);
+                let else_var = else_state[idx].vars.get(name);
+
+                let (Some(then_var), Some(else_var)) = (then_var, else_var) else {
+                    continue;
+                };
+
+                let merged = match (&then_var.state, &else_var.state) {
+                    (VarState::Moved { move_span, reason }, VarState::Moved { .. }) => {
+                        VarState::Moved {
+                            move_span: *move_span,
+                            reason: reason.clone(),
+                        }
+                    }
+                    (VarState::Deleted { delete_span }, VarState::Deleted { .. }) => {
+                        VarState::Deleted {
+                            delete_span: *delete_span,
+                        }
+                    }
+                    (VarState::Moved { move_span, .. }, _)
+                    | (_, VarState::Moved { move_span, .. }) => VarState::ConditionallyMoved {
                         move_span: *move_span,
-                    }
-                }
-                (VarStatus::Deleted { delete_span: s1 }, VarStatus::Deleted { .. }) => {
-                    // Deleted in both branches → definitely deleted
-                    VarStatus::Deleted { delete_span: *s1 }
-                }
-                (VarStatus::ConditionallyMoved { move_span }, _)
-                | (_, VarStatus::ConditionallyMoved { move_span }) => {
-                    VarStatus::ConditionallyMoved {
-                        move_span: *move_span,
-                    }
-                }
-                _ => VarStatus::Owned,
-            };
+                    },
+                    _ => VarState::Valid,
+                };
 
-            if let Some(var) = self.current_function.get_variable_mut(var_id) {
-                var.status = merged;
-            }
-        }
-    }
-
-    /// Check for moves that occurred in a loop and upgrade them to conditional moves
-    fn check_moves_in_loop(&mut self, state_before: HashMap<VarId, VarStatus>) {
-        for (var_id, status_before) in state_before {
-            if let Some(var) = self.current_function.get_variable(var_id) {
-                if let VarStatus::Moved { move_span } = &var.status {
-                    // Was moved inside loop
-                    if !matches!(status_before, VarStatus::Moved { .. }) {
-                        // Upgrade to conditionally moved
-                        self.current_function
-                            .mark_conditionally_moved(var_id, *move_span);
-                    }
+                if let Some(var) = self.scopes[idx].vars.get_mut(name) {
+                    var.state = merged;
                 }
             }
         }
     }
 
-    // =========================================================================
-    // Warning Generation
-    // =========================================================================
+    fn merge_loop_states(&mut self, before: &[ScopeState<'hir>], after: &[ScopeState<'hir>]) {
+        let depth = before.len().min(after.len());
+
+        for idx in 0..depth {
+            let names: Vec<&'hir str> = before[idx].vars.keys().copied().collect();
+            for name in names {
+                let before_var = before[idx].vars.get(name);
+                let after_var = after[idx].vars.get(name);
+
+                let (Some(before_var), Some(after_var)) = (before_var, after_var) else {
+                    continue;
+                };
+
+                if matches!(before_var.state, VarState::Valid)
+                    && let VarState::Moved { move_span, .. } = after_var.state
+                    && let Some(current) = self.scopes[idx].vars.get_mut(name)
+                {
+                    current.state = VarState::ConditionallyMoved { move_span };
+                }
+            }
+        }
+    }
 
     fn use_after_move_warning(
         &self,
-        var_name: &str,
+        var_name: &'hir str,
         access_span: Span,
         move_span: Span,
+        reason: &MoveReason,
     ) -> ErrReport {
+        let reason_str = match reason {
+            MoveReason::ExplicitMoveCall => "explicit move call",
+            MoveReason::MoveConstructorCall => "move constructor call",
+            MoveReason::MutablePointerParameter => "mutable pointer parameter",
+        };
+
         let path = access_span.path;
         let src = utils::get_file_content(path).unwrap();
-        UseAfterMoveWarning {
+        let mut report: ErrReport = UseAfterMoveWarning {
             src: NamedSource::new(path, src),
             access_span,
             move_span,
             var_name: var_name.to_string(),
         }
-        .into()
-    }
+        .into();
 
-    fn move_in_loop_warning(&self, var_name: &str, move_span: Span, loop_span: Span) -> ErrReport {
-        let path = move_span.path;
-        let src = utils::get_file_content(path).unwrap();
-        MoveInLoopWarning {
-            src: NamedSource::new(path, src),
-            move_span,
-            loop_span,
-            var_name: var_name.to_string(),
-        }
-        .into()
+        report = report.wrap_err(format!(
+            "undefined behavior risk: variable was moved via {}",
+            reason_str
+        ));
+        report
     }
 }

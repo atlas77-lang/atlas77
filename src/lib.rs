@@ -22,7 +22,7 @@ pub mod tcc;
 use crate::atlas_c::{
     atlas_codegen::{CCodeGen, HEADER_NAME},
     atlas_hir::{
-        dead_code_elimination_pass::DeadCodeEliminationPass, // ownership_pass::OwnershipPass,
+        dead_code_elimination_pass::DeadCodeEliminationPass, ownership_pass::OwnershipPass,
         pretty_print::HirPrettyPrinter,
     },
     atlas_lir::hir_lowering_pass::HirLoweringPass,
@@ -366,7 +366,7 @@ pub fn build(
     // - Type-based classification (Trivial/Resource/View)
     // - Strict reference lifetime tracking (compile errors on use-after-free)
     // - Explicit move semantics (warnings on use-after-move)
-    /* let mut ownership_pass = OwnershipPass::new(hir.signature.clone(), &hir_arena);
+    let mut ownership_pass = OwnershipPass::new(hir.signature.clone(), &hir_arena);
     let mut hir = match ownership_pass.run(hir) {
         Ok(hir) => hir,
         Err((hir, err)) => {
@@ -377,7 +377,7 @@ pub fn build(
             file_hir.write_all(hir_output.as_bytes()).unwrap();
             return Err((err).into());
         }
-    }; */
+    };
 
     //Dead code elimination (only in release mode)
     let mut dce_pass = DeadCodeEliminationPass::new(&hir_arena);

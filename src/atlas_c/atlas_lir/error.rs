@@ -25,12 +25,13 @@ pub type LirResult<T> = Result<T, Box<LirLoweringError>>;
     // It's just a warning for now, the Lir lowering pass isn't ready
     severity(warning)
 )]
-#[error("Unsupported HIR expression for Lir lowering")]
+#[error("Unsupported HIR expression for Lir lowering: {expr}")]
 pub struct UnsupportedHirExprError {
     #[label = "unsupported HIR expression for Lir lowering"]
     pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
+    pub expr: String,
 }
 
 #[derive(Error, Diagnostic, Debug)]

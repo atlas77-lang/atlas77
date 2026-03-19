@@ -5,9 +5,8 @@ use super::{
 };
 use crate::atlas_c::atlas_hir::error::{
     AccessingPrivateUnionError, CallingConsumingMethodOnMutableReferenceError,
-    CallingConsumingMethodOnMutableReferenceOrigin, ListIndexOutOfBoundsError,
-    ReferenceToReferenceError, RvalueReferenceToLvalueReferenceError,
-    StdNonCopyableStructCannotHaveCopyConstructorError,
+    CallingConsumingMethodOnMutableReferenceOrigin, CannotAccessFieldOfPointersError,
+    ListIndexOutOfBoundsError, StdNonCopyableStructCannotHaveCopyConstructorError,
     StdNonMoveableStructCannotHaveMoveConstructorError, StructCannotHaveAFieldOfItsOwnTypeError,
     ThisStructDoesNotHaveACopyConstructorError, ThisStructDoesNotHaveAMoveConstructorError,
     TypeIsNotCopyableError, TypeIsNotMoveableError, UnionMustHaveAtLeastTwoVariantError,
@@ -32,9 +31,8 @@ use crate::atlas_c::atlas_hir::{
         TryingToAccessFieldOnNonObjectTypeError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin, TryingToIndexNonIndexableTypeError,
-        TryingToMutateConstReferenceError, TypeMismatchActual, TypeMismatchError,
-        UnknownFieldError, UnknownIdentifierError, UnknownMethodError, UnknownTypeError,
-        UnsupportedExpr,
+        TryingToMutateConstPointerError, TypeMismatchActual, TypeMismatchError, UnknownFieldError,
+        UnknownIdentifierError, UnknownMethodError, UnknownTypeError, UnsupportedExpr,
     },
     expr::{
         HirBinaryOperator, HirExpr, HirIdentExpr, HirNewObjExpr, HirUnaryOp,
@@ -168,7 +166,7 @@ impl<'hir> TypeChecker<'hir> {
             self.context_functions.push(HashMap::new());
             self.check_method(method)?;
         }
-        self.current_func_name = Some("ctor");
+        self.current_func_name = Some("__ctor");
         self.check_constructor(&mut class.constructor)?;
 
         if let Some(copy_ctor) = &mut class.copy_constructor {
@@ -184,7 +182,7 @@ impl<'hir> TypeChecker<'hir> {
                     },
                 ));
             }
-            self.current_func_name = Some("copy_ctor");
+            self.current_func_name = Some("__copy_ctor");
             self.check_copy_ctor(copy_ctor)?;
         }
 
@@ -201,11 +199,11 @@ impl<'hir> TypeChecker<'hir> {
                     },
                 ));
             }
-            self.current_func_name = Some("move_ctor");
+            self.current_func_name = Some("__move_ctor");
             self.check_move_ctor(move_ctor)?;
         }
 
-        self.current_func_name = Some("dtor");
+        self.current_func_name = Some("__dtor");
         self.check_destructor(class.destructor.as_mut().unwrap())?;
         Ok(())
     }
@@ -215,7 +213,7 @@ impl<'hir> TypeChecker<'hir> {
         self.context_functions
             .last_mut()
             .unwrap()
-            .insert(String::from("dtor"), ContextFunction::new());
+            .insert(String::from("__dtor"), ContextFunction::new());
         for stmt in &mut destructor.body.statements {
             self.check_stmt(stmt)?;
         }
@@ -229,12 +227,12 @@ impl<'hir> TypeChecker<'hir> {
         self.context_functions
             .last_mut()
             .unwrap()
-            .insert(String::from("copy_ctor"), ContextFunction::new());
+            .insert(String::from("__copy_ctor"), ContextFunction::new());
         for param in &copy_ctor.params {
             self.context_functions
                 .last_mut()
                 .unwrap()
-                .get_mut("copy_ctor")
+                .get_mut("__copy_ctor")
                 .unwrap()
                 .insert(
                     param.name,
@@ -262,12 +260,12 @@ impl<'hir> TypeChecker<'hir> {
         self.context_functions
             .last_mut()
             .unwrap()
-            .insert(String::from("move_ctor"), ContextFunction::new());
+            .insert(String::from("__move_ctor"), ContextFunction::new());
         for param in &move_ctor.params {
             self.context_functions
                 .last_mut()
                 .unwrap()
-                .get_mut("move_ctor")
+                .get_mut("__move_ctor")
                 .unwrap()
                 .insert(
                     param.name,
@@ -295,12 +293,12 @@ impl<'hir> TypeChecker<'hir> {
         self.context_functions
             .last_mut()
             .unwrap()
-            .insert(String::from("ctor"), ContextFunction::new());
+            .insert(String::from("__ctor"), ContextFunction::new());
         for param in &constructor.params {
             self.context_functions
                 .last_mut()
                 .unwrap()
-                .get_mut("ctor")
+                .get_mut("__ctor")
                 .unwrap()
                 .insert(
                     param.name,
@@ -611,7 +609,7 @@ impl<'hir> TypeChecker<'hir> {
                     let deref_target_ty = self.check_expr(&mut unary_expr.expr.clone())?;
                     if deref_target_ty.is_const_ptr() {
                         // Allow mutation in constructor for field initialization
-                        if !(self.current_func_name == Some("ctor")
+                        if !(self.current_func_name == Some("__ctor")
                             && self.current_class_name.is_some())
                         {
                             return Err(Self::trying_to_mutate_const_reference(
@@ -727,14 +725,15 @@ impl<'hir> TypeChecker<'hir> {
                     }
                 };
                 //early return for constructor, destructor, and copy constructor
-                if function_name == "ctor"
-                    || function_name == "dtor"
-                    || function_name == "copy_ctor"
-                    || function_name == "move_ctor"
-                    || function_name == "default_ctor"
+                if function_name == "__ctor"
+                    || function_name == "__dtor"
+                    || function_name == "__copy_ctor"
+                    || function_name == "__move_ctor"
+                    || function_name == "__default_ctor"
                 {
-                    s.ty = self_ty;
-                    return Ok(self_ty);
+                    let ptr_ty = self.arena.types().get_ptr_ty(self_ty, false, s.span);
+                    s.ty = ptr_ty;
+                    return Ok(ptr_ty);
                 }
                 let method = class.methods.get(function_name).unwrap();
                 match method.modifier {
@@ -793,18 +792,6 @@ impl<'hir> TypeChecker<'hir> {
                         Ok(ty)
                     }
                     Some(HirUnaryOp::AsRef) => {
-                        // Forbid pointer nesting for now: &(<*T>) results in **T which is complex
-                        if matches!(ty, HirTy::PtrTy(_)) {
-                            let path = u.expr.span().path;
-                            let src = utils::get_file_content(path).unwrap();
-                            return Err(HirError::ReferenceToReference(
-                                ReferenceToReferenceError {
-                                    span: u.span,
-                                    src: NamedSource::new(path, src),
-                                },
-                            ));
-                        }
-                        // & creates a mutable (exclusive) pointer by default
                         let ptr_ty = self.arena.types().get_ptr_ty(ty, false, u.span); // is_const = false for &
                         u.ty = ptr_ty;
                         Ok(ptr_ty)
@@ -839,7 +826,7 @@ impl<'hir> TypeChecker<'hir> {
                         | HirTy::String(_)
                         | HirTy::PtrTy(_)
                 );
-                if !can_cast && !c.target_ty.is_raw_ptr() {
+                if !can_cast && !c.target_ty.is_ptr() {
                     return Err(Self::type_mismatch_err(
                         &format!("{}", expr_ty),
                         &c.expr.span(),
@@ -1213,7 +1200,7 @@ impl<'hir> TypeChecker<'hir> {
                         return Err(HirError::AccessingPrivateConstructor(
                             AccessingPrivateConstructorError {
                                 span: new_obj_expr.span,
-                                kind: String::from("ctor"),
+                                kind: String::from("__ctor"),
                                 src: NamedSource::new(path, src),
                             },
                         ));
@@ -1370,6 +1357,27 @@ impl<'hir> TypeChecker<'hir> {
                     }
                     HirExpr::FieldAccess(field_access) => {
                         let target_ty = self.check_expr(&mut field_access.target)?;
+
+                        if target_ty.is_ptr() && !field_access.is_arrow {
+                            let path = field_access.span.path;
+                            let src = utils::get_file_content(path).unwrap();
+                            return Err(HirError::CannotAccessFieldOfPointers(
+                                CannotAccessFieldOfPointersError {
+                                    span: field_access.span,
+                                    src: NamedSource::new(path, src),
+                                },
+                            ));
+                        }
+
+                        if !target_ty.is_ptr() && field_access.is_arrow {
+                            return Err(Self::illegal_operation_err(
+                                target_ty,
+                                self.arena.types().get_unit_ty(),
+                                field_access.span,
+                                "->",
+                            ));
+                        }
+
                         let name = match self.get_class_name_of_type(target_ty) {
                             Some(n) => n,
                             None => {
@@ -1774,6 +1782,7 @@ impl<'hir> TypeChecker<'hir> {
                 Ok(ctx_var.ty)
             }
             HirExpr::FieldAccess(field_access) => {
+                // target_ty.field_ty
                 let target_ty = self.check_expr(&mut field_access.target)?;
                 let name = match self.get_class_name_of_type(target_ty) {
                     Some(n) => n,
@@ -1862,32 +1871,28 @@ impl<'hir> TypeChecker<'hir> {
                             },
                         ));
                     }
-                    if self.is_const_ptr_ty(target_ty) {
-                        field_access.ty = self.arena.types().get_ptr_ty(
-                            field_signature.ty,
-                            true, // is_const
-                            field_access.span,
-                        );
-                        field_access.field.ty = self.arena.types().get_ptr_ty(
-                            field_signature.ty,
-                            true, // is_const
-                            field_access.span,
-                        );
-                    } else if self.is_mutable_ptr_ty(target_ty) {
-                        field_access.ty = self.arena.types().get_ptr_ty(
-                            field_signature.ty,
-                            false, // is_const
-                            field_access.span,
-                        );
-                        field_access.field.ty = self.arena.types().get_ptr_ty(
-                            field_signature.ty,
-                            false, // is_const
-                            field_access.span,
-                        );
-                    } else {
-                        field_access.ty = field_signature.ty;
-                        field_access.field.ty = field_signature.ty;
+                    if target_ty.is_ptr() && !field_access.is_arrow {
+                        let path = field_access.span.path;
+                        let src = utils::get_file_content(path).unwrap();
+                        return Err(HirError::CannotAccessFieldOfPointers(
+                            CannotAccessFieldOfPointersError {
+                                span: field_access.span,
+                                src: NamedSource::new(path, src),
+                            },
+                        ));
                     }
+                    if !target_ty.is_ptr() && field_access.is_arrow {
+                        return Err(Self::illegal_unary_operation_err(
+                            target_ty,
+                            field_access.span,
+                            "->",
+                        ));
+                    }
+
+                    // Field access always evaluates to the field type.
+                    // For pointers, `->` dereferences then accesses the field.
+                    field_access.ty = field_signature.ty;
+                    field_access.field.ty = field_signature.ty;
                     match field_access.field.ty {
                         HirTy::Named(n) => {
                             if self.signature.enums.contains_key(n.name) {
@@ -1925,7 +1930,7 @@ impl<'hir> TypeChecker<'hir> {
                 let class = match self.signature.structs.get(name) {
                     Some(c) => *c,
                     None => {
-                        //We might be trying to access an enum variant
+                        // We might be trying to access an enum variant
                         if let Some(enum_signature) = self.signature.enums.get(name) {
                             let variant = enum_signature
                                 .variants
@@ -2641,7 +2646,7 @@ impl<'hir> TypeChecker<'hir> {
     fn trying_to_mutate_const_reference(span: &Span, ty: &HirTy<'_>) -> HirError {
         let path = span.path;
         let src = utils::get_file_content(path).unwrap();
-        HirError::TryingToMutateConstReference(TryingToMutateConstReferenceError {
+        HirError::TryingToMutateConstPointer(TryingToMutateConstPointerError {
             span: *span,
             ty: ty.to_string(),
             src: NamedSource::new(path, src),

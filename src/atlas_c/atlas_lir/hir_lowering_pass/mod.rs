@@ -232,10 +232,10 @@ impl<'hir> HirLoweringPass<'hir> {
             "new",
         )?);
         if let Some(move_ctor) = &struct_body.move_constructor {
-            functions.push(self.lower_constructor(struct_body.name, move_ctor, "move_ctor")?);
+            functions.push(self.lower_constructor(struct_body.name, move_ctor, "__move_ctor")?);
         }
         if let Some(copy_ctor) = &struct_body.copy_constructor {
-            functions.push(self.lower_constructor(struct_body.name, copy_ctor, "copy_ctor")?);
+            functions.push(self.lower_constructor(struct_body.name, copy_ctor, "__copy_ctor")?);
         }
 
         Ok(lir_struct)
@@ -610,7 +610,7 @@ impl<'hir> HirLoweringPass<'hir> {
             HirExpr::Ident(_) | HirExpr::FieldAccess(_) | HirExpr::Indexing(_) => {
                 self.lower_expr(l_value)
             }
-            _ => Err(unsupported_expr(l_value.span())),
+            _ => Err(unsupported_expr(l_value.span(), format!("{:?}", l_value))),
         }
     }
 
@@ -781,7 +781,7 @@ impl<'hir> HirLoweringPass<'hir> {
                         b: rhs,
                     },
                     _ => {
-                        return Err(unsupported_expr(expr.span()));
+                        return Err(unsupported_expr(expr.span(), format!("{:?}", expr)));
                     }
                 };
 
@@ -882,13 +882,23 @@ impl<'hir> HirLoweringPass<'hir> {
                                 "struct",
                             ),
                             _ => {
-                                return Err(unsupported_expr(expr.span()));
+                                return Err(unsupported_expr(
+                                    expr.span(),
+                                    format!("{:?}", static_access),
+                                ));
                             }
                         };
-                        (
-                            format!("{}_{}", object_name, static_access.field.name),
-                            false,
-                        )
+                        match static_access.field.name {
+                            "__move_ctor" | "__copy_ctor" | "__ctor" | "__dtor"
+                            | "__default_ctor" => (
+                                format!("{}_{}", object_name, static_access.field.name),
+                                true,
+                            ),
+                            _ => (
+                                format!("{}_{}", object_name, static_access.field.name),
+                                false,
+                            ),
+                        }
                     }
                     HirExpr::FieldAccess(field_access) => {
                         let object_name = match field_access.target.ty() {
@@ -911,18 +921,21 @@ impl<'hir> HirLoweringPass<'hir> {
                                     if self.hir_module.signature.unions.contains_key(mangled_name) {
                                         mangled_name
                                     } else {
-                                        return Err(unsupported_expr(expr.span()));
+                                        return Err(unsupported_expr(
+                                            expr.span(),
+                                            format!("{:?}", expr),
+                                        ));
                                     }
                                 }
                             }
                             _ => {
-                                return Err(unsupported_expr(expr.span()));
+                                return Err(unsupported_expr(expr.span(), format!("{:?}", expr)));
                             }
                         };
                         (format!("{}_{}", object_name, field_access.field.name), true)
                     }
                     _ => {
-                        return Err(unsupported_expr(expr.span()));
+                        return Err(unsupported_expr(expr.span(), format!("{:?}", expr)));
                     }
                 };
                 // Lower arguments
@@ -932,7 +945,14 @@ impl<'hir> HirLoweringPass<'hir> {
                         let target_operand = self.lower_expr(&field_access.target)?;
                         args.push(target_operand);
                     } else {
-                        return Err(unsupported_expr(expr.span()));
+                        return Err(unsupported_expr(
+                            expr.span(),
+                            String::from(
+                                "A function taking an implicit \"this\" has to be a field access \
+                                TODO: Implement implicit this for `T::__move_ctor`, `T::__copy_ctor`, \
+                                `T::__ctor`, `T::__default_ctor`, `T::__dtor`",
+                            ),
+                        ));
                     }
                 }
                 for arg in &call.args {
@@ -991,6 +1011,7 @@ impl<'hir> HirLoweringPass<'hir> {
                     ty: self.hir_ty_to_lir_ty(field_access.target.ty(), field_access.target.span()),
                     src: Box::new(target_operand),
                     field_name: field_access.field.name.to_string(),
+                    is_arrow: field_access.is_arrow,
                 })
             }
 
@@ -1038,7 +1059,7 @@ impl<'hir> HirLoweringPass<'hir> {
                 })?;
                 Ok(dest.unwrap_or(LirOperand::ImmInt(0))) // unit value
             }
-            _ => Err(unsupported_expr(expr.span())),
+            _ => Err(unsupported_expr(expr.span(), format!("{:?}", expr))),
         }
     }
 
@@ -1140,11 +1161,12 @@ fn unknown_type_err(ty_name: &str, span: Span) -> Box<LirLoweringError> {
     }))
 }
 
-fn unsupported_expr(span: Span) -> Box<LirLoweringError> {
+fn unsupported_expr(span: Span, expr: String) -> Box<LirLoweringError> {
     Box::new(LirLoweringError::UnsupportedHirExpr(
         UnsupportedHirExprError {
             span,
             src: NamedSource::new(span.path, utils::get_file_content(span.path).unwrap()),
+            expr,
         },
     ))
 }
@@ -1383,9 +1405,16 @@ impl std::fmt::Display for LirOperand {
             LirOperand::Deref(d) => write!(f, "*{}", d),
             LirOperand::AsRef(a) => write!(f, "&{}", a),
             LirOperand::FieldAccess {
-                src, field_name, ..
+                src,
+                field_name,
+                is_arrow,
+                ..
             } => {
-                write!(f, "{}.{}", src, field_name)
+                if *is_arrow {
+                    write!(f, "{}->{}", src, field_name)
+                } else {
+                    write!(f, "{}.{}", src, field_name)
+                }
             }
             LirOperand::Index { src, index } => write!(f, "{}[{}]", src, index),
         }

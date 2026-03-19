@@ -305,6 +305,7 @@ pub enum LirOperand {
         src: Box<LirOperand>,
         field_name: String,
         ty: LirTy,
+        is_arrow: bool,
     },
     Index {
         src: Box<LirOperand>,

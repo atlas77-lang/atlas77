@@ -256,7 +256,7 @@ impl HirTy<'_> {
         }
     }
 
-    pub fn is_raw_ptr(&self) -> bool {
+    pub fn is_ptr(&self) -> bool {
         matches!(self, HirTy::PtrTy(_))
     }
     //TODO: Rename the function
