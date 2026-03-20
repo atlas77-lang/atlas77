@@ -247,7 +247,7 @@ public:
     }
     Foo(from: *const Foo)
     {
-        this->i = 90;
+        this->i = from->i;
     }
 }
 

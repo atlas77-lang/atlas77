@@ -2561,7 +2561,7 @@ mod tests {
     use crate::atlas_c::atlas_frontend::lexer::AtlasLexer;
 
     #[test]
-    fn test_parse_struct() -> Result<()> {
+    fn test_hello_world() -> Result<()> {
         let input = get_file_content("examples/hello.atlas").unwrap();
         let mut lexer = AtlasLexer::new("examples/hello.atlas".into(), input.clone());
         //lexer.set_source(input.to_string());

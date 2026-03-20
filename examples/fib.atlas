@@ -24,6 +24,7 @@ fun main() {
     printf("copied_from_foo.i = %ld\n", copied_from_foo.i);
     let moved_from_foo = move<Foo>(foo);
     printf("moved_from_foo.i = %ld\n", moved_from_foo.i);
+    printf("original_foo.i = %ld\n", foo.i);
 }
 
 struct Foo
@@ -41,7 +42,7 @@ public:
     }
     Foo(from: *const Foo)
     {
-        this->i = 90;
+        this->i = from->i;
     }
 }
 
