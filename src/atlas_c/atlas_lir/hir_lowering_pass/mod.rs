@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use miette::NamedSource;
 
@@ -1084,9 +1084,32 @@ impl<'hir> HirLoweringPass<'hir> {
                 Ok(dst)
             }
 
-            HirExpr::IntrinsicCall(intrinsic) => {
-                /* TODO: Have a separate function that handles the specific case for each intrinsic */
-                /* e.g.: size_of should take its args_ty[0] as argument */
+            HirExpr::IntrinsicCall(intrinsic) => match intrinsic.name {
+                "size_of" => {
+                    let target_ty = intrinsic.args_ty.first().copied().unwrap_or(intrinsic.ty);
+                    let lir_target_ty = self.hir_ty_to_lir_ty(target_ty, intrinsic.span);
+                    let size = self.lir_type_size_and_align(&lir_target_ty).0;
+                    let dest = self.new_temp();
+                    self.emit(LirInstr::LoadImm {
+                        ty: LirTy::UInt64,
+                        dst: dest.clone(),
+                        value: LirOperand::ImmUInt(size as u64),
+                    })?;
+                    Ok(dest)
+                }
+                "align_of" => {
+                    let target_ty = intrinsic.args_ty.first().copied().unwrap_or(intrinsic.ty);
+                    let lir_target_ty = self.hir_ty_to_lir_ty(target_ty, intrinsic.span);
+                    let align = self.lir_type_size_and_align(&lir_target_ty).1;
+                    let dest = self.new_temp();
+                    self.emit(LirInstr::LoadImm {
+                        ty: LirTy::UInt64,
+                        dst: dest.clone(),
+                        value: LirOperand::ImmUInt(align as u64),
+                    })?;
+                    Ok(dest)
+                }
+                _ => {
                 let mut args = Vec::new();
                 for arg in &intrinsic.args {
                     args.push(self.lower_expr(arg)?);
@@ -1102,8 +1125,9 @@ impl<'hir> HirLoweringPass<'hir> {
                     func_name: intrinsic.name.to_string(),
                     args,
                 })?;
-                Ok(dest.unwrap_or(LirOperand::ImmInt(0))) // unit value
+                Ok(dest.unwrap_or(LirOperand::ImmInt(0)))
             }
+},
             _ => Err(unsupported_expr(expr.span(), format!("{:?}", expr))),
         }
     }

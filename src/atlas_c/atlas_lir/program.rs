@@ -12,6 +12,95 @@ pub struct LirProgram {
     pub unions: Vec<LirUnion>,
 }
 
+impl LirProgram {
+    /// Compute `sizeof(T)` following C layout rules for structs/unions/arrays.
+    pub fn size_of_ty(&self, ty: &LirTy) -> usize {
+        self.layout_of_ty(ty, &mut HashSet::new()).0
+    }
+
+    /// Compute `alignof(T)` following C layout rules for structs/unions/arrays.
+    pub fn align_of_ty(&self, ty: &LirTy) -> usize {
+        self.layout_of_ty(ty, &mut HashSet::new()).1
+    }
+
+    fn layout_of_ty(&self, ty: &LirTy, visiting: &mut HashSet<String>) -> (usize, usize) {
+        match ty {
+            LirTy::Int8 | LirTy::UInt8 | LirTy::Boolean => (1, 1),
+            LirTy::Int16 | LirTy::UInt16 => (2, 2),
+            LirTy::Int32 | LirTy::UInt32 | LirTy::Float32 => (4, 4),
+            LirTy::Int64 | LirTy::UInt64 | LirTy::Float64 => (8, 8),
+            LirTy::Char => (4, 4),
+            LirTy::Str | LirTy::Ptr { .. } | LirTy::Unit => (8, 8),
+            LirTy::ArrayTy { inner, size } => {
+                let (inner_size, inner_align) = self.layout_of_ty(inner, visiting);
+                (inner_size.saturating_mul(*size), inner_align)
+            }
+            LirTy::StructType(name) => {
+                if !visiting.insert(format!("S:{}", name)) {
+                    return (8, 8);
+                }
+
+                let mut offset = 0usize;
+                let mut max_align = 1usize;
+
+                if let Some(strukt) = self.structs.iter().find(|s| s.name == *name) {
+                    let mut fields: Vec<(&String, &LirTy)> = strukt.fields.iter().collect();
+                    fields.sort_by(|a, b| a.0.cmp(b.0));
+
+                    for (_, field_ty) in fields {
+                        let (field_size, field_align) = self.layout_of_ty(field_ty, visiting);
+                        let field_align = field_align.max(1);
+                        offset = Self::align_to(offset, field_align);
+                        offset = offset.saturating_add(field_size);
+                        max_align = max_align.max(field_align);
+                    }
+                } else {
+                    visiting.remove(&format!("S:{}", name));
+                    return (8, 8);
+                }
+
+                let total_size = Self::align_to(offset, max_align);
+                visiting.remove(&format!("S:{}", name));
+                (total_size, max_align)
+            }
+            LirTy::UnionType(name) => {
+                if !visiting.insert(format!("U:{}", name)) {
+                    return (8, 8);
+                }
+
+                let mut max_size = 0usize;
+                let mut max_align = 1usize;
+
+                if let Some(union) = self.unions.iter().find(|u| u.name == *name) {
+                    let mut variants: Vec<(&String, &LirTy)> = union.variants.iter().collect();
+                    variants.sort_by(|a: &(&String, &LirTy), b| a.0.cmp(b.0));
+
+                    for (_, variant_ty) in variants {
+                        let (variant_size, variant_align) = self.layout_of_ty(variant_ty, visiting);
+                        max_size = max_size.max(variant_size);
+                        max_align = max_align.max(variant_align.max(1));
+                    }
+                } else {
+                    visiting.remove(&format!("U:{}", name));
+                    return (8, 8);
+                }
+
+                let total_size = Self::align_to(max_size, max_align);
+                visiting.remove(&format!("U:{}", name));
+                (total_size, max_align)
+            }
+        }
+    }
+
+    fn align_to(value: usize, align: usize) -> usize {
+        if align <= 1 {
+            value
+        } else {
+            value.div_ceil(align) * align
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct LirExternFunction {
     pub name: String,
@@ -125,21 +214,14 @@ pub enum LirTy {
 }
 
 impl LirTy {
-    pub fn size_of(&self) -> usize {
-        match self {
-            LirTy::Int8 | LirTy::UInt8 | LirTy::Boolean => 1,
-            LirTy::Int16 | LirTy::UInt16 => 2,
-            LirTy::Int32 | LirTy::UInt32 | LirTy::Float32 => 4,
-            LirTy::Int64 | LirTy::UInt64 | LirTy::Float64 => 8,
-            LirTy::Char => 4, // Unicode scalar value (4 bytes)
-            LirTy::Str
-            | LirTy::Unit
-            | LirTy::Ptr { .. }
-            // TOOD: Adjust size_of for Structs and Unions based on their definitions
-            | LirTy::StructType(_)
-            | LirTy::UnionType(_) => 8, // Pointer size
-            LirTy::ArrayTy { inner, size } => inner.size_of() * size,
-        }
+    /// Layout-aware size query. Prefer this for structs/unions.
+    pub fn size_of_in(&self, program: &LirProgram) -> usize {
+        program.size_of_ty(self)
+    }
+
+    /// Layout-aware alignment query. Prefer this for structs/unions.
+    pub fn align_of_in(&self, program: &LirProgram) -> usize {
+        program.align_of_ty(self)
     }
 }
 
