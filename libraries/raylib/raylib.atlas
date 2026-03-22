@@ -1,0 +1,105 @@
+// I still need to have the "raylib.h" header file and some kind of small build system to actually compile against raylib.
+// Right now I just wanna do some stupid test.
+
+#[std::copyable]
+/* extern */ struct Vector2
+{
+private:
+    x: float32;
+    y: float32;
+public:
+    Vector2(x: float32, y: float32)
+    {
+        this->x = x;
+        this->y = y;
+    }
+    Vector2(from: *const Vector2)
+    {
+        this->x = from->x;
+        this->y = from->y;
+    }
+    // The move constructor is equivalent to the copy constructor in this case since Vector2 only contains primitive types.
+    Vector2(dying_obj: *Vector2)
+    {
+        this->x = dying_obj->x;
+        this->y = dying_obj->y;
+    }
+}
+
+#[std::copyable]
+/* extern */ struct Vector3
+{
+private:
+    x: float32;
+    y: float32;
+    z: float32;
+public:
+    Vector3(x: float32, y: float32, z: float32)
+    {
+        this->x = x;
+        this->y = y;
+        this->z = z;
+    }
+    Vector3(from: *const Vector3)
+    {
+        this->x = from->x;
+        this->y = from->y;
+        this->z = from->z;
+    }
+    // The move constructor is equivalent to the copy constructor in this case since Vector3 only contains primitive types.
+    Vector3(dying_obj: *Vector3)
+    {
+        this->x = dying_obj->x;
+        this->y = dying_obj->y;
+        this->z = dying_obj->z;
+    }
+}
+
+#[std::copyable]
+/* extern */ struct Color {
+public:
+    r: uint8;
+    g: uint8;
+    b: uint8;
+    a: uint8;
+public:
+    Color(r: uint8, g: uint8, b: uint8, a: uint8)
+    {
+        this->r = r;
+        this->g = g;
+        this->b = b;
+        this->a = a;
+    }
+    // I still don't have global variables/constants. So I am just using static methods to return the common colors for now. This is not ideal, but it works for demonstration purposes.
+    fun RED() -> Color
+    {
+        return Color(255, 0, 0, 255);
+    }
+    fun GREEN() -> Color
+    {
+        return Color(0, 255, 0, 255);
+    }
+    fun BLUE() -> Color
+    {
+        return Color(0, 0, 255, 255);
+    }
+    fun BLACK() -> Color
+    {
+        return Color(0, 0, 0, 255);
+    }
+    fun WHITE() -> Color
+    {
+        return Color(255, 255, 255, 255);
+    }
+}
+
+extern fun printf<T>(format: string, value: T);
+
+
+fun main() {
+    let color = Color::RED();
+    printf("Red color: r=%u", color.r);
+    printf(" g=%u", color.g);
+    printf(" b=%u", color.b);
+    printf(" a=%u\n", color.a);
+}
