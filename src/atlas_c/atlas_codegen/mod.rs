@@ -156,7 +156,7 @@ impl CCodeGen {
             LirTy::UInt8 => "uint8_t".to_string(),
             LirTy::Boolean => "bool".to_string(),
             LirTy::Char => "uint32_t".to_string(),
-            LirTy::Str => "char*".to_string(),
+            LirTy::Str => "uint8_t*".to_string(),
             LirTy::Ptr { is_const, inner } => {
                 let inner_type = self.codegen_type(inner);
                 if inner_type.ends_with('*') {
@@ -242,7 +242,7 @@ impl CCodeGen {
                 let a_str = self.codegen_operand(a);
                 let b_str = self.codegen_operand(b);
                 let line = format!(
-                    "{} {} = {} + {};",
+                    "{} {} = ({} + {});",
                     self.codegen_type(ty),
                     dest_str,
                     a_str,
@@ -255,7 +255,7 @@ impl CCodeGen {
                 let a_str = self.codegen_operand(a);
                 let b_str = self.codegen_operand(b);
                 let line = format!(
-                    "{} {} = {} - {};",
+                    "{} {} = ({} - {});",
                     self.codegen_type(ty),
                     dest_str,
                     a_str,
@@ -268,7 +268,7 @@ impl CCodeGen {
                 let a_str = self.codegen_operand(a);
                 let b_str = self.codegen_operand(b);
                 let line = format!(
-                    "{} {} = {} * {};",
+                    "{} {} = ({} * {});",
                     self.codegen_type(ty),
                     dest_str,
                     a_str,
@@ -281,7 +281,7 @@ impl CCodeGen {
                 let a_str = self.codegen_operand(a);
                 let b_str = self.codegen_operand(b);
                 let line = format!(
-                    "{} {} = {} / {};",
+                    "{} {} = ({} / {});",
                     self.codegen_type(ty),
                     dest_str,
                     a_str,
@@ -294,7 +294,7 @@ impl CCodeGen {
                 let a_str = self.codegen_operand(a);
                 let b_str = self.codegen_operand(b);
                 let line = format!(
-                    "{} {} = {} % {};",
+                    "{} {} = ({} % {});",
                     self.codegen_type(ty),
                     dest_str,
                     a_str,
@@ -307,7 +307,7 @@ impl CCodeGen {
                 let a_str = self.codegen_operand(a);
                 let b_str = self.codegen_operand(b);
                 let line = format!(
-                    "{} {} = {} < {};",
+                    "{} {} = ({} < {});",
                     self.codegen_type(ty),
                     dest_str,
                     a_str,
@@ -320,7 +320,7 @@ impl CCodeGen {
                 let a_str = self.codegen_operand(a);
                 let b_str = self.codegen_operand(b);
                 let line = format!(
-                    "{} {} = {} <= {};",
+                    "{} {} = ({} <= {});",
                     self.codegen_type(ty),
                     dest_str,
                     a_str,
@@ -333,7 +333,7 @@ impl CCodeGen {
                 let a_str = self.codegen_operand(a);
                 let b_str = self.codegen_operand(b);
                 let line = format!(
-                    "{} {} = {} > {};",
+                    "{} {} = ({} > {});",
                     self.codegen_type(ty),
                     dest_str,
                     a_str,
@@ -346,7 +346,7 @@ impl CCodeGen {
                 let a_str = self.codegen_operand(a);
                 let b_str = self.codegen_operand(b);
                 let line = format!(
-                    "{} {} = {} >= {};",
+                    "{} {} = ({} >= {});",
                     self.codegen_type(ty),
                     dest_str,
                     a_str,
@@ -359,7 +359,7 @@ impl CCodeGen {
                 let a_str = self.codegen_operand(a);
                 let b_str = self.codegen_operand(b);
                 let line = format!(
-                    "{} {} = {} == {};",
+                    "{} {} = ({} == {});",
                     self.codegen_type(ty),
                     dest_str,
                     a_str,
@@ -372,7 +372,7 @@ impl CCodeGen {
                 let a_str = self.codegen_operand(a);
                 let b_str = self.codegen_operand(b);
                 let line = format!(
-                    "{} {} = {} != {};",
+                    "{} {} = ({} != {});",
                     self.codegen_type(ty),
                     dest_str,
                     a_str,
@@ -380,6 +380,33 @@ impl CCodeGen {
                 );
                 Self::write_to_file(&mut self.c_file, &line, self.indent_level);
             }
+            LirInstr::LogicalAnd { ty, dest, a, b } => {
+                let dest_str = self.codegen_operand(dest);
+                let a_str = self.codegen_operand(a);
+                let b_str = self.codegen_operand(b);
+                let line = format!(
+                    "{} {} = ({} && {});",
+                    self.codegen_type(ty),
+                    dest_str,
+                    a_str,
+                    b_str
+                );
+                Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+            }
+            LirInstr::LogicalOr { ty, dest, a, b } => {
+                let dest_str = self.codegen_operand(dest);
+                let a_str = self.codegen_operand(a);
+                let b_str = self.codegen_operand(b);
+                let line = format!(
+                    "{} {} = ({} || {});",
+                    self.codegen_type(ty),
+                    dest_str,
+                    a_str,
+                    b_str
+                );
+                Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+            }
+
             LirInstr::Negate { ty, dest, src } => {
                 let dest_str = self.codegen_operand(dest);
                 let src_str = self.codegen_operand(src);
@@ -639,7 +666,19 @@ impl CCodeGen {
                 ConstantValue::UInt(u) => format!("{}", u),
                 ConstantValue::Float(f) => format!("{}", f),
                 ConstantValue::Bool(b) => format!("{}", b),
-                ConstantValue::Char(c) => format!("'{}'", c),
+                ConstantValue::Char(c) => {
+                    let escaped = match c {
+                        '\0' => "\\0".to_string(),
+                        '\n' => "\\n".to_string(),
+                        '\r' => "\\r".to_string(),
+                        '\t' => "\\t".to_string(),
+                        '\\' => "\\\\".to_string(),
+                        '\'' => "\\'".to_string(),
+                        _ if c.is_ascii_graphic() || (*c) == ' ' => c.to_string(),
+                        _ => format!("\\x{:02x}", (*c) as u32),
+                    };
+                    format!("'{}'", escaped)
+                }
                 // We need to keep all the special characters in strings escaped
                 // e.g.: \n, \t, etc.
                 ConstantValue::String(s) => format!("\"{}\"", s.escape_default()),
@@ -650,8 +689,20 @@ impl CCodeGen {
             LirOperand::ImmInt(i) => format!("{}", i),
             LirOperand::ImmUInt(u) => format!("{}", u),
             LirOperand::ImmFloat(f) => format!("{}", f),
-            LirOperand::ImmChar(c) => format!("'{}'", c),
-            LirOperand::ImmUnit => "void".to_string(),
+            LirOperand::ImmChar(c) => {
+                let escaped = match c {
+                    '\0' => "\\0".to_string(),
+                    '\n' => "\\n".to_string(),
+                    '\r' => "\\r".to_string(),
+                    '\t' => "\\t".to_string(),
+                    '\\' => "\\\\".to_string(),
+                    '\'' => "\\'".to_string(),
+                    _ if c.is_ascii_graphic() || (*c) == ' ' => c.to_string(),
+                    _ => format!("\\x{:02x}", (*c) as u32),
+                };
+                format!("'{}'", escaped)
+            }
+            LirOperand::ImmUnit => "NULL".to_string(),
             LirOperand::Deref(d) => format!("(*{})", self.codegen_operand(d)),
             LirOperand::AsRef(a) => format!("(&{})", self.codegen_operand(a)),
             LirOperand::FieldAccess {

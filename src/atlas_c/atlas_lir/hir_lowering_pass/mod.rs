@@ -310,14 +310,21 @@ impl<'hir> HirLoweringPass<'hir> {
         let mut args = Vec::new();
         if matches!(
             method.signature.modifier,
-            | HirStructMethodModifier::Mutable | HirStructMethodModifier::Consuming | HirStructMethodModifier::Const
+            HirStructMethodModifier::Mutable | HirStructMethodModifier::Const
         ) {
             // The first parameter is always "this"
             self.param_map.insert("this", 0);
             args.push(LirTy::Ptr {
-                is_const: false,
+                is_const: method.signature.modifier == HirStructMethodModifier::Const,
                 inner: Box::new(LirTy::StructType(struct_name.to_string())),
             });
+        } else if matches!(
+            method.signature.modifier,
+            HirStructMethodModifier::Consuming
+        ) {
+            // Consuming methods take ownership of `this` by value.
+            self.param_map.insert("this", 0);
+            args.push(LirTy::StructType(struct_name.to_string()));
         } else {
             // Static method, no "this" parameter
         }
@@ -614,6 +621,34 @@ impl<'hir> HirLoweringPass<'hir> {
         }
     }
 
+    fn class_name_from_receiver_ty(&self, ty: &'hir HirTy<'hir>) -> Option<&'hir str> {
+        match ty {
+            HirTy::Named(n) => Some(n.name),
+            HirTy::Generic(g) => {
+                let mangled_struct =
+                    MonomorphizationPass::generate_mangled_name(self.hir_arena, g, "struct");
+                if self
+                    .hir_module
+                    .signature
+                    .structs
+                    .contains_key(mangled_struct)
+                {
+                    Some(mangled_struct)
+                } else {
+                    let mangled_union =
+                        MonomorphizationPass::generate_mangled_name(self.hir_arena, g, "union");
+                    if self.hir_module.signature.unions.contains_key(mangled_union) {
+                        Some(mangled_union)
+                    } else {
+                        None
+                    }
+                }
+            }
+            HirTy::PtrTy(ptr) => self.class_name_from_receiver_ty(ptr.inner),
+            _ => None,
+        }
+    }
+
     /// Lower an expression, returning the operand holding the result
     fn lower_expr(&mut self, expr: &'hir HirExpr<'hir>) -> LirResult<LirOperand> {
         match expr {
@@ -634,8 +669,7 @@ impl<'hir> HirLoweringPass<'hir> {
                 })?;
                 Ok(dest)
             }
-
-            HirExpr::UnitLiteral(_) => Ok(LirOperand::ImmUnit),
+            HirExpr::NullLiteral(_) | HirExpr::UnitLiteral(_) => Ok(LirOperand::ImmUnit),
 
             HirExpr::ThisLiteral(_) => {
                 // "this" is always the first argument (arg 0)
@@ -745,37 +779,49 @@ impl<'hir> HirLoweringPass<'hir> {
                         b: rhs,
                     },
                     HirBinaryOperator::Lt => LirInstr::LessThan {
-                        ty,
+                        ty: LirTy::Boolean,
                         dest: dest.clone(),
                         a: lhs,
                         b: rhs,
                     },
                     HirBinaryOperator::Lte => LirInstr::LessThanOrEqual {
-                        ty,
+                        ty: LirTy::Boolean,
                         dest: dest.clone(),
                         a: lhs,
                         b: rhs,
                     },
                     HirBinaryOperator::Gt => LirInstr::GreaterThan {
-                        ty,
+                        ty: LirTy::Boolean,
                         dest: dest.clone(),
                         a: lhs,
                         b: rhs,
                     },
                     HirBinaryOperator::Gte => LirInstr::GreaterThanOrEqual {
-                        ty,
+                        ty: LirTy::Boolean,
                         dest: dest.clone(),
                         a: lhs,
                         b: rhs,
                     },
                     HirBinaryOperator::Eq => LirInstr::Equal {
-                        ty,
+                        ty: LirTy::Boolean,
                         dest: dest.clone(),
                         a: lhs,
                         b: rhs,
                     },
                     HirBinaryOperator::Neq => LirInstr::NotEqual {
-                        ty,
+                        ty: LirTy::Boolean,
+                        dest: dest.clone(),
+                        a: lhs,
+                        b: rhs,
+                    },
+                    HirBinaryOperator::And => LirInstr::LogicalAnd {
+                        ty: LirTy::Boolean,
+                        dest: dest.clone(),
+                        a: lhs,
+                        b: rhs,
+                    },
+                    HirBinaryOperator::Or => LirInstr::LogicalOr {
+                        ty: LirTy::Boolean,
                         dest: dest.clone(),
                         a: lhs,
                         b: rhs,
@@ -922,34 +968,11 @@ impl<'hir> HirLoweringPass<'hir> {
                         }
                     }
                     HirExpr::FieldAccess(field_access) => {
-                        let object_name = match field_access.target.ty() {
-                            HirTy::Named(n) => n.name,
-                            HirTy::Generic(g) => {
-                                let mangled_name = MonomorphizationPass::generate_mangled_name(
-                                    self.hir_arena,
-                                    g,
-                                    "struct",
-                                );
-                                if self.hir_module.signature.structs.contains_key(mangled_name) {
-                                    mangled_name
-                                } else {
-                                    // Might be an union
-                                    let mangled_name = MonomorphizationPass::generate_mangled_name(
-                                        self.hir_arena,
-                                        g,
-                                        "union",
-                                    );
-                                    if self.hir_module.signature.unions.contains_key(mangled_name) {
-                                        mangled_name
-                                    } else {
-                                        return Err(unsupported_expr(
-                                            expr.span(),
-                                            format!("{:?}", expr),
-                                        ));
-                                    }
-                                }
-                            }
-                            _ => {
+                        let object_name = match self
+                            .class_name_from_receiver_ty(field_access.target.ty())
+                        {
+                            Some(name) => name,
+                            None => {
                                 return Err(unsupported_expr(expr.span(), format!("{:?}", expr)));
                             }
                         };
@@ -964,7 +987,27 @@ impl<'hir> HirLoweringPass<'hir> {
                 if take_this {
                     if let HirExpr::FieldAccess(field_access) = call.callee.as_ref() {
                         let target_operand = self.lower_expr(&field_access.target)?;
-                        args.push(target_operand);
+                        let is_consuming_method = self
+                            .class_name_from_receiver_ty(field_access.target.ty())
+                            .and_then(|name| self.hir_module.signature.structs.get(name).copied())
+                            .and_then(|class| class.methods.get(field_access.field.name))
+                            .is_some_and(|method| {
+                                method.modifier == HirStructMethodModifier::Consuming
+                            });
+
+                        // Unify receiver lowering:
+                        // - `obj.method(...)` lowers by value only for consuming methods
+                        // - otherwise it lowers to `&obj` (implicit reference)
+                        // - `ptr->method(...)` lowers to `ptr` (already a pointer)
+                        let receiver = if field_access.is_arrow
+                            || matches!(field_access.target.ty(), HirTy::PtrTy(_))
+                            || is_consuming_method
+                        {
+                            target_operand
+                        } else {
+                            LirOperand::AsRef(Box::new(target_operand))
+                        };
+                        args.push(receiver);
                     } else if let HirExpr::StaticAccess(static_access) = call.callee.as_ref() {
                         for (idx, arg) in call.args.iter().enumerate() {
                             let lowered = self.lower_expr(arg)?;
@@ -1525,6 +1568,12 @@ impl std::fmt::Display for LirInstr {
             }
             LirInstr::NotEqual { dest, a, b, ty } => {
                 write!(f, "{} = ne.{} {}, {}", dest, ty, a, b)
+            }
+            LirInstr::LogicalAnd { ty, dest, a, b } => {
+                write!(f, "{} = logical_and.{} {}, {}", dest, ty, a, b)
+            }
+            LirInstr::LogicalOr { ty, dest, a, b } => {
+                write!(f, "{} = logical_or.{} {}, {}", dest, ty, a, b)
             }
             LirInstr::Negate { ty: _, dest, src } => {
                 write!(f, "{} = neg {}", dest, src)

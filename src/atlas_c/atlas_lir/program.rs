@@ -294,6 +294,18 @@ pub enum LirInstr {
         a: LirOperand,
         b: LirOperand,
     },
+    LogicalOr {
+        ty: LirTy,
+        dest: LirOperand,
+        a: LirOperand,
+        b: LirOperand,
+    },
+    LogicalAnd {
+        ty: LirTy,
+        dest: LirOperand,
+        a: LirOperand,
+        b: LirOperand,
+    },
     Negate {
         ty: LirTy,
         dest: LirOperand,
