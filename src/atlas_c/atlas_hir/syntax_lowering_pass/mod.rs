@@ -25,7 +25,8 @@ use crate::atlas_c::{
             ConstructorCannotHaveAWhereClauseError, HirError, HirResult,
             IncorrectIntrinsicCallArgumentsError, NonConstantValueError,
             NullableTypeRequiresStdLibraryError, StructNameCannotBeOneLetterError,
-            UnknownFileImportError, UnsupportedExpr, UnsupportedItemError, UselessError,
+            UnknownFileImportError, UnknownTypeError, UnsupportedExpr, UnsupportedItemError,
+            UselessError,
         },
         expr::{
             HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr,
@@ -1659,7 +1660,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         HirExpr::StringLiteral(HirStringLiteralExpr {
                             span: l.span(),
                             value: self.arena.intern(ast_string.value.to_owned()),
-                            ty: self.arena.types().get_str_ty(),
+                            ty: self.arena.types().get_ptr_ty(
+                                self.arena.types().get_uint_ty(8),
+                                false,
+                                l.span(),
+                            ),
                         })
                     }
                     AstLiteral::List(l) => {
@@ -1897,7 +1902,9 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             AstType::ThisTy(_) => self.arena.types().get_uninitialized_ty(),
             AstType::PtrTy(ptr_ty) => {
                 let inner_ty = self.visit_ty(ptr_ty.inner)?;
-                self.arena.types().get_ptr_ty(inner_ty, false, ptr_ty.span)
+                self.arena
+                    .types()
+                    .get_ptr_ty(inner_ty, ptr_ty.is_const, ptr_ty.span)
             }
             AstType::Function(func_ty) => {
                 let span = func_ty.span;
@@ -1910,6 +1917,16 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 self.arena
                     .types()
                     .get_function_ty(parameters, return_ty, span)
+            }
+            AstType::Const(_) => {
+                let path = node.span().path;
+                let src =
+                    utils::get_file_content(path).expect(&format!("Failed to open file {path}"));
+                return Err(HirError::UnknownType(UnknownTypeError {
+                    name: node.name(),
+                    span: node.span(),
+                    src: NamedSource::new(path, src),
+                }));
             }
         };
         Ok(ty)
@@ -2116,7 +2133,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     generic.span,
                 ),
                 // Shouldn't happen
-                _ => ("hehehehehehe", Span::default()),
+                _ => return None,
             };
             let params = vec![HirFunctionParameterSignature {
                 span,

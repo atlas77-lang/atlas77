@@ -677,7 +677,7 @@ impl<'hir> TypeChecker<'hir> {
             HirExpr::BooleanLiteral(_) => Ok(self.arena.types().get_boolean_ty()),
             HirExpr::UnitLiteral(_) => Ok(self.arena.types().get_unit_ty()),
             HirExpr::CharLiteral(_) => Ok(self.arena.types().get_char_ty()),
-            HirExpr::StringLiteral(_) => Ok(self.arena.types().get_str_ty()),
+            HirExpr::StringLiteral(s) => Ok(s.ty),
             HirExpr::Delete(del_expr) => {
                 let ty = self.check_expr(&mut del_expr.expr)?;
                 let name = match self.get_class_name_of_type(ty) {
@@ -843,10 +843,9 @@ impl<'hir> TypeChecker<'hir> {
                         &c.expr.span(),
                     ));
                 }
-                if self
-                    .is_equivalent_ty(expr_ty, c.expr.span(), c.target_ty, c.span)
-                    .is_ok()
-                {
+                // Only warn for truly redundant casts (same concrete type), not for
+                // compatibility-based conversions handled by `is_equivalent_ty`.
+                if HirTyId::from(expr_ty) == HirTyId::from(c.target_ty) {
                     Self::trying_to_cast_to_the_same_type_warning(
                         &c.span,
                         &format!("{}", c.target_ty),
@@ -913,8 +912,8 @@ impl<'hir> TypeChecker<'hir> {
                         Ok(arr.inner)
                     }
                     HirTy::String(_) => {
-                        indexing_expr.ty = self.arena.types().get_char_ty();
-                        Ok(self.arena.types().get_char_ty())
+                        indexing_expr.ty = self.arena.types().get_uint_ty(8);
+                        Ok(self.arena.types().get_uint_ty(8))
                     }
                     HirTy::PtrTy(ptr_ty) => {
                         indexing_expr.ty = ptr_ty.inner;
@@ -934,8 +933,41 @@ impl<'hir> TypeChecker<'hir> {
             }
             HirExpr::HirBinaryOperation(b) => {
                 let lhs = self.check_expr(&mut b.lhs)?;
-                b.ty = lhs;
                 let rhs = self.check_expr(&mut b.rhs)?;
+
+                let is_integer_like = |ty: &HirTy<'hir>| {
+                    matches!(
+                        ty,
+                        HirTy::Integer(_)
+                            | HirTy::UnsignedInteger(_)
+                            | HirTy::LiteralInteger(_)
+                            | HirTy::LiteralUnsignedInteger(_)
+                    )
+                };
+
+                // Pointer arithmetic: ptr +/- integer and integer + ptr.
+                // This must be handled before generic type-equivalence checks.
+                match b.op {
+                    HirBinaryOperator::Add => {
+                        if matches!(lhs, HirTy::PtrTy(_)) && is_integer_like(rhs) {
+                            b.ty = lhs;
+                            return Ok(lhs);
+                        }
+                        if is_integer_like(lhs) && matches!(rhs, HirTy::PtrTy(_)) {
+                            b.ty = rhs;
+                            return Ok(rhs);
+                        }
+                    }
+                    HirBinaryOperator::Sub => {
+                        if matches!(lhs, HirTy::PtrTy(_)) && is_integer_like(rhs) {
+                            b.ty = lhs;
+                            return Ok(lhs);
+                        }
+                    }
+                    _ => {}
+                }
+
+                b.ty = lhs;
                 let is_equivalent = self.is_equivalent_ty(lhs, b.lhs.span(), rhs, b.rhs.span());
                 if is_equivalent.is_err() {
                     return Err(Self::illegal_operation_err(
@@ -2400,7 +2432,8 @@ impl<'hir> TypeChecker<'hir> {
                     .is_equivalent_ty(expected_ty, i.span, lit_uint_ty, i.span)
                     .is_ok()
                 {
-                    let concrete_expected = self.arena.types().get_uint_ty(expected_uint.size_in_bits);
+                    let concrete_expected =
+                        self.arena.types().get_uint_ty(expected_uint.size_in_bits);
                     *expr = HirExpr::UnsignedIntegerLiteral(HirUnsignedIntegerLiteralExpr {
                         value,
                         span: i.span,
@@ -2507,6 +2540,18 @@ impl<'hir> TypeChecker<'hir> {
                     ))
                 }
             }
+            (HirTy::Integer(i), HirTy::LiteralInteger(li)) => {
+                if i.size_in_bits >= li.get_minimal_int_ty().size_in_bits {
+                    Ok(())
+                } else {
+                    Err(Self::type_mismatch_err(
+                        &format!("{}", expected_ty),
+                        &expected_span,
+                        &format!("{}", found_ty),
+                        &found_span,
+                    ))
+                }
+            }
             (HirTy::Float(i), HirTy::Float(j)) => {
                 if i.size_in_bits >= j.size_in_bits {
                     Ok(())
@@ -2574,6 +2619,8 @@ impl<'hir> TypeChecker<'hir> {
                     ),
                 }));
             }
+            // TODO: Replace Unit type with a proper nullptr_t type
+            (HirTy::PtrTy(_), HirTy::Unit(_)) => Ok(()),
             (HirTy::PtrTy(p), found) => {
                 self.is_equivalent_ty(p.inner, expected_span, found_ty, found_span)?;
                 // Mutable pointer expects moveable type for safety
@@ -2594,8 +2641,6 @@ impl<'hir> TypeChecker<'hir> {
                 }
                 Ok(())
             }
-            // TODO: Replace Unit type with a proper nullptr_t type
-            (HirTy::PtrTy(_), HirTy::Unit(_)) => Ok(()),
             _ => {
                 if HirTyId::from(expected_ty) == HirTyId::from(found_ty) {
                     Ok(())
@@ -3149,6 +3194,7 @@ impl<'hir> TypeChecker<'hir> {
             | HirTy::Float(_)
             | HirTy::Char(_)
             | HirTy::Boolean(_)
+            | HirTy::PtrTy(_)
             | HirTy::Unit(_) => true,
             HirTy::Named(n) => self.signature.enums.contains_key(n.name),
             _ => false,

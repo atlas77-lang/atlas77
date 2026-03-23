@@ -123,6 +123,60 @@ impl<'hir> MonomorphizationPass<'hir> {
             }
         }
 
+        // Also scan non-generic struct members to discover generic instantiations
+        // used inside methods/constructors of concrete structs.
+        let non_generic_structs: Vec<_> = module
+            .body
+            .structs
+            .iter()
+            .filter(|(_, s)| s.signature.generics.is_empty())
+            .map(|(name, _)| *name)
+            .collect();
+
+        for struct_name in non_generic_structs.iter() {
+            let mut updated_struct = if let Some(s) = module.body.structs.get(struct_name) {
+                s.clone()
+            } else {
+                continue;
+            };
+
+            for statement in updated_struct.constructor.body.statements.iter_mut() {
+                self.monomorphize_statement(statement, vec![], module)?;
+            }
+
+            if let Some(copy_ctor) = updated_struct.copy_constructor.as_mut() {
+                for statement in copy_ctor.body.statements.iter_mut() {
+                    self.monomorphize_statement(statement, vec![], module)?;
+                }
+            }
+
+            if let Some(move_ctor) = updated_struct.move_constructor.as_mut() {
+                for statement in move_ctor.body.statements.iter_mut() {
+                    self.monomorphize_statement(statement, vec![], module)?;
+                }
+            }
+
+            if let Some(default_ctor) = updated_struct.default_constructor.as_mut() {
+                for statement in default_ctor.body.statements.iter_mut() {
+                    self.monomorphize_statement(statement, vec![], module)?;
+                }
+            }
+
+            if let Some(dtor) = updated_struct.destructor.as_mut() {
+                for statement in dtor.body.statements.iter_mut() {
+                    self.monomorphize_statement(statement, vec![], module)?;
+                }
+            }
+
+            for method in updated_struct.methods.iter_mut() {
+                for statement in method.body.statements.iter_mut() {
+                    self.monomorphize_statement(statement, vec![], module)?;
+                }
+            }
+
+            module.body.structs.insert(*struct_name, updated_struct);
+        }
+
         let mut generic_pool_clone = self.generic_pool.structs.clone();
         for (_, instance) in generic_pool_clone.iter_mut() {
             if !instance.is_done {
