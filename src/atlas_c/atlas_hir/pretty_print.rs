@@ -30,6 +30,11 @@ impl HirPrettyPrinter {
         }
     }
 
+    pub fn clear(&mut self) {
+        self.output = String::new();
+        self.indent = 0;
+    }
+
     pub fn get_output(&mut self) -> String {
         let output = self.output.clone();
         self.output = String::new();
@@ -37,9 +42,9 @@ impl HirPrettyPrinter {
         output
     }
 
-    pub fn print_module(&mut self, module: &HirModule) -> String {
+    pub fn print_module(&mut self, module: &HirModule, pass: &str) -> String {
         self.writeln("// HIR Module");
-        self.writeln("// Generated after ownership pass");
+        self.writeln(&format!("// Generated after {pass}"));
         self.writeln("");
 
         for (name, extern_fn) in &module.signature.functions {
