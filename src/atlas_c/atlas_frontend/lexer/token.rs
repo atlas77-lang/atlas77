@@ -94,7 +94,25 @@ pub enum TokenKind {
         result
     })]
     StringLiteral(String),
-    #[regex("'.'", |lex| lex.slice().chars().nth(1).unwrap())]
+    // Let's add all special chars, e.g.: \0, \n, \t, \r, \', ...
+    #[regex("'[^\']*'", |lex| {
+        let c = lex.slice().chars().nth(1).unwrap();
+        if c == '\\' {
+            match lex.slice().chars().nth(2) {
+                Some('n') => '\n',
+                Some('t') => '\t',
+                Some('r') => '\r',
+                Some('\\') => '\\',
+                Some('\'') => '\'',
+                Some('\"') => '\"',
+                Some('0') => '\0',
+                Some(c) => c,
+                None => '\\',
+            }
+        } else {
+            c
+        }
+    })]
     Char(char),
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().to_string())]
     Identifier(String),

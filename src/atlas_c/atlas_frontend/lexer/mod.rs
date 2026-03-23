@@ -8,25 +8,36 @@ pub mod token;
 pub struct AtlasLexer {
     path: &'static str,
     pub source: String,
+    pub last_pos_start: usize,
+    pub last_pos_end: usize,
 }
 
 impl AtlasLexer {
     pub fn new(path: &'static str, source: String) -> Self {
-        AtlasLexer { path, source }
+        AtlasLexer {
+            path,
+            source,
+            last_pos_start: 0,
+            last_pos_end: 0,
+        }
     }
     pub fn tokenize(&mut self) -> Result<Vec<Token>, (LexingError, Span)> {
         let lex = TokenKind::lexer(&self.source);
         let mut res: Vec<Result<Token, (LexingError, Span)>> = lex
             .spanned()
             .map(|(kind, span)| match kind {
-                Ok(kind) => Ok(Token::new(
-                    Span {
-                        start: span.start,
-                        end: span.end,
-                        path: self.path,
-                    },
-                    kind,
-                )),
+                Ok(kind) => {
+                    self.last_pos_start = span.start;
+                    self.last_pos_end = span.end;
+                    Ok(Token::new(
+                        Span {
+                            start: span.start,
+                            end: span.end,
+                            path: self.path,
+                        },
+                        kind,
+                    ))
+                }
                 Err(e) => Err((
                     e,
                     Span {
@@ -37,7 +48,14 @@ impl AtlasLexer {
                 )),
             })
             .collect::<Vec<_>>();
-        res.push(Ok(Token::new(Span::default(), TokenKind::EoI)));
+        res.push(Ok(Token::new(
+            Span {
+                start: self.last_pos_start,
+                end: self.last_pos_end,
+                path: self.path,
+            },
+            TokenKind::EoI,
+        )));
         res.into_iter().collect::<Result<_, _>>()
     }
 }

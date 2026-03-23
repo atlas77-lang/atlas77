@@ -3,21 +3,23 @@ pub mod arena;
 pub mod ast;
 pub mod error;
 
-use std::path::PathBuf;
-
 use miette::NamedSource;
 
-use crate::atlas_c::atlas_frontend::parser::{
-    ast::{
-        AstArg, AstEnum, AstEnumVariant, AstFlag, AstGlobalConst, AstInlineArrayType,
-        AstNullLiteral, AstObjLiteralExpr, AstObjLiteralField, AstPtrTy, AstStdGenericConstraint,
-        AstUnion, ConstructorKind,
+use crate::atlas_c::{
+    atlas_frontend::parser::{
+        ast::{
+            AstArg, AstEnum, AstEnumVariant, AstFlag, AstGlobalConst, AstInlineArrayType,
+            AstNullLiteral, AstObjLiteralExpr, AstObjLiteralField, AstPtrTy,
+            AstStdGenericConstraint, AstUnion, ConstructorKind,
+        },
+        error::{
+            ConstTypeNotSupportedYetError, DestructorWithParametersError, FlagDoesntExistError,
+            MissPlacedCommentError, MutableSelfReferenceConstructorError, NoFieldInStructError,
+            OnlyOneConstructorAllowedError, ParseResult, SizeOfArrayMustBeKnownAtCompileTimeError,
+            SyntaxError, UnexpectedTokenError,
+        },
     },
-    error::{
-        ConstTypeNotSupportedYetError, DestructorWithParametersError, FlagDoesntExistError,
-        MutableSelfReferenceConstructorError, NoFieldInStructError, OnlyOneConstructorAllowedError,
-        ParseResult, SizeOfArrayMustBeKnownAtCompileTimeError, SyntaxError, UnexpectedTokenError,
-    },
+    utils,
 };
 use ast::{
     AstAssignStmt, AstBinaryOp, AstBinaryOpExpr, AstBlock, AstBooleanLiteral, AstBooleanType,
@@ -46,7 +48,7 @@ pub struct Parser<'ast> {
     arena: &'ast AstArena<'ast>,
     tokens: Vec<Token>,
     //for error reporting
-    _file_path: PathBuf,
+    file_path: &'static str,
     pos: usize,
 }
 
@@ -61,13 +63,13 @@ impl<'ast> Parser<'ast> {
     pub fn new(
         arena: &'ast AstArena<'ast>,
         tokens: Vec<Token>,
-        _file_path: PathBuf,
+        file_path: &'static str,
     ) -> Parser<'ast> {
         let tokens = remove_comments(tokens);
         Parser {
             arena,
             tokens,
-            _file_path,
+            file_path,
             pos: 0,
         }
     }
@@ -163,7 +165,14 @@ impl<'ast> Parser<'ast> {
             self.pos += 1;
             t
         } else {
-            Token::new(Span::default(), TokenKind::EoI)
+            Token::new(
+                Span {
+                    start: self.pos,
+                    end: self.pos,
+                    path: self.file_path,
+                },
+                TokenKind::EoI,
+            )
         }
     }
 
@@ -203,7 +212,17 @@ impl<'ast> Parser<'ast> {
     pub fn parse(&mut self) -> ParseResult<AstProgram<'ast>> {
         let mut items: Vec<AstItem> = Vec::new();
         while self.current().kind() != TokenKind::EoI {
-            items.push(self.parse_item()?);
+            let item = self.parse_item();
+            match item {
+                Err(e) => {
+                    if let SyntaxError::MissPlacedComment(_) = &*e {
+                        continue;
+                    } else {
+                        return Err(e);
+                    }
+                }
+                Ok(i) => items.push(i),
+            }
         }
 
         let node = AstProgram {
@@ -213,7 +232,8 @@ impl<'ast> Parser<'ast> {
     }
 
     fn parse_item(&mut self) -> ParseResult<AstItem<'ast>> {
-        match self.current().kind() {
+        let current_tok = self.current();
+        match current_tok.kind() {
             TokenKind::KwImport => Ok(AstItem::Import(self.parse_import()?)),
             TokenKind::KwExtern => {
                 let _ = self.advance();
@@ -266,6 +286,17 @@ impl<'ast> Parser<'ast> {
                 let mut item = self.parse_item()?;
                 item.set_docstring(self.arena.alloc(doc), self.arena);
                 Ok(item)
+            }
+            TokenKind::Comments(_) => {
+                let path = current_tok.span.path;
+                let src = utils::get_file_content(path)
+                    .expect(&format!("Failed to open file content {path}"));
+                Err(Box::new(SyntaxError::MissPlacedComment(
+                    MissPlacedCommentError {
+                        span: current_tok.span,
+                        src: NamedSource::new(path, src),
+                    },
+                )))
             }
             //Handling comments
             _ => Err(self.unexpected_token_error(
@@ -2529,9 +2560,10 @@ impl<'ast> Parser<'ast> {
                 let src = get_file_content(path).expect("Failed to read source file");
                 let warning = ConstTypeNotSupportedYetError {
                     span: Span::union_span(&start, &non_const_ty.span()),
-                    ty: format!("const {:?}", non_const_ty),
+                    ty: format!("const {}", non_const_ty),
                     src: NamedSource::new(path, src),
                 };
+                eprintln!("{:?}", Into::<miette::ErrReport>::into(warning));
                 return Ok(non_const_ty);
             }
             _ => {
@@ -2572,7 +2604,7 @@ impl<'ast> Parser<'ast> {
 
     fn unexpected_token_error(&self, expected: TokenVec, span: &Span) -> Box<SyntaxError> {
         let path = span.path;
-        let src = get_file_content(path).expect("Failed to read source file");
+        let src = get_file_content(path).expect(&format!("Failed to read source file: {path}"));
         Box::new(SyntaxError::UnexpectedToken(UnexpectedTokenError {
             token: self.current().clone(),
             expected,
@@ -2629,7 +2661,7 @@ mod tests {
         };
         let bump = Bump::new();
         let arena = &AstArena::new(&bump);
-        let mut parser = Parser::new(arena, tokens, PathBuf::from("test"));
+        let mut parser = Parser::new(arena, tokens, "test");
         let result = parser.parse();
         match result {
             Ok(program) => {

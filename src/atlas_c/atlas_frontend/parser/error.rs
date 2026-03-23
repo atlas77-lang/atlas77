@@ -22,10 +22,26 @@ declare_error_type! {
         SizeOfArrayMustBeKnownAtCompileTime(SizeOfArrayMustBeKnownAtCompileTimeError),
         MutableSelfReferenceConstructor(MutableSelfReferenceConstructorError),
         ConstTypeNotSupportedYet(ConstTypeNotSupportedYetError),
+        MissPlacedComment(MissPlacedCommentError),
     }
 }
 
 pub type ParseResult<T> = Result<T, Box<SyntaxError>>;
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(syntax::cannot_end_with_comment),
+    help("Remove this trailing comment (or add a declaration under it)")
+)]
+#[error(
+    "This error shouldn't happen, but please do not have your last item be a trailing comment it fucks up the parser for some reason"
+)]
+pub struct MissPlacedCommentError {
+    #[label = "Here"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(

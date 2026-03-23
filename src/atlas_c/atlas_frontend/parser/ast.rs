@@ -826,6 +826,13 @@ pub enum AstType<'ast> {
     InlineArray(AstInlineArrayType<'ast>),
     Generic(AstGenericType<'ast>),
     PtrTy(AstPtrTy<'ast>),
+    Const(&'ast AstType<'ast>),
+}
+
+impl std::fmt::Display for AstType<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name())
+    }
 }
 
 impl AstType<'_> {
@@ -846,6 +853,7 @@ impl AstType<'_> {
             AstType::InlineArray(t) => t.span,
             AstType::Generic(t) => t.span,
             AstType::PtrTy(t) => t.span,
+            AstType::Const(c) => c.span(),
         }
     }
 
@@ -853,9 +861,9 @@ impl AstType<'_> {
         match self {
             AstType::Unit(_) => "unit".to_owned(),
             AstType::Boolean(_) => "bool".to_owned(),
-            AstType::Integer(_) => "int64".to_owned(),
-            AstType::Float(_) => "float64".to_owned(),
-            AstType::UnsignedInteger(_) => "uint64".to_owned(),
+            AstType::Integer(i) => format!("int{}", i.size_in_bits),
+            AstType::Float(f) => format!("float{}", f.size_in_bits),
+            AstType::UnsignedInteger(u) => format!("uint{}", u.size_in_bits),
             AstType::Char(_) => "char".to_owned(),
             AstType::ThisTy(_) => "This".to_owned(),
             AstType::String(_) => "string".to_owned(),
@@ -877,7 +885,8 @@ impl AstType<'_> {
                 }
             }
             //AstType::Function(_) => "fn".to_owned(),
-            AstType::PtrTy(ptr_ty) => format!("ptr<{}>", ptr_ty.inner.name()),
+            AstType::PtrTy(ptr_ty) => format!("*{}", ptr_ty.inner.name()),
+            AstType::Const(c) => c.name(),
             _ => {
                 panic!("Type does not have a name yet")
             }
