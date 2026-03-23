@@ -168,7 +168,7 @@ impl<'hir> TypeChecker<'hir> {
             self.check_method(method)?;
         }
         self.current_func_name = Some("__ctor");
-        self.check_constructor(&mut class.constructor)?;
+        self.check_constructor(&mut class.constructor, "__ctor")?;
 
         if let Some(copy_ctor) = &mut class.copy_constructor {
             if class.flag.is_non_copyable() {
@@ -184,7 +184,7 @@ impl<'hir> TypeChecker<'hir> {
                 ));
             }
             self.current_func_name = Some("__copy_ctor");
-            self.check_copy_ctor(copy_ctor)?;
+            self.check_constructor(copy_ctor, "__copy_ctor")?;
         }
 
         if let Some(move_ctor) = &mut class.move_constructor {
@@ -201,7 +201,12 @@ impl<'hir> TypeChecker<'hir> {
                 ));
             }
             self.current_func_name = Some("__move_ctor");
-            self.check_move_ctor(move_ctor)?;
+            self.check_constructor(move_ctor, "__move_ctor")?;
+        }
+
+        if let Some(default_ctor) = &mut class.default_constructor {
+            self.current_func_name = Some("__default_ctor");
+            self.check_constructor(default_ctor, "__default_ctor")?;
         }
 
         self.current_func_name = Some("__dtor");
@@ -223,83 +228,21 @@ impl<'hir> TypeChecker<'hir> {
         Ok(())
     }
 
-    fn check_copy_ctor(&mut self, copy_ctor: &mut HirStructConstructor<'hir>) -> HirResult<()> {
+    fn check_constructor(
+        &mut self,
+        constructor: &mut HirStructConstructor<'hir>,
+        func_name: &str,
+    ) -> HirResult<()> {
         self.context_functions.push(HashMap::new());
         self.context_functions
             .last_mut()
             .unwrap()
-            .insert(String::from("__copy_ctor"), ContextFunction::new());
-        for param in &copy_ctor.params {
-            self.context_functions
-                .last_mut()
-                .unwrap()
-                .get_mut("__copy_ctor")
-                .unwrap()
-                .insert(
-                    param.name,
-                    ContextVariable {
-                        name: param.name,
-                        name_span: param.span,
-                        ty: param.ty,
-                        _ty_span: param.ty_span,
-                        _is_mut: false,
-                        is_param: true,
-                        ptrs_to_locals: vec![],
-                    },
-                );
-        }
-        for stmt in &mut copy_ctor.body.statements {
-            self.check_stmt(stmt)?;
-        }
-        //Because it is a copy constructor we don't keep it in the `context_functions`
-        self.context_functions.pop();
-        Ok(())
-    }
-
-    fn check_move_ctor(&mut self, move_ctor: &mut HirStructConstructor<'hir>) -> HirResult<()> {
-        self.context_functions.push(HashMap::new());
-        self.context_functions
-            .last_mut()
-            .unwrap()
-            .insert(String::from("__move_ctor"), ContextFunction::new());
-        for param in &move_ctor.params {
-            self.context_functions
-                .last_mut()
-                .unwrap()
-                .get_mut("__move_ctor")
-                .unwrap()
-                .insert(
-                    param.name,
-                    ContextVariable {
-                        name: param.name,
-                        name_span: param.span,
-                        ty: param.ty,
-                        _ty_span: param.ty_span,
-                        _is_mut: false,
-                        is_param: true,
-                        ptrs_to_locals: vec![],
-                    },
-                );
-        }
-        for stmt in &mut move_ctor.body.statements {
-            self.check_stmt(stmt)?;
-        }
-        //Because it is a copy constructor we don't keep it in the `context_functions`
-        self.context_functions.pop();
-        Ok(())
-    }
-
-    fn check_constructor(&mut self, constructor: &mut HirStructConstructor<'hir>) -> HirResult<()> {
-        self.context_functions.push(HashMap::new());
-        self.context_functions
-            .last_mut()
-            .unwrap()
-            .insert(String::from("__ctor"), ContextFunction::new());
+            .insert(String::from(func_name), ContextFunction::new());
         for param in &constructor.params {
             self.context_functions
                 .last_mut()
                 .unwrap()
-                .get_mut("__ctor")
+                .get_mut(func_name)
                 .unwrap()
                 .insert(
                     param.name,
@@ -1863,7 +1806,7 @@ impl<'hir> TypeChecker<'hir> {
                                     Ok(ret_ty)
                                 }
                                 "__default_ctor" => {
-                                    if func_expr.args.is_empty() {
+                                    if !func_expr.args.is_empty() {
                                         return Err(Self::not_enough_arguments_err(
                                             "default constructor".to_string(),
                                             0,

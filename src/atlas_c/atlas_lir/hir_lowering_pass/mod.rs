@@ -238,6 +238,13 @@ impl<'hir> HirLoweringPass<'hir> {
         if let Some(copy_ctor) = &struct_body.copy_constructor {
             functions.push(self.lower_constructor(struct_body.name, copy_ctor, "__copy_ctor")?);
         }
+        if let Some(default_ctor) = &struct_body.default_constructor {
+            functions.push(self.lower_constructor(
+                struct_body.name,
+                default_ctor,
+                "__default_ctor",
+            )?);
+        }
         if let Some(destructor) = &struct_body.destructor {
             functions.push(self.lower_constructor(struct_body.name, destructor, "__dtor")?);
         }
