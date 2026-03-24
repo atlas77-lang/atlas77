@@ -13,9 +13,16 @@ use crate::atlas_c::{
         LirUnion,
     },
 };
+use std::collections::HashSet;
 
 pub const HEADER_NAME: &str = "__atlas77_header.h";
 pub const PORTABLE_ATLAS77_HEADER: &str = include_str!("../../.././libraries/std/useful_header.h");
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum TypeDependency {
+    Struct(String),
+    Union(String),
+}
 
 pub struct CCodeGen {
     pub c_file: String,
@@ -39,20 +46,8 @@ impl CCodeGen {
     }
 
     pub fn emit_c(&mut self, program: &LirProgram) -> Result<(), String> {
-        for union in program.unions.iter() {
-            self.codegen_union(union);
-            for s in self.struct_names.iter() {
-                Self::write_to_top(&mut self.c_header, &format!("typedef union {} {};", s, s));
-            }
-        }
-        for strukt in program.structs.iter() {
-            self.codegen_struct(strukt);
-            if !strukt.is_extern {
-                for s in self.struct_names.iter() {
-                    Self::write_to_top(&mut self.c_header, &format!("typedef struct {} {};", s, s));
-                }
-            }
-        }
+        self.emit_type_forward_declarations(program);
+        self.codegen_type_definitions_dependency_order(program);
         for func in program.functions.iter() {
             self.codegen_function(func);
         }
@@ -68,6 +63,131 @@ impl CCodeGen {
             "#include <stdint.h>\n#include <stdbool.h>\n#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n#include <math.h>\n#include <time.h>\n",
         );
         Ok(())
+    }
+
+    fn emit_type_forward_declarations(&mut self, program: &LirProgram) {
+        for union in program.unions.iter() {
+            Self::write_to_top(
+                &mut self.c_header,
+                &format!("typedef union {} {};", union.name, union.name),
+            );
+        }
+        for strukt in program.structs.iter() {
+            Self::write_to_top(
+                &mut self.c_header,
+                &format!("typedef struct {} {};", strukt.name, strukt.name),
+            );
+        }
+    }
+
+    fn type_dependencies_for_ty(ty: &LirTy, deps: &mut HashSet<TypeDependency>) {
+        match ty {
+            LirTy::StructType(name) => {
+                deps.insert(TypeDependency::Struct(name.clone()));
+            }
+            LirTy::UnionType(name) => {
+                deps.insert(TypeDependency::Union(name.clone()));
+            }
+            // Pointers can reference incomplete types in C.
+            LirTy::Ptr { .. } => {}
+            LirTy::ArrayTy { inner, .. } => Self::type_dependencies_for_ty(inner, deps),
+            _ => {}
+        }
+    }
+
+    fn type_dependencies_for_struct(strukt: &LirStruct) -> HashSet<TypeDependency> {
+        let mut deps = HashSet::new();
+        for ty in strukt.fields.values() {
+            Self::type_dependencies_for_ty(ty, &mut deps);
+        }
+        deps.remove(&TypeDependency::Struct(strukt.name.clone()));
+        deps
+    }
+
+    fn type_dependencies_for_union(union: &LirUnion) -> HashSet<TypeDependency> {
+        let mut deps = HashSet::new();
+        for ty in union.variants.values() {
+            Self::type_dependencies_for_ty(ty, &mut deps);
+        }
+        deps.remove(&TypeDependency::Union(union.name.clone()));
+        deps
+    }
+
+    fn can_emit_with_defined(
+        deps: &HashSet<TypeDependency>,
+        defined_structs: &HashSet<String>,
+        defined_unions: &HashSet<String>,
+    ) -> bool {
+        deps.iter().all(|dep| match dep {
+            TypeDependency::Struct(name) => defined_structs.contains(name),
+            TypeDependency::Union(name) => defined_unions.contains(name),
+        })
+    }
+
+    fn codegen_type_definitions_dependency_order(&mut self, program: &LirProgram) {
+        let mut remaining_structs: Vec<&LirStruct> =
+            program.structs.iter().filter(|s| !s.is_extern).collect();
+        let mut remaining_unions: Vec<&LirUnion> = program.unions.iter().collect();
+
+        let mut defined_structs: HashSet<String> = HashSet::new();
+        let mut defined_unions: HashSet<String> = HashSet::new();
+
+        loop {
+            let mut progress = false;
+
+            let mut i = 0;
+            while i < remaining_structs.len() {
+                let strukt = remaining_structs[i];
+                let deps = Self::type_dependencies_for_struct(strukt);
+                if Self::can_emit_with_defined(&deps, &defined_structs, &defined_unions) {
+                    self.codegen_struct(strukt);
+                    defined_structs.insert(strukt.name.clone());
+                    remaining_structs.remove(i);
+                    progress = true;
+                } else {
+                    i += 1;
+                }
+            }
+
+            let mut j = 0;
+            while j < remaining_unions.len() {
+                let union = remaining_unions[j];
+                let deps = Self::type_dependencies_for_union(union);
+                if Self::can_emit_with_defined(&deps, &defined_structs, &defined_unions) {
+                    self.codegen_union(union);
+                    defined_unions.insert(union.name.clone());
+                    remaining_unions.remove(j);
+                    progress = true;
+                } else {
+                    j += 1;
+                }
+            }
+
+            let mut k = 0;
+            while k < remaining_structs.len() {
+                let strukt = remaining_structs[k];
+                let deps = Self::type_dependencies_for_struct(strukt);
+                if Self::can_emit_with_defined(&deps, &defined_structs, &defined_unions) {
+                    self.codegen_struct(strukt);
+                    defined_structs.insert(strukt.name.clone());
+                    remaining_structs.remove(k);
+                    progress = true;
+                } else {
+                    k += 1;
+                }
+            }
+
+            if !progress {
+                break;
+            }
+        }
+
+        for strukt in remaining_structs {
+            self.codegen_struct(strukt);
+        }
+        for union in remaining_unions {
+            self.codegen_union(union);
+        }
     }
 
     fn codegen_union(&mut self, union: &LirUnion) {

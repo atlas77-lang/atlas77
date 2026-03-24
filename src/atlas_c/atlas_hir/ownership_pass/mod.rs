@@ -38,6 +38,7 @@ enum MoveReason {
     MoveConstructorCall,
     MutablePointerParameter,
     ReturnedValueTransfer,
+    FieldInitializationTransfer,
 }
 
 #[derive(Debug, Clone)]
@@ -398,7 +399,11 @@ impl<'hir> OwnershipPass<'hir> {
             HirStatement::Assign(assign_stmt) => {
                 self.analyze_expr(&mut assign_stmt.dst)?;
                 self.analyze_expr(&mut assign_stmt.val)?;
-                if !self.transfer_if_synthetic_temporary(
+                if !self.transfer_owned_param_into_this_field(
+                    &assign_stmt.dst,
+                    &assign_stmt.val,
+                    assign_stmt.span,
+                ) && !self.transfer_if_synthetic_temporary(
                     &assign_stmt.val,
                     assign_stmt.ty,
                     assign_stmt.span,
@@ -672,6 +677,12 @@ impl<'hir> OwnershipPass<'hir> {
             return Ok(());
         }
 
+        // Fresh rvalues (constructor calls, object/union literals, etc.) are created
+        // at the callsite and don't require copying from an existing owner.
+        if !self.should_wrap_copy_expr(expr) {
+            return Ok(());
+        }
+
         let source_ty = expr.ty();
         if self.is_trivial(source_ty) || self.is_copyable(source_ty) {
             return Ok(());
@@ -706,6 +717,46 @@ impl<'hir> OwnershipPass<'hir> {
         }
 
         false
+    }
+
+    fn transfer_owned_param_into_this_field(
+        &mut self,
+        dst: &HirExpr<'hir>,
+        val: &HirExpr<'hir>,
+        span: Span,
+    ) -> bool {
+        let dst = self.strip_noop_unary(dst);
+        let val = self.strip_noop_unary(val);
+
+        let Some(field_access) = (match dst {
+            HirExpr::FieldAccess(field_access) => Some(field_access),
+            _ => None,
+        }) else {
+            return false;
+        };
+
+        let target = self.strip_noop_unary(&field_access.target);
+        if !matches!(target, HirExpr::ThisLiteral(_)) {
+            return false;
+        }
+
+        let Some(src_name) = (match val {
+            HirExpr::Ident(ident) => Some(ident.name),
+            _ => None,
+        }) else {
+            return false;
+        };
+
+        let Some(var) = self.get_var(src_name) else {
+            return false;
+        };
+
+        if !var.is_param || self.is_trivial(var.ty) {
+            return false;
+        }
+
+        self.mark_moved(src_name, span, MoveReason::FieldInitializationTransfer);
+        true
     }
 
     fn ensure_not_moving_from_const_ptr(&self, expr: &HirExpr<'hir>) -> HirResult<()> {
@@ -1194,6 +1245,7 @@ impl<'hir> OwnershipPass<'hir> {
             MoveReason::MoveConstructorCall => "move constructor call",
             MoveReason::MutablePointerParameter => "mutable pointer parameter",
             MoveReason::ReturnedValueTransfer => "returned value transfer",
+            MoveReason::FieldInitializationTransfer => "field initialization transfer",
         };
 
         let path = access_span.path;
