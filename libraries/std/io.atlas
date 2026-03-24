@@ -1,8 +1,27 @@
 import "std/string";
 
+private extern fun atlas77_get_stdin_impl() -> *File;
+private extern fun atlas77_get_stdout_impl() -> *File;
+private extern fun atlas77_get_stderr_impl() -> *File;
+
+
+public struct Stdin 
+{
+    file_handle: *File;
+public:
+    fun read(*this, buf: *uint8, size: uint64) -> uint64 {
+        return atlas77_input_impl(buf, size);
+    }
+}
+
+public extern struct File 
+{
+    handle: uint64;
+}
+
 //! Print a value followed by a newline
 //! Example: println("Hello, World!")
-public fun println(s: string) {
+public fun println(s: *const uint8) {
     printf("%s\n", s);
 }
 
@@ -36,6 +55,6 @@ public extern fun printf<T>(fmt: *uint8, s: T);
 //! Print a value without a newline
 //! Example: print("Hello, ")
 //! print("World!")
-public fun print(s: *uint8) {
+public fun print(s: *const uint8) {
     printf("%s", s);
 }

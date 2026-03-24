@@ -1,0 +1,139 @@
+private union optional_storage<T>
+{
+    value: T;
+    dummy: uint8;
+}
+
+public struct optional<T>
+{
+private:
+    storage: optional_storage<T>;
+    has_value: bool;
+    optional(storage: optional_storage<T>, has_value: bool)
+    {
+        this->storage = storage;
+        this->has_value = has_value;
+    }
+    ~optional()
+    {
+        if (this->has_value)
+        {
+            delete this->storage.value;
+        }
+    }
+public:
+    optional(from: *const optional<T>)
+        where T: std::copyable
+    {
+        this->has_value = from->has_value;
+        if (this->has_value)
+        {
+            this->storage.value = from->storage.value;
+        }
+        else
+        {
+            this->storage.dummy = 0;
+        }
+    }
+    optional(dying_obj: *optional<T>)
+        where T: std::moveable
+    {
+        this->has_value = dying_obj->has_value;
+        if (this->has_value)
+        {
+            this->storage.value = move<T>(&dying_obj->storage.value);
+            dying_obj->has_value = false;
+        }
+        else
+        {
+            this->storage.dummy = 0;
+        }
+    }
+    //! Construct an `optional<T>` containing `data`.
+    //!
+    //! Example:
+    //!     let some = optional<int64>::of(42);
+    fun of(data: T) -> optional<T>
+    {
+        return new optional<T>(
+            optional_storage<T> { .value = data },
+            true
+        );
+    }
+    //! Construct an empty `optional<T>` with no value.
+    //!
+    //! Example:
+    //!     let none = optional<int64>::empty();
+    fun empty() -> optional<T>
+    {
+        return new optional<T>(
+            optional_storage<T> { .dummy = 0 },
+            false
+        );
+    }
+    //! Returns true if no value is present.
+    //!
+    //! Example:
+    //!     if (opt.is_empty()) { println("is empty"); }
+    fun is_empty(*const this) -> bool
+    {
+        return !this->has_value;
+    }
+    //! Returns true if a value is present.
+    //!
+    //! Example:
+    //!     if (opt.has_value()) { println("has value"); }
+    fun has_value(*const this) -> bool
+    {
+        return this->has_value;
+    }
+    fun value(*this) -> T
+    {
+        if (!this->has_value)
+        {
+            panic("Called optional<T>::value on an empty optional");
+        }
+        this->has_value = false;
+        return this->storage.value;
+    }
+}
+
+
+fun move<T: std::moveable>(from: *T) -> T
+{
+    return T::__move_ctor(from);
+}
+
+struct Test 
+{
+public:
+    value: int64;
+    Test(value: int64) {
+        this->value = value;
+    }
+    Test(from: *const Test) {
+        this->value = from->value;
+    }
+    Test(dying_obj: *Test) {
+        this->value = dying_obj->value;
+        dying_obj->value = 0;
+    }
+}
+
+extern fun printf<T>(format: *const uint8, arg: T);
+extern fun panic(msg: *const uint8) -> unit;
+
+fun main()
+{
+    let opt1 = optional<Test>::of(Test(42));
+    printf("opt1 has value: %d\n", opt1.has_value());
+    printf("opt1 value: %ld\n", opt1.value().value);
+    printf("opt1 has value after move: %d\n", opt1.has_value());
+
+    let opt2 = optional<Test>::empty();
+    printf("opt2 is empty: %d\n", opt2.is_empty());
+
+    let moved_opt2 = move<optional<Test>>(opt1);
+    printf("moved_opt2 has value: %d\n", moved_opt2.has_value());
+    printf("moved_opt2 value: %ld\n", moved_opt2.value().value);
+}

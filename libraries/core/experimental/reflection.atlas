@@ -1,0 +1,44 @@
+public struct TypeInfo 
+{
+public:
+    name: *const uint8;
+    size: const uint64;
+    align: const uint64;
+    fields: [FieldInfo];
+    methods: [MethodInfo];
+    is_primitive: const bool;
+    is_struct: const bool;
+    is_enum: const bool;
+    is_union: const bool;
+}
+
+public struct FieldInfo 
+{
+public:
+    name: *const uint8;
+    type: const TypeInfo;
+    offset: const uint64;
+}
+
+
+public struct MethodInfo 
+{
+public:
+    name: *const uint8;
+    params: const [TypeInfo];
+    return_type: const TypeInfo;
+}
+
+#[std::intrinsic]
+public extern constexpr fun typeof<T>() -> TypeInfo;
+
+public struct Foo
+{
+    
+}
+
+fun main()
+{
+    //Let's test it:
+
+}
