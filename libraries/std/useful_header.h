@@ -316,4 +316,9 @@ extern inline uint64_t atlas77_input_impl(uint8_t *buf, uint64_t size)
 }
 #endif /* ATLAS77_NS_IO */
 
+// TODO: This should get removed once we get the build system.
+// There should be some kind of "c_library" field and another one for linking
+// To ease the developers and streamline the process
+#include "raylib.h"
+
 #endif /* ATLAS77_USEFUL_HEADER_H */

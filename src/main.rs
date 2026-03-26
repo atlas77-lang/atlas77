@@ -72,6 +72,15 @@ enum AtlasRuntimeCLI {
         )]
         /// Output directory for the executable
         output_dir: String,
+        #[arg(
+            long = "c-arg",
+            value_name = "ARG",
+            action = clap::ArgAction::Append,
+            help = "Extra argument passed directly to the selected C compiler",
+            long_help = "Extra argument passed directly to the selected C compiler. Repeat this flag to pass multiple arguments (example: --c-arg=-lraylib --c-arg=-lm)."
+        )]
+        /// Extra arguments forwarded to the selected C compiler command
+        c_args: Vec<String>,
     },
     #[command(
         arg_required_else_help = true,
@@ -107,6 +116,7 @@ fn main() -> miette::Result<()> {
             no_std: no_standard_lib,
             compiler,
             output_dir,
+            c_args,
         } => {
             if release && debug {
                 eprintln!("Cannot build in both release and debug mode");
@@ -124,6 +134,7 @@ fn main() -> miette::Result<()> {
                 SupportedCompiler::from_str(&compiler.to_lowercase())
                     .expect("Invalid compiler specified"),
                 output_dir,
+                c_args,
             )
             .map(|_| ())
         }
@@ -151,6 +162,7 @@ fn main() -> miette::Result<()> {
                 // We don't care about the compiler here, as we won't compile
                 SupportedCompiler::from_str("none").expect("Invalid compiler specified"),
                 "build".to_string(),
+                Vec::new(),
             )
             .map(|_| ())
         }

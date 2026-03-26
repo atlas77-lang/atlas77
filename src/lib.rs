@@ -326,6 +326,7 @@ pub fn build(
     _using_std: bool,
     compiler: SupportedCompiler,
     output_dir: String,
+    extra_c_args: Vec<String>,
 ) -> miette::Result<()> {
     std::fs::create_dir_all("./build").unwrap();
     let start = Instant::now();
@@ -458,6 +459,12 @@ pub fn build(
         SupportedCompiler::TinyCC => {
             #[cfg(all(feature = "embedded-tinycc", not(tinycc_unavailable)))]
             {
+                if !extra_c_args.is_empty() {
+                    eprintln!(
+                        "Warning: --c-arg is currently ignored for embedded TinyCC backend: {:?}",
+                        extra_c_args
+                    );
+                }
                 emit_binary(output_dir)?;
             }
             #[cfg(all(not(feature = "embedded-tinycc"), tinycc_unavailable))]
@@ -475,6 +482,7 @@ pub fn build(
                     format!("{}/a.out", output_dir)
                 };
                 command.arg(target);
+                command.args(&extra_c_args);
                 eprintln!("Invoking TCC with command: {:?}", command);
                 let status = command.status().expect("Failed to invoke TCC");
                 if status.success() {
@@ -498,6 +506,7 @@ pub fn build(
             if _flag == CompilationFlag::Release {
                 command.arg("-O2");
             }
+            command.args(&extra_c_args);
             // TODO: Make it pretty print
             eprintln!("Invoking GCC with command: {:?}", command);
             let status = command.status().expect("Failed to invoke GCC");
@@ -520,6 +529,7 @@ pub fn build(
             if _flag == CompilationFlag::Release {
                 command.arg("/O2");
             }
+            command.args(&extra_c_args);
             // TODO: Make it pretty print
             eprintln!("Invoking MSVC with command: {:?}", command);
             let status = command.status().expect("Failed to invoke MSVC cl.exe");
@@ -543,6 +553,7 @@ pub fn build(
             if _flag == CompilationFlag::Release {
                 command.arg("-O2");
             }
+            command.args(&extra_c_args);
             // TODO: Make it pretty print
             eprintln!("Invoking Clang with command: {:?}", command);
             let status = command.status().expect("Failed to invoke Clang");
@@ -566,6 +577,7 @@ pub fn build(
             if _flag == CompilationFlag::Release {
                 command.arg("-O2");
             }
+            command.args(&extra_c_args);
             // TODO: Make it pretty print
             eprintln!("Invoking Intel ICC with command: {:?}", command);
             let status = command.status().expect("Failed to invoke Intel ICC");

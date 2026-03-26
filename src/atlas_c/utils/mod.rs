@@ -1,4 +1,4 @@
-use crate::atlas_lib::STD_LIB_DIR;
+use crate::atlas_lib::{RAYLIB_LIB_DIR, STD_LIB_DIR};
 use miette::SourceSpan;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -49,6 +49,22 @@ pub fn get_file_content(path: &str) -> Result<String, std::io::Error> {
             None => Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 format!("Standard library file '{}' not found", file_name),
+            )),
+        };
+    }
+    if path.starts_with("raylib/") {
+        let file_name = path.trim_start_matches("raylib/");
+        return match RAYLIB_LIB_DIR.get_file(file_name) {
+            Some(file) => match file.contents_utf8() {
+                Some(content) => Ok(content.to_string()),
+                None => Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("Raylib library file '{}' is not valid UTF-8", file_name),
+                )),
+            },
+            None => Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Raylib library file '{}' not found", file_name),
             )),
         };
     }
