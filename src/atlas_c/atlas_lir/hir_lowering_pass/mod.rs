@@ -1084,6 +1084,7 @@ impl<'hir> HirLoweringPass<'hir> {
                     })?;
                     Ok(dest)
                 }
+                "move" => self.lower_expr(&intrinsic.args[0]),
                 _ => {
                     let mut args = Vec::new();
                     for arg in &intrinsic.args {

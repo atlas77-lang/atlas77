@@ -7,20 +7,29 @@ use crate::atlas_c::{
         HirModule,
         arena::HirArena,
         error::{
-            HirError, HirResult, TryingToAccessADeletedValueError, TypeIsNotTriviallyCopyableError,
+            HirError, HirResult, OwnershipAnalysisFailedError, TryingToAccessAConsumedValueError,
+            TryingToAccessADeletedValueError, TryingToAccessAMovedValueError,
+            TryingToAccessAPotentiallyConsumedValueError,
+            TryingToAccessAPotentiallyDeletedValueError, TryingToAccessAPotentiallyMovedValueError,
+            TypeIsNotTriviallyCopyableError,
         },
         expr::{HirDeleteExpr, HirExpr, HirIdentExpr, HirUnaryOp},
         signature::HirModuleSignature,
         stmt::{HirAssignStmt, HirBlock, HirExprStmt, HirStatement},
         ty::HirTy,
     },
-    utils,
+    utils::{self, Span},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum OwnershipState {
     Alive,
-    Deleted(crate::atlas_c::utils::Span),
+    Deleted(Vec<Span>),
+    Moved(Vec<Span>),
+    Consumed(Vec<Span>),
+    ConditionallyDeleted(Vec<Span>),
+    ConditionallyMoved(Vec<Span>),
+    ConditionallyConsumed(Vec<Span>),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -39,6 +48,7 @@ struct ScopeFrame<'hir> {
 pub struct HirOwnershipPass<'hir> {
     _hir_arena: &'hir HirArena<'hir>,
     signature: HirModuleSignature<'hir>,
+    errors: Vec<HirError>,
 }
 
 impl<'hir> HirOwnershipPass<'hir> {
@@ -46,13 +56,13 @@ impl<'hir> HirOwnershipPass<'hir> {
         Self {
             _hir_arena: hir_arena,
             signature: signature.clone(),
+            errors: Vec::new(),
         }
     }
 
-    pub fn run(
-        &mut self,
-        hir_module: &'hir mut HirModule<'hir>,
-    ) -> HirResult<&'hir mut HirModule<'hir>> {
+    pub fn run(&mut self, hir_module: &mut HirModule<'hir>) -> HirResult<()> {
+        self.errors.clear();
+
         for function in hir_module.body.functions.values_mut() {
             let mut scope_stack = vec![ScopeFrame::default()];
             for param in &function.signature.params {
@@ -66,46 +76,57 @@ impl<'hir> HirOwnershipPass<'hir> {
                 );
             }
 
-            function.body = self.transform_block(function.body.clone(), &mut scope_stack)?;
+            function.body = self.transform_block(function.body.clone(), &mut scope_stack, 0);
         }
 
-        Ok(hir_module)
+        if !self.errors.is_empty() {
+            let errors = std::mem::take(&mut self.errors);
+            return Err(HirError::OwnershipAnalysisFailed(
+                OwnershipAnalysisFailedError {
+                    error_count: errors.len(),
+                    errors,
+                },
+            ));
+        }
+
+        Ok(())
     }
 
     fn transform_block(
-        &self,
+        &mut self,
         block: HirBlock<'hir>,
         scope_stack: &mut Vec<ScopeFrame<'hir>>,
-    ) -> HirResult<HirBlock<'hir>> {
+        conditional_depth: usize,
+    ) -> HirBlock<'hir> {
         scope_stack.push(ScopeFrame::default());
 
         let mut statements = Vec::with_capacity(block.statements.len());
         for statement in block.statements {
             match statement {
                 HirStatement::Block(inner) => {
-                    let transformed = self.transform_block(inner, scope_stack)?;
+                    let transformed = self.transform_block(inner, scope_stack, conditional_depth);
                     statements.push(HirStatement::Block(transformed));
                 }
                 HirStatement::Return(ret) => {
-                    self.validate_expr(&ret.value, scope_stack)?;
+                    self.validate_expr(&ret.value, scope_stack, conditional_depth);
                     let excluded = self.returned_identifier_name(&ret.value);
                     statements.extend(self.collect_scope_drops(scope_stack, excluded));
                     statements.push(HirStatement::Return(ret));
                 }
                 HirStatement::Expr(expr_stmt) => {
-                    self.validate_expr(&expr_stmt.expr, scope_stack)?;
+                    self.validate_expr(&expr_stmt.expr, scope_stack, conditional_depth);
                     if let Some((name, span)) = self.deleted_identifier(&expr_stmt.expr) {
                         self.mark_deleted(scope_stack, name, span);
                     }
                     statements.push(HirStatement::Expr(expr_stmt));
                 }
                 HirStatement::Let(let_stmt) => {
-                    self.validate_expr(&let_stmt.value, scope_stack)?;
-                    self.ensure_identifier_copy_allowed(
+                    self.validate_expr(&let_stmt.value, scope_stack, conditional_depth);
+                    self.record_result(self.ensure_identifier_copy_allowed(
                         scope_stack,
                         &let_stmt.value,
                         Some(let_stmt.name),
-                    )?;
+                    ));
                     let consumed_temp = self.consumed_compiler_temp_from_value(
                         scope_stack,
                         &let_stmt.value,
@@ -126,12 +147,12 @@ impl<'hir> HirOwnershipPass<'hir> {
                     statements.push(HirStatement::Let(let_stmt));
                 }
                 HirStatement::Const(const_stmt) => {
-                    self.validate_expr(&const_stmt.value, scope_stack)?;
-                    self.ensure_identifier_copy_allowed(
+                    self.validate_expr(&const_stmt.value, scope_stack, conditional_depth);
+                    self.record_result(self.ensure_identifier_copy_allowed(
                         scope_stack,
                         &const_stmt.value,
                         Some(const_stmt.name),
-                    )?;
+                    ));
                     let consumed_temp = self.consumed_compiler_temp_from_value(
                         scope_stack,
                         &const_stmt.value,
@@ -152,13 +173,17 @@ impl<'hir> HirOwnershipPass<'hir> {
                     statements.push(HirStatement::Const(const_stmt));
                 }
                 HirStatement::Assign(assign_stmt) => {
-                    self.validate_expr(&assign_stmt.dst, scope_stack)?;
-                    self.validate_expr(&assign_stmt.val, scope_stack)?;
+                    self.validate_expr(&assign_stmt.dst, scope_stack, conditional_depth);
+                    self.validate_expr(&assign_stmt.val, scope_stack, conditional_depth);
                     let dst_name = match self.strip_noop_unary(&assign_stmt.dst) {
                         HirExpr::Ident(id) => Some(id.name),
                         _ => None,
                     };
-                    self.ensure_identifier_copy_allowed(scope_stack, &assign_stmt.val, dst_name)?;
+                    self.record_result(self.ensure_identifier_copy_allowed(
+                        scope_stack,
+                        &assign_stmt.val,
+                        dst_name,
+                    ));
                     let consumed_temp =
                         self.consumed_compiler_temp_from_assign(scope_stack, &assign_stmt);
                     if let Some(delete_stmt) =
@@ -173,16 +198,37 @@ impl<'hir> HirOwnershipPass<'hir> {
                     statements.push(HirStatement::Assign(assign_stmt));
                 }
                 HirStatement::IfElse(mut if_else) => {
-                    self.validate_expr(&if_else.condition, scope_stack)?;
-                    if_else.then_branch = self.transform_block(if_else.then_branch, scope_stack)?;
+                    self.validate_expr(&if_else.condition, scope_stack, conditional_depth);
+                    let mut then_stack = scope_stack.clone();
+                    if_else.then_branch = self.transform_block(
+                        if_else.then_branch,
+                        &mut then_stack,
+                        conditional_depth + 1,
+                    );
+
+                    let mut else_stack: Option<Vec<ScopeFrame<'hir>>> = None;
                     if let Some(else_branch) = if_else.else_branch.take() {
-                        if_else.else_branch = Some(self.transform_block(else_branch, scope_stack)?);
+                        let mut local_else_stack = scope_stack.clone();
+                        if_else.else_branch = Some(self.transform_block(
+                            else_branch,
+                            &mut local_else_stack,
+                            conditional_depth + 1,
+                        ));
+                        else_stack = Some(local_else_stack);
                     }
+
+                    self.merge_control_flow_states(scope_stack, &then_stack, else_stack.as_deref());
                     statements.push(HirStatement::IfElse(if_else));
                 }
                 HirStatement::While(mut while_stmt) => {
-                    self.validate_expr(&while_stmt.condition, scope_stack)?;
-                    while_stmt.body = self.transform_block(while_stmt.body, scope_stack)?;
+                    self.validate_expr(&while_stmt.condition, scope_stack, conditional_depth);
+                    let mut loop_stack = scope_stack.clone();
+                    while_stmt.body = self.transform_block(
+                        while_stmt.body,
+                        &mut loop_stack,
+                        conditional_depth + 1,
+                    );
+                    self.merge_control_flow_states(scope_stack, &loop_stack, None);
                     statements.push(HirStatement::While(while_stmt));
                 }
                 HirStatement::Break(span) => statements.push(HirStatement::Break(span)),
@@ -205,10 +251,16 @@ impl<'hir> HirOwnershipPass<'hir> {
         }
 
         scope_stack.pop();
-        Ok(HirBlock {
+        HirBlock {
             span: block.span,
             statements,
-        })
+        }
+    }
+
+    fn record_result(&mut self, result: HirResult<()>) {
+        if let Err(err) = result {
+            self.errors.push(err);
+        }
     }
 
     fn should_auto_delete(&self, ty: &'hir HirTy<'hir>) -> bool {
@@ -281,6 +333,12 @@ impl<'hir> HirOwnershipPass<'hir> {
         let Some(src_local) = self.find_local(scope_stack, src.name) else {
             return Ok(());
         };
+
+        if let Some(state) = self.find_state(scope_stack, src.name)
+            && !matches!(state, OwnershipState::Alive)
+        {
+            return Ok(());
+        }
 
         // Compiler temporaries can transfer ownership without explicit copy().
         if src_local.is_compiler_temp {
@@ -382,6 +440,19 @@ impl<'hir> HirOwnershipPass<'hir> {
         None
     }
 
+    fn find_state(
+        &self,
+        scope_stack: &[ScopeFrame<'hir>],
+        name: &'hir str,
+    ) -> Option<OwnershipState> {
+        for frame in scope_stack.iter().rev() {
+            if let Some(state) = frame.states.get(name).cloned() {
+                return Some(state);
+            }
+        }
+        None
+    }
+
     fn returned_identifier_name(&self, expr: &HirExpr<'hir>) -> Option<&'hir str> {
         match self.strip_noop_unary(expr) {
             HirExpr::Ident(id) => Some(id.name),
@@ -390,49 +461,66 @@ impl<'hir> HirOwnershipPass<'hir> {
     }
 
     fn validate_expr(
-        &self,
+        &mut self,
         expr: &HirExpr<'hir>,
         scope_stack: &mut Vec<ScopeFrame<'hir>>,
-    ) -> HirResult<()> {
+        conditional_depth: usize,
+    ) {
         match self.strip_noop_unary(expr) {
-            HirExpr::Ident(id) => self.validate_deleted_use(scope_stack, id.name, id.span),
-            HirExpr::Delete(del) => self.validate_expr(&del.expr, scope_stack),
-            HirExpr::Unary(unary) => self.validate_expr(&unary.expr, scope_stack),
-            HirExpr::Casting(cast) => self.validate_expr(&cast.expr, scope_stack),
+            HirExpr::Ident(id) => {
+                self.record_result(self.validate_identifier_use(scope_stack, id.name, id.span))
+            }
+            HirExpr::Delete(del) => self.validate_expr(&del.expr, scope_stack, conditional_depth),
+            HirExpr::Unary(unary) => {
+                self.validate_expr(&unary.expr, scope_stack, conditional_depth)
+            }
+            HirExpr::Casting(cast) => {
+                self.validate_expr(&cast.expr, scope_stack, conditional_depth)
+            }
             HirExpr::HirBinaryOperation(binary) => {
-                self.validate_expr(&binary.lhs, scope_stack)?;
-                self.validate_expr(&binary.rhs, scope_stack)
+                self.validate_expr(&binary.lhs, scope_stack, conditional_depth);
+                self.validate_expr(&binary.rhs, scope_stack, conditional_depth);
             }
             HirExpr::Call(call) => {
-                self.validate_expr(&call.callee, scope_stack)?;
+                self.validate_expr(&call.callee, scope_stack, conditional_depth);
                 for arg in &call.args {
-                    self.validate_expr(arg, scope_stack)?;
+                    self.validate_expr(arg, scope_stack, conditional_depth);
+                    self.record_result(self.ensure_identifier_copy_allowed(scope_stack, arg, None));
                 }
-                Ok(())
             }
             HirExpr::ListLiteral(list) => {
                 for item in &list.items {
-                    self.validate_expr(item, scope_stack)?;
+                    self.validate_expr(item, scope_stack, conditional_depth);
                 }
-                Ok(())
             }
             HirExpr::ObjLiteral(obj) => {
                 for field in &obj.fields {
-                    self.validate_expr(&field.value, scope_stack)?;
+                    self.validate_expr(&field.value, scope_stack, conditional_depth);
+                    self.record_result(self.ensure_identifier_copy_allowed(
+                        scope_stack,
+                        &field.value,
+                        None,
+                    ));
                 }
-                Ok(())
             }
-            HirExpr::FieldAccess(field) => self.validate_expr(&field.target, scope_stack),
+            HirExpr::FieldAccess(field) => {
+                self.validate_expr(&field.target, scope_stack, conditional_depth)
+            }
             HirExpr::Indexing(indexing) => {
-                self.validate_expr(&indexing.target, scope_stack)?;
-                self.validate_expr(&indexing.index, scope_stack)
+                self.validate_expr(&indexing.target, scope_stack, conditional_depth);
+                self.validate_expr(&indexing.index, scope_stack, conditional_depth);
             }
-            HirExpr::StaticAccess(_) => Ok(()),
+            HirExpr::StaticAccess(_) => {}
             HirExpr::IntrinsicCall(intrinsic) => {
                 for arg in &intrinsic.args {
-                    self.validate_expr(arg, scope_stack)?;
+                    self.validate_expr(arg, scope_stack, conditional_depth);
                 }
-                Ok(())
+                if intrinsic.name == "move"
+                    && let Some(first_arg) = intrinsic.args.first()
+                    && let HirExpr::Ident(id) = self.strip_noop_unary(first_arg)
+                {
+                    self.mark_moved(scope_stack, id.name, id.span);
+                }
             }
             HirExpr::ThisLiteral(_)
             | HirExpr::FloatLiteral(_)
@@ -442,11 +530,11 @@ impl<'hir> HirOwnershipPass<'hir> {
             | HirExpr::BooleanLiteral(_)
             | HirExpr::UnsignedIntegerLiteral(_)
             | HirExpr::StringLiteral(_)
-            | HirExpr::NullLiteral(_) => Ok(()),
+            | HirExpr::NullLiteral(_) => {}
         }
     }
 
-    fn validate_deleted_use(
+    fn validate_identifier_use(
         &self,
         scope_stack: &[ScopeFrame<'hir>],
         name: &'hir str,
@@ -454,25 +542,191 @@ impl<'hir> HirOwnershipPass<'hir> {
     ) -> HirResult<()> {
         for frame in scope_stack.iter().rev() {
             if let Some(state) = frame.states.get(name) {
-                if matches!(state, OwnershipState::Deleted(_)) {
-                    let path = access_span.path;
-                    let src = utils::get_file_content(path).unwrap_or_default();
-                    let delete_span = match state {
-                        OwnershipState::Deleted(span) => *span,
-                        OwnershipState::Alive => access_span,
-                    };
-                    return Err(HirError::TryingToAccessADeletedValue(
-                        TryingToAccessADeletedValueError {
-                            delete_span,
-                            access_span,
-                            src: NamedSource::new(path, src),
-                        },
-                    ));
+                let path = access_span.path;
+                let src = utils::get_file_content(path).unwrap_or_default();
+                match state {
+                    OwnershipState::Alive => return Ok(()),
+                    OwnershipState::Deleted(spans) => {
+                        return Err(HirError::TryingToAccessADeletedValue(
+                            TryingToAccessADeletedValueError {
+                                delete_span: spans.first().copied().unwrap_or(access_span),
+                                access_span,
+                                src: NamedSource::new(path, src),
+                            },
+                        ));
+                    }
+                    OwnershipState::Moved(spans) => {
+                        return Err(HirError::TryingToAccessAMovedValue(
+                            TryingToAccessAMovedValueError {
+                                move_span: spans.first().copied().unwrap_or(access_span),
+                                access_span,
+                                src: NamedSource::new(path, src),
+                            },
+                        ));
+                    }
+                    OwnershipState::Consumed(spans) => {
+                        return Err(HirError::TryingToAccessAConsumedValue(
+                            TryingToAccessAConsumedValueError {
+                                consume_spans: spans.clone(),
+                                access_span,
+                                src: NamedSource::new(path, src),
+                            },
+                        ));
+                    }
+                    OwnershipState::ConditionallyMoved(spans) => {
+                        return Err(HirError::TryingToAccessAPotentiallyMovedValue(
+                            TryingToAccessAPotentiallyMovedValueError {
+                                move_span: spans.first().copied().unwrap_or(access_span),
+                                access_span,
+                                src: NamedSource::new(path, src),
+                            },
+                        ));
+                    }
+                    OwnershipState::ConditionallyDeleted(spans) => {
+                        return Err(HirError::TryingToAccessAPotentiallyDeletedValue(
+                            TryingToAccessAPotentiallyDeletedValueError {
+                                delete_span: spans.first().copied().unwrap_or(access_span),
+                                access_span,
+                                src: NamedSource::new(path, src),
+                            },
+                        ));
+                    }
+                    OwnershipState::ConditionallyConsumed(spans) => {
+                        return Err(HirError::TryingToAccessAPotentiallyConsumedValue(
+                            TryingToAccessAPotentiallyConsumedValueError {
+                                consume_spans: spans.clone(),
+                                access_span,
+                                src: NamedSource::new(path, src),
+                            },
+                        ));
+                    }
                 }
-                return Ok(());
             }
         }
         Ok(())
+    }
+
+    fn merge_control_flow_states(
+        &self,
+        base_stack: &mut [ScopeFrame<'hir>],
+        then_stack: &[ScopeFrame<'hir>],
+        else_stack: Option<&[ScopeFrame<'hir>]>,
+    ) {
+        for (i, base_frame) in base_stack.iter_mut().enumerate() {
+            let Some(then_frame) = then_stack.get(i) else {
+                continue;
+            };
+            let else_frame = else_stack.and_then(|stack| stack.get(i));
+            let names: Vec<&'hir str> = base_frame.states.keys().copied().collect();
+
+            for name in names {
+                let base_state = base_frame
+                    .states
+                    .get(name)
+                    .cloned()
+                    .unwrap_or(OwnershipState::Alive);
+                let then_state = then_frame
+                    .states
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_else(|| base_state.clone());
+                let else_state = else_frame
+                    .and_then(|frame| frame.states.get(name).cloned())
+                    .unwrap_or_else(|| base_state.clone());
+
+                let merged = self.merge_join_state(base_state, then_state, else_state);
+                base_frame.states.insert(name, merged);
+            }
+        }
+    }
+
+    fn merge_join_state(
+        &self,
+        base: OwnershipState,
+        then_state: OwnershipState,
+        else_state: OwnershipState,
+    ) -> OwnershipState {
+        if then_state == else_state {
+            return then_state;
+        }
+
+        if matches!(then_state, OwnershipState::Alive) {
+            return self.conditionalize_state(else_state).unwrap_or(base);
+        }
+        if matches!(else_state, OwnershipState::Alive) {
+            return self.conditionalize_state(then_state).unwrap_or(base);
+        }
+
+        if self.is_delete_family(&then_state) && self.is_delete_family(&else_state) {
+            let spans =
+                self.combine_spans(self.state_spans(&then_state), self.state_spans(&else_state));
+            return OwnershipState::Deleted(spans);
+        }
+        if self.is_move_family(&then_state) && self.is_move_family(&else_state) {
+            let spans =
+                self.combine_spans(self.state_spans(&then_state), self.state_spans(&else_state));
+            return OwnershipState::Moved(spans);
+        }
+
+        OwnershipState::Consumed(
+            self.combine_spans(self.state_spans(&then_state), self.state_spans(&else_state)),
+        )
+    }
+
+    fn conditionalize_state(&self, state: OwnershipState) -> Option<OwnershipState> {
+        match state {
+            OwnershipState::Alive => None,
+            OwnershipState::Deleted(spans) => Some(OwnershipState::ConditionallyDeleted(spans)),
+            OwnershipState::ConditionallyDeleted(spans) => {
+                Some(OwnershipState::ConditionallyDeleted(spans))
+            }
+            OwnershipState::Moved(spans) => Some(OwnershipState::ConditionallyMoved(spans)),
+            OwnershipState::ConditionallyMoved(spans) => {
+                Some(OwnershipState::ConditionallyMoved(spans))
+            }
+            OwnershipState::Consumed(spans) => Some(OwnershipState::ConditionallyConsumed(spans)),
+            OwnershipState::ConditionallyConsumed(spans) => {
+                Some(OwnershipState::ConditionallyConsumed(spans))
+            }
+        }
+    }
+
+    fn state_spans(&self, state: &OwnershipState) -> Vec<crate::atlas_c::utils::Span> {
+        match state {
+            OwnershipState::Alive => Vec::new(),
+            OwnershipState::Deleted(spans) | OwnershipState::Moved(spans) => spans.clone(),
+            OwnershipState::Consumed(spans)
+            | OwnershipState::ConditionallyDeleted(spans)
+            | OwnershipState::ConditionallyMoved(spans)
+            | OwnershipState::ConditionallyConsumed(spans) => spans.clone(),
+        }
+    }
+
+    fn combine_spans(
+        &self,
+        mut a: Vec<crate::atlas_c::utils::Span>,
+        b: Vec<crate::atlas_c::utils::Span>,
+    ) -> Vec<crate::atlas_c::utils::Span> {
+        for span in b {
+            if !a.contains(&span) {
+                a.push(span);
+            }
+        }
+        a
+    }
+
+    fn is_delete_family(&self, state: &OwnershipState) -> bool {
+        matches!(
+            state,
+            OwnershipState::Deleted(_) | OwnershipState::ConditionallyDeleted(_)
+        )
+    }
+
+    fn is_move_family(&self, state: &OwnershipState) -> bool {
+        matches!(
+            state,
+            OwnershipState::Moved(_) | OwnershipState::ConditionallyMoved(_)
+        )
     }
 
     fn collect_scope_drops(
@@ -539,7 +793,23 @@ impl<'hir> HirOwnershipPass<'hir> {
             if frame.states.contains_key(name) {
                 frame
                     .states
-                    .insert(name, OwnershipState::Deleted(delete_span));
+                    .insert(name, OwnershipState::Deleted(vec![delete_span]));
+                return;
+            }
+        }
+    }
+
+    fn mark_moved(
+        &self,
+        scope_stack: &mut [ScopeFrame<'hir>],
+        name: &'hir str,
+        move_span: crate::atlas_c::utils::Span,
+    ) {
+        for frame in scope_stack.iter_mut().rev() {
+            if frame.states.contains_key(name) {
+                frame
+                    .states
+                    .insert(name, OwnershipState::Moved(vec![move_span]));
                 return;
             }
         }

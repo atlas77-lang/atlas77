@@ -49,7 +49,10 @@ declare_error_type! {
         TryingToAccessFieldOnNonObjectType(TryingToAccessFieldOnNonObjectTypeError),
         NullableTypeRequiresStdLibrary(NullableTypeRequiresStdLibraryError),
         TryingToAccessAMovedValue(TryingToAccessAMovedValueError),
+        TryingToAccessAConsumedValue(TryingToAccessAConsumedValueError),
         TryingToAccessAPotentiallyMovedValue(TryingToAccessAPotentiallyMovedValueError),
+        TryingToAccessAPotentiallyDeletedValue(TryingToAccessAPotentiallyDeletedValueError),
+        TryingToAccessAPotentiallyConsumedValue(TryingToAccessAPotentiallyConsumedValueError),
         TryingToAccessADeletedValue(TryingToAccessADeletedValueError),
         CannotMoveOutOfLoop(CannotMoveOutOfLoopError),
         CannotDeleteOutOfLoop(CannotDeleteOutOfLoopError),
@@ -77,6 +80,9 @@ declare_error_type! {
         CannotMoveFromRvalue(CannotMoveFromRvalueError),
         TypeIsNotCopyable(TypeIsNotCopyableError),
         TypeIsNotTriviallyCopyable(TypeIsNotTriviallyCopyableError),
+        OwnershipAnalysisFailed(OwnershipAnalysisFailedError),
+        TypeCheckFailed(TypeCheckFailedError),
+        SemanticAnalysisFailed(SemanticAnalysisFailedError),
         ListIndexOutOfBounds(ListIndexOutOfBoundsError),
         IncorrectIntrinsicCallArguments(IncorrectIntrinsicCallArgumentsError),
         CannotAccessFieldOfPointers(CannotAccessFieldOfPointersError),
@@ -89,7 +95,7 @@ pub enum HirPass {
     SyntaxLowering = 0,
     Monomorphization = 1,
     TypeCheck = 2,
-    LifetimeAnalysis = 3,
+    OwnershipPass = 3,
     ConstantFolding = 4,
     DeadCodeElimination = 5,
 }
@@ -113,6 +119,10 @@ impl HirError {
             }
             HirError::UnsupportedItem(_) => HirErrorGravity::CanFinishCurrentPassButNotContinue,
             HirError::UnknownFileImport(_) => HirErrorGravity::CanGoUpTo(HirPass::SyntaxLowering),
+            HirError::TypeCheckFailed(_) => HirErrorGravity::CanGoUpTo(HirPass::OwnershipPass),
+            HirError::OwnershipAnalysisFailed(_) => {
+                HirErrorGravity::CanFinishCurrentPassButNotContinue
+            }
             _ => HirErrorGravity::Critical,
         }
     }
@@ -355,14 +365,61 @@ pub struct TryingToAccessAMovedValueError {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
+    code(sema::trying_to_access_a_consumed_value),
+    help("the value has already been consumed on all control-flow paths")
+)]
+#[error("trying to access a consumed value")]
+pub struct TryingToAccessAConsumedValueError {
+    #[label(collection, "value was moved/deleted here")]
+    pub consume_spans: Vec<Span>,
+    #[label(primary, "trying to access consumed value here")]
+    pub access_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
     code(sema::trying_to_access_a_potentially_moved_value),
     help("consider cloning the value before moving it, or using a reference")
 )]
 #[error("trying to access a potentially moved value")]
 pub struct TryingToAccessAPotentiallyMovedValueError {
-    #[label = "value was potentially moved here"]
+    #[label = "value was conditionally moved here"]
     pub move_span: Span,
     #[label = "trying to access potentially moved value here"]
+    pub access_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::trying_to_access_a_potentially_deleted_value),
+    help("ensure the value is not conditionally deleted before this access")
+)]
+#[error("trying to access a potentially deleted value")]
+pub struct TryingToAccessAPotentiallyDeletedValueError {
+    #[label = "value was conditionally deleted here"]
+    pub delete_span: Span,
+    #[label = "trying to access potentially deleted value here"]
+    pub access_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::trying_to_access_a_potentially_consumed_value),
+    help(
+        "the value is consumed across control-flow branches (moved in one branch and deleted in another)"
+    )
+)]
+#[error("trying to access a potentially consumed value")]
+pub struct TryingToAccessAPotentiallyConsumedValueError {
+    #[label(collection, "value was conditionally moved/deleted here")]
+    pub consume_spans: Vec<Span>,
+    #[label(primary, "trying to access potentially consumed value here")]
     pub access_span: Span,
     #[source_code]
     pub src: NamedSource<String>,
@@ -1136,6 +1193,36 @@ pub struct TypeIsNotTriviallyCopyableError {
     pub span: Span,
 
     pub type_name: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[error("Ownership analysis found {error_count} error(s)")]
+#[diagnostic(code(sema::ownership_analysis_failed))]
+pub struct OwnershipAnalysisFailedError {
+    pub error_count: usize,
+
+    #[related]
+    pub errors: Vec<HirError>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[error("Type checking found {error_count} error(s)")]
+#[diagnostic(code(sema::type_check_failed))]
+pub struct TypeCheckFailedError {
+    pub error_count: usize,
+
+    #[related]
+    pub errors: Vec<HirError>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[error("Semantic analysis found {error_count} error(s)")]
+#[diagnostic(code(sema::semantic_analysis_failed))]
+pub struct SemanticAnalysisFailedError {
+    pub error_count: usize,
+
+    #[related]
+    pub errors: Vec<HirError>,
 }
 
 #[derive(Error, Diagnostic, Debug)]

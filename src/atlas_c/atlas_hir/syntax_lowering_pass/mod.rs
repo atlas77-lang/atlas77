@@ -21,8 +21,8 @@ use crate::atlas_c::{
         HirImport, HirModule, HirModuleBody,
         arena::HirArena,
         error::{
-            AssignmentCannotBeAnExpressionError, CannotGenerateADestructorForThisTypeError,
-            HirError, HirResult, IncorrectIntrinsicCallArgumentsError, NonConstantValueError,
+            AssignmentCannotBeAnExpressionError, HirError, HirResult,
+            IncorrectIntrinsicCallArgumentsError, NonConstantValueError,
             NullableTypeRequiresStdLibraryError, ReservedVariableNameError,
             StructNameCannotBeOneLetterError, UnknownFileImportError, UnknownTypeError,
             UnsupportedExpr, UnsupportedItemError, UselessError,
@@ -54,10 +54,7 @@ use crate::atlas_c::{
         },
         syntax_lowering_pass::case::Case,
         ty::{HirGenericTy, HirNamedTy, HirTy},
-        warning::{
-            HirWarning, NameShouldBeInDifferentCaseWarning, ThisTypeIsStillUnstableWarning,
-            UnionFieldCannotBeAutomaticallyDeletedWarning,
-        },
+        warning::{HirWarning, NameShouldBeInDifferentCaseWarning, ThisTypeIsStillUnstableWarning},
     },
     utils::{self, Span},
 };
@@ -78,96 +75,6 @@ pub struct AstSyntaxLoweringPass<'ast, 'hir> {
 }
 
 impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
-    fn type_requires_auto_delete(
-        &self,
-        ty: &'hir HirTy<'hir>,
-        requires_drop: &BTreeMap<&'hir str, bool>,
-    ) -> bool {
-        match ty {
-            HirTy::PtrTy(_)
-            | HirTy::Function(_)
-            | HirTy::Slice(_)
-            | HirTy::Unit(_)
-            | HirTy::Boolean(_)
-            | HirTy::Integer(_)
-            | HirTy::Float(_)
-            | HirTy::Char(_)
-            | HirTy::UnsignedInteger(_)
-            | HirTy::String(_)
-            | HirTy::LiteralInteger(_)
-            | HirTy::LiteralFloat(_)
-            | HirTy::LiteralUnsignedInteger(_)
-            | HirTy::Uninitialized(_) => false,
-            HirTy::InlineArray(arr) => self.type_requires_auto_delete(arr.inner, requires_drop),
-            HirTy::Named(n) => {
-                if self.module_signature.enums.contains_key(n.name)
-                    || self.module_signature.unions.contains_key(n.name)
-                {
-                    return false;
-                }
-                if let Some(sig) = self.module_signature.structs.get(n.name)
-                    && sig.had_user_defined_destructor
-                {
-                    return true;
-                }
-                requires_drop.get(n.name).copied().unwrap_or(false)
-            }
-            HirTy::Generic(g) => {
-                if self.module_signature.enums.contains_key(g.name)
-                    || self.module_signature.unions.contains_key(g.name)
-                {
-                    return false;
-                }
-                if let Some(sig) = self.module_signature.structs.get(g.name)
-                    && sig.had_user_defined_destructor
-                {
-                    return true;
-                }
-                requires_drop.get(g.name).copied().unwrap_or(false)
-            }
-        }
-    }
-
-    fn compute_auto_destructor_requirements(&self) -> BTreeMap<&'hir str, bool> {
-        let mut requires_drop: BTreeMap<&'hir str, bool> = self
-            .module_body
-            .structs
-            .keys()
-            .map(|name| (*name, false))
-            .collect();
-
-        // User-defined destructors always make the type non-trivial to drop.
-        for (name, strct) in &self.module_body.structs {
-            if strct.signature.had_user_defined_destructor {
-                requires_drop.insert(*name, true);
-            }
-        }
-
-        loop {
-            let mut changed = false;
-            for (name, strct) in &self.module_body.structs {
-                if strct.signature.had_user_defined_destructor {
-                    continue;
-                }
-                let needs_drop = strct
-                    .signature
-                    .fields
-                    .values()
-                    .any(|field| self.type_requires_auto_delete(field.ty, &requires_drop));
-                if needs_drop && !requires_drop.get(name).copied().unwrap_or(false) {
-                    requires_drop.insert(*name, true);
-                    changed = true;
-                }
-            }
-
-            if !changed {
-                break;
-            }
-        }
-
-        requires_drop
-    }
-
     pub fn new(
         arena: &'hir HirArena<'hir>,
         ast: &'ast AstProgram,
@@ -930,31 +837,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         (updated_method_generics, updated_where_clause)
     }
 
-    fn find_conflicting_destructor_field(
-        &self,
-        fields: &[HirStructFieldSignature<'hir>],
-    ) -> Option<Span> {
-        for field in fields.iter() {
-            match field.ty {
-                HirTy::Named(HirNamedTy { name, .. })
-                | HirTy::Generic(HirGenericTy { name, .. }) => {
-                    if self.module_signature.unions.contains_key(name) {
-                        return Some(field.span);
-                    }
-                }
-                _ => continue,
-            }
-            if self
-                .module_signature
-                .unions
-                .contains_key(format!("{}", field.ty).as_str())
-            {
-                return Some(field.span);
-            }
-        }
-        None
-    }
-
     fn visit_destructor(
         &mut self,
         destructor: &'ast AstDestructor<'ast>,
@@ -1540,31 +1422,30 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                                 });
                                 return Ok(hir);
                             }
-                            "__intrinsic_move_bits" => {
-                                // __intrinsic_move_bits<T>(src: &T, size: uint64) -> T
-                                if c.generics.len() != 1 && c.args.len() != 2 {
+                            "move" => {
+                                // move<T>(T) -> T
+                                if c.generics.len() != 1 && c.args.len() != 1 {
                                     let path = node.span().path;
                                     let src =
                                         crate::atlas_c::utils::get_file_content(path).unwrap();
                                     return Err(HirError::IncorrectIntrinsicCallArguments(
                                         IncorrectIntrinsicCallArgumentsError {
                                             span: node.span(),
-                                            name: "__intrinsic_move_bits".to_string(),
+                                            name: "move".to_string(),
                                             expected: 1,
                                             found: c.generics.len(),
                                             src: NamedSource::new(path, src),
                                         },
                                     ));
                                 }
-                                let ty = self.visit_ty(c.generics[0])?;
+                                //let ty = self.visit_ty(c.generics[0])?;
                                 let src_expr = self.visit_expr(&c.args[0])?;
-                                let size_expr = self.visit_expr(&c.args[1])?;
                                 let hir = HirExpr::IntrinsicCall(HirIntrinsicCallExpr {
-                                    name: "__intrinsic_move_bits",
-                                    args: vec![src_expr, size_expr],
-                                    args_ty: vec![ty],
+                                    name: "move",
+                                    ty: src_expr.ty(),
+                                    args: vec![src_expr],
+                                    args_ty: vec![self.arena.types().get_uninitialized_ty()],
                                     span: node.span(),
-                                    ty,
                                 });
                                 return Ok(hir);
                             }
@@ -2005,142 +1886,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         Ok(ty)
     }
 
-    fn generate_all_destructors(&mut self) -> HirResult<()> {
-        let requires_drop = self.compute_auto_destructor_requirements();
-        let structs_to_process: Vec<_> = self
-            .module_body
-            .structs
-            .iter()
-            .filter(|(name, s)| {
-                s.destructor.is_none() && requires_drop.get(*name).copied().unwrap_or(false)
-            })
-            .map(|(name, s)| {
-                (
-                    ((*name).to_string(), s.name_span),
-                    s.signature
-                        .fields
-                        .values()
-                        .cloned()
-                        .collect::<Vec<HirStructFieldSignature>>(),
-                )
-            })
-            .collect();
-
-        for ((struct_name, struct_span), fields) in structs_to_process {
-            if let Some(conflicting_field) = self.find_conflicting_destructor_field(&fields) {
-                let path = struct_span.path;
-                let src = utils::get_file_content(path).unwrap();
-                return Err(HirError::CannotGenerateADestructorForThisType(
-                    CannotGenerateADestructorForThisTypeError {
-                        conflicting_field,
-                        name_span: struct_span,
-                        type_name: struct_name.to_string(),
-                        src: NamedSource::new(path, src),
-                    },
-                ));
-            }
-            let signature = HirStructDestructorSignature {
-                span: struct_span,
-                vis: HirVisibility::Public,
-                where_clause: None,
-                docstring: None,
-            };
-            let mut statements = vec![];
-            for field in fields.iter() {
-                if !self.type_requires_auto_delete(field.ty, &requires_drop) {
-                    // No need to delete primitive types
-                    continue;
-                }
-                // TODO: Handle unions properly
-                // It's very messy to use the AST for the check here, but for now it works
-                if let Some(name) = self.get_union_name(field.ty)
-                    && self.ast.items.iter().any(|item| {
-                        if let AstItem::Union(ast_union) = item {
-                            let union_name = self.arena.names().get(ast_union.name.name);
-                            return union_name == name;
-                        }
-                        false
-                    })
-                {
-                    // Deleting union causes Undefined Behavior, so we skip it
-                    let path = field.span.path;
-                    let src = utils::get_file_content(path).unwrap();
-                    let warning: ErrReport = HirWarning::UnionFieldCannotBeAutomaticallyDeleted(
-                        UnionFieldCannotBeAutomaticallyDeletedWarning {
-                            span: field.span,
-                            field_name: field.name.to_string(),
-                            struct_name: struct_name.to_string(),
-                            src: NamedSource::new(path, src),
-                        },
-                    )
-                    .into();
-                    eprintln!("{:?}", warning);
-                    continue;
-                }
-                if self.ast.items.iter().any(|item| {
-                    if let AstItem::Enum(ast_enum) = item {
-                        let enum_name = self.arena.names().get(ast_enum.name.name);
-                        return enum_name == field.ty.to_string();
-                    }
-                    false
-                }) {
-                    // No need to delete enums
-                    continue;
-                }
-                let delete_expr = HirExpr::Delete(HirDeleteExpr {
-                    span: field.span,
-                    expr: Box::new(HirExpr::FieldAccess(HirFieldAccessExpr {
-                        span: field.span,
-                        target: Box::new(HirExpr::ThisLiteral(HirThisLiteral {
-                            span: field.span,
-                            ty: self.arena.types().get_uninitialized_ty(),
-                        })),
-                        field: Box::new(HirIdentExpr {
-                            span: field.span,
-                            name: field.name,
-                            ty: field.ty,
-                        }),
-                        ty: field.ty,
-                        is_arrow: true,
-                    })),
-                });
-                statements.push(HirStatement::Expr(HirExprStmt {
-                    span: field.span,
-                    expr: delete_expr,
-                }));
-            }
-
-            // Do not emit empty auto-destructors.
-            if statements.is_empty() {
-                continue;
-            }
-
-            let hir = HirStructDestructor {
-                span: struct_span,
-                signature: self.arena.intern(signature),
-                body: HirBlock {
-                    span: struct_span,
-                    statements,
-                },
-                //Destructor is public by default
-                vis: HirVisibility::Public,
-            };
-            let strct = self
-                .module_body
-                .structs
-                .get_mut(struct_name.as_str())
-                .unwrap();
-            strct.signature.destructor = Some(hir.signature.clone());
-            strct.destructor = Some(hir);
-            if let Some(current_struct_sig) =
-                self.module_signature.structs.get_mut(struct_name.as_str())
-            {
-                *current_struct_sig = self.arena.intern(strct.signature.clone());
-            }
-        }
-        Ok(())
-    }
-
     fn nullable_types_are_unstable_warning(span: &Span) {
         let path = span.path;
         let src = crate::atlas_c::utils::get_file_content(path).unwrap();
@@ -2149,7 +1894,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 src: NamedSource::new(path, src),
                 span: *span,
                 type_name: "The nullable type".to_string(),
-                info: "Nullable types haven't been properly stabilized yet. Also they are just syntactic sugar for `Option<T>`".to_string(),
+                info: "Nullable types haven't been properly stabilized yet. Also they are just syntactic sugar for `optional<T>`".to_string(),
             })
             .into();
         eprintln!("{:?}", report);
@@ -2187,13 +1932,5 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             src: NamedSource::new(path, src),
             span: *span,
         })
-    }
-
-    fn get_union_name(&self, ty: &'hir HirTy<'hir>) -> Option<&'hir str> {
-        match ty {
-            HirTy::Named(n) => Some(n.name),
-            HirTy::Generic(g) => Some(g.name),
-            _ => None,
-        }
     }
 }

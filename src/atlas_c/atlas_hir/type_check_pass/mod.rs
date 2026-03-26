@@ -31,8 +31,9 @@ use crate::atlas_c::atlas_hir::{
         TryingToAccessFieldOnNonObjectTypeError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin, TryingToIndexNonIndexableTypeError,
-        TryingToMutateConstPointerError, TypeMismatchActual, TypeMismatchError, UnknownFieldError,
-        UnknownIdentifierError, UnknownMethodError, UnknownTypeError, UnsupportedExpr,
+        TryingToMutateConstPointerError, TypeCheckFailedError, TypeMismatchActual,
+        TypeMismatchError, UnknownFieldError, UnknownIdentifierError, UnknownMethodError,
+        UnknownTypeError, UnsupportedExpr,
     },
     expr::{
         HirBinaryOperator, HirDeleteExpr, HirExpr, HirFieldAccessExpr, HirIdentExpr,
@@ -64,6 +65,7 @@ pub struct TypeChecker<'hir> {
         (&'hir str, Vec<&'hir HirTy<'hir>>, Vec<&'hir HirTy<'hir>>),
         &'hir HirFunctionSignature<'hir>,
     >,
+    errors: Vec<HirError>,
 }
 
 impl<'hir> TypeChecker<'hir> {
@@ -75,31 +77,48 @@ impl<'hir> TypeChecker<'hir> {
             current_func_name: None,
             current_class_name: None,
             extern_monomorphized: HashMap::new(),
+            errors: Vec::new(),
         }
     }
 
-    pub fn check(
-        &mut self,
-        hir: &'hir mut HirModule<'hir>,
-    ) -> HirResult<&'hir mut HirModule<'hir>> {
+    pub fn check(&mut self, hir: &mut HirModule<'hir>) -> HirResult<()> {
+        self.errors.clear();
         self.signature = hir.signature.clone();
 
         // Auto-destructor synthesis now happens after monomorphization, during type checking.
         self.synthesize_auto_destructors(hir);
         self.signature = hir.signature.clone();
 
-        for func in &mut hir.body.functions {
-            self.current_func_name = Some(func.0);
-            self.check_func(func.1)?;
+        for (func_name, func) in &mut hir.body.functions {
+            self.current_func_name = Some(func_name);
+            let result = self.check_func(func);
+            self.record_result(result);
         }
-        for class in &mut hir.body.structs {
-            self.current_class_name = Some(class.0);
-            self.check_class(class.1)?;
+        for (class_name, class) in &mut hir.body.structs {
+            self.current_class_name = Some(class_name);
+            let result = self.check_class(class);
+            self.record_result(result);
         }
         for hir_union in hir.body.unions.values_mut() {
-            self.check_union(hir_union)?;
+            let result = self.check_union(hir_union);
+            self.record_result(result);
         }
-        Ok(hir)
+
+        if !self.errors.is_empty() {
+            let errors = std::mem::take(&mut self.errors);
+            return Err(HirError::TypeCheckFailed(TypeCheckFailedError {
+                error_count: errors.len(),
+                errors,
+            }));
+        }
+
+        Ok(())
+    }
+
+    fn record_result<T>(&mut self, result: HirResult<T>) {
+        if let Err(err) = result {
+            self.errors.push(err);
+        }
     }
 
     fn type_requires_drop(
@@ -328,12 +347,14 @@ impl<'hir> TypeChecker<'hir> {
             self.current_class_name = Some(class.name);
             self.current_func_name = Some(method.name);
             self.context_functions.push(HashMap::new());
-            self.check_method(method)?;
+            let result = self.check_method(method);
+            self.record_result(result);
         }
 
         if let Some(destructor) = class.destructor.as_mut() {
             self.current_func_name = Some("__dtor");
-            self.check_destructor(destructor)?;
+            let result = self.check_destructor(destructor);
+            self.record_result(result);
         }
 
         Ok(())
@@ -346,7 +367,8 @@ impl<'hir> TypeChecker<'hir> {
             .unwrap()
             .insert(String::from("__dtor"), ContextFunction::new());
         for stmt in &mut destructor.body.statements {
-            self.check_stmt(stmt)?;
+            let result = self.check_stmt(stmt);
+            self.record_result(result);
         }
         //Because it is a destructor we don't keep it in the `context_functions`
         self.context_functions.pop();
@@ -380,7 +402,8 @@ impl<'hir> TypeChecker<'hir> {
                 );
         }
         for stmt in &mut method.body.statements {
-            self.check_stmt(stmt)?;
+            let result = self.check_stmt(stmt);
+            self.record_result(result);
         }
         //Because it is a method we don't keep it in the `context_functions`
         self.context_functions.pop();
@@ -431,7 +454,8 @@ impl<'hir> TypeChecker<'hir> {
                 );
         }
         for stmt in &mut func.body.statements {
-            self.check_stmt(stmt)?;
+            let result = self.check_stmt(stmt);
+            self.record_result(result);
         }
 
         Ok(())
@@ -482,13 +506,17 @@ impl<'hir> TypeChecker<'hir> {
                 self.is_equivalent_ty(expected_ret_ty, span, actual_ret_ty, ret.value.span())
             }
             HirStatement::While(w) => {
-                let cond_ty = self.check_expr(&mut w.condition)?;
-                self.is_equivalent_ty(
-                    self.arena.types().get_boolean_ty(),
-                    w.condition.span(),
-                    cond_ty,
-                    w.condition.span(),
-                )?;
+                match self.check_expr(&mut w.condition) {
+                    Ok(cond_ty) => {
+                        self.record_result(self.is_equivalent_ty(
+                            self.arena.types().get_boolean_ty(),
+                            w.condition.span(),
+                            cond_ty,
+                            w.condition.span(),
+                        ));
+                    }
+                    Err(err) => self.errors.push(err),
+                }
                 //there should be just "self.context.new_scope()" and "self.context.end_scope()"
                 self.context_functions
                     .last_mut()
@@ -497,7 +525,8 @@ impl<'hir> TypeChecker<'hir> {
                     .unwrap()
                     .new_scope();
                 for stmt in &mut w.body.statements {
-                    self.check_stmt(stmt)?;
+                    let result = self.check_stmt(stmt);
+                    self.record_result(result);
                 }
                 self.context_functions
                     .last_mut()
@@ -509,13 +538,17 @@ impl<'hir> TypeChecker<'hir> {
                 Ok(())
             }
             HirStatement::IfElse(i) => {
-                let cond_ty = self.check_expr(&mut i.condition)?;
-                self.is_equivalent_ty(
-                    self.arena.types().get_boolean_ty(),
-                    i.condition.span(),
-                    cond_ty,
-                    i.condition.span(),
-                )?;
+                match self.check_expr(&mut i.condition) {
+                    Ok(cond_ty) => {
+                        self.record_result(self.is_equivalent_ty(
+                            self.arena.types().get_boolean_ty(),
+                            i.condition.span(),
+                            cond_ty,
+                            i.condition.span(),
+                        ));
+                    }
+                    Err(err) => self.errors.push(err),
+                }
 
                 self.context_functions
                     .last_mut()
@@ -524,7 +557,8 @@ impl<'hir> TypeChecker<'hir> {
                     .unwrap()
                     .new_scope();
                 for stmt in &mut i.then_branch.statements {
-                    self.check_stmt(stmt)?;
+                    let result = self.check_stmt(stmt);
+                    self.record_result(result);
                 }
                 self.context_functions
                     .last_mut()
@@ -540,7 +574,8 @@ impl<'hir> TypeChecker<'hir> {
                         .unwrap()
                         .new_scope();
                     for stmt in &mut else_branch.statements {
-                        self.check_stmt(stmt)?;
+                        let result = self.check_stmt(stmt);
+                        self.record_result(result);
                     }
                     self.context_functions
                         .last_mut()
@@ -668,7 +703,8 @@ impl<'hir> TypeChecker<'hir> {
                     .unwrap()
                     .new_scope();
                 for stmt in &mut block.statements {
-                    self.check_stmt(stmt)?;
+                    let result = self.check_stmt(stmt);
+                    self.record_result(result);
                 }
                 // We end the scope after finishing the block
                 self.context_functions
@@ -1290,7 +1326,7 @@ impl<'hir> TypeChecker<'hir> {
                             .map(|f| (f.is_external, f.is_intrinsic))
                             .unwrap_or((false, false));
 
-                        // Only mangle the name if it's NOT external and has generics
+                        // Only mangle the name if it's NOT external nor intrinsic and has generics
                         let name = if func_expr.generics.is_empty() || is_external || is_intrinsic {
                             i.name
                         } else {

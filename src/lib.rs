@@ -23,6 +23,7 @@ use crate::atlas_c::{
     atlas_codegen::{CCodeGen, HEADER_NAME},
     atlas_hir::{
         dead_code_elimination_pass::DeadCodeEliminationPass,
+        error::{HirError, HirErrorGravity, HirPass, SemanticAnalysisFailedError},
         ownership_pass::HirOwnershipPass,
         pretty_print::HirPrettyPrinter,
     },
@@ -369,13 +370,56 @@ pub fn build(
         )
         .unwrap();
 
-    //type-check
-    let mut type_checker = TypeChecker::new(&hir_arena);
-    let mut hir = type_checker.check(hir)?;
+    //type-check (collect errors and continue when gravity allows it)
+    let mut hir = hir;
+    let mut semantic_errors: Vec<HirError> = Vec::new();
 
-    //ownership analysis + RAII delete insertion
+    let mut type_checker = TypeChecker::new(&hir_arena);
+    if let Err(err) = type_checker.check(&mut *hir) {
+        let can_continue_to_ownership = match err.gravity() {
+            HirErrorGravity::CanGoUpTo(pass) => (pass as u8) >= (HirPass::OwnershipPass as u8),
+            HirErrorGravity::CanFinishCurrentPassButNotContinue => false,
+            HirErrorGravity::Critical => false,
+        };
+
+        match err {
+            HirError::TypeCheckFailed(aggregate) => {
+                semantic_errors.extend(aggregate.errors);
+            }
+            other => semantic_errors.push(other),
+        }
+
+        if !can_continue_to_ownership {
+            return Err(
+                HirError::SemanticAnalysisFailed(SemanticAnalysisFailedError {
+                    error_count: semantic_errors.len(),
+                    errors: semantic_errors,
+                })
+                .into(),
+            );
+        }
+    }
+
+    //ownership analysis + RAII delete insertion (run even after recoverable type-check errors)
     let mut ownership_pass = HirOwnershipPass::new(&hir_arena, &hir.signature);
-    hir = ownership_pass.run(hir)?;
+    if let Err(err) = ownership_pass.run(&mut *hir) {
+        match err {
+            HirError::OwnershipAnalysisFailed(aggregate) => {
+                semantic_errors.extend(aggregate.errors);
+            }
+            other => semantic_errors.push(other),
+        }
+    }
+
+    if !semantic_errors.is_empty() {
+        return Err(
+            HirError::SemanticAnalysisFailed(SemanticAnalysisFailedError {
+                error_count: semantic_errors.len(),
+                errors: semantic_errors,
+            })
+            .into(),
+        );
+    }
 
     //Dead code elimination (only in release mode)
     let mut dce_pass = DeadCodeEliminationPass::new(&hir_arena);
