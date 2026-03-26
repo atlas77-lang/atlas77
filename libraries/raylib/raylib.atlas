@@ -94,6 +94,143 @@ public:
     }
 }
 
+extern struct Rectangle
+{
+public:
+    x: float32;
+    y: float32;
+    width: float32;
+    height: float32;
+}
+
+extern struct Camera2D
+{
+public:
+    offset: Vector2;
+    target: Vector2;
+    rotation: float32;
+    zoom: float32;
+}
+
+
+enum KeyboardKey {
+    KEY_NULL            = 0;        // Key: NULL, used for no key pressed
+    // Alphanumeric keys
+    KEY_APOSTROPHE      = 39;       // Key: '
+    KEY_COMMA           = 44;       // Key: ,
+    KEY_MINUS           = 45;       // Key: -
+    KEY_PERIOD          = 46;       // Key: .
+    KEY_SLASH           = 47;       // Key: /
+    KEY_ZERO            = 48;       // Key: 0
+    KEY_ONE             = 49;       // Key: 1
+    KEY_TWO             = 50;       // Key: 2
+    KEY_THREE           = 51;       // Key: 3
+    KEY_FOUR            = 52;       // Key: 4
+    KEY_FIVE            = 53;       // Key: 5
+    KEY_SIX             = 54;       // Key: 6
+    KEY_SEVEN           = 55;       // Key: 7
+    KEY_EIGHT           = 56;       // Key: 8
+    KEY_NINE            = 57;       // Key: 9
+    KEY_SEMICOLON       = 59;       // Key: ;
+    KEY_EQUAL           = 61;       // Key: =
+    KEY_A               = 65;       // Key: A | a
+    KEY_B               = 66;       // Key: B | b
+    KEY_C               = 67;       // Key: C | c
+    KEY_D               = 68;       // Key: D | d
+    KEY_E               = 69;       // Key: E | e
+    KEY_F               = 70;       // Key: F | f
+    KEY_G               = 71;       // Key: G | g
+    KEY_H               = 72;       // Key: H | h
+    KEY_I               = 73;       // Key: I | i
+    KEY_J               = 74;       // Key: J | j
+    KEY_K               = 75;       // Key: K | k
+    KEY_L               = 76;       // Key: L | l
+    KEY_M               = 77;       // Key: M | m
+    KEY_N               = 78;       // Key: N | n
+    KEY_O               = 79;       // Key: O | o
+    KEY_P               = 80;       // Key: P | p
+    KEY_Q               = 81;       // Key: Q | q
+    KEY_R               = 82;       // Key: R | r
+    KEY_S               = 83;       // Key: S | s
+    KEY_T               = 84;       // Key: T | t
+    KEY_U               = 85;       // Key: U | u
+    KEY_V               = 86;       // Key: V | v
+    KEY_W               = 87;       // Key: W | w
+    KEY_X               = 88;       // Key: X | x
+    KEY_Y               = 89;       // Key: Y | y
+    KEY_Z               = 90;       // Key: Z | z
+    KEY_LEFT_BRACKET    = 91;       // Key: [
+    KEY_BACKSLASH       = 92;       // Key: '\'
+    KEY_RIGHT_BRACKET   = 93;       // Key: ]
+    KEY_GRAVE           = 96;       // Key: `
+    // Function keys
+    KEY_SPACE           = 32;       // Key: Space
+    KEY_ESCAPE          = 256;      // Key: Esc
+    KEY_ENTER           = 257;      // Key: Enter
+    KEY_TAB             = 258;      // Key: Tab
+    KEY_BACKSPACE       = 259;      // Key: Backspace
+    KEY_INSERT          = 260;      // Key: Ins
+    KEY_DELETE          = 261;      // Key: Del
+    KEY_RIGHT           = 262;      // Key: Cursor right
+    KEY_LEFT            = 263;      // Key: Cursor left
+    KEY_DOWN            = 264;      // Key: Cursor down
+    KEY_UP              = 265;      // Key: Cursor up
+    KEY_PAGE_UP         = 266;      // Key: Page up
+    KEY_PAGE_DOWN       = 267;      // Key: Page down
+    KEY_HOME            = 268;      // Key: Home
+    KEY_END             = 269;      // Key: End
+    KEY_CAPS_LOCK       = 280;      // Key: Caps lock
+    KEY_SCROLL_LOCK     = 281;      // Key: Scroll down
+    KEY_NUM_LOCK        = 282;      // Key: Num lock
+    KEY_PRINT_SCREEN    = 283;      // Key: Print screen
+    KEY_PAUSE           = 284;      // Key: Pause
+    KEY_F1              = 290;      // Key: F1
+    KEY_F2              = 291;      // Key: F2
+    KEY_F3              = 292;      // Key: F3
+    KEY_F4              = 293;      // Key: F4
+    KEY_F5              = 294;      // Key: F5
+    KEY_F6              = 295;      // Key: F6
+    KEY_F7              = 296;      // Key: F7
+    KEY_F8              = 297;      // Key: F8
+    KEY_F9              = 298;      // Key: F9
+    KEY_F10             = 299;      // Key: F10
+    KEY_F11             = 300;      // Key: F11
+    KEY_F12             = 301;      // Key: F12
+    KEY_LEFT_SHIFT      = 340;      // Key: Shift left
+    KEY_LEFT_CONTROL    = 341;      // Key: Control left
+    KEY_LEFT_ALT        = 342;      // Key: Alt left
+    KEY_LEFT_SUPER      = 343;      // Key: Super left
+    KEY_RIGHT_SHIFT     = 344;      // Key: Shift right
+    KEY_RIGHT_CONTROL   = 345;      // Key: Control right
+    KEY_RIGHT_ALT       = 346;      // Key: Alt right
+    KEY_RIGHT_SUPER     = 347;      // Key: Super right
+    KEY_KB_MENU         = 348;      // Key: KB menu
+    // Keypad keys
+    KEY_KP_0            = 320;      // Key: Keypad 0
+    KEY_KP_1            = 321;      // Key: Keypad 1
+    KEY_KP_2            = 322;      // Key: Keypad 2
+    KEY_KP_3            = 323;      // Key: Keypad 3
+    KEY_KP_4            = 324;      // Key: Keypad 4
+    KEY_KP_5            = 325;      // Key: Keypad 5
+    KEY_KP_6            = 326;      // Key: Keypad 6
+    KEY_KP_7            = 327;      // Key: Keypad 7
+    KEY_KP_8            = 328;      // Key: Keypad 8
+    KEY_KP_9            = 329;      // Key: Keypad 9
+    KEY_KP_DECIMAL      = 330;      // Key: Keypad .
+    KEY_KP_DIVIDE       = 331;      // Key: Keypad /
+    KEY_KP_MULTIPLY     = 332;      // Key: Keypad *
+    KEY_KP_SUBTRACT     = 333;      // Key: Keypad -
+    KEY_KP_ADD          = 334;      // Key: Keypad +
+    KEY_KP_ENTER        = 335;      // Key: Keypad Enter
+    KEY_KP_EQUAL        = 336;      // Key: Keypad =
+    // Android key buttons
+    KEY_BACK            = 4;        // Key: Android back button
+    KEY_MENU            = 5;        // Key: Android menu button
+    KEY_VOLUME_UP       = 24;       // Key: Android volume up button
+    KEY_VOLUME_DOWN     = 25;       // Key: Android volume down button
+}
+
+
 extern fun InitWindow(width: int32, height: int32, title: *const uint8);
 extern fun CloseWindow();
 extern fun WindowShouldClose() -> bool;
@@ -129,28 +266,168 @@ extern fun IsKeyPressed(key: int32) -> bool;
 extern fun GetMouseDelta() -> Vector2;
 extern fun DisableCursor();
 extern fun EnableCursor();
+extern fun GetMouseWheelMove() -> float32;
 
 // Timing
 extern fun GetFrameTime() -> float32;
+
+// Random
+extern fun GetRandomValue(min: int32, max: int32) -> int32;
 
 
 extern fun printf<T>(format: string, value: T);
 
 
 fun main() {
-    InitWindow(800, 600, "Atlas77 Game!");
-
-    SetTargetFPS(60);
+    InitWindow(2400, 1800, "Atlas77 Game!");
 
     while (!WindowShouldClose()) {
         BeginDrawing();
         ClearBackground(Color::BLACK());
 
-        DrawText("Hello from Atlas77!", 10, 10, 20, Color::WHITE());
-        DrawFPS(10, 40);
+        DrawText("Hello from Atlas77!", 30, 30, 60, Color::WHITE());
+        DrawFPS(30, 120);
 
         EndDrawing();
     }
 
     CloseWindow();
+}
+
+//------------------------------------------------------------------------------------
+// Program main entry point
+//------------------------------------------------------------------------------------
+fun main()
+{
+    // Initialization
+    //--------------------------------------------------------------------------------------
+    const MAX_BUILDINGS: int32 = 256;
+    const screenWidth: int32 = 800;
+    const screenHeight: int32 = 450;
+
+    InitWindow(screenWidth, screenHeight, "raylib [core] example - 2d camera");
+
+    let player: Rectangle = Rectangle { .x = 400.0, .y = 280.0, .width = 40.0, .height = 40.0 };
+    // TODO: Add a way to create inline arrays with: `[1_expr; lit_size]`
+    let buildings: [Rectangle; 256] = [Rectangle  { .x = 0.0, .y = 0.0, .width = 0.0, .height = 0.0 }];
+    let buildColors: [Color; 256] = [Color { .r = 0, .g = 0, .b = 0, .a = 0 }];
+
+    let spacing: int32 = 0;
+
+    let i = 0;
+    while i < MAX_BUILDINGS
+    {
+        buildings[i].width = GetRandomValue(50, 200) as float32;
+        buildings[i].height = GetRandomValue(100, 800) as float32;
+        buildings[i].y = screenHeight - 130.0 - buildings[i].height;
+        buildings[i].x = -6000.0 + spacing;
+
+        spacing = spacing + buildings[i].width as int32;
+
+        buildColors[i] = Color {
+            .r = GetRandomValue(200, 240) as uint8,
+            .g = GetRandomValue(200, 240) as uint8,
+            .b = GetRandomValue(200, 250) as uint8,
+            .a = 255};
+        
+        i = i + 1;
+    }
+
+    let camera: Camera2D = Camera2D { 
+        .offset = Vector2::default(), 
+        .target = Vector2::default(), 
+        .rotation = 0, 
+        .zoom = 0 
+    };
+    camera.target = Vector2 { .x = player.x + 20.0, .y = player.y + 20.0 };
+    camera.offset = Vector2 { .x = screenWidth/2.0, .y = screenHeight/2.0 };
+    camera.rotation = 0.0;
+    camera.zoom = 1.0;
+
+    SetTargetFPS(60);                   // Set our game to run at 60 frames-per-second
+    //--------------------------------------------------------------------------------------
+
+    // Main game loop
+    while (!WindowShouldClose())        // Detect window close button or ESC key
+    {
+        // Update
+        //----------------------------------------------------------------------------------
+        // Player movement
+        if (IsKeyDown(KeyboardKey::KEY_RIGHT)) {player.x = player.x + 2;}
+        else if (IsKeyDown(KeyboardKey::KEY_LEFT)) {player.x = player.x - 2;}
+
+        // Camera target follows player
+        camera.target = Vector2 { .x = player.x + 20, .y = player.y + 20 };
+
+        // Camera rotation controls
+        if (IsKeyDown(KeyboardKey::KEY_A)){ camera.rotation = camera.rotation - 1.0;}
+        else if (IsKeyDown(KeyboardKey::KEY_S)) {camera.rotation = camera.rotation + 1.0;}
+
+        // Limit camera rotation to 80 degrees (-40 to 40)
+        if (camera.rotation > 40) {camera.rotation = 40;}
+        else if (camera.rotation < -40) {camera.rotation = -40;}
+
+        // Camera zoom controls
+        // Uses log scaling to provide consistent zoom speed
+        camera.zoom = expf(logf(camera.zoom) + (GetMouseWheelMove()*0.1));
+
+        if (camera.zoom > 3.0) {camera.zoom = 3.0;}
+        else if (camera.zoom < 0.1) {camera.zoom = 0.1;}
+
+        // Camera reset (zoom and rotation)
+        if (IsKeyPressed(KeyboardKey::KEY_R))
+        {
+            camera.zoom = 1.0;
+            camera.rotation = 0.0;
+        }
+        //----------------------------------------------------------------------------------
+
+        // Draw
+        //----------------------------------------------------------------------------------
+        BeginDrawing();
+
+        ClearBackground(RAYWHITE);
+
+        BeginMode2D(camera);
+
+        DrawRectangle(-6000, 320, 13000, 8000, DARKGRAY);
+
+        let iBuilding: uint64 = 0;
+        while (iBuilding < MAX_BUILDINGS) {
+            DrawRectangleRec(buildings[i], buildColors[i]);
+
+            iBuilding = iBuilding + 1;
+        }
+
+        DrawRectangleRec(player, Color::Red());
+
+        DrawLine(camera.target.x as int32, -screenHeight*10, camera.target.x as int32, screenHeight*10, Color::GREEN());
+        DrawLine(-screenWidth*10, camera.target.y as int32, screenWidth*10, camera.target.y as int32, Color::GREEN());
+
+        EndMode2D();
+
+        DrawText("SCREEN AREA", 640, 10, 20, Color::Red());
+
+        DrawRectangle(0, 0, screenWidth, 5, Color::Red());
+        DrawRectangle(0, 5, 5, screenHeight - 10, Color::Red());
+        DrawRectangle(screenWidth - 5, 5, 5, screenHeight - 10, Color::Red());
+        DrawRectangle(0, screenHeight - 5, screenWidth, 5, Color::Red());
+
+        DrawRectangle( 10, 10, 250, 113, Fade(SKYBLUE, 0.5f));
+        DrawRectangleLines( 10, 10, 250, 113, BLUE);
+
+        DrawText("Free 2D camera controls:", 20, 20, 10, BLACK);
+        DrawText("- Right/Left to move player", 40, 40, 10, DARKGRAY);
+        DrawText("- Mouse Wheel to Zoom in-out", 40, 60, 10, DARKGRAY);
+        DrawText("- A / S to Rotate", 40, 80, 10, DARKGRAY);
+        DrawText("- R to reset Zoom and Rotation", 40, 100, 10, DARKGRAY);
+
+        EndDrawing();
+        //----------------------------------------------------------------------------------
+    }
+
+    // De-Initialization
+    //--------------------------------------------------------------------------------------
+    CloseWindow();        // Close window and OpenGL context
+    //--------------------------------------------------------------------------------------
 }
