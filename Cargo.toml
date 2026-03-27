@@ -1,6 +1,6 @@
 [package]
 name = "atlas_77"
-version = "0.8.0-alpha"
+version = "0.8.0"
 edition = "2024"
 description = "Wannabe systems programming language on a custom VM (for now)."
 authors = ["Gipson62"]
