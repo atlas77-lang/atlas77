@@ -1,13 +1,65 @@
+import "std/string";
+
+private extern fun atlas77_get_stdin_impl() -> *FILE;
+private extern fun atlas77_get_stdout_impl() -> *FILE;
+private extern fun atlas77_get_stderr_impl() -> *FILE;
+
+private extern fun fclose(file: *FILE) -> int;
+
+
+public struct Stdin 
+{
+    file_handle: *FILE;
+public:
+    fun read(*this, buf: *uint8, size: uint64) -> uint64 {
+        return atlas77_input_impl(buf, size);
+    }
+    ~Stdin() {
+        fclose(this->file_handle);
+    }
+}
+
+public extern struct FILE 
+{
+    handle: uint64;
+}
+
 //! Print a value followed by a newline
 //! Example: println("Hello, World!")
-public extern println<T>(s: T);
+public fun println(s: *const uint8) {
+    printf("%s\n", s);
+}
+
+//! Read a line from standard input
+//! Example: let input = input()
+public fun input() -> String {
+    let buf = String::with_capacity(1024);
+    let buf_data = buf.data_mut();
+    let bytes_read = atlas77_input_impl(buf_data, buf.capacity());
+    if bytes_read == 0 {
+        return String::default();
+    } else {
+        // We trim the null terminator
+        if buf_data[bytes_read - 1] == '\n' as uint8 {
+            buf_data[bytes_read - 1] = '\0' as uint8;
+            buf.set_len(bytes_read - 1);
+        } else {
+            buf.set_len(bytes_read);
+        }
+    }
+    return buf;
+}
+
+private extern fun atlas77_input_impl(buf: *uint8, size: uint64) -> uint64;
+//! Panic the program with a value
+//! Example: panic("Something went wrong!")
+public extern fun panic<T>(s: T);
+
+//! Well, still needs to be worked on...
+public extern fun printf<T>(fmt: *uint8, s: T);
 //! Print a value without a newline
 //! Example: print("Hello, ")
 //! print("World!")
-public extern print<T>(s: T);
-//! Read a line from standard input
-//! Example: let input = input()
-public extern input() -> string;
-//! Panic the program with a value
-//! Example: panic("Something went wrong!")
-public extern panic<T>(s: T);
+public fun print(s: *const uint8) {
+    printf("%s", s);
+}

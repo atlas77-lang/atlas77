@@ -4,15 +4,38 @@
 //! > [!Note]
 //! > Often used to move out an element from a data structure.
 //! > It is very unsafe to use, because it can lead to double-free/use-after-free errors if not used carefully.
-public extern memcpy<T>(data: &const T) -> T;
-//! > [!Warning]
-//! > This function doesn't actually exist yet. It is a placeholder for future functionality.
-public extern take<T>(data: T) -> T;
+public extern fun memcpy<T>(data: *const T) -> T;
 //! Deletes the memory of a value of type T referenced by a reference.
 //! Use with caution, as deleting a reference might lead to undefined behavior.
-public extern delete_from_ref<T>(data: &const T);
+public extern fun delete_from_ref<T>(data: *const T);
 //! Swaps the memory of two values of type T.
-public extern swap<T>(a: &T, b: &T);
+public extern fun swap<T>(a: *T, b: *T);
 //! Replaces the memory of the destination value with that of the source value.
 //! Returns the old value that was in the destination.
-public extern replace<T>(dest: &T, src: T) -> T;
+public extern fun replace<T>(dest: *T, src: T) -> T;
+
+//! [!Note] `free()` takes in a mutable pointer because it asumes you have full ownership over the object.
+//! Do note that something akin to `const_cast` will be available in the future, but use it sparingly
+public extern fun free<T: std::destructible>(ptr: *T);
+public extern fun malloc<T>(size: uint64) -> ptr<T>;
+//! Moves the value of type T from the pointer into a new value, transferring ownership.
+//!
+//! As it runs the move constructor, the source value is left in an unspecified state.
+//! Use with caution, as using the source value after this operation leads to undefined behavior if not properly handled.
+public fun move<T: std::moveable>(data: *T) -> T {
+    return T::__move_ctor(data);
+}
+//! Copies the value of type T through a const pointer.
+public fun copy<T: std::copyable>(data: *const T) -> T {
+    return T::__copy_ctor(data);
+}
+//! Takes the value of type T referenced by a const pointer, replacing it with the default value.
+//! Returns the old value that was in the pointer.
+//!
+//! [!Note]
+//! Takes a const pointer, so any pointer can coerce to it.
+public fun take<T: std::default>(data: *const T) -> T {
+    let default_value: T = T::default();
+    let old_value: T = replace(data, default_value);
+    return old_value;
+}

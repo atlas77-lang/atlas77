@@ -18,6 +18,11 @@ pub struct HirModuleSignature<'hir> {
     //No need for enum signatures for now
     pub enums: BTreeMap<&'hir str, &'hir HirEnum<'hir>>,
     pub unions: BTreeMap<&'hir str, &'hir HirUnionSignature<'hir>>,
+    pub docstring: Option<&'hir str>,
+    /// Name of the module (e.g.: `package name;`)
+    pub module_name: &'hir str,
+    /// Imported modules and their signatures
+    pub imported_modules: BTreeMap<&'hir str, &'hir HirModuleSignature<'hir>>,
 }
 
 #[derive(Debug, Clone)]
@@ -37,14 +42,20 @@ pub struct HirStructSignature<'hir> {
     /// This is enough to know if the class implement them or not
     pub operators: Vec<HirBinaryOperator>,
     pub constants: BTreeMap<&'hir str, &'hir HirStructConstantSignature<'hir>>,
-    pub constructor: HirStructConstructorSignature<'hir>,
-    pub copy_constructor: Option<HirStructConstructorSignature<'hir>>,
-    /// THERE IS a destructor in this option. It's only used, because compiler
-    /// generated destructors are made at the end of the syntax lowering pass.
-    pub destructor: Option<HirStructConstructorSignature<'hir>>,
-    pub had_user_defined_constructor: bool,
+    /// This optional is always Some() after the syntax lowering pass.
+    /// It's only optional, because at the beginning of the pass, the destructor might not exist yet
+    pub destructor: Option<HirStructDestructorSignature<'hir>>,
     pub had_user_defined_destructor: bool,
+    /// True when the struct provides a userland `copy(*const this) -> Self`-style API
+    /// (or legacy copyable flag during transition).
+    pub is_std_copyable: bool,
+    /// True when the struct provides a userland `default() -> Self` static API.
+    pub is_std_default: bool,
+    /// True when this type is explicitly marked as trivially copyable.
+    pub is_trivially_copyable: bool,
+    pub is_instantiated: bool,
     pub docstring: Option<&'hir str>,
+    pub is_extern: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -89,6 +100,7 @@ pub struct HirUnionSignature<'hir> {
     /// If the union name is mangled, this contains the pre-mangled type
     pub pre_mangled_ty: Option<&'hir HirGenericTy<'hir>>,
     pub docstring: Option<&'hir str>,
+    pub is_instantiated: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy, Default)]
@@ -109,7 +121,9 @@ impl From<AstVisibility> for HirVisibility {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum HirFlag {
     Copyable(Span),
+    TriviallyCopyable(Span),
     NonCopyable(Span),
+    NonMoveable(Span),
     #[default]
     None,
 }
@@ -117,8 +131,10 @@ pub enum HirFlag {
 impl From<AstFlag> for HirFlag {
     fn from(ast_flag: AstFlag) -> Self {
         match ast_flag {
+            AstFlag::TriviallyCopyable(span) => HirFlag::TriviallyCopyable(span),
             AstFlag::Copyable(span) => HirFlag::Copyable(span),
             AstFlag::NonCopyable(span) => HirFlag::NonCopyable(span),
+            AstFlag::Intrinsic(_) => HirFlag::None,
             AstFlag::None => HirFlag::None,
         }
     }
@@ -129,14 +145,22 @@ impl HirFlag {
         match self {
             HirFlag::Copyable(span) => Some(*span),
             HirFlag::NonCopyable(span) => Some(*span),
+            HirFlag::NonMoveable(span) => Some(*span),
+            HirFlag::TriviallyCopyable(span) => Some(*span),
             HirFlag::None => None,
         }
     }
     pub fn is_non_copyable(&self) -> bool {
         matches!(self, HirFlag::NonCopyable(_))
     }
+    pub fn is_trivially_copyable(&self) -> bool {
+        matches!(self, HirFlag::TriviallyCopyable(_))
+    }
     pub fn is_copyable(&self) -> bool {
         matches!(self, HirFlag::Copyable(_))
+    }
+    pub fn is_non_moveable(&self) -> bool {
+        matches!(self, HirFlag::NonMoveable(_))
     }
     pub fn is_no_flag(&self) -> bool {
         matches!(self, HirFlag::None)
@@ -145,15 +169,10 @@ impl HirFlag {
 
 #[derive(Debug, Clone)]
 //Also used for the destructor
-pub struct HirStructConstructorSignature<'hir> {
+pub struct HirStructDestructorSignature<'hir> {
     pub span: Span,
-    pub params: Vec<HirFunctionParameterSignature<'hir>>,
-    pub type_params: Vec<HirTypeParameterItemSignature<'hir>>,
     pub vis: HirVisibility,
     pub where_clause: Option<Vec<&'hir HirGenericConstraint<'hir>>>,
-    /// Whether the constructor's where_clause constraints are satisfied by the concrete types.
-    /// Only used for copy constructors. Set to false during monomorphization if constraints aren't met.
-    pub is_constraint_satisfied: bool,
     pub docstring: Option<&'hir str>,
 }
 
@@ -188,7 +207,7 @@ impl Display for ConstantValue {
             ConstantValue::Int(i) => write!(f, "{}", i),
             ConstantValue::Float(fl) => write!(f, "{}", fl),
             ConstantValue::UInt(u) => write!(f, "{}", u),
-            ConstantValue::String(s) => write!(f, "\"{}\"", s),
+            ConstantValue::String(s) => write!(f, "\"{}\"", s.escape_default()),
             ConstantValue::Bool(b) => write!(f, "{}", b),
             ConstantValue::Char(c) => write!(f, "'{}'", c),
             ConstantValue::Unit => write!(f, "()"),
@@ -285,9 +304,11 @@ pub struct HirFunctionSignature<'hir> {
     /// The span of the return type, if it exists.
     pub return_ty_span: Option<Span>,
     pub is_external: bool,
+    pub is_intrinsic: bool,
     /// If the function name is mangled, this contains the pre-mangled type
     pub pre_mangled_ty: Option<&'hir HirGenericTy<'hir>>,
     pub docstring: Option<&'hir str>,
+    pub is_instantiated: bool,
 }
 
 #[derive(Debug, Clone)]

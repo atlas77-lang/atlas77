@@ -1,0 +1,23 @@
+extern fun printf<T>(fmt: string, val: T);
+
+struct MyStruct
+{
+public:
+    a: int64;
+    fun get_a(*this) -> int64
+    {
+        return this->a;
+    }
+}
+
+fun main()
+{
+    // Stack alloc version
+    let my_struct: MyStruct = MyStruct(5);
+    let a = my_struct.a;
+    printf("a = %ld\n", a);
+    // Heap alloc version
+    let my_heap_struct: *MyStruct = new (MyStruct(5));
+    let my_heap_a = my_heap_struct->a;
+    printf("my_heap_a = %ld\n", my_heap_a);
+}

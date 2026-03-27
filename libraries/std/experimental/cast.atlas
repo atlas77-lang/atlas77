@@ -7,6 +7,6 @@
 /// This entire module is only experimental. I want to gather my thoughts
 /// on how to implement all the various cast operations.
 //! Cast `value` to `T` using a static/unchecked cast (experimental).
-public extern static_cast<T>(value: U) -> T;
+public extern fun static_cast<T>(value: U) -> T;
 //! Remove constness from a `&const T`, returning a mutable reference (unsafe).
-public extern const_cast<T>(value: &const T) -> &T;
+public extern fun const_cast<T>(value: &const T) -> &T;

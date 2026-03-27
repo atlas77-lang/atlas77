@@ -18,11 +18,11 @@ public:
     fun get_bar(&this) -> T 
     where T: std::copyable 
     {
-        return this.bar;
+        return (*this).bar;
     }
 }
 
-#[std::non_copyable]
+#[std::copyable]
 struct NonCopyable {
 public:
     data: int64;
@@ -37,4 +37,8 @@ fun main() {
     let b = new TestWhereClause<NonCopyable>(&a);
     // This should also cause a type checking error
     let bar = a.get_bar();
+}
+
+fun test(ref: int64) -> uint64 {
+    return ref;
 }

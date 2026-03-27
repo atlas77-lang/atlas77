@@ -11,32 +11,70 @@ declare_warning_type!(
         ThisTypeIsStillUnstable(ThisTypeIsStillUnstableWarning),
         NameShouldBeInDifferentCase(NameShouldBeInDifferentCaseWarning),
         TryingToCastToTheSameType(TryingToCastToTheSameTypeWarning),
+        UseAfterMove(UseAfterMoveWarning),
+        MoveInLoop(MoveInLoopWarning),
         ConsumingMethodMayLeakThis(ConsumingMethodMayLeakThisWarning),
-        CannotGenerateACopyConstructorForThisType(CannotGenerateACopyConstructorForThisTypeWarning),
         UnnecessaryCopyDueToLaterBorrows(UnnecessaryCopyDueToLaterBorrowsWarning),
         UnionFieldCannotBeAutomaticallyDeleted(UnionFieldCannotBeAutomaticallyDeletedWarning),
+        UnsafeRawPointerStruct(UnsafeRawPointerStructWarning),
     }
 );
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
-    code(sema::cannot_generate_a_copy_constructor_for_this_type),
+    code(sema::non_trivially_copyable_struct_holds_a_raw_pointer_with_no_custom_destructor),
     severity(warning),
     help(
-        "Consider implementing a custom copy constructor for this type, or making its fields copyable"
+        "Consider marking the struct as `std::trivially_copyable` if it is safe to do so, or implement a custom destructor to properly manage the raw pointer's memory"
     )
 )]
 #[error(
-    "Type `{type_name}` is marked as std::copyable, but a copy constructor could not be automatically generated"
+    "Struct `{struct_name}` is not marked as `std::trivially_copyable` but holds a raw pointer and does not have a custom destructor, which may lead to memory safety issues if the struct is copied or moved without proper handling"
 )]
-pub struct CannotGenerateACopyConstructorForThisTypeWarning {
+pub struct UnsafeRawPointerStructWarning {
     #[source_code]
     pub src: NamedSource<String>,
-    #[label = "Type `{type_name}` is marked as std::copyable here"]
-    pub flag_span: Span,
-    #[label("Type `{type_name}` declared here")]
-    pub name_span: Span,
-    pub type_name: String,
+    #[label = "Struct not marked as `std::trivially_copyable` declared here"]
+    pub struct_span: Span,
+    #[label = "Raw pointer field declared here"]
+    pub pointer_span: Span,
+    pub struct_name: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::use_after_move),
+    severity(warning),
+    help(
+        "Accessing a moved-from value may be undefined at runtime; consider using a copy or std::move explicitly"
+    )
+)]
+#[error("Use of moved-from variable `{var_name}`")]
+pub struct UseAfterMoveWarning {
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label = "Use of moved-from variable `{var_name}`"]
+    pub access_span: Span,
+    #[label = "Value was moved from here"]
+    pub move_span: Span,
+    pub var_name: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::consuming_method_may_leak_this),
+    severity(warning),
+    help(
+        "Add `delete this;` before returning, or change to `&this` / `&const this` if you don't need to consume ownership"
+    )
+)]
+#[error("Consuming method `{method_signature}` does not explicitly delete `this`")]
+pub struct ConsumingMethodMayLeakThisWarning {
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label = "This method takes ownership of `this` but doesn't delete it, which may cause a memory leak"]
+    pub span: Span,
+    pub method_signature: String,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -88,24 +126,6 @@ pub struct ThisTypeIsStillUnstableWarning {
     //Additional info about why it's unstable
     pub info: String,
 }
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
-    code(sema::consuming_method_may_leak_this),
-    severity(warning),
-    help(
-        "Add `delete this;` before returning, or change to `&this` / `&const this` if you don't need to consume ownership"
-    )
-)]
-#[error("Consuming method `{method_signature}` does not explicitly delete `this`")]
-pub struct ConsumingMethodMayLeakThisWarning {
-    #[source_code]
-    pub src: NamedSource<String>,
-    #[label = "This method takes ownership of `this` but doesn't delete it, which may cause a memory leak"]
-    pub span: Span,
-    pub method_signature: String,
-}
-
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
     code(sema::unnecessary_copy_due_to_later_borrows),
@@ -144,4 +164,20 @@ pub struct UnionFieldCannotBeAutomaticallyDeletedWarning {
     pub span: Span,
     pub field_name: String,
     pub struct_name: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(atlas::ownership::move_in_loop), severity(warning))]
+#[error("Move inside loop")]
+pub struct MoveInLoopWarning {
+    #[source_code]
+    pub src: NamedSource<String>,
+
+    #[label("Variable moved here")]
+    pub move_span: Span,
+
+    #[label("Inside this loop (may execute multiple times)")]
+    pub loop_span: Span,
+
+    pub var_name: String,
 }

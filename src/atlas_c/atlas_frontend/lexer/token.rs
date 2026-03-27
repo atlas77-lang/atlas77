@@ -94,7 +94,25 @@ pub enum TokenKind {
         result
     })]
     StringLiteral(String),
-    #[regex("'.'", |lex| lex.slice().chars().nth(1).unwrap())]
+    // Let's add all special chars, e.g.: \0, \n, \t, \r, \', ...
+    #[regex("'[^\']*'", |lex| {
+        let c = lex.slice().chars().nth(1).unwrap();
+        if c == '\\' {
+            match lex.slice().chars().nth(2) {
+                Some('n') => '\n',
+                Some('t') => '\t',
+                Some('r') => '\r',
+                Some('\\') => '\\',
+                Some('\'') => '\'',
+                Some('\"') => '\"',
+                Some('0') => '\0',
+                Some(c) => c,
+                None => '\\',
+            }
+        } else {
+            c
+        }
+    })]
     Char(char),
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().to_string())]
     Identifier(String),
@@ -220,8 +238,6 @@ pub enum TokenKind {
     KwOperator,
     #[token("class")]
     KwClass,
-    #[token("new")]
-    KwNew,
     #[token("delete")]
     KwDelete,
     #[token("fun")]
@@ -229,6 +245,8 @@ pub enum TokenKind {
     #[token("where")]
     //Used for generics constraints and bounds (i.e. fn foo<T>(arg: T) -> T where T: Add)
     KwWhere,
+    #[token("null")]
+    KwNull,
     #[token("extern")]
     KwExtern,
     #[token("struct")]
@@ -268,19 +286,32 @@ pub enum TokenKind {
     #[token("const")]
     KwConst,
     //Misc
-    #[token("comptime")]
-    KwComptime,
     #[token("as")]
     KwAs,
-    //Primitive Types
-    #[token("extern_ptr")]
-    ExternPtr,
+    //Signed Types
     #[token("int64")]
     Int64Ty,
+    #[token("int32")]
+    Int32Ty,
+    #[token("int16")]
+    Int16Ty,
+    #[token("int8")]
+    Int8Ty,
+    //Float Types
     #[token("float64")]
     Float64Ty,
+    #[token("float32")]
+    Float32Ty,
+    //Unsigned Types
     #[token("uint64")]
     UInt64Ty,
+    #[token("uint32")]
+    UInt32Ty,
+    #[token("uint16")]
+    UInt16Ty,
+    #[token("uint8")]
+    UInt8Ty,
+    //other types
     #[token("unit")]
     UnitTy,
     #[token("char")]
@@ -291,6 +322,13 @@ pub enum TokenKind {
     ThisTy,
     #[token("string")]
     StrTy,
+    #[token("ptr")]
+    PtrTy,
+    // === Keywords for compile-time ===
+    #[token("comptime")]
+    KwComptime,
+    #[token("then")] // Then is used in compile-time ifs
+    KwThen,
     EoI,
 }
 

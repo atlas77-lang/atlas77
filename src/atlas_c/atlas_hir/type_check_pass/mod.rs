@@ -1,47 +1,53 @@
 mod context;
 
 use super::{
-    HirFunction, HirModule, HirModuleSignature, arena::HirArena, expr, stmt::HirStatement,
+    HirFunction, HirModule, HirModuleSignature,
+    arena::HirArena,
+    expr,
+    stmt::{HirBlock, HirExprStmt, HirStatement},
 };
-use crate::atlas_c::atlas_hir::error::{
-    AccessingPrivateUnionError, CallingConsumingMethodOnMutableReferenceError,
-    CallingConsumingMethodOnMutableReferenceOrigin,
-    StdNonCopyableStructCannotHaveCopyConstructorError, StructCannotHaveAFieldOfItsOwnTypeError,
-    ThisStructDoesNotHaveACopyConstructorError, UnionMustHaveAtLeastTwoVariantError,
-    UnionVariantDefinedMultipleTimesError, VariableNameAlreadyDefinedError,
-};
-use crate::atlas_c::atlas_hir::expr::HirNewObjExpr;
-use crate::atlas_c::atlas_hir::item::{HirStructConstructor, HirUnion};
+use crate::atlas_c::atlas_hir::item::{HirStructDestructor, HirUnion};
 use crate::atlas_c::atlas_hir::pretty_print::HirPrettyPrinter;
 use crate::atlas_c::atlas_hir::signature::{
-    HirFunctionParameterSignature, HirFunctionSignature, HirStructMethodModifier,
-    HirStructSignature, HirVisibility,
+    HirFunctionParameterSignature, HirFunctionSignature, HirStructDestructorSignature,
+    HirStructFieldSignature, HirStructMethodModifier, HirStructSignature, HirVisibility,
 };
 use crate::atlas_c::atlas_hir::{
     error::{
-        AccessingClassFieldOutsideClassError, AccessingPrivateConstructorError,
+        AccessingClassFieldOutsideClassError, AccessingPrivateDestructorError,
         AccessingPrivateFieldError, AccessingPrivateFunctionError, AccessingPrivateFunctionOrigin,
         AccessingPrivateObjectOrigin, AccessingPrivateStructError,
         CallingNonConstMethodOnConstReferenceError, CallingNonConstMethodOnConstReferenceOrigin,
         CanOnlyConstructStructsError, EmptyListLiteralError, FieldKind, HirError, HirResult,
         IllegalOperationError, IllegalUnaryOperationError, MethodConstraintNotSatisfiedError,
-        NotEnoughArgumentsError, NotEnoughArgumentsOrigin, ReturningReferenceToLocalVariableError,
+        NotEnoughArgumentsError, NotEnoughArgumentsOrigin, ReturningPointerToLocalVariableError,
         TryingToAccessFieldOnNonObjectTypeError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin, TryingToIndexNonIndexableTypeError,
-        TryingToMutateConstReferenceError, TypeMismatchActual, TypeMismatchError,
-        UnknownFieldError, UnknownIdentifierError, UnknownMethodError, UnknownTypeError,
-        UnsupportedExpr,
+        TryingToMutateConstPointerError, TypeCheckFailedError, TypeMismatchActual,
+        TypeMismatchError, UnknownFieldError, UnknownIdentifierError, UnknownMethodError,
+        UnknownTypeError, UnsupportedExpr,
     },
     expr::{
-        HirBinaryOperator, HirExpr, HirFunctionCallExpr, HirIdentExpr, HirUnaryOp,
-        HirUnsignedIntegerLiteralExpr,
+        HirBinaryOperator, HirDeleteExpr, HirExpr, HirFieldAccessExpr, HirIdentExpr,
+        HirThisLiteral, HirUnaryOp, HirUnsignedIntegerLiteralExpr,
     },
     item::{HirStruct, HirStructMethod},
     monomorphization_pass::MonomorphizationPass,
     ty::{HirGenericTy, HirNamedTy, HirTy, HirTyId},
     type_check_pass::context::{ContextFunction, ContextVariable},
     warning::{HirWarning, TryingToCastToTheSameTypeWarning},
+};
+use crate::atlas_c::atlas_hir::{
+    error::{
+        AccessingPrivateUnionError, CallingConsumingMethodOnMutableReferenceError,
+        CallingConsumingMethodOnMutableReferenceOrigin, CannotAccessFieldOfPointersError,
+        InvalidListSizeError, ListIndexOutOfBoundsError, NonConstantListSizeError,
+        StructCannotHaveAFieldOfItsOwnTypeError, TypeIsNotCopyableError,
+        UnionMustHaveAtLeastTwoVariantError, UnionVariantDefinedMultipleTimesError,
+        VariableNameAlreadyDefinedError,
+    },
+    warning::UnsafeRawPointerStructWarning,
 };
 use crate::atlas_c::utils;
 use crate::atlas_c::utils::Span;
@@ -63,6 +69,7 @@ pub struct TypeChecker<'hir> {
         (&'hir str, Vec<&'hir HirTy<'hir>>, Vec<&'hir HirTy<'hir>>),
         &'hir HirFunctionSignature<'hir>,
     >,
+    errors: Vec<HirError>,
 }
 
 impl<'hir> TypeChecker<'hir> {
@@ -74,26 +81,230 @@ impl<'hir> TypeChecker<'hir> {
             current_func_name: None,
             current_class_name: None,
             extern_monomorphized: HashMap::new(),
+            errors: Vec::new(),
         }
     }
 
-    pub fn check(
-        &mut self,
-        hir: &'hir mut HirModule<'hir>,
-    ) -> HirResult<&'hir mut HirModule<'hir>> {
+    pub fn check(&mut self, hir: &mut HirModule<'hir>) -> HirResult<()> {
+        self.errors.clear();
         self.signature = hir.signature.clone();
-        for func in &mut hir.body.functions {
-            self.current_func_name = Some(func.0);
-            self.check_func(func.1)?;
+
+        // Auto-destructor synthesis now happens after monomorphization, during type checking.
+        self.synthesize_auto_destructors(hir);
+        self.signature = hir.signature.clone();
+
+        for (func_name, func) in &mut hir.body.functions {
+            self.current_func_name = Some(func_name);
+            let result = self.check_func(func);
+            self.record_result(result);
         }
-        for class in &mut hir.body.structs {
-            self.current_class_name = Some(class.0);
-            self.check_class(class.1)?;
+        for (class_name, class) in &mut hir.body.structs {
+            self.current_class_name = Some(class_name);
+            let result = self.check_class(class);
+            self.record_result(result);
         }
         for hir_union in hir.body.unions.values_mut() {
-            self.check_union(hir_union)?;
+            let result = self.check_union(hir_union);
+            self.record_result(result);
         }
-        Ok(hir)
+
+        if !self.errors.is_empty() {
+            let errors = std::mem::take(&mut self.errors);
+            return Err(HirError::TypeCheckFailed(TypeCheckFailedError {
+                error_count: errors.len(),
+                errors,
+            }));
+        }
+
+        Ok(())
+    }
+
+    fn record_result<T>(&mut self, result: HirResult<T>) {
+        if let Err(err) = result {
+            self.errors.push(err);
+        }
+    }
+
+    fn type_requires_drop(
+        &self,
+        ty: &'hir HirTy<'hir>,
+        requires_drop: &HashMap<&'hir str, bool>,
+    ) -> bool {
+        match ty {
+            HirTy::PtrTy(_)
+            | HirTy::Function(_)
+            | HirTy::Slice(_)
+            | HirTy::Unit(_)
+            | HirTy::Boolean(_)
+            | HirTy::Integer(_)
+            | HirTy::Float(_)
+            | HirTy::Char(_)
+            | HirTy::UnsignedInteger(_)
+            | HirTy::String(_)
+            | HirTy::LiteralInteger(_)
+            | HirTy::LiteralFloat(_)
+            | HirTy::LiteralUnsignedInteger(_)
+            | HirTy::Uninitialized(_) => false,
+            HirTy::InlineArray(arr) => self.type_requires_drop(arr.inner, requires_drop),
+            HirTy::Named(n) => {
+                if self.signature.enums.contains_key(n.name)
+                    || self.signature.unions.contains_key(n.name)
+                {
+                    return false;
+                }
+                if let Some(sig) = self.signature.structs.get(n.name)
+                    && sig.destructor.is_some()
+                {
+                    return true;
+                }
+                requires_drop.get(n.name).copied().unwrap_or(false)
+            }
+            HirTy::Generic(g) => {
+                if self.signature.enums.contains_key(g.name)
+                    || self.signature.unions.contains_key(g.name)
+                {
+                    return false;
+                }
+                if let Some(sig) = self.signature.structs.get(g.name)
+                    && sig.destructor.is_some()
+                {
+                    return true;
+                }
+                requires_drop.get(g.name).copied().unwrap_or(false)
+            }
+        }
+    }
+
+    fn synthesize_auto_destructors(&mut self, hir: &mut HirModule<'hir>) {
+        let mut requires_drop: HashMap<&'hir str, bool> =
+            hir.body.structs.keys().map(|name| (*name, false)).collect();
+
+        for (name, strct) in &hir.body.structs {
+            if strct.signature.had_user_defined_destructor || strct.destructor.is_some() {
+                requires_drop.insert(*name, true);
+            }
+        }
+
+        loop {
+            let mut changed = false;
+            for (name, strct) in &hir.body.structs {
+                if strct.signature.had_user_defined_destructor || strct.destructor.is_some() {
+                    continue;
+                }
+                let needs_drop = strct
+                    .signature
+                    .fields
+                    .values()
+                    .any(|field| self.type_requires_drop(field.ty, &requires_drop));
+                if needs_drop && !requires_drop.get(name).copied().unwrap_or(false) {
+                    requires_drop.insert(*name, true);
+                    changed = true;
+                }
+            }
+
+            if !changed {
+                break;
+            }
+        }
+
+        let to_generate: Vec<(&'hir str, Span, Vec<HirStructFieldSignature<'hir>>)> = hir
+            .body
+            .structs
+            .iter()
+            .filter(|(name, s)| {
+                s.destructor.is_none() && requires_drop.get(*name).copied().unwrap_or(false)
+            })
+            .map(|(name, s)| {
+                (
+                    *name,
+                    s.name_span,
+                    s.signature.fields.values().cloned().collect::<Vec<_>>(),
+                )
+            })
+            .collect();
+
+        for (struct_name, struct_span, fields) in to_generate {
+            let mut statements = Vec::new();
+            for field in &fields {
+                if !self.type_requires_drop(field.ty, &requires_drop) {
+                    continue;
+                }
+
+                let delete_expr = HirExpr::Delete(HirDeleteExpr {
+                    span: field.span,
+                    expr: Box::new(HirExpr::FieldAccess(HirFieldAccessExpr {
+                        span: field.span,
+                        target: Box::new(HirExpr::ThisLiteral(HirThisLiteral {
+                            span: field.span,
+                            ty: self.arena.types().get_uninitialized_ty(),
+                        })),
+                        field: Box::new(HirIdentExpr {
+                            span: field.span,
+                            name: field.name,
+                            ty: field.ty,
+                        }),
+                        ty: field.ty,
+                        is_arrow: true,
+                    })),
+                });
+
+                statements.push(HirStatement::Expr(HirExprStmt {
+                    span: field.span,
+                    expr: delete_expr,
+                }));
+            }
+
+            if statements.is_empty() {
+                continue;
+            }
+
+            let signature = HirStructDestructorSignature {
+                span: struct_span,
+                vis: HirVisibility::Public,
+                where_clause: None,
+                docstring: None,
+            };
+            let hir_dtor = HirStructDestructor {
+                span: struct_span,
+                signature: self.arena.intern(signature),
+                body: HirBlock {
+                    span: struct_span,
+                    statements,
+                },
+                vis: HirVisibility::Public,
+            };
+
+            if let Some(strct) = hir.body.structs.get_mut(struct_name) {
+                strct.signature.destructor = Some(hir_dtor.signature.clone());
+                strct.destructor = Some(hir_dtor);
+                if let Some(sig_ref) = hir.signature.structs.get_mut(struct_name) {
+                    *sig_ref = self.arena.intern(strct.signature.clone());
+                }
+            }
+        }
+
+        // Recompute copyability based on the final (possibly synthesized) destructor state.
+        // This keeps ownership checks in sync now that destructor synthesis happens here.
+        for (struct_name, strct) in hir.body.structs.iter_mut() {
+            let has_destructor = strct.destructor.is_some() || strct.signature.destructor.is_some();
+
+            let is_trivially_copyable = if strct.signature.flag.is_non_copyable() {
+                false
+            } else if strct.signature.flag.is_trivially_copyable() {
+                true
+            } else {
+                !has_destructor
+            };
+
+            strct.signature.is_trivially_copyable = is_trivially_copyable;
+            if is_trivially_copyable {
+                strct.signature.is_std_copyable = true;
+            }
+
+            if let Some(sig_ref) = hir.signature.structs.get_mut(struct_name) {
+                *sig_ref = self.arena.intern(strct.signature.clone());
+            }
+        }
     }
 
     fn check_union(&mut self, hir_union: &HirUnion<'hir>) -> HirResult<()> {
@@ -159,130 +370,49 @@ impl<'hir> TypeChecker<'hir> {
                 ));
             }
         }
+
+        // Warn when a struct owns raw pointers but is not trivially copyable and has no custom destructor.
+        if !class.signature.flag.is_trivially_copyable()
+            && !class.signature.had_user_defined_destructor
+            && let Some(pointer_field) = class
+                .fields
+                .iter()
+                .find(|field| matches!(field.ty, HirTy::PtrTy(_)))
+        {
+            Self::non_trivially_copyable_struct_holds_a_raw_pointer_with_no_custom_destructor_warning(
+                    class,
+                    pointer_field.span,
+                );
+        }
+
         for method in &mut class.methods {
             self.current_class_name = Some(class.name);
             self.current_func_name = Some(method.name);
             self.context_functions.push(HashMap::new());
-            self.check_method(method)?;
+            let result = self.check_method(method);
+            self.record_result(result);
         }
-        self.current_func_name = Some("constructor");
-        self.check_constructor(&mut class.constructor)?;
-        if let Some(copy_ctor) = &mut class.copy_constructor {
-            if class.flag.is_non_copyable() {
-                let path = class.span.path;
-                let src = utils::get_file_content(path).unwrap();
-                return Err(HirError::StdNonCopyableStructCannotHaveCopyConstructor(
-                    StdNonCopyableStructCannotHaveCopyConstructorError {
-                        struct_name: class.name.to_string(),
-                        copy_ctor_span: copy_ctor.signature.span,
-                        flag_span: class.flag.span().unwrap(),
-                        src: NamedSource::new(path, src),
-                    },
-                ));
-            }
-            self.current_func_name = Some("copy_ctor");
-            self.check_copy_ctor(copy_ctor)?;
+
+        if let Some(destructor) = class.destructor.as_mut() {
+            self.current_func_name = Some("__dtor");
+            let result = self.check_destructor(destructor);
+            self.record_result(result);
         }
-        self.current_func_name = Some("destructor");
-        self.check_destructor(class.destructor.as_mut().unwrap())?;
+
         Ok(())
     }
 
-    fn check_destructor(&mut self, destructor: &mut HirStructConstructor<'hir>) -> HirResult<()> {
+    fn check_destructor(&mut self, destructor: &mut HirStructDestructor<'hir>) -> HirResult<()> {
         self.context_functions.push(HashMap::new());
         self.context_functions
             .last_mut()
             .unwrap()
-            .insert(String::from("destructor"), ContextFunction::new());
-        for param in &destructor.params {
-            self.context_functions
-                .last_mut()
-                .unwrap()
-                .get_mut("destructor")
-                .unwrap()
-                .insert(
-                    param.name,
-                    ContextVariable {
-                        name: param.name,
-                        name_span: param.span,
-                        ty: param.ty,
-                        _ty_span: param.ty_span,
-                        _is_mut: false,
-                        is_param: true,
-                        refs_locals: vec![],
-                    },
-                );
-        }
+            .insert(String::from("__dtor"), ContextFunction::new());
         for stmt in &mut destructor.body.statements {
-            self.check_stmt(stmt)?;
+            let result = self.check_stmt(stmt);
+            self.record_result(result);
         }
         //Because it is a destructor we don't keep it in the `context_functions`
-        self.context_functions.pop();
-        Ok(())
-    }
-
-    fn check_copy_ctor(&mut self, copy_ctor: &mut HirStructConstructor<'hir>) -> HirResult<()> {
-        self.context_functions.push(HashMap::new());
-        self.context_functions
-            .last_mut()
-            .unwrap()
-            .insert(String::from("copy_ctor"), ContextFunction::new());
-        for param in &copy_ctor.params {
-            self.context_functions
-                .last_mut()
-                .unwrap()
-                .get_mut("copy_ctor")
-                .unwrap()
-                .insert(
-                    param.name,
-                    ContextVariable {
-                        name: param.name,
-                        name_span: param.span,
-                        ty: param.ty,
-                        _ty_span: param.ty_span,
-                        _is_mut: false,
-                        is_param: true,
-                        refs_locals: vec![],
-                    },
-                );
-        }
-        for stmt in &mut copy_ctor.body.statements {
-            self.check_stmt(stmt)?;
-        }
-        //Because it is a copy constructor we don't keep it in the `context_functions`
-        self.context_functions.pop();
-        Ok(())
-    }
-
-    fn check_constructor(&mut self, constructor: &mut HirStructConstructor<'hir>) -> HirResult<()> {
-        self.context_functions.push(HashMap::new());
-        self.context_functions
-            .last_mut()
-            .unwrap()
-            .insert(String::from("constructor"), ContextFunction::new());
-        for param in &constructor.params {
-            self.context_functions
-                .last_mut()
-                .unwrap()
-                .get_mut("constructor")
-                .unwrap()
-                .insert(
-                    param.name,
-                    ContextVariable {
-                        name: param.name,
-                        name_span: param.span,
-                        ty: param.ty,
-                        _ty_span: param.ty_span,
-                        _is_mut: false,
-                        is_param: true,
-                        refs_locals: vec![],
-                    },
-                );
-        }
-        for stmt in &mut constructor.body.statements {
-            self.check_stmt(stmt)?;
-        }
-        //Because it is a constructor we don't keep it in the `context_functions`
         self.context_functions.pop();
         Ok(())
     }
@@ -309,12 +439,13 @@ impl<'hir> TypeChecker<'hir> {
                         _ty_span: param.ty_span,
                         _is_mut: false,
                         is_param: true,
-                        refs_locals: vec![],
+                        ptrs_to_locals: vec![],
                     },
                 );
         }
         for stmt in &mut method.body.statements {
-            self.check_stmt(stmt)?;
+            let result = self.check_stmt(stmt);
+            self.record_result(result);
         }
         //Because it is a method we don't keep it in the `context_functions`
         self.context_functions.pop();
@@ -339,7 +470,7 @@ impl<'hir> TypeChecker<'hir> {
         }
     }
 
-    pub fn check_func(&mut self, func: &mut HirFunction<'hir>) -> HirResult<()> {
+    fn check_func(&mut self, func: &mut HirFunction<'hir>) -> HirResult<()> {
         self.context_functions.push(HashMap::new());
         self.context_functions.last_mut().unwrap().insert(
             self.current_func_name.unwrap().to_string(),
@@ -360,73 +491,74 @@ impl<'hir> TypeChecker<'hir> {
                         _ty_span: param.ty_span,
                         _is_mut: false,
                         is_param: true,
-                        refs_locals: vec![],
+                        ptrs_to_locals: vec![],
                     },
                 );
         }
         for stmt in &mut func.body.statements {
-            self.check_stmt(stmt)?;
+            let result = self.check_stmt(stmt);
+            self.record_result(result);
         }
 
         Ok(())
     }
 
-    pub fn check_stmt(&mut self, stmt: &mut HirStatement<'hir>) -> HirResult<()> {
+    fn check_stmt(&mut self, stmt: &mut HirStatement<'hir>) -> HirResult<()> {
         match stmt {
             HirStatement::Expr(e) => {
                 self.check_expr(&mut e.expr)?;
                 Ok(())
             }
-            HirStatement::Return(r) => {
-                let actual_ret_ty = self.check_expr(&mut r.value)?;
+            HirStatement::Return(ret) => {
+                let (expected_ret_ty, span) = if let Some(name) = self.current_class_name {
+                    //This means we're in a class method
+                    let class = self.signature.structs.get(name).unwrap();
+                    let method = class.methods.get(self.current_func_name.unwrap()).unwrap();
+                    (
+                        self.arena.intern(method.clone().return_ty) as &_,
+                        method.return_ty_span.unwrap_or(ret.span),
+                    )
+                } else if let Some(name) = self.current_func_name {
+                    //This means we're in a standalone function
+                    let func_ret_from = self.signature.functions.get(name).unwrap();
+                    (
+                        self.arena.intern(func_ret_from.return_ty.clone()) as &_,
+                        func_ret_from.return_ty_span.unwrap_or(ret.span),
+                    )
+                } else {
+                    (self.arena.types().get_uninitialized_ty(), ret.span)
+                };
+
+                self.retag_integer_literal_for_expected_ty(expected_ret_ty, &mut ret.value);
+                let actual_ret_ty = self.check_expr(&mut ret.value)?;
 
                 // Check for returning a reference to a local variable (directly or through a struct)
-                let local_refs = self.get_local_ref_targets(&r.value);
+                let local_refs = self.get_local_ptr_targets(&ret.value);
                 if let Some(local_var_name) = local_refs.first() {
-                    let path = r.span.path;
+                    let path = ret.span.path;
                     let src = utils::get_file_content(path).unwrap();
                     return Err(HirError::ReturningReferenceToLocalVariable(
-                        ReturningReferenceToLocalVariableError {
-                            span: r.value.span(),
+                        ReturningPointerToLocalVariableError {
+                            span: ret.value.span(),
                             var_name: local_var_name.to_string(),
                             src: NamedSource::new(path, src),
                         },
                     ));
                 }
-
-                let mut expected_ret_ty = self.arena.types().get_uninitialized_ty();
-                let span = if self.current_class_name.is_some() {
-                    //This means we're in a class method
-                    let class = self
-                        .signature
-                        .structs
-                        .get(self.current_class_name.unwrap())
-                        .unwrap();
-                    let method = class.methods.get(self.current_func_name.unwrap()).unwrap();
-                    expected_ret_ty = self.arena.intern(method.clone().return_ty);
-                    method.return_ty_span.unwrap_or(r.span)
-                } else if self.current_func_name.is_some() {
-                    //This means we're in a standalone function
-                    let func_ret_from = self
-                        .signature
-                        .functions
-                        .get(self.current_func_name.unwrap())
-                        .unwrap();
-                    expected_ret_ty = self.arena.intern(func_ret_from.return_ty.clone());
-                    func_ret_from.return_ty_span.unwrap_or(r.span)
-                } else {
-                    r.span
-                };
-                self.is_equivalent_ty(expected_ret_ty, span, actual_ret_ty, r.value.span())
+                self.is_equivalent_ty(expected_ret_ty, span, actual_ret_ty, ret.value.span())
             }
             HirStatement::While(w) => {
-                let cond_ty = self.check_expr(&mut w.condition)?;
-                self.is_equivalent_ty(
-                    self.arena.types().get_boolean_ty(),
-                    w.condition.span(),
-                    cond_ty,
-                    w.condition.span(),
-                )?;
+                match self.check_expr(&mut w.condition) {
+                    Ok(cond_ty) => {
+                        self.record_result(self.is_equivalent_ty(
+                            self.arena.types().get_boolean_ty(),
+                            w.condition.span(),
+                            cond_ty,
+                            w.condition.span(),
+                        ));
+                    }
+                    Err(err) => self.errors.push(err),
+                }
                 //there should be just "self.context.new_scope()" and "self.context.end_scope()"
                 self.context_functions
                     .last_mut()
@@ -435,7 +567,8 @@ impl<'hir> TypeChecker<'hir> {
                     .unwrap()
                     .new_scope();
                 for stmt in &mut w.body.statements {
-                    self.check_stmt(stmt)?;
+                    let result = self.check_stmt(stmt);
+                    self.record_result(result);
                 }
                 self.context_functions
                     .last_mut()
@@ -447,13 +580,17 @@ impl<'hir> TypeChecker<'hir> {
                 Ok(())
             }
             HirStatement::IfElse(i) => {
-                let cond_ty = self.check_expr(&mut i.condition)?;
-                self.is_equivalent_ty(
-                    self.arena.types().get_boolean_ty(),
-                    i.condition.span(),
-                    cond_ty,
-                    i.condition.span(),
-                )?;
+                match self.check_expr(&mut i.condition) {
+                    Ok(cond_ty) => {
+                        self.record_result(self.is_equivalent_ty(
+                            self.arena.types().get_boolean_ty(),
+                            i.condition.span(),
+                            cond_ty,
+                            i.condition.span(),
+                        ));
+                    }
+                    Err(err) => self.errors.push(err),
+                }
 
                 self.context_functions
                     .last_mut()
@@ -462,7 +599,8 @@ impl<'hir> TypeChecker<'hir> {
                     .unwrap()
                     .new_scope();
                 for stmt in &mut i.then_branch.statements {
-                    self.check_stmt(stmt)?;
+                    let result = self.check_stmt(stmt);
+                    self.record_result(result);
                 }
                 self.context_functions
                     .last_mut()
@@ -478,7 +616,8 @@ impl<'hir> TypeChecker<'hir> {
                         .unwrap()
                         .new_scope();
                     for stmt in &mut else_branch.statements {
-                        self.check_stmt(stmt)?;
+                        let result = self.check_stmt(stmt);
+                        self.record_result(result);
                     }
                     self.context_functions
                         .last_mut()
@@ -490,6 +629,9 @@ impl<'hir> TypeChecker<'hir> {
                 Ok(())
             }
             HirStatement::Const(c) => {
+                if c.ty != self.arena.types().get_uninitialized_ty() {
+                    self.retag_integer_literal_for_expected_ty(c.ty, &mut c.value);
+                }
                 let expr_ty = self.check_expr(&mut c.value)?;
                 let const_ty = if c.ty == self.arena.types().get_uninitialized_ty() {
                     //Need inference
@@ -505,7 +647,7 @@ impl<'hir> TypeChecker<'hir> {
                 };
 
                 // Check if the const is being assigned a reference to a local variable
-                let refs_locals = self.get_local_ref_targets(&c.value);
+                let ptrs_to_locals = self.get_local_ptr_targets(&c.value);
 
                 self.context_functions
                     .last_mut()
@@ -521,7 +663,7 @@ impl<'hir> TypeChecker<'hir> {
                             _ty_span: c.ty_span.unwrap_or(c.name_span),
                             _is_mut: false,
                             is_param: false,
-                            refs_locals,
+                            ptrs_to_locals,
                         },
                     );
 
@@ -533,6 +675,9 @@ impl<'hir> TypeChecker<'hir> {
                 )
             }
             HirStatement::Let(l) => {
+                if l.ty != self.arena.types().get_uninitialized_ty() {
+                    self.retag_integer_literal_for_expected_ty(l.ty, &mut l.value);
+                }
                 let expr_ty = self.check_expr(&mut l.value)?;
                 let var_ty = if l.ty == self.arena.types().get_uninitialized_ty() {
                     //Need inference
@@ -549,7 +694,7 @@ impl<'hir> TypeChecker<'hir> {
                 l.ty = var_ty;
 
                 // Check if the let is being assigned a reference to a local variable
-                let refs_locals = self.get_local_ref_targets(&l.value);
+                let ptrs_to_locals = self.get_local_ptr_targets(&l.value);
 
                 self.insert_new_variable(ContextVariable {
                     name: l.name,
@@ -558,7 +703,7 @@ impl<'hir> TypeChecker<'hir> {
                     _ty_span: l.ty_span.unwrap_or(l.name_span),
                     _is_mut: true,
                     is_param: false,
-                    refs_locals,
+                    ptrs_to_locals,
                 })?;
 
                 self.is_equivalent_ty(
@@ -570,27 +715,26 @@ impl<'hir> TypeChecker<'hir> {
             }
             HirStatement::Assign(assign) => {
                 let dst_ty = self.check_expr(&mut assign.dst)?;
+                self.retag_integer_literal_for_expected_ty(dst_ty, &mut assign.val);
                 let val_ty = self.check_expr(&mut assign.val)?;
-                //Todo needs a special rule for `this.field = value`, because you can assign once to a const field
 
                 // Check if we are dereferencing a const reference (mutation through const ref)
                 // This catches: `*const_ref = value`
                 if let HirExpr::Unary(unary_expr) = &assign.dst
                     && let Some(HirUnaryOp::Deref) = &unary_expr.op
+                    && self.is_const_ptr_ty(unary_expr.expr.ty())
                 {
-                    let deref_target_ty = self.check_expr(&mut unary_expr.expr.clone())?;
-                    if deref_target_ty.is_const() {
-                        // Allow mutation in constructor for field initialization
-                        if !(self.current_func_name == Some("constructor")
-                            && self.current_class_name.is_some())
-                        {
-                            return Err(Self::trying_to_mutate_const_reference(
-                                &assign.dst.span(),
-                                deref_target_ty,
-                            ));
-                        }
-                    }
+                    let path = assign.span.path;
+                    let src = utils::get_file_content(path).unwrap();
+                    return Err(HirError::TryingToMutateConstPointer(
+                        TryingToMutateConstPointerError {
+                            span: assign.span,
+                            ty: dst_ty.to_string(),
+                            src: NamedSource::new(path, src),
+                        },
+                    ));
                 }
+                assign.ty = dst_ty;
 
                 // Note: We intentionally do NOT block assignments where lhs.is_const() is true
                 // but there's no dereference. For example:
@@ -598,7 +742,7 @@ impl<'hir> TypeChecker<'hir> {
                 //   arr[i] = some_const_ref;  // This is OK - storing a const ref value
                 // This is different from *const_ref = value (mutation through const ref)
 
-                self.is_equivalent_ty(val_ty, assign.dst.span(), dst_ty, assign.val.span())?;
+                self.is_equivalent_ty(dst_ty, assign.dst.span(), val_ty, assign.val.span())?;
                 Ok(())
             }
             HirStatement::Block(block) => {
@@ -610,7 +754,8 @@ impl<'hir> TypeChecker<'hir> {
                     .unwrap()
                     .new_scope();
                 for stmt in &mut block.statements {
-                    self.check_stmt(stmt)?;
+                    let result = self.check_stmt(stmt);
+                    self.record_result(result);
                 }
                 // We end the scope after finishing the block
                 self.context_functions
@@ -631,15 +776,15 @@ impl<'hir> TypeChecker<'hir> {
             })),
         }
     }
-    pub fn check_expr(&mut self, expr: &mut HirExpr<'hir>) -> HirResult<&'hir HirTy<'hir>> {
+    fn check_expr(&mut self, expr: &mut HirExpr<'hir>) -> HirResult<&'hir HirTy<'hir>> {
         match expr {
-            HirExpr::IntegerLiteral(_) => Ok(self.arena.types().get_integer64_ty()),
-            HirExpr::FloatLiteral(_) => Ok(self.arena.types().get_float64_ty()),
-            HirExpr::UnsignedIntegerLiteral(_) => Ok(self.arena.types().get_uint64_ty()),
+            HirExpr::IntegerLiteral(i) => Ok(i.ty),
+            HirExpr::FloatLiteral(f) => Ok(f.ty),
+            HirExpr::UnsignedIntegerLiteral(u) => Ok(u.ty),
             HirExpr::BooleanLiteral(_) => Ok(self.arena.types().get_boolean_ty()),
             HirExpr::UnitLiteral(_) => Ok(self.arena.types().get_unit_ty()),
             HirExpr::CharLiteral(_) => Ok(self.arena.types().get_char_ty()),
-            HirExpr::StringLiteral(_) => Ok(self.arena.types().get_str_ty()),
+            HirExpr::StringLiteral(s) => Ok(s.ty),
             HirExpr::Delete(del_expr) => {
                 let ty = self.check_expr(&mut del_expr.expr)?;
                 let name = match self.get_class_name_of_type(ty) {
@@ -654,10 +799,13 @@ impl<'hir> TypeChecker<'hir> {
                         return Ok(self.arena.types().get_unit_ty());
                     }
                 };
-                if class.destructor.as_ref().unwrap().vis != HirVisibility::Public {
-                    Err(Self::accessing_private_constructor_err(
+                let Some(dtor) = class.destructor.as_ref() else {
+                    return Ok(self.arena.types().get_unit_ty());
+                };
+                if dtor.vis != HirVisibility::Public {
+                    Err(Self::accessing_private_destructor_err(
                         &del_expr.span,
-                        "destructor",
+                        class.name,
                     ))
                 } else {
                     Ok(self.arena.types().get_unit_ty())
@@ -695,26 +843,49 @@ impl<'hir> TypeChecker<'hir> {
                         ));
                     }
                 };
-                //early return for constructor, destructor, and copy constructor
-                if function_name == "constructor"
-                    || function_name == "destructor"
-                    || function_name == "copy_ctor"
-                {
-                    s.ty = self_ty;
-                    return Ok(self_ty);
+
+                if function_name == "__dtor" {
+                    let mutable_self_ty =
+                        self.arena
+                            .types()
+                            .get_ptr_ty(self_ty, false, class.declaration_span);
+                    s.ty = mutable_self_ty;
+                    return Ok(mutable_self_ty);
                 }
-                let method = class.methods.get(function_name).unwrap();
+
+                let method = match class.methods.get(function_name) {
+                    Some(method) => method,
+                    None => {
+                        let path = expr.span().path;
+                        let src = utils::get_file_content(path).unwrap();
+                        return Err(HirError::UnknownMethod(UnknownMethodError {
+                            method_name: function_name.to_string(),
+                            ty_name: class.name.to_string(),
+                            span: expr.span(),
+                            src: NamedSource::new(path, src),
+                        }));
+                    }
+                };
                 match method.modifier {
                     HirStructMethodModifier::Const => {
-                        let readonly_self_ty =
-                            self.arena.types().get_readonly_reference_ty(self_ty);
+                        let readonly_self_ty = self.arena.types().get_ptr_ty(
+                            self_ty,
+                            true, // is_const = true for const methods
+                            method.span,
+                        );
                         s.ty = readonly_self_ty;
                         Ok(readonly_self_ty)
                     }
-                    HirStructMethodModifier::Mutable | HirStructMethodModifier::Consuming => {
-                        // Both &this (mutable reference) and this (ownership) use the same
-                        // object type inside the method body - the difference is only in
-                        // ownership semantics at the call site
+                    HirStructMethodModifier::Mutable => {
+                        let mutable_self_ty = self.arena.types().get_ptr_ty(
+                            self_ty,
+                            false, // is_const = false for mutable methods
+                            method.span,
+                        );
+                        s.ty = mutable_self_ty;
+                        Ok(mutable_self_ty)
+                    }
+                    HirStructMethodModifier::Consuming => {
                         s.ty = self_ty;
                         Ok(self_ty)
                     }
@@ -729,6 +900,12 @@ impl<'hir> TypeChecker<'hir> {
                         ))
                     }
                 }
+            }
+            // TODO: Null literal should either have a pointer type, or a nullptr_t
+            HirExpr::NullLiteral(n) => {
+                let ptr_ty = self.arena.types().get_unit_ty();
+                n.ty = ptr_ty;
+                Ok(ptr_ty)
             }
             HirExpr::Unary(u) => {
                 let ty = self.check_expr(&mut u.expr)?;
@@ -745,18 +922,14 @@ impl<'hir> TypeChecker<'hir> {
                         Ok(ty)
                     }
                     Some(HirUnaryOp::AsRef) => {
-                        let ref_ty = self.arena.types().get_ref_ty(ty);
-                        u.ty = ref_ty;
-                        Ok(ref_ty)
+                        let ptr_ty = self.arena.types().get_ptr_ty(ty, false, u.span); // is_const = false for &
+                        u.ty = ptr_ty;
+                        Ok(ptr_ty)
                     }
                     Some(HirUnaryOp::Deref) => match ty {
-                        HirTy::MutableReference(r) => {
-                            u.ty = r.inner;
-                            Ok(r.inner)
-                        }
-                        HirTy::ReadOnlyReference(r) => {
-                            u.ty = r.inner;
-                            Ok(r.inner)
+                        HirTy::PtrTy(ptr) => {
+                            u.ty = ptr.inner;
+                            Ok(ptr.inner)
                         }
                         _ => Err(Self::illegal_unary_operation_err(
                             ty,
@@ -775,52 +948,100 @@ impl<'hir> TypeChecker<'hir> {
                 let expr_ty = self.check_expr(&mut c.expr)?;
                 let can_cast = matches!(
                     expr_ty,
-                    HirTy::Int64(_)
-                        | HirTy::Float64(_)
-                        | HirTy::UInt64(_)
+                    HirTy::Integer(_)
+                        | HirTy::LiteralInteger(_)
+                        | HirTy::Float(_)
+                        | HirTy::LiteralFloat(_)
+                        | HirTy::UnsignedInteger(_)
+                        | HirTy::LiteralUnsignedInteger(_)
                         | HirTy::Boolean(_)
                         | HirTy::Char(_)
                         | HirTy::String(_)
+                        | HirTy::PtrTy(_)
                 );
-                if !can_cast {
+                if !can_cast && !c.target_ty.is_ptr() {
                     return Err(Self::type_mismatch_err(
                         &format!("{}", expr_ty),
                         &c.expr.span(),
-                        "int64, float64, uint64, bool, char or str",
+                        "int64, float64, uint64, bool, char, str or raw pointer",
                         &c.expr.span(),
                     ));
                 }
-                if self
-                    .is_equivalent_ty(expr_ty, c.expr.span(), c.ty, c.span)
-                    .is_ok()
-                {
-                    Self::trying_to_cast_to_the_same_type_warning(&c.span, &format!("{}", c.ty));
+                // Only warn for truly redundant casts (same concrete type), not for
+                // compatibility-based conversions handled by `is_equivalent_ty`.
+                if HirTyId::from(expr_ty) == HirTyId::from(c.target_ty) {
+                    Self::trying_to_cast_to_the_same_type_warning(
+                        &c.span,
+                        &format!("{}", c.target_ty),
+                    );
                     // Unwrap the redundant cast by replacing the casting expression with the inner expression
                     *expr = (*c.expr).clone();
                     return Ok(expr_ty);
                 }
 
-                Ok(c.ty)
+                Ok(c.target_ty)
             }
             HirExpr::Indexing(indexing_expr) => {
                 let path = indexing_expr.span.path;
                 let target = self.check_expr(&mut indexing_expr.target)?;
                 let index = self.check_expr(&mut indexing_expr.index)?;
                 self.is_equivalent_ty(
-                    self.arena.types().get_uint64_ty(),
+                    // we expect the biggest size, because smaller size can be implicitely casted to it
+                    self.arena.types().get_uint_ty(64),
                     indexing_expr.index.span(),
                     index,
                     indexing_expr.index.span(),
                 )?;
-
                 match target {
-                    HirTy::List(l) => {
+                    HirTy::Slice(l) => {
                         indexing_expr.ty = l.inner;
                         Ok(l.inner)
                     }
+                    HirTy::InlineArray(arr) => {
+                        fn is_inbound(index: &HirExpr, size: usize) -> (bool, usize) {
+                            match index {
+                                HirExpr::IntegerLiteral(i) => {
+                                    if i.value < 0 || (i.value as usize) >= size {
+                                        (false, i.value as usize)
+                                    } else {
+                                        (true, i.value as usize)
+                                    }
+                                }
+                                HirExpr::UnsignedIntegerLiteral(u) => {
+                                    if (u.value as usize) >= size {
+                                        (false, u.value as usize)
+                                    } else {
+                                        (true, u.value as usize)
+                                    }
+                                }
+                                HirExpr::Unary(unary) if unary.op.is_none() => {
+                                    is_inbound(&unary.expr, size)
+                                }
+                                // We let the runtime handle non-constant indices
+                                _ => (true, 0),
+                            }
+                        }
+                        if let (false, index) = is_inbound(&indexing_expr.index, arr.size) {
+                            let src = utils::get_file_content(path).unwrap();
+                            return Err(HirError::ListIndexOutOfBounds(
+                                ListIndexOutOfBoundsError {
+                                    span: indexing_expr.index.span(),
+                                    index,
+                                    size: arr.size,
+                                    src: NamedSource::new(path, src),
+                                },
+                            ));
+                        }
+                        indexing_expr.ty = arr.inner;
+                        Ok(arr.inner)
+                    }
                     HirTy::String(_) => {
-                        indexing_expr.ty = self.arena.types().get_char_ty();
-                        Ok(self.arena.types().get_char_ty())
+                        indexing_expr.ty = self.arena.types().get_uint_ty(8);
+                        Ok(self.arena.types().get_uint_ty(8))
+                    }
+                    HirTy::PtrTy(ptr_ty) => {
+                        indexing_expr.ty = ptr_ty.inner;
+                        Ok(ptr_ty.inner)
                     }
                     _ => {
                         let src = utils::get_file_content(path).unwrap();
@@ -836,8 +1057,41 @@ impl<'hir> TypeChecker<'hir> {
             }
             HirExpr::HirBinaryOperation(b) => {
                 let lhs = self.check_expr(&mut b.lhs)?;
-                b.ty = lhs;
                 let rhs = self.check_expr(&mut b.rhs)?;
+
+                let is_integer_like = |ty: &HirTy<'hir>| {
+                    matches!(
+                        ty,
+                        HirTy::Integer(_)
+                            | HirTy::UnsignedInteger(_)
+                            | HirTy::LiteralInteger(_)
+                            | HirTy::LiteralUnsignedInteger(_)
+                    )
+                };
+
+                // Pointer arithmetic: ptr +/- integer and integer + ptr.
+                // This must be handled before generic type-equivalence checks.
+                match b.op {
+                    HirBinaryOperator::Add => {
+                        if matches!(lhs, HirTy::PtrTy(_)) && is_integer_like(rhs) {
+                            b.ty = lhs;
+                            return Ok(lhs);
+                        }
+                        if is_integer_like(lhs) && matches!(rhs, HirTy::PtrTy(_)) {
+                            b.ty = rhs;
+                            return Ok(rhs);
+                        }
+                    }
+                    HirBinaryOperator::Sub => {
+                        if matches!(lhs, HirTy::PtrTy(_)) && is_integer_like(rhs) {
+                            b.ty = lhs;
+                            return Ok(lhs);
+                        }
+                    }
+                    _ => {}
+                }
+
+                b.ty = lhs;
                 let is_equivalent = self.is_equivalent_ty(lhs, b.lhs.span(), rhs, b.rhs.span());
                 if is_equivalent.is_err() {
                     return Err(Self::illegal_operation_err(
@@ -916,55 +1170,87 @@ impl<'hir> TypeChecker<'hir> {
                     let e_ty = self.check_expr(e)?;
                     self.is_equivalent_ty(e_ty, e.span(), ty, l.span)?;
                 }
-                l.ty = self.arena.types().get_list_ty(ty);
+                l.ty = self.arena.types().get_inline_arr_ty(ty, l.items.len());
                 Ok(l.ty)
             }
-            HirExpr::NewArray(a) => {
-                let size_ty = self.check_expr(a.size.as_mut())?;
-                let size_ty_id = HirTyId::from(size_ty);
-                if size_ty_id != HirTyId::compute_uint64_ty_id()
-                    && size_ty_id != HirTyId::compute_integer64_ty_id()
-                {
-                    return Err(Self::type_mismatch_err(
-                        &format!("{}", size_ty),
-                        &a.size.span(),
-                        &format!(
-                            "{} or {}",
-                            self.arena.types().get_uint64_ty(),
-                            self.arena.types().get_integer64_ty()
-                        ),
-                        &a.size.span(),
-                    ));
-                }
-                Ok(a.ty)
+            // Represent the `[expr; size]` syntax.
+            HirExpr::ListLiteralWithSize(l) => {
+                let path = l.span.path;
+                let size = match self.strip_noop_unary(&l.size) {
+                    HirExpr::IntegerLiteral(i) => {
+                        if i.value <= 0 {
+                            let src = utils::get_file_content(path).unwrap();
+                            return Err(HirError::InvalidListSize(InvalidListSizeError {
+                                span: l.span,
+                                size: i.value as usize,
+                                src: NamedSource::new(path, src),
+                            }));
+                        };
+                        i.value as usize
+                    }
+                    HirExpr::UnsignedIntegerLiteral(u) => {
+                        if u.value == 0 {
+                            let src = utils::get_file_content(path).unwrap();
+                            return Err(HirError::InvalidListSize(InvalidListSizeError {
+                                span: l.span,
+                                size: 0,
+                                src: NamedSource::new(path, src),
+                            }));
+                        };
+                        u.value as usize
+                    }
+                    _ => {
+                        let src = utils::get_file_content(path).unwrap();
+                        return Err(HirError::NonConstantListSize(NonConstantListSizeError {
+                            span: l.span,
+                            src: NamedSource::new(path, src),
+                        }));
+                    }
+                };
+
+                let ty = self.check_expr(&mut l.item)?;
+                l.ty = self.arena.types().get_inline_arr_ty(ty, size);
+                Ok(l.ty)
             }
             HirExpr::ObjLiteral(obj_lit) => {
-                // Only support union literals for now & there is no constructor for unions
-                // It's just `name { .field = value, ... }`
-                let union_ty;
-                let union_signature = if let HirTy::Named(n) = obj_lit.ty {
-                    union_ty = n;
-                    let tmp = match self.signature.unions.get(n.name) {
-                        Some(c) => c,
-                        None => {
-                            return Err(Self::unknown_type_err(n.name, &obj_lit.span));
-                        }
-                    };
-                    *tmp
+                // Support both struct and union literals: `Type { .field = value, ... }`
+                let target_ty;
+                let mut struct_signature: Option<&HirStructSignature<'hir>> = None;
+                let mut union_signature = None;
+
+                if let HirTy::Named(n) = obj_lit.ty {
+                    target_ty = n;
+                    if let Some(sig) = self.signature.structs.get(n.name) {
+                        struct_signature = Some(*sig);
+                    } else if let Some(sig) = self.signature.unions.get(n.name) {
+                        union_signature = Some(*sig);
+                    } else {
+                        return Err(Self::unknown_type_err(n.name, &obj_lit.span));
+                    }
                 } else if let HirTy::Generic(g) = obj_lit.ty {
-                    let name = MonomorphizationPass::generate_mangled_name(self.arena, g, "union");
-                    union_ty = self.arena.intern(HirNamedTy { name, span: g.span })
-                        as &'hir HirNamedTy<'hir>;
-                    let tmp = match self.signature.unions.get(name) {
-                        Some(c) => c,
-                        None => {
-                            return Err(Self::unknown_type_err(
-                                &HirPrettyPrinter::generic_ty_str(g),
-                                &obj_lit.span,
-                            ));
-                        }
-                    };
-                    *tmp
+                    let struct_name =
+                        MonomorphizationPass::generate_mangled_name(self.arena, g, "struct");
+                    let union_name =
+                        MonomorphizationPass::generate_mangled_name(self.arena, g, "union");
+
+                    if let Some(sig) = self.signature.structs.get(struct_name) {
+                        target_ty = self.arena.intern(HirNamedTy {
+                            name: struct_name,
+                            span: g.span,
+                        }) as &'hir HirNamedTy<'hir>;
+                        struct_signature = Some(*sig);
+                    } else if let Some(sig) = self.signature.unions.get(union_name) {
+                        target_ty = self.arena.intern(HirNamedTy {
+                            name: union_name,
+                            span: g.span,
+                        }) as &'hir HirNamedTy<'hir>;
+                        union_signature = Some(*sig);
+                    } else {
+                        return Err(Self::unknown_type_err(
+                            &HirPrettyPrinter::generic_ty_str(g),
+                            &obj_lit.span,
+                        ));
+                    }
                 } else {
                     let path = obj_lit.span.path;
                     let src = utils::get_file_content(path).unwrap();
@@ -974,214 +1260,151 @@ impl<'hir> TypeChecker<'hir> {
                             src: NamedSource::new(path, src),
                         },
                     ));
-                };
-
-                if union_signature.name_span.path != obj_lit.span.path
-                    && union_signature.vis != HirVisibility::Public
-                {
-                    let origin_path = union_signature.name_span.path;
-                    let origin_src = utils::get_file_content(origin_path).unwrap();
-                    let obj_path = obj_lit.span.path;
-                    let obj_src = utils::get_file_content(obj_path).unwrap();
-                    return Err(HirError::AccessingPrivateUnion(
-                        AccessingPrivateUnionError {
-                            name: if let Some(n) = union_signature.pre_mangled_ty {
-                                HirPrettyPrinter::generic_ty_str(n)
-                            } else {
-                                union_ty.name.to_owned()
-                            },
-                            span: obj_lit.span,
-                            src: NamedSource::new(obj_path, obj_src),
-                            origin: AccessingPrivateObjectOrigin {
-                                span: union_signature.name_span,
-                                src: NamedSource::new(origin_path, origin_src),
-                            },
-                        },
-                    ));
                 }
 
-                if obj_lit.fields.len() > 1 {
-                    let origin = TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin {
-                        span: obj_lit.span,
-                        src: NamedSource::new(
-                            union_signature.name_span.path,
-                            utils::get_file_content(union_signature.name_span.path).unwrap(),
-                        ),
-                    };
-                    return Err(HirError::TryingToCreateAnUnionWithMoreThanOneActiveField(
-                        TryingToCreateAnUnionWithMoreThanOneActiveFieldError {
-                            span: obj_lit.span,
-                            src: NamedSource::new(
-                                obj_lit.span.path,
-                                utils::get_file_content(obj_lit.span.path).unwrap(),
-                            ),
-                            origin,
-                        },
-                    ));
-                }
-
-                for field in &mut obj_lit.fields {
-                    let field_signature = match union_signature.variants.get(field.name) {
-                        Some(f) => f,
-                        None => {
-                            return Err(Self::unknown_field_err(
-                                field.name,
-                                union_ty.name,
-                                &field.span,
-                            ));
-                        }
-                    };
-                    let field_ty = self.check_expr(&mut field.value)?;
-                    self.is_equivalent_ty(
-                        field_signature.ty,
-                        field_signature.span,
-                        field_ty,
-                        field.value.span(),
-                    )?;
-                }
-
-                Ok(obj_lit.ty)
-            }
-            HirExpr::NewObj(obj) => {
-                let struct_ty;
-                let struct_signature = if let HirTy::Named(n) = obj.ty {
-                    struct_ty = n;
-                    let tmp = match self.signature.structs.get(n.name) {
-                        Some(c) => c,
-                        None => {
-                            return Err(Self::unknown_type_err(n.name, &obj.span));
-                        }
-                    };
-                    *tmp
-                } else if let HirTy::Generic(g) = obj.ty {
-                    let name = MonomorphizationPass::generate_mangled_name(self.arena, g, "struct");
-                    struct_ty = self.arena.intern(HirNamedTy { name, span: g.span })
-                        as &'hir HirNamedTy<'hir>;
-                    let tmp = match self.signature.structs.get(name) {
-                        Some(c) => c,
-                        None => {
-                            return Err(Self::unknown_type_err(name, &obj.span));
-                        }
-                    };
-                    *tmp
-                } else {
-                    let path = obj.span.path;
-                    let src = utils::get_file_content(path).unwrap();
-                    return Err(HirError::CanOnlyConstructStructs(
-                        CanOnlyConstructStructsError {
-                            span: obj.span,
-                            src: NamedSource::new(path, src),
-                        },
-                    ));
-                };
-                if struct_signature.name_span.path != obj.span.path
-                    && struct_signature.vis != HirVisibility::Public
-                {
-                    let origin_path = struct_signature.name_span.path;
-                    let origin_src = utils::get_file_content(origin_path).unwrap();
-                    let obj_path = obj.span.path;
-                    let obj_src = utils::get_file_content(obj_path).unwrap();
-                    return Err(HirError::AccessingPrivateStruct(
-                        AccessingPrivateStructError {
-                            name: if let Some(n) = struct_signature.pre_mangled_ty {
-                                HirPrettyPrinter::generic_ty_str(n)
-                            } else {
-                                struct_ty.name.to_owned()
-                            },
-                            span: obj.span,
-                            src: NamedSource::new(obj_path, obj_src),
-                            origin: AccessingPrivateObjectOrigin {
-                                span: struct_signature.name_span,
-                                src: NamedSource::new(origin_path, origin_src),
-                            },
-                        },
-                    ));
-                }
-                let mut is_copy_ctor_call = false;
-                if struct_signature.constructor.params.len() != obj.args.len() {
-                    if self.is_copy_constructor_call(obj) {
-                        is_copy_ctor_call = true;
-                    } else {
-                        return Err(Self::type_mismatch_err(
-                            &format!("{} argument(s)", struct_signature.constructor.params.len()),
-                            &struct_signature.constructor.span,
-                            &format!("{} parameter(s)", obj.args.len()),
-                            &obj.span,
-                        ));
-                    }
-                }
-
-                if !is_copy_ctor_call {
-                    if struct_signature.constructor.vis != HirVisibility::Public
-                        && self.current_class_name != Some(struct_ty.name)
+                if let Some(struct_signature) = struct_signature {
+                    if struct_signature.name_span.path != obj_lit.span.path
+                        && struct_signature.vis != HirVisibility::Public
                     {
-                        let path = obj.span.path;
-                        let src = utils::get_file_content(path).unwrap();
-                        return Err(HirError::AccessingPrivateConstructor(
-                            AccessingPrivateConstructorError {
-                                span: obj.span,
-                                kind: String::from("constructor"),
-                                src: NamedSource::new(path, src),
+                        let origin_path = struct_signature.name_span.path;
+                        let origin_src = utils::get_file_content(origin_path).unwrap();
+                        let obj_path = obj_lit.span.path;
+                        let obj_src = utils::get_file_content(obj_path).unwrap();
+                        return Err(HirError::AccessingPrivateStruct(
+                            AccessingPrivateStructError {
+                                name: if let Some(n) = struct_signature.pre_mangled_ty {
+                                    HirPrettyPrinter::generic_ty_str(n)
+                                } else {
+                                    target_ty.name.to_owned()
+                                },
+                                span: obj_lit.span,
+                                src: NamedSource::new(obj_path, obj_src),
+                                origin: AccessingPrivateObjectOrigin {
+                                    span: struct_signature.name_span,
+                                    src: NamedSource::new(origin_path, origin_src),
+                                },
                             },
                         ));
                     }
-                    for (param, arg) in struct_signature
-                        .constructor
-                        .params
-                        .iter()
-                        .zip(obj.args.iter_mut())
+
+                    if struct_signature.name_span.path != obj_lit.span.path
+                        && let Some((private_name, _)) = struct_signature
+                            .fields
+                            .iter()
+                            .find(|(_, sig)| sig.vis != HirVisibility::Public)
                     {
-                        let arg_ty = self.check_expr(arg)?;
-                        self.is_equivalent_ty(param.ty, param.span, arg_ty, arg.span())?;
+                        let src = utils::get_file_content(obj_lit.span.path).unwrap();
+                        return Err(HirError::AccessingPrivateField(
+                            AccessingPrivateFieldError {
+                                span: obj_lit.span,
+                                kind: FieldKind::Field,
+                                src: NamedSource::new(obj_lit.span.path, src),
+                                field_name: (*private_name).to_string(),
+                            },
+                        ));
                     }
-                } else {
-                    //Check copy constructor
-                    if let Some(copy_ctor) = &struct_signature.copy_constructor {
-                        // Check if copy constructor's where_clause constraints are satisfied
-                        if !copy_ctor.is_constraint_satisfied {
-                            let path = obj.span.path;
-                            let src = utils::get_file_content(path).unwrap();
-                            return Err(HirError::MethodConstraintNotSatisfied(
-                                MethodConstraintNotSatisfiedError {
-                                    member_kind: "Copy constructor".to_string(),
-                                    member_name: if let Some(n) = struct_signature.pre_mangled_ty {
-                                        n.name.to_string()
-                                    } else {
-                                        struct_ty.name.to_string()
-                                    },
-                                    ty_name: if let Some(n) = struct_signature.pre_mangled_ty {
-                                        HirPrettyPrinter::generic_ty_str(n)
-                                    } else {
-                                        struct_ty.name.to_string()
-                                    },
-                                    span: obj.span,
-                                    src: NamedSource::new(path, src),
+
+                    for field in &mut obj_lit.fields {
+                        let field_signature = match struct_signature.fields.get(field.name) {
+                            Some(f) => f,
+                            None => {
+                                return Err(Self::unknown_field_err(
+                                    field.name,
+                                    target_ty.name,
+                                    &field.span,
+                                ));
+                            }
+                        };
+
+                        if field_signature.span.path != obj_lit.span.path
+                            && field_signature.vis != HirVisibility::Public
+                        {
+                            let src = utils::get_file_content(obj_lit.span.path).unwrap();
+                            return Err(HirError::AccessingPrivateField(
+                                AccessingPrivateFieldError {
+                                    span: field.span,
+                                    kind: FieldKind::Field,
+                                    src: NamedSource::new(obj_lit.span.path, src),
+                                    field_name: field.name.to_string(),
                                 },
                             ));
                         }
 
-                        let param = &copy_ctor.params.first().unwrap();
-                        let arg = obj.args.first_mut().unwrap();
-                        let arg_ty = self.check_expr(arg)?;
-                        self.is_equivalent_ty(param.ty, param.span, arg_ty, arg.span())?;
-                        obj.is_copy_constructor_call = true;
-                    } else {
-                        return Err(HirError::ThisStructDoesNotHaveACopyConstructor(
-                            ThisStructDoesNotHaveACopyConstructorError {
-                                span: obj.span,
-                                src: NamedSource::new(
-                                    obj.span.path,
-                                    utils::get_file_content(obj.span.path).unwrap(),
-                                ),
+                        let field_ty = self.check_expr(&mut field.value)?;
+                        self.is_equivalent_ty(
+                            field_signature.ty,
+                            field_signature.span,
+                            field_ty,
+                            field.value.span(),
+                        )?;
+                    }
+                } else if let Some(union_signature) = union_signature {
+                    if union_signature.name_span.path != obj_lit.span.path
+                        && union_signature.vis != HirVisibility::Public
+                    {
+                        let origin_path = union_signature.name_span.path;
+                        let origin_src = utils::get_file_content(origin_path).unwrap();
+                        let obj_path = obj_lit.span.path;
+                        let obj_src = utils::get_file_content(obj_path).unwrap();
+                        return Err(HirError::AccessingPrivateUnion(
+                            AccessingPrivateUnionError {
+                                name: if let Some(n) = union_signature.pre_mangled_ty {
+                                    HirPrettyPrinter::generic_ty_str(n)
+                                } else {
+                                    target_ty.name.to_owned()
+                                },
+                                span: obj_lit.span,
+                                src: NamedSource::new(obj_path, obj_src),
+                                origin: AccessingPrivateObjectOrigin {
+                                    span: union_signature.name_span,
+                                    src: NamedSource::new(origin_path, origin_src),
+                                },
                             },
                         ));
                     }
+
+                    if obj_lit.fields.len() > 1 {
+                        let origin = TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin {
+                            span: obj_lit.span,
+                            src: NamedSource::new(
+                                union_signature.name_span.path,
+                                utils::get_file_content(union_signature.name_span.path).unwrap(),
+                            ),
+                        };
+                        return Err(HirError::TryingToCreateAnUnionWithMoreThanOneActiveField(
+                            TryingToCreateAnUnionWithMoreThanOneActiveFieldError {
+                                span: obj_lit.span,
+                                src: NamedSource::new(
+                                    obj_lit.span.path,
+                                    utils::get_file_content(obj_lit.span.path).unwrap(),
+                                ),
+                                origin,
+                            },
+                        ));
+                    }
+
+                    for field in &mut obj_lit.fields {
+                        let field_signature = match union_signature.variants.get(field.name) {
+                            Some(f) => f,
+                            None => {
+                                return Err(Self::unknown_field_err(
+                                    field.name,
+                                    target_ty.name,
+                                    &field.span,
+                                ));
+                            }
+                        };
+                        let field_ty = self.check_expr(&mut field.value)?;
+                        self.is_equivalent_ty(
+                            field_signature.ty,
+                            field_signature.span,
+                            field_ty,
+                            field.value.span(),
+                        )?;
+                    }
                 }
-                obj.ty = self
-                    .arena
-                    .types()
-                    .get_named_ty(struct_ty.name, struct_ty.span);
-                Ok(obj.ty)
+
+                Ok(obj_lit.ty)
             }
             HirExpr::Call(func_expr) => {
                 let path = func_expr.span.path;
@@ -1190,11 +1413,14 @@ impl<'hir> TypeChecker<'hir> {
                 match callee {
                     HirExpr::Ident(i) => {
                         // First check if the function is external by looking up the base name
-                        let base_func = self.signature.functions.get(i.name);
-                        let is_external = base_func.map(|f| f.is_external).unwrap_or(false);
+                        let base_func = self.signature.functions.get(i.name).copied();
 
-                        // Only mangle the name if it's NOT external and has generics
-                        let name = if func_expr.generics.is_empty() || is_external {
+                        let (is_external, is_intrinsic) = base_func
+                            .map(|f| (f.is_external, f.is_intrinsic))
+                            .unwrap_or((false, false));
+
+                        // Only mangle the name if it's NOT external nor intrinsic and has generics
+                        let name = if func_expr.generics.is_empty() || is_external || is_intrinsic {
                             i.name
                         } else {
                             MonomorphizationPass::generate_mangled_name(
@@ -1253,18 +1479,50 @@ impl<'hir> TypeChecker<'hir> {
 
                         //Only check if it's an external function with generics (e.g. `extern foo<T>(a: T) -> T`)
                         if func.is_external && !func.generics.is_empty() {
-                            return self.check_extern_fn(name, func_expr, func);
+                            let ty = self.arena.intern(self.check_extern_fn(
+                                name,
+                                &mut func_expr.generics,
+                                &mut func_expr.args,
+                                func_expr.span,
+                                func,
+                            )?);
+                            func_expr.ty = ty;
+                            return Ok(ty);
                         }
 
                         for (param, arg) in func.params.iter().zip(func_expr.args.iter_mut()) {
+                            self.retag_integer_literal_for_expected_ty(param.ty, arg);
                             let arg_ty = self.check_expr(arg)?;
                             self.is_equivalent_ty(param.ty, param.span, arg_ty, arg.span())?;
+                            // Store the expected parameter type for ownership analysis
+                            func_expr.args_ty.push(param.ty);
                         }
                         func_expr.ty = self.arena.intern(func.return_ty.clone());
                         Ok(self.arena.intern(func.return_ty.clone()))
                     }
                     HirExpr::FieldAccess(field_access) => {
                         let target_ty = self.check_expr(&mut field_access.target)?;
+
+                        if target_ty.is_ptr() && !field_access.is_arrow {
+                            let path = field_access.span.path;
+                            let src = utils::get_file_content(path).unwrap();
+                            return Err(HirError::CannotAccessFieldOfPointers(
+                                CannotAccessFieldOfPointersError {
+                                    span: field_access.span,
+                                    src: NamedSource::new(path, src),
+                                },
+                            ));
+                        }
+
+                        if !target_ty.is_ptr() && field_access.is_arrow {
+                            return Err(Self::illegal_operation_err(
+                                target_ty,
+                                self.arena.types().get_unit_ty(),
+                                field_access.span,
+                                "->",
+                            ));
+                        }
+
                         let name = match self.get_class_name_of_type(target_ty) {
                             Some(n) => n,
                             None => {
@@ -1366,7 +1624,7 @@ impl<'hir> TypeChecker<'hir> {
                                 ));
                             }
 
-                            if self.is_const_ty(target_ty)
+                            if self.is_const_ptr_ty(target_ty)
                                 && method_signature.modifier != HirStructMethodModifier::Const
                             {
                                 return Err(Self::calling_non_const_method_on_const_reference_err(
@@ -1375,13 +1633,12 @@ impl<'hir> TypeChecker<'hir> {
                                 ));
                             }
 
-                            if self.is_mutable_ref_ty(target_ty)
-                                && (method_signature.modifier == HirStructMethodModifier::Mutable
-                                    || method_signature.modifier == HirStructMethodModifier::Const)
+                            if self.is_mutable_ptr_ty(target_ty)
+                                && method_signature.modifier == HirStructMethodModifier::Consuming
                             {
-                                // Here we can either auto deref if target_ty.inner is copyable
-                                // Or we can just error out and ask the user to deref manually
-                                // For simplicity, we error out for now
+                                // Consuming methods take ownership of `this`, which is not
+                                // possible through a reference. &const this and &this methods
+                                // are fine to call on mutable references.
                                 return Err(
                                     Self::calling_consuming_method_on_mutable_reference_err(
                                         &method_signature.span,
@@ -1395,8 +1652,11 @@ impl<'hir> TypeChecker<'hir> {
                                 .iter()
                                 .zip(func_expr.args.iter_mut())
                             {
+                                self.retag_integer_literal_for_expected_ty(param.ty, arg);
                                 let arg_ty = self.check_expr(arg)?;
                                 self.is_equivalent_ty(param.ty, param.span, arg_ty, arg.span())?;
+                                // Store the expected parameter type for ownership analysis
+                                func_expr.args_ty.push(param.ty);
                             }
                             field_access.ty = self.arena.intern(method_signature.return_ty.clone());
                             func_expr.ty = self.arena.intern(method_signature.return_ty.clone());
@@ -1483,8 +1743,11 @@ impl<'hir> TypeChecker<'hir> {
                                 .iter()
                                 .zip(func_expr.args.iter_mut())
                             {
+                                self.retag_integer_literal_for_expected_ty(param.ty, arg);
                                 let arg_ty = self.check_expr(arg)?;
                                 self.is_equivalent_ty(param.ty, param.span, arg_ty, arg.span())?;
+                                // Store the expected parameter type for ownership analysis
+                                func_expr.args_ty.push(param.ty);
                             }
 
                             static_access.ty =
@@ -1514,6 +1777,7 @@ impl<'hir> TypeChecker<'hir> {
                 Ok(ctx_var.ty)
             }
             HirExpr::FieldAccess(field_access) => {
+                // target_ty.field_ty
                 let target_ty = self.check_expr(&mut field_access.target)?;
                 let name = match self.get_class_name_of_type(target_ty) {
                     Some(n) => n,
@@ -1540,17 +1804,30 @@ impl<'hir> TypeChecker<'hir> {
                                 .find(|v| *v.0 == field_access.field.name);
                             match variant {
                                 Some((_, var)) => {
-                                    // Preserve reference type from target_ty like struct field access does
-                                    if self.is_const_ty(target_ty) {
-                                        field_access.ty =
-                                            self.arena.types().get_readonly_reference_ty(var.ty);
-                                        field_access.field.ty =
-                                            self.arena.types().get_readonly_reference_ty(var.ty);
+                                    // Preserve pointer type from target_ty like struct field access does
+                                    if self.is_const_ptr_ty(target_ty) {
+                                        field_access.ty = self.arena.types().get_ptr_ty(
+                                            var.ty,
+                                            true, // is_const
+                                            field_access.span,
+                                        );
+                                        field_access.field.ty = self.arena.types().get_ptr_ty(
+                                            var.ty,
+                                            true, // is_const
+                                            field_access.span,
+                                        );
                                         return Ok(field_access.ty);
-                                    } else if self.is_mutable_ref_ty(target_ty) {
-                                        field_access.ty = self.arena.types().get_ref_ty(var.ty);
-                                        field_access.field.ty =
-                                            self.arena.types().get_ref_ty(var.ty);
+                                    } else if self.is_mutable_ptr_ty(target_ty) {
+                                        field_access.ty = self.arena.types().get_ptr_ty(
+                                            var.ty,
+                                            false, // is_const
+                                            field_access.span,
+                                        );
+                                        field_access.field.ty = self.arena.types().get_ptr_ty(
+                                            var.ty,
+                                            false, // is_const
+                                            field_access.span,
+                                        );
                                         return Ok(field_access.ty);
                                     } else {
                                         field_access.ty = var.ty;
@@ -1589,26 +1866,32 @@ impl<'hir> TypeChecker<'hir> {
                             },
                         ));
                     }
-                    if self.is_const_ty(target_ty) {
-                        field_access.ty = self
-                            .arena
-                            .types()
-                            .get_readonly_reference_ty(field_signature.ty);
-                        field_access.field.ty = self
-                            .arena
-                            .types()
-                            .get_readonly_reference_ty(field_signature.ty);
-                    } else if self.is_mutable_ref_ty(target_ty) {
-                        field_access.ty = self.arena.types().get_ref_ty(field_signature.ty);
-                        field_access.field.ty = self.arena.types().get_ref_ty(field_signature.ty);
-                    } else {
-                        field_access.ty = field_signature.ty;
-                        field_access.field.ty = field_signature.ty;
+                    if target_ty.is_ptr() && !field_access.is_arrow {
+                        let path = field_access.span.path;
+                        let src = utils::get_file_content(path).unwrap();
+                        return Err(HirError::CannotAccessFieldOfPointers(
+                            CannotAccessFieldOfPointersError {
+                                span: field_access.span,
+                                src: NamedSource::new(path, src),
+                            },
+                        ));
                     }
+                    if !target_ty.is_ptr() && field_access.is_arrow {
+                        return Err(Self::illegal_unary_operation_err(
+                            target_ty,
+                            field_access.span,
+                            "->",
+                        ));
+                    }
+
+                    // Field access always evaluates to the field type.
+                    // For pointers, `->` dereferences then accesses the field.
+                    field_access.ty = field_signature.ty;
+                    field_access.field.ty = field_signature.ty;
                     match field_access.field.ty {
                         HirTy::Named(n) => {
                             if self.signature.enums.contains_key(n.name) {
-                                Ok(self.arena.types().get_uint64_ty())
+                                Ok(self.arena.types().get_uint_ty(64))
                             } else {
                                 Ok(field_access.field.ty)
                             }
@@ -1642,7 +1925,7 @@ impl<'hir> TypeChecker<'hir> {
                 let class = match self.signature.structs.get(name) {
                     Some(c) => *c,
                     None => {
-                        //We might be trying to access an enum variant
+                        // We might be trying to access an enum variant
                         if let Some(enum_signature) = self.signature.enums.get(name) {
                             let variant = enum_signature
                                 .variants
@@ -1654,11 +1937,11 @@ impl<'hir> TypeChecker<'hir> {
                                         HirUnsignedIntegerLiteralExpr {
                                             value: var.value,
                                             span: static_access.span,
-                                            ty: self.arena.types().get_uint64_ty(),
+                                            ty: self.arena.types().get_uint_ty(64),
                                         },
                                     );
                                     *expr = replaced_expr;
-                                    return Ok(self.arena.types().get_uint64_ty());
+                                    return Ok(self.arena.types().get_uint_ty(64));
                                 }
                                 None => {
                                     return Err(Self::unknown_field_err(
@@ -1688,74 +1971,43 @@ impl<'hir> TypeChecker<'hir> {
                     ))
                 }
             }
-            // Move expressions: type-check the inner expression
-            HirExpr::Move(move_expr) => {
-                let ty = self.check_expr(&mut move_expr.expr)?;
-                move_expr.ty = ty;
+            HirExpr::IntrinsicCall(intrinsic) => {
+                // Intrinsic functions are defined as external functions with special handling
+                //Let's just use the extern fn checker for now
+                let signature = match self.signature.functions.get(intrinsic.name) {
+                    Some(sig) => sig,
+                    None => todo!(
+                        "Add error when the intrinsic is not declared (shouldn't happen though)"
+                    ),
+                };
+                let ty = self.check_extern_fn(
+                    intrinsic.name,
+                    &mut intrinsic.args_ty,
+                    &mut intrinsic.args,
+                    intrinsic.span,
+                    signature,
+                )?;
+                intrinsic.ty = ty;
                 Ok(ty)
             }
-            // Copy expressions: type-check the inner expression
-            HirExpr::Copy(copy_expr) => {
-                let ty = self.check_expr(&mut copy_expr.expr)?;
-                copy_expr.ty = ty;
-                Ok(ty)
-            }
         }
-    }
-
-    fn is_copy_constructor_call(&mut self, new_obj: &HirNewObjExpr<'hir>) -> bool {
-        if new_obj.args.len() != 1 {
-            eprintln!("Copy constructor must have exactly one argument");
-            return false;
-        }
-        let arg_ty = self.check_expr(&mut new_obj.args[0].clone());
-        if arg_ty.is_err() {
-            eprintln!("Failed to check argument type for copy constructor");
-            return false;
-        }
-        let struct_ty = {
-            let struct_name = match new_obj.ty {
-                HirTy::Named(n) => n.name,
-                HirTy::Generic(g) => {
-                    MonomorphizationPass::generate_mangled_name(self.arena, g, "struct")
-                }
-                _ => {
-                    eprintln!("New object type is not named or generic");
-                    return false;
-                }
-            };
-            self.arena.types().get_readonly_reference_ty(
-                self.arena.types().get_named_ty(struct_name, new_obj.span),
-            )
-        };
-        let arg_ty = arg_ty.unwrap();
-        if self
-            .is_equivalent_ty(struct_ty, new_obj.span, arg_ty, new_obj.args[0].span())
-            .is_err()
-        {
-            eprintln!(
-                "Argument type {} is not equivalent to struct type {} for copy constructor",
-                arg_ty, struct_ty
-            );
-            return false;
-        }
-        true
     }
 
     fn check_extern_fn(
         &mut self,
         name: &'hir str,
-        call_expr: &mut HirFunctionCallExpr<'hir>,
+        call_expr_generics: &mut Vec<&'hir HirTy<'hir>>,
+        call_expr_args: &mut Vec<HirExpr<'hir>>,
+        call_expr_span: Span,
         signature: &'hir HirFunctionSignature<'hir>,
     ) -> HirResult<&'hir HirTy<'hir>> {
-        let args_ty = call_expr
-            .args
+        let args_ty = call_expr_args
             .iter_mut()
             .map(|a| self.check_expr(a))
             .collect::<HirResult<Vec<_>>>()?;
 
         // Create cache key including explicit generics to distinguish calls like default::<int64>() from default::<string>()
-        let explicit_generics = call_expr.generics.clone();
+        let explicit_generics = call_expr_generics.clone();
         let monomorphized =
             self.extern_monomorphized
                 .get(&(name, args_ty.clone(), explicit_generics.clone()));
@@ -1767,18 +2019,18 @@ impl<'hir> TypeChecker<'hir> {
         let mut params = vec![];
 
         // Check if explicit generic type arguments are provided (e.g., `default::<Int64>()`)
-        if !call_expr.generics.is_empty() {
+        if !call_expr_generics.is_empty() {
             // Use explicit type arguments from the function call
             if !signature.generics.is_empty() {
                 for (generic_param, concrete_ty) in
-                    signature.generics.iter().zip(call_expr.generics.iter())
+                    signature.generics.iter().zip(call_expr_generics.iter())
                 {
                     generics.push((generic_param.generic_name, concrete_ty));
                 }
             }
             // Still need to create params even with explicit generics
             for (param, _arg) in signature.params.iter().zip(args_ty.iter()) {
-                // Substitute the generic with the concrete type while preserving type constructors
+                // Substitute the generic with the concrete type
                 let param_ty = if let Some(generic_name) = Self::get_generic_name(param.ty) {
                     if let Some((_, concrete_ty)) =
                         generics.iter().find(|(name, _)| *name == generic_name)
@@ -1812,7 +2064,7 @@ impl<'hir> TypeChecker<'hir> {
                     } else {
                         return Err(Self::type_mismatch_err(
                             &format!("{}", arg),
-                            &call_expr.args[i].span(),
+                            &call_expr_args[i].span(),
                             &format!("{}", param.ty),
                             &param.span,
                         ));
@@ -1827,7 +2079,7 @@ impl<'hir> TypeChecker<'hir> {
                     if let Some((_, concrete_ty)) =
                         generics.iter().find(|(name, _)| *name == generic_name)
                     {
-                        // Substitute the generic with the concrete type while preserving type constructors
+                        // Substitute the generic with the concrete type
                         self.get_generic_ret_ty(param.ty, concrete_ty)
                     } else {
                         param.ty
@@ -1845,12 +2097,12 @@ impl<'hir> TypeChecker<'hir> {
                 };
                 params.push(param_sign);
             }
-        } else if call_expr.generics.is_empty() {
+        } else if call_expr_generics.is_empty() {
             // Parameterless function with no explicit type arguments - error
             if !signature.generics.is_empty() {
                 return Err(Self::type_mismatch_err(
                     "parameterless generic function",
-                    &call_expr.span,
+                    &call_expr_span,
                     "explicit type arguments (e.g., `function::<Int64>()`)",
                     &signature.span,
                 ));
@@ -1866,10 +2118,16 @@ impl<'hir> TypeChecker<'hir> {
                 Some((_, ty)) => *ty,
                 None => {
                     return Err(Self::type_mismatch_err(
-                        &format!("{}", monomorphized.return_ty),
-                        &monomorphized.return_ty_span.unwrap_or(monomorphized.span),
-                        "concrete type (check explicit type arguments match generic parameters)",
+                        &format!(
+                            "generic parameter `{}` should be inferred from function arguments",
+                            name
+                        ),
                         &signature.span,
+                        &format!(
+                            "inferred type for `{}` from the return type `{}`",
+                            name, monomorphized.return_ty
+                        ),
+                        &call_expr_span,
                     ));
                 }
             };
@@ -1890,10 +2148,9 @@ impl<'hir> TypeChecker<'hir> {
 
     fn get_generic_name(ty: &'hir HirTy<'hir>) -> Option<&'hir str> {
         match ty {
-            HirTy::List(l) => Self::get_generic_name(l.inner),
-            HirTy::ReadOnlyReference(r) => Self::get_generic_name(r.inner),
-            HirTy::MutableReference(m) => Self::get_generic_name(m.inner),
+            HirTy::Slice(l) => Self::get_generic_name(l.inner),
             HirTy::Named(n) => Some(n.name),
+            HirTy::PtrTy(ptr_ty) => Self::get_generic_name(ptr_ty.inner),
             _ => None,
         }
     }
@@ -1904,46 +2161,39 @@ impl<'hir> TypeChecker<'hir> {
         actual_generic_ty: &'hir HirTy<'hir>,
     ) -> &'hir HirTy<'hir> {
         match ty {
-            HirTy::List(l) => self
+            HirTy::Slice(l) => self
                 .arena
                 .types()
-                .get_list_ty(self.get_generic_ret_ty(l.inner, actual_generic_ty)),
+                .get_slice_ty(self.get_generic_ret_ty(l.inner, actual_generic_ty)),
+            HirTy::InlineArray(arr) => self.arena.types().get_inline_arr_ty(
+                self.get_generic_ret_ty(arr.inner, actual_generic_ty),
+                arr.size,
+            ),
             HirTy::Named(_) => actual_generic_ty,
-            HirTy::ReadOnlyReference(r) => self
-                .arena
-                .types()
-                .get_readonly_reference_ty(self.get_generic_ret_ty(r.inner, actual_generic_ty)),
-            HirTy::MutableReference(r) => self
-                .arena
-                .types()
-                .get_ref_ty(self.get_generic_ret_ty(r.inner, actual_generic_ty)),
+            HirTy::PtrTy(ptr_ty) => self.arena.types().get_ptr_ty(
+                self.get_generic_ret_ty(ptr_ty.inner, actual_generic_ty),
+                ptr_ty.is_const,
+                ptr_ty.span,
+            ),
             _ => actual_generic_ty,
         }
     }
 
     /// Return the type of the generic after monormophization
     /// e.g. `foo<T>(a: T) -> T` with `foo(42)` will return `int64`
+    /// e.g. `foo<T>(a: *T) -> T` with `foo(&value)` where value is int64 will return `int64`
     fn get_generic_ty(
         ty: &'hir HirTy<'hir>,
         given_ty: &'hir HirTy<'hir>,
     ) -> Option<&'hir HirTy<'hir>> {
         match (ty, given_ty) {
-            (HirTy::List(l1), HirTy::List(l2)) => Self::get_generic_ty(l1.inner, l2.inner),
-            (HirTy::ReadOnlyReference(r1), HirTy::ReadOnlyReference(r2)) => {
-                Self::get_generic_ty(r1.inner, r2.inner)
-            }
-            // A mutable reference can be used where a read-only reference is expected
-            (HirTy::ReadOnlyReference(r1), HirTy::MutableReference(m2)) => {
-                Self::get_generic_ty(r1.inner, m2.inner)
-            }
-            (HirTy::MutableReference(m1), HirTy::MutableReference(m2)) => {
-                Self::get_generic_ty(m1.inner, m2.inner)
+            (HirTy::Slice(l1), HirTy::Slice(l2)) => Self::get_generic_ty(l1.inner, l2.inner),
+            (HirTy::PtrTy(ptr1), HirTy::PtrTy(ptr2)) => {
+                Self::get_generic_ty(ptr1.inner, ptr2.inner)
             }
             (HirTy::Named(_), _) => Some(given_ty),
-            (HirTy::ReadOnlyReference(r1), _) => Self::get_generic_ty(r1.inner, given_ty),
-            (HirTy::MutableReference(m1), _) => Self::get_generic_ty(m1.inner, given_ty),
-            (_, HirTy::ReadOnlyReference(r2)) => Self::get_generic_ty(ty, r2.inner),
-            (_, HirTy::MutableReference(m2)) => Self::get_generic_ty(ty, m2.inner),
+            (HirTy::PtrTy(p1), _) => Self::get_generic_ty(p1.inner, given_ty),
+            (_, HirTy::PtrTy(p2)) => Self::get_generic_ty(ty, p2.inner),
             _ => None,
         }
     }
@@ -1964,16 +2214,57 @@ impl<'hir> TypeChecker<'hir> {
         }
     }
 
-    fn is_const_ty(&self, ty: &HirTy<'_>) -> bool {
-        matches!(ty, HirTy::ReadOnlyReference(_))
+    fn is_const_ptr_ty(&self, ty: &HirTy<'_>) -> bool {
+        matches!(ty, HirTy::PtrTy(p) if p.is_const)
     }
 
-    fn is_mutable_ref_ty(&self, ty: &HirTy<'_>) -> bool {
-        matches!(ty, HirTy::MutableReference(_))
+    /// Retag integer literals to unsigned literals when an unsigned expected type is known
+    /// and the value fits. This helps later passes rely on a concrete, context-aware type.
+    fn retag_integer_literal_for_expected_ty(
+        &mut self,
+        expected_ty: &HirTy<'hir>,
+        expr: &mut HirExpr<'hir>,
+    ) {
+        match expr {
+            HirExpr::Unary(unary) if unary.op.is_none() => {
+                self.retag_integer_literal_for_expected_ty(expected_ty, unary.expr.as_mut());
+            }
+            HirExpr::IntegerLiteral(i) => {
+                let expected_uint = match expected_ty {
+                    HirTy::UnsignedInteger(u) => u,
+                    _ => return,
+                };
+
+                if i.value < 0 {
+                    return;
+                }
+
+                let value = i64::cast_unsigned(i.value);
+                let lit_uint_ty = self.arena.types().get_literal_uint_ty(value, i.span);
+
+                // Only retag when assignment is already valid for the expected unsigned type.
+                if self
+                    .is_equivalent_ty(expected_ty, i.span, lit_uint_ty, i.span)
+                    .is_ok()
+                {
+                    let concrete_expected =
+                        self.arena.types().get_uint_ty(expected_uint.size_in_bits);
+                    *expr = HirExpr::UnsignedIntegerLiteral(HirUnsignedIntegerLiteralExpr {
+                        value,
+                        span: i.span,
+                        ty: concrete_expected,
+                    });
+                }
+            }
+            _ => {}
+        }
     }
 
-    /// Check if two types are equivalent, considering generics and references
-    /// We need a way to handle &primitive and &const primitive being equivalent to primitive
+    fn is_mutable_ptr_ty(&self, ty: &HirTy<'_>) -> bool {
+        matches!(ty, HirTy::PtrTy(p) if !p.is_const)
+    }
+
+    /// Check if two types are equivalent, considering generics and pointers
     fn is_equivalent_ty(
         &self,
         expected_ty: &HirTy<'_>,
@@ -1982,8 +2273,14 @@ impl<'hir> TypeChecker<'hir> {
         found_span: Span,
     ) -> HirResult<()> {
         match (expected_ty, found_ty) {
-            // Let's handle ref to primitive types
-
+            (HirTy::UnsignedInteger(_), HirTy::LiteralInteger(li)) => {
+                // e.g.: If we expect a uint8 but found a `int16 /* 255 */` it should still be accepted because the literal value can fit into the expected type
+                let lu = self
+                    .arena
+                    .types()
+                    .get_literal_uint_ty(i64::cast_unsigned(li.value), li.span);
+                self.is_equivalent_ty(expected_ty, expected_span, lu, found_span)
+            }
             //(HirTy::Int64(_), HirTy::UInt64(_)) | (HirTy::UInt64(_), HirTy::Int64(_)) => Ok(()),
             (HirTy::Generic(g), HirTy::Named(n)) | (HirTy::Named(n), HirTy::Generic(g)) => {
                 if MonomorphizationPass::generate_mangled_name(self.arena, g, "struct") == n.name {
@@ -1998,7 +2295,8 @@ impl<'hir> TypeChecker<'hir> {
                 }
             }
             //Check for enums
-            (HirTy::Named(n), HirTy::UInt64(_)) | (HirTy::UInt64(_), HirTy::Named(n)) => {
+            (HirTy::Named(n), HirTy::UnsignedInteger(_))
+            | (HirTy::UnsignedInteger(_), HirTy::Named(n)) => {
                 if self.signature.enums.contains_key(n.name) {
                     Ok(())
                 } else {
@@ -2010,30 +2308,132 @@ impl<'hir> TypeChecker<'hir> {
                     ))
                 }
             }
-            (HirTy::ReadOnlyReference(read_only1), HirTy::ReadOnlyReference(read_only2)) => self
-                .is_equivalent_ty(
-                    read_only1.inner,
-                    expected_span,
-                    read_only2.inner,
-                    found_span,
-                ),
-            (HirTy::ReadOnlyReference(r1), HirTy::MutableReference(m2)) => {
-                // A mutable reference (&T) can be coerced to a read-only reference (&const T)
-                // ty1 = &const T (expected), ty2 = &T (actual) - this is valid
-                self.is_equivalent_ty(r1.inner, expected_span, m2.inner, found_span)
-            }
-            (HirTy::MutableReference(mutable1), HirTy::MutableReference(mutable2)) => {
-                self.is_equivalent_ty(mutable1.inner, expected_span, mutable2.inner, found_span)
-            }
-            (HirTy::List(list1), HirTy::List(list2)) => {
+            (HirTy::InlineArray(list1), HirTy::InlineArray(list2)) => {
+                if list1.size != list2.size {
+                    return Err(Self::type_mismatch_err(
+                        &format!("{}", expected_ty),
+                        &expected_span,
+                        &format!("{}", found_ty),
+                        &found_span,
+                    ));
+                }
                 self.is_equivalent_ty(list1.inner, expected_span, list2.inner, found_span)
             }
-            // NOTE: Removed implicit value-to-reference coercion.
-            // Previously, `&const T` could match `T` and `&mut T` could match `T`.
-            // This caused issues with ownership: the type checker would accept `len(list)`
-            // when `len` expects `&const [T]`, but the ownership pass didn't know about
-            // the implicit borrow and would try to move/consume the list.
-            // Now users must explicitly write `len(&list)` to borrow.
+            (HirTy::Integer(i), HirTy::Integer(j)) => {
+                if i.size_in_bits >= j.size_in_bits {
+                    Ok(())
+                } else {
+                    Err(Self::type_mismatch_err(
+                        &format!("{}", expected_ty),
+                        &expected_span,
+                        &format!("{}", found_ty),
+                        &found_span,
+                    ))
+                }
+            }
+            (HirTy::UnsignedInteger(i), HirTy::UnsignedInteger(j)) => {
+                if i.size_in_bits >= j.size_in_bits {
+                    Ok(())
+                } else {
+                    Err(Self::type_mismatch_err(
+                        &format!("{}", expected_ty),
+                        &expected_span,
+                        &format!("{}", found_ty),
+                        &found_span,
+                    ))
+                }
+            }
+            (HirTy::UnsignedInteger(u), HirTy::LiteralUnsignedInteger(lu)) => {
+                if u.size_in_bits >= lu.get_minimal_uint_ty().size_in_bits {
+                    Ok(())
+                } else {
+                    Err(Self::type_mismatch_err(
+                        &format!("{}", expected_ty),
+                        &expected_span,
+                        &format!("{}", found_ty),
+                        &found_span,
+                    ))
+                }
+            }
+            (HirTy::Integer(i), HirTy::LiteralInteger(li)) => {
+                if i.size_in_bits >= li.get_minimal_int_ty().size_in_bits {
+                    Ok(())
+                } else {
+                    Err(Self::type_mismatch_err(
+                        &format!("{}", expected_ty),
+                        &expected_span,
+                        &format!("{}", found_ty),
+                        &found_span,
+                    ))
+                }
+            }
+            (HirTy::Float(i), HirTy::Float(j)) => {
+                if i.size_in_bits >= j.size_in_bits {
+                    Ok(())
+                } else {
+                    Err(Self::type_mismatch_err(
+                        &format!("{}", expected_ty),
+                        &expected_span,
+                        &format!("{}", found_ty),
+                        &found_span,
+                    ))
+                }
+            }
+            (HirTy::Float(f), HirTy::LiteralFloat(lf)) => {
+                if f.size_in_bits >= lf.get_float_ty().size_in_bits {
+                    Ok(())
+                } else {
+                    Err(Self::type_mismatch_err(
+                        &format!("{}", expected_ty),
+                        &expected_span,
+                        &format!("{}", found_ty),
+                        &found_span,
+                    ))
+                }
+            }
+            (HirTy::PtrTy(p1), HirTy::PtrTy(p2)) => {
+                // Pointer compatibility rules:
+                // - *T (mutable) can become *const T
+                // - *const T cannot become *T (mutable)
+                match (p1.is_const, p2.is_const) {
+                    // *T expected, *const T found: cannot convert const to mutable
+                    (false, true) => Err(Self::type_mismatch_err(
+                        &format!("{}", expected_ty),
+                        &expected_span,
+                        &format!("{}", found_ty),
+                        &found_span,
+                    )),
+                    // Both same constness, or *const T expected and *T found (mutable to const is OK)
+                    _ => self.is_equivalent_ty(p1.inner, expected_span, p2.inner, found_span),
+                }
+            }
+            // If it expects a value type, but found a pointer, dereference should be explicit
+            (expected, HirTy::PtrTy(p)) => {
+                self.is_equivalent_ty(expected, expected_span, p.inner, found_span)?;
+                // check if found is copyable
+                match expected {
+                    HirTy::PtrTy(ptr) => {
+                        if ptr.inner.is_copyable(&self.signature) {
+                            return Ok(());
+                        }
+                    }
+                    _ => {
+                        if expected.is_copyable(&self.signature) {
+                            return Ok(());
+                        }
+                    }
+                }
+                Err(HirError::TypeIsNotCopyable(TypeIsNotCopyableError {
+                    span: found_span,
+                    type_name: found_ty.to_string(),
+                    src: NamedSource::new(
+                        found_span.path,
+                        utils::get_file_content(found_span.path).unwrap(),
+                    ),
+                }))
+            }
+            // TODO: Replace Unit type with a proper nullptr_t type
+            (HirTy::PtrTy(_), HirTy::Unit(_)) => Ok(()),
             _ => {
                 if HirTyId::from(expected_ty) == HirTyId::from(found_ty) {
                     Ok(())
@@ -2072,8 +2472,7 @@ impl<'hir> TypeChecker<'hir> {
                 }
                 None
             }
-            HirTy::ReadOnlyReference(read_only) => self.get_class_name_of_type(read_only.inner),
-            HirTy::MutableReference(mutable) => self.get_class_name_of_type(mutable.inner),
+            HirTy::PtrTy(p) => self.get_class_name_of_type(p.inner),
             _ => None,
         }
     }
@@ -2093,9 +2492,6 @@ impl<'hir> TypeChecker<'hir> {
         current_field_span: Span,
     ) -> bool {
         match ty {
-            // References are OK - they don't cause infinite size
-            HirTy::ReadOnlyReference(_) | HirTy::MutableReference(_) => false,
-
             // Check named struct type
             HirTy::Named(named) => {
                 // If it's the target struct, we found a cycle
@@ -2239,30 +2635,26 @@ impl<'hir> TypeChecker<'hir> {
                     .join(", ");
                 format!("{}<{}>", g.name, args)
             }
-            HirTy::ReadOnlyReference(r) => {
-                format!("&const {}", Self::get_type_display_name(r.inner))
-            }
-            HirTy::MutableReference(m) => format!("&{}", Self::get_type_display_name(m.inner)),
             HirTy::Boolean(_) => "bool".to_string(),
-            HirTy::Int64(_) => "int64".to_string(),
-            HirTy::Float64(_) => "float64".to_string(),
+            HirTy::Integer(_) => "int64".to_string(),
+            HirTy::Float(_) => "float64".to_string(),
             HirTy::Char(_) => "char".to_string(),
-            HirTy::UInt64(_) => "uint64".to_string(),
+            HirTy::UnsignedInteger(_) => "uint64".to_string(),
             HirTy::String(_) => "string".to_string(),
             HirTy::Unit(_) => "unit".to_string(),
-            HirTy::List(l) => format!("[{}]", Self::get_type_display_name(l.inner)),
+            HirTy::Slice(l) => format!("[{}]", Self::get_type_display_name(l.inner)),
+            HirTy::PtrTy(p) => {
+                if p.is_const {
+                    format!("*const {}", Self::get_type_display_name(p.inner))
+                } else {
+                    format!("*{}", Self::get_type_display_name(p.inner))
+                }
+            }
+            HirTy::InlineArray(arr) => {
+                format!("[{}; {}]", Self::get_type_display_name(arr.inner), arr.size)
+            }
             _ => "<unknown>".to_string(),
         }
-    }
-
-    fn trying_to_mutate_const_reference(span: &Span, ty: &HirTy<'_>) -> HirError {
-        let path = span.path;
-        let src = utils::get_file_content(path).unwrap();
-        HirError::TryingToMutateConstReference(TryingToMutateConstReferenceError {
-            span: *span,
-            ty: ty.to_string(),
-            src: NamedSource::new(path, src),
-        })
     }
 
     #[inline(always)]
@@ -2381,12 +2773,12 @@ impl<'hir> TypeChecker<'hir> {
         })
     }
 
-    fn accessing_private_constructor_err(span: &Span, kind: &str) -> HirError {
+    fn accessing_private_destructor_err(span: &Span, ty: &str) -> HirError {
         let path = span.path;
         let src = utils::get_file_content(path).unwrap();
-        HirError::AccessingPrivateConstructor(AccessingPrivateConstructorError {
+        HirError::AccessingPrivateDestructor(AccessingPrivateDestructorError {
             span: *span,
-            kind: kind.to_string(),
+            ty: ty.to_string(),
             src: NamedSource::new(path, src),
         })
     }
@@ -2458,22 +2850,39 @@ impl<'hir> TypeChecker<'hir> {
         eprintln!("{:?}", warning);
     }
 
-    /// Check if the expression is a reference (`&expr`) to a local variable,
-    /// or an identifier that holds a reference to a local variable.
+    fn non_trivially_copyable_struct_holds_a_raw_pointer_with_no_custom_destructor_warning(
+        class: &HirStruct<'hir>,
+        pointer_span: Span,
+    ) {
+        let path = class.span.path;
+        let src = utils::get_file_content(path).unwrap();
+        let warning: ErrReport =
+            HirWarning::UnsafeRawPointerStruct(UnsafeRawPointerStructWarning {
+                src: NamedSource::new(path, src),
+                struct_span: class.name_span,
+                pointer_span,
+                struct_name: class.name.to_string(),
+            })
+            .into();
+        eprintln!("{:?}", warning);
+    }
+
+    /// Check if the expression is a pointer (`&expr`) to a local variable,
+    /// or an identifier that holds a pointer to a local variable.
     /// Returns the name of the local variable if it is, None otherwise.
     ///
-    /// This is used to detect when a function is trying to return a reference
-    /// to a local variable, which would be a dangling reference.
-    /// Get all local variables that the expression references (directly or transitively).
+    /// This is used to detect when a function is trying to return a pointer
+    /// to a local variable, which would be a dangling pointer.
+    /// Get all local variables that the expression points to (directly or transitively).
     /// Returns a list of local variable names if any, empty vec otherwise.
     ///
-    /// This is used to detect when a function is trying to return a reference
-    /// to a local variable, which would be a dangling reference.
-    fn get_local_ref_targets(&self, expr: &HirExpr<'hir>) -> Vec<&'hir str> {
+    /// This is used to detect when a function is trying to return a pointer
+    /// to a local variable, which would be a dangling pointer.
+    fn get_local_ptr_targets(&self, expr: &HirExpr<'hir>) -> Vec<&'hir str> {
         match expr {
             HirExpr::Unary(u) => {
                 if matches!(u.op, Some(HirUnaryOp::AsRef)) {
-                    // Check what we're taking a reference to
+                    // Check what we're taking a pointer to
                     match u.expr.as_ref() {
                         HirExpr::Ident(ident) => {
                             // Check if this is a local variable (not a function parameter)
@@ -2494,35 +2903,27 @@ impl<'hir> TypeChecker<'hir> {
                     vec![]
                 } else if u.op.is_none() {
                     // No op - just unwrap and recurse (parser sometimes wraps in Unary with no op)
-                    self.get_local_ref_targets(u.expr.as_ref())
+                    self.get_local_ptr_targets(u.expr.as_ref())
                 } else {
                     vec![]
                 }
             }
             HirExpr::Ident(ident) => {
-                // Check if this identifier holds references to local variables
-                self.get_refs_locals(ident.name)
-            }
-            HirExpr::NewObj(new_obj) => {
-                // Check if any constructor argument is a reference to a local
-                let mut refs = vec![];
-                for arg in &new_obj.args {
-                    refs.extend(self.get_local_ref_targets(arg));
-                }
-                refs
+                // Check if this identifier holds pointers to local variables
+                self.get_ptrs_to_locals(ident.name)
             }
             _ => vec![],
         }
     }
 
-    /// Get the local variables that a variable references (if any)
-    fn get_refs_locals(&self, name: &str) -> Vec<&'hir str> {
+    /// Get the local variables that a variable points to (if any)
+    fn get_ptrs_to_locals(&self, name: &str) -> Vec<&'hir str> {
         if let Some(context_map) = self.context_functions.last()
             && let Some(func_name) = self.current_func_name
             && let Some(context_func) = context_map.get(func_name)
             && let Some(var) = context_func.get_variable(name)
         {
-            return var.refs_locals.clone();
+            return var.ptrs_to_locals.clone();
         }
         vec![]
     }
@@ -2542,6 +2943,19 @@ impl<'hir> TypeChecker<'hir> {
 
         // If we can't determine, assume it's local (conservative)
         true
+    }
+
+    fn strip_noop_unary<'a>(&self, mut expr: &'a HirExpr<'hir>) -> &'a HirExpr<'hir> {
+        while let HirExpr::Unary(unary) = expr {
+            if unary.op == Some(HirUnaryOp::AsRef) || unary.op == Some(HirUnaryOp::Deref) {
+                break;
+            }
+            if unary.op.is_some() {
+                break;
+            }
+            expr = &unary.expr;
+        }
+        expr
     }
 
     fn insert_new_variable(&mut self, var: ContextVariable<'hir>) -> HirResult<()> {
@@ -2573,22 +2987,29 @@ impl<'hir> TypeChecker<'hir> {
     fn is_arithmetic_type(ty: &HirTy) -> bool {
         matches!(
             ty,
-            HirTy::Int64(_) | HirTy::UInt64(_) | HirTy::Float64(_) | HirTy::Char(_)
+            HirTy::Integer(_)
+                | HirTy::LiteralInteger(_)
+                | HirTy::UnsignedInteger(_)
+                | HirTy::LiteralUnsignedInteger(_)
+                | HirTy::Float(_)
+                | HirTy::LiteralFloat(_)
+                | HirTy::Char(_)
         )
     }
 
     /// == !=
     fn is_equality_comparable(&self, ty: &HirTy) -> bool {
         match ty {
-            HirTy::Int64(_)
-            | HirTy::UInt64(_)
-            | HirTy::Float64(_)
+            HirTy::Integer(_)
+            | HirTy::LiteralInteger(_)
+            | HirTy::UnsignedInteger(_)
+            | HirTy::LiteralUnsignedInteger(_)
+            | HirTy::Float(_)
+            | HirTy::LiteralFloat(_)
             | HirTy::Char(_)
             | HirTy::Boolean(_)
-            | HirTy::Unit(_)
-            // You can compare references for equality
-            | HirTy::ReadOnlyReference(_)
-            | HirTy::MutableReference(_) => true,
+            | HirTy::PtrTy(_)
+            | HirTy::Unit(_) => true,
             HirTy::Named(n) => self.signature.enums.contains_key(n.name),
             _ => false,
         }
@@ -2597,7 +3018,13 @@ impl<'hir> TypeChecker<'hir> {
     fn is_orderable_type(ty: &HirTy) -> bool {
         matches!(
             ty,
-            HirTy::Int64(_) | HirTy::UInt64(_) | HirTy::Float64(_) | HirTy::Char(_)
+            HirTy::Integer(_)
+                | HirTy::LiteralInteger(_)
+                | HirTy::UnsignedInteger(_)
+                | HirTy::LiteralUnsignedInteger(_)
+                | HirTy::Float(_)
+                | HirTy::LiteralFloat(_)
+                | HirTy::Char(_)
         )
     }
 }

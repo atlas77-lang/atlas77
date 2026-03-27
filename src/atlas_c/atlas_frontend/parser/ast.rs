@@ -18,6 +18,7 @@ pub enum AstItem<'ast> {
     Import(AstImport<'ast>),
     Struct(AstStruct<'ast>),
     ExternFunction(AstExternFunction<'ast>),
+    ExternStruct(AstStruct<'ast>),
     Function(AstFunction<'ast>),
     Enum(AstEnum<'ast>),
     Union(AstUnion<'ast>),
@@ -30,6 +31,7 @@ impl AstItem<'_> {
             AstItem::Import(_) => {}
             AstItem::Struct(v) => v.vis = vis,
             AstItem::ExternFunction(v) => v.vis = vis,
+            AstItem::ExternStruct(v) => v.vis = vis,
             AstItem::Function(v) => v.vis = vis,
             AstItem::Enum(v) => v.vis = vis,
             AstItem::Union(v) => v.vis = vis,
@@ -39,6 +41,7 @@ impl AstItem<'_> {
     pub fn set_flag(&mut self, flag: AstFlag) {
         match self {
             AstItem::Struct(v) => v.flag = flag,
+            AstItem::ExternFunction(f) => f.flag = flag,
             _ => {}
         }
     }
@@ -47,6 +50,7 @@ impl AstItem<'_> {
             AstItem::Import(v) => v.span,
             AstItem::Struct(v) => v.span,
             AstItem::ExternFunction(v) => v.span,
+            AstItem::ExternStruct(v) => v.span,
             AstItem::Function(v) => v.span,
             AstItem::Enum(v) => v.span,
             AstItem::Union(v) => v.span,
@@ -60,6 +64,15 @@ impl<'ast> AstItem<'ast> {
     pub fn set_docstring(&mut self, docstring: &'ast str, arena: &'ast AstArena<'ast>) {
         match self {
             AstItem::Struct(v) => match v.docstring {
+                Some(existing) => {
+                    let combined = format!("{}\n{}", docstring, existing);
+                    v.docstring = Some(arena.alloc(combined));
+                }
+                None => {
+                    v.docstring = Some(docstring);
+                }
+            },
+            AstItem::ExternStruct(v) => match v.docstring {
                 Some(existing) => {
                     let combined = format!("{}\n{}", docstring, existing);
                     v.docstring = Some(arena.alloc(combined));
@@ -137,7 +150,9 @@ impl<'ast> AstItem<'ast> {
 /// ```
 pub enum AstFlag {
     Copyable(Span),
+    TriviallyCopyable(Span),
     NonCopyable(Span),
+    Intrinsic(Span),
     #[default]
     None,
 }
@@ -228,8 +243,7 @@ pub struct AstStruct<'ast> {
     pub vis: AstVisibility,
     pub fields: &'ast [&'ast AstObjField<'ast>],
     pub field_span: Span,
-    pub constructor: Option<&'ast AstConstructor<'ast>>,
-    pub copy_constructor: Option<&'ast AstConstructor<'ast>>,
+    /// Signature: `~MyStruct()`
     pub destructor: Option<&'ast AstDestructor<'ast>>,
     pub generics: &'ast [&'ast AstGeneric<'ast>],
     pub operators: &'ast [&'ast AstOperatorOverload<'ast>],
@@ -238,6 +252,7 @@ pub struct AstStruct<'ast> {
     // Currently only one flag supported: copyable or non-copyable
     pub flag: AstFlag,
     pub docstring: Option<&'ast str>,
+    pub is_extern: bool,
 }
 
 #[derive(Debug, Clone, Default, Copy)]
@@ -246,11 +261,11 @@ pub enum AstMethodModifier {
     Static,
     /// Method that takes immutable reference to `this`
     ///
-    /// e.g.: `fun get(&const this) -> T { ... }`
+    /// e.g.: `fun get(*const this) -> T { ... }`
     Const,
     /// Method that takes mutable reference to `this`
     ///
-    /// e.g.: `fun push(&this, val: T) { ... }`
+    /// e.g.: `fun push(*this, val: T) { ... }`
     Mutable,
     /// Method that consumes ownership of `this`
     ///
@@ -284,40 +299,11 @@ pub enum AstOverloadableOperator {
     Gte,
     And,
     Or,
-    /// Copy constructor like in C++
-    /// ```
-    /// struct Foo {
-    ///   x: int64;
-    ///   operator Copy(&const Foo) -> Foo {
-    ///     let other = &const Foo;
-    ///     return new Foo(other.x);
-    ///   }
-    /// }
-    Copy,
-}
-
-#[derive(Debug, Clone)]
-pub enum ConstructorKind {
-    Regular,
-    Copy,
-}
-
-#[derive(Debug, Clone)]
-pub struct AstConstructor<'ast> {
-    pub span: Span,
-    pub args: &'ast [&'ast AstObjField<'ast>],
-    pub body: &'ast AstBlock<'ast>,
-    pub vis: AstVisibility,
-    /// Allows adding constraints on struct generics in the copy constructor
-    /// TODO: Maybe it's time to separate the copy constructor from the regular one
-    pub where_clause: Option<&'ast [&'ast AstGeneric<'ast>]>,
-    pub docstring: Option<&'ast str>,
 }
 
 #[derive(Debug, Clone)]
 pub struct AstDestructor<'ast> {
     pub span: Span,
-    pub args: &'ast [&'ast AstObjField<'ast>],
     pub body: &'ast AstBlock<'ast>,
     pub vis: AstVisibility,
     pub docstring: Option<&'ast str>,
@@ -330,7 +316,7 @@ pub struct AstMethod<'ast> {
     pub span: Span,
     pub name: &'ast AstIdentifier<'ast>,
     pub generics: Option<&'ast [&'ast AstGeneric<'ast>]>,
-    pub args: &'ast [&'ast AstObjField<'ast>],
+    pub args: &'ast [&'ast AstArg<'ast>],
     pub ret: &'ast AstType<'ast>,
     pub body: &'ast AstBlock<'ast>,
     /// Optional where clause containing constraints on struct and method generics.
@@ -344,7 +330,7 @@ pub struct AstFunction<'ast> {
     pub span: Span,
     pub name: &'ast AstIdentifier<'ast>,
     pub generics: &'ast [&'ast AstGeneric<'ast>],
-    pub args: &'ast [&'ast AstObjField<'ast>],
+    pub args: &'ast [&'ast AstArg<'ast>],
     pub ret: &'ast AstType<'ast>,
     pub body: &'ast AstBlock<'ast>,
     pub vis: AstVisibility,
@@ -352,7 +338,14 @@ pub struct AstFunction<'ast> {
 }
 
 #[derive(Debug, Clone)]
-///todo: Rename because it's also used by functions
+pub struct AstArg<'ast> {
+    pub span: Span,
+    /// In a function or a struct the visibility is always public
+    pub name: &'ast AstIdentifier<'ast>,
+    pub ty: &'ast AstType<'ast>,
+}
+
+#[derive(Debug, Clone)]
 pub struct AstObjField<'ast> {
     pub span: Span,
     /// In a function or a struct the visibility is always public
@@ -360,6 +353,7 @@ pub struct AstObjField<'ast> {
     pub ty: &'ast AstType<'ast>,
     pub vis: AstVisibility,
     pub docstring: Option<&'ast str>,
+    pub default_value: Option<&'ast AstExpr<'ast>>,
 }
 
 #[derive(Debug, Clone)]
@@ -370,7 +364,10 @@ pub struct AstExternFunction<'ast> {
     pub args_name: &'ast [&'ast AstIdentifier<'ast>],
     pub args_ty: &'ast [&'ast AstType<'ast>],
     pub ret_ty: &'ast AstType<'ast>,
+    // e.g., "C", "C++", "Rust", "Python", etc.
+    pub language: &'ast str,
     pub vis: AstVisibility,
+    pub flag: AstFlag,
     pub docstring: Option<&'ast str>,
 }
 
@@ -444,17 +441,15 @@ pub enum AstExpr<'ast> {
     Indexing(AstIndexingExpr<'ast>),
     FieldAccess(AstFieldAccessExpr<'ast>),
     StaticAccess(AstStaticAccessExpr<'ast>),
-    NewObj(AstNewObjExpr<'ast>),
     ObjLiteral(AstObjLiteralExpr<'ast>),
     Delete(AstDeleteObjExpr<'ast>),
-    NewArray(AstNewArrayExpr<'ast>),
     Block(AstBlock<'ast>),
     Assign(AstAssignStmt<'ast>),
     Casting(AstCastingExpr<'ast>),
 }
 
 impl AstExpr<'_> {
-    pub(crate) fn span(&self) -> Span {
+    pub fn span(&self) -> Span {
         match self {
             AstExpr::Lambda(e) => e.span,
             AstExpr::ConstExpr(e) => e.span,
@@ -467,16 +462,14 @@ impl AstExpr<'_> {
             AstExpr::Indexing(e) => e.span,
             AstExpr::FieldAccess(e) => e.span,
             AstExpr::StaticAccess(e) => e.span,
-            AstExpr::NewObj(e) => e.span,
             AstExpr::ObjLiteral(e) => e.span,
             AstExpr::Delete(e) => e.span,
-            AstExpr::NewArray(e) => e.span,
             AstExpr::Block(e) => e.span,
             AstExpr::Assign(e) => e.span,
             AstExpr::Casting(e) => e.span,
         }
     }
-    pub(crate) fn kind(&self) -> &'static str {
+    pub fn kind(&self) -> &'static str {
         match self {
             AstExpr::Lambda(_) => "Lambda",
             AstExpr::ConstExpr(_) => "ConstExpr",
@@ -489,10 +482,8 @@ impl AstExpr<'_> {
             AstExpr::Indexing(_) => "Indexing",
             AstExpr::FieldAccess(_) => "FieldAccess",
             AstExpr::StaticAccess(_) => "StaticAccess",
-            AstExpr::NewObj(_) => "NewObj",
             AstExpr::ObjLiteral(_) => "ObjLiteral",
             AstExpr::Delete(_) => "Delete",
-            AstExpr::NewArray(_) => "NewArray",
             AstExpr::Block(_) => "Block",
             AstExpr::Assign(_) => "Assign",
             AstExpr::Casting(_) => "Casting",
@@ -542,20 +533,6 @@ pub struct AstBlock<'ast> {
 }
 
 #[derive(Debug, Clone)]
-pub struct AstNewObjExpr<'ast> {
-    pub span: Span,
-    pub ty: &'ast AstType<'ast>,
-    pub args: &'ast [&'ast AstExpr<'ast>],
-}
-
-#[derive(Debug, Clone)]
-pub struct AstNewArrayExpr<'ast> {
-    pub span: Span,
-    pub ty: &'ast AstType<'ast>,
-    pub size: &'ast AstExpr<'ast>,
-}
-
-#[derive(Debug, Clone)]
 pub struct AstStaticAccessExpr<'ast> {
     pub span: Span,
     pub target: &'ast AstType<'ast>,
@@ -567,6 +544,8 @@ pub struct AstFieldAccessExpr<'ast> {
     pub span: Span,
     pub target: &'ast AstExpr<'ast>,
     pub field: &'ast AstIdentifier<'ast>,
+    /* Foo.bar or Foo->bar */
+    pub is_arrow: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -689,13 +668,15 @@ pub enum AstLiteral<'ast> {
     Char(AstCharLiteral),
     Unit(AstUnitLiteral),
     ThisLiteral(AstThisLiteral),
+    NullLiteral(AstNullLiteral),
     String(AstStringLiteral<'ast>),
     Boolean(AstBooleanLiteral),
     List(AstListLiteral<'ast>),
+    ListWithSize(AstListLiteralWithSize<'ast>),
 }
 
 impl AstLiteral<'_> {
-    pub(crate) fn span(&self) -> Span {
+    pub fn span(&self) -> Span {
         match self {
             AstLiteral::Integer(l) => l.span,
             AstLiteral::UnsignedInteger(l) => l.span,
@@ -703,11 +684,18 @@ impl AstLiteral<'_> {
             AstLiteral::Char(l) => l.span,
             AstLiteral::Unit(l) => l.span,
             AstLiteral::ThisLiteral(l) => l.span,
+            AstLiteral::NullLiteral(l) => l.span,
             AstLiteral::String(l) => l.span,
             AstLiteral::Boolean(l) => l.span,
             AstLiteral::List(l) => l.span,
+            AstLiteral::ListWithSize(l) => l.span,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct AstNullLiteral {
+    pub span: Span,
 }
 
 #[derive(Debug, Clone)]
@@ -730,6 +718,14 @@ pub struct AstUnitLiteral {
 pub struct AstListLiteral<'ast> {
     pub span: Span,
     pub items: &'ast [&'ast AstExpr<'ast>],
+}
+
+#[derive(Debug, Clone)]
+// Represent the `[expr; size]` syntax for inline arrays, e.g., `[0; 5]` creates an inline array of size 5 initialized with 0s.
+pub struct AstListLiteralWithSize<'ast> {
+    pub span: Span,
+    pub item: &'ast AstExpr<'ast>,
+    pub size: &'ast AstExpr<'ast>,
 }
 
 #[derive(Debug, Clone)]
@@ -773,17 +769,23 @@ pub enum AstType<'ast> {
     ThisTy(AstThisType),
     String(AstStringType),
     Named(AstNamedType<'ast>),
-    MutableRef(AstMutableRefType<'ast>),
-    ReadOnlyRef(AstReadOnlyRefType<'ast>),
     Function(AstFunctionType<'ast>),
     Nullable(AstNullableType<'ast>),
-    List(AstListType<'ast>),
+    Slice(AstSliceType<'ast>),
+    InlineArray(AstInlineArrayType<'ast>),
     Generic(AstGenericType<'ast>),
-    ExternTy(AstExternType<'ast>),
+    PtrTy(AstPtrTy<'ast>),
+    Const(&'ast AstType<'ast>),
+}
+
+impl std::fmt::Display for AstType<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name())
+    }
 }
 
 impl AstType<'_> {
-    pub(crate) fn span(&self) -> Span {
+    pub fn span(&self) -> Span {
         match self {
             AstType::Unit(t) => t.span,
             AstType::Boolean(t) => t.span,
@@ -794,33 +796,30 @@ impl AstType<'_> {
             AstType::ThisTy(t) => t.span,
             AstType::String(t) => t.span,
             AstType::Named(t) => t.span,
-            AstType::MutableRef(t) => t.span,
             AstType::Function(t) => t.span,
             AstType::Nullable(t) => t.span,
-            AstType::ReadOnlyRef(t) => t.span,
-            AstType::List(t) => t.span,
+            AstType::Slice(t) => t.span,
+            AstType::InlineArray(t) => t.span,
             AstType::Generic(t) => t.span,
-            AstType::ExternTy(t) => t.span,
+            AstType::PtrTy(t) => t.span,
+            AstType::Const(c) => c.span(),
         }
     }
-}
 
-impl<'ast> AstType<'ast> {
     pub fn name(&self) -> String {
         match self {
             AstType::Unit(_) => "unit".to_owned(),
             AstType::Boolean(_) => "bool".to_owned(),
-            AstType::Integer(_) => "int64".to_owned(),
-            AstType::Float(_) => "float64".to_owned(),
-            AstType::UnsignedInteger(_) => "uint64".to_owned(),
+            AstType::Integer(i) => format!("int{}", i.size_in_bits),
+            AstType::Float(f) => format!("float{}", f.size_in_bits),
+            AstType::UnsignedInteger(u) => format!("uint{}", u.size_in_bits),
             AstType::Char(_) => "char".to_owned(),
             AstType::ThisTy(_) => "This".to_owned(),
             AstType::String(_) => "string".to_owned(),
             AstType::Named(t) => t.name.name.to_owned(),
-            AstType::MutableRef(t) => format!("&{}", t.inner.name()),
             AstType::Nullable(t) => format!("{}?", t.inner.name()),
-            AstType::ReadOnlyRef(t) => format!("&const {}", t.inner.name()),
-            AstType::List(t) => format!("[{}]", t.inner.name()),
+            AstType::Slice(t) => format!("[{}]", t.inner.name()),
+            AstType::InlineArray(t) => format!("[{}; {}]", t.inner.name(), t.size),
             AstType::Generic(t) => {
                 if t.inner_types.is_empty() {
                     t.name.name.to_owned()
@@ -835,10 +834,8 @@ impl<'ast> AstType<'ast> {
                 }
             }
             //AstType::Function(_) => "fn".to_owned(),
-            AstType::ExternTy(t) => match t.type_hint {
-                Some(ty) => format!("extern_ptr<{}>", ty.name()),
-                None => "extern_ptr".to_owned(),
-            },
+            AstType::PtrTy(ptr_ty) => format!("*{}", ptr_ty.inner.name()),
+            AstType::Const(c) => c.name(),
             _ => {
                 panic!("Type does not have a name yet")
             }
@@ -847,10 +844,11 @@ impl<'ast> AstType<'ast> {
 }
 
 #[derive(Debug, Clone)]
-
-pub struct AstExternType<'ast> {
+/// A raw pointer type in atlas has the form of `ptr<T>`
+pub struct AstPtrTy<'ast> {
     pub span: Span,
-    pub type_hint: Option<&'ast AstType<'ast>>,
+    pub inner: &'ast AstType<'ast>,
+    pub is_const: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -878,10 +876,18 @@ pub struct AstGenericType<'ast> {
 }
 
 #[derive(Debug, Clone)]
-///A List type in atlas as the form of `[T]`
-pub struct AstListType<'ast> {
+///The slice type in atlas as the form of `[T]`
+pub struct AstSliceType<'ast> {
     pub span: Span,
     pub inner: &'ast AstType<'ast>,
+}
+
+#[derive(Debug, Clone)]
+///The Inline Array type in atlas as the form of `[T; N]`
+pub struct AstInlineArrayType<'ast> {
+    pub span: Span,
+    pub inner: &'ast AstType<'ast>,
+    pub size: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -892,19 +898,6 @@ pub struct AstFunctionType<'ast> {
     pub span: Span,
     pub args: &'ast [&'ast AstType<'ast>],
     pub ret: &'ast AstType<'ast>,
-}
-
-#[derive(Debug, Clone)]
-///A pointer type in atlas as the form of `&T`
-pub struct AstMutableRefType<'ast> {
-    pub span: Span,
-    pub inner: &'ast AstType<'ast>,
-}
-
-#[derive(Debug, Clone)]
-pub struct AstReadOnlyRefType<'ast> {
-    pub span: Span,
-    pub inner: &'ast AstType<'ast>,
 }
 
 #[derive(Debug, Clone)]
@@ -921,16 +914,19 @@ pub struct AstNamedType<'ast> {
 #[derive(Debug, Clone)]
 pub struct AstIntegerType {
     pub span: Span,
+    pub size_in_bits: u8,
 }
 
 #[derive(Debug, Clone)]
 pub struct AstFloatType {
     pub span: Span,
+    pub size_in_bits: u8,
 }
 
 #[derive(Debug, Clone)]
 pub struct AstUnsignedIntegerType {
     pub span: Span,
+    pub size_in_bits: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -941,4 +937,23 @@ pub struct AstBooleanType {
 #[derive(Debug, Clone)]
 pub struct AstUnitType {
     pub span: Span,
+}
+
+/*
+ * Compile-time expressions, it's more of of a todo right now than anything.
+ *
+ */
+
+pub enum CompTimeExpr<'ast> {
+    Literal(AstLiteral<'ast>),
+    IfExpr(CompTimeIf<'ast>),
+    Ident(AstIdentifier<'ast>),
+    // types can be the result of a comp-time expression
+    Type(AstType<'ast>),
+}
+
+pub struct CompTimeIf<'ast> {
+    pub condition: &'ast CompTimeExpr<'ast>,
+    pub body: Vec<CompTimeExpr<'ast>>,
+    pub else_body: Option<Vec<CompTimeExpr<'ast>>>,
 }

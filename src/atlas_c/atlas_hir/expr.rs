@@ -20,27 +20,18 @@ pub enum HirExpr<'hir> {
     ThisLiteral(HirThisLiteral<'hir>),
     StringLiteral(HirStringLiteralExpr<'hir>),
     ListLiteral(HirListLiteralExpr<'hir>),
-    NewArray(HirNewArrayExpr<'hir>),
-    NewObj(HirNewObjExpr<'hir>),
+    ListLiteralWithSize(HirListLiteralWithSizeExpr<'hir>),
+    NullLiteral(HirNullLiteralExpr<'hir>),
     ObjLiteral(HirObjLiteralExpr<'hir>),
     Delete(HirDeleteExpr<'hir>),
     FieldAccess(HirFieldAccessExpr<'hir>),
     Indexing(HirIndexingExpr<'hir>),
     StaticAccess(HirStaticAccessExpr<'hir>),
-    /// Move semantics: transfers ownership from the source variable.
-    /// The source variable becomes invalid after this operation.
-    Move(HirMoveExpr<'hir>),
-    /// Copy semantics: creates a new owned copy via copy constructor.
-    /// The source variable remains valid after this operation.
-    Copy(HirCopyExpr<'hir>),
-}
-
-pub fn is_self_access(field_access_expr: &HirFieldAccessExpr) -> bool {
-    matches!(field_access_expr.target.as_ref(), HirExpr::ThisLiteral(_))
+    IntrinsicCall(HirIntrinsicCallExpr<'hir>),
 }
 
 impl<'hir> HirExpr<'hir> {
-    pub(crate) fn span(&self) -> Span {
+    pub fn span(&self) -> Span {
         match self {
             HirExpr::Ident(expr) => expr.span,
             HirExpr::IntegerLiteral(expr) => expr.span,
@@ -50,21 +41,20 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::CharLiteral(expr) => expr.span,
             HirExpr::UnitLiteral(expr) => expr.span,
             HirExpr::ThisLiteral(expr) => expr.span,
+            HirExpr::NullLiteral(expr) => expr.span,
             HirExpr::Unary(expr) => expr.span,
             HirExpr::Casting(expr) => expr.span,
             HirExpr::HirBinaryOperation(expr) => expr.span,
             HirExpr::Call(expr) => expr.span,
             HirExpr::StringLiteral(expr) => expr.span,
             HirExpr::ListLiteral(expr) => expr.span,
-            HirExpr::NewArray(expr) => expr.span,
-            HirExpr::NewObj(expr) => expr.span,
+            HirExpr::ListLiteralWithSize(expr) => expr.span,
             HirExpr::ObjLiteral(expr) => expr.span,
             HirExpr::Delete(expr) => expr.span,
             HirExpr::FieldAccess(expr) => expr.span,
             HirExpr::Indexing(expr) => expr.span,
             HirExpr::StaticAccess(expr) => expr.span,
-            HirExpr::Move(expr) => expr.span,
-            HirExpr::Copy(expr) => expr.span,
+            HirExpr::IntrinsicCall(expr) => expr.span,
         }
     }
 
@@ -78,21 +68,20 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::CharLiteral(_) => "Char Literal",
             HirExpr::UnitLiteral(_) => "Unit Literal",
             HirExpr::ThisLiteral(_) => "This Literal",
+            HirExpr::NullLiteral(_) => "Null Literal",
             HirExpr::Unary(_) => "Unary Expression",
             HirExpr::Casting(_) => "Casting Expression",
             HirExpr::HirBinaryOperation(_) => "Binary Operation Expression",
             HirExpr::Call(_) => "Function Call Expression",
             HirExpr::StringLiteral(_) => "String Literal",
             HirExpr::ListLiteral(_) => "List Literal",
-            HirExpr::NewArray(_) => "New Array Expression",
-            HirExpr::NewObj(_) => "New Object Expression",
+            HirExpr::ListLiteralWithSize(_) => "List Literal with Size",
             HirExpr::ObjLiteral(_) => "Object Literal Expression",
             HirExpr::Delete(_) => "Delete Expression",
             HirExpr::FieldAccess(_) => "Field Access Expression",
             HirExpr::Indexing(_) => "Indexing Expression",
             HirExpr::StaticAccess(_) => "Static Access Expression",
-            HirExpr::Move(_) => "Move Expression",
-            HirExpr::Copy(_) => "Copy Expression",
+            HirExpr::IntrinsicCall(_) => "Intrinsic Call Expression",
         }
     }
 
@@ -106,23 +95,37 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::CharLiteral(expr) => expr.ty,
             HirExpr::UnitLiteral(expr) => expr.ty,
             HirExpr::ThisLiteral(expr) => expr.ty,
+            HirExpr::NullLiteral(expr) => expr.ty,
             HirExpr::Unary(expr) => expr.ty,
-            HirExpr::Casting(expr) => expr.ty,
+            HirExpr::Casting(expr) => expr.target_ty,
             HirExpr::HirBinaryOperation(expr) => expr.ty,
             HirExpr::Call(expr) => expr.ty,
             HirExpr::StringLiteral(expr) => expr.ty,
             HirExpr::ListLiteral(expr) => expr.ty,
-            HirExpr::NewArray(expr) => expr.ty,
-            HirExpr::NewObj(expr) => expr.ty,
+            HirExpr::ListLiteralWithSize(expr) => expr.ty,
             HirExpr::ObjLiteral(expr) => expr.ty,
             HirExpr::Delete(_) => &HirTy::Unit(HirUnitTy {}),
             HirExpr::FieldAccess(expr) => expr.ty,
             HirExpr::Indexing(expr) => expr.ty,
             HirExpr::StaticAccess(expr) => expr.ty,
-            HirExpr::Move(expr) => expr.ty,
-            HirExpr::Copy(expr) => expr.ty,
+            HirExpr::IntrinsicCall(expr) => expr.ty,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct HirNullLiteralExpr<'hir> {
+    pub span: Span,
+    pub ty: &'hir HirTy<'hir>,
+}
+
+#[derive(Debug, Clone)]
+pub struct HirIntrinsicCallExpr<'hir> {
+    pub span: Span,
+    pub name: &'hir str,
+    pub args: Vec<HirExpr<'hir>>,
+    pub args_ty: Vec<&'hir HirTy<'hir>>,
+    pub ty: &'hir HirTy<'hir>,
 }
 
 #[derive(Debug, Clone)]
@@ -161,6 +164,8 @@ pub struct HirFieldAccessExpr<'hir> {
     pub target: Box<HirExpr<'hir>>,
     pub field: Box<HirIdentExpr<'hir>>,
     pub ty: &'hir HirTy<'hir>,
+    /// foo.bar or foo->bar
+    pub is_arrow: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -177,25 +182,9 @@ pub struct HirUnitLiteralExpr<'hir> {
 }
 
 #[derive(Debug, Clone)]
-pub struct HirNewArrayExpr<'hir> {
-    pub span: Span,
-    pub ty: &'hir HirTy<'hir>,
-    pub size: Box<HirExpr<'hir>>,
-}
-
-#[derive(Debug, Clone)]
 pub struct HirDeleteExpr<'hir> {
     pub span: Span,
     pub expr: Box<HirExpr<'hir>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct HirNewObjExpr<'hir> {
-    pub span: Span,
-    pub ty: &'hir HirTy<'hir>,
-    pub args: Vec<HirExpr<'hir>>,
-    pub args_ty: Vec<&'hir HirTy<'hir>>,
-    pub is_copy_constructor_call: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -203,6 +192,24 @@ pub struct HirListLiteralExpr<'hir> {
     pub span: Span,
     pub items: Vec<HirExpr<'hir>>,
     pub ty: &'hir HirTy<'hir>,
+}
+
+#[derive(Debug, Clone)]
+pub struct HirListLiteralWithSizeExpr<'hir> {
+    pub span: Span,
+    pub item: Box<HirExpr<'hir>>,
+    pub size: Box<HirExpr<'hir>>,
+    pub ty: &'hir HirTy<'hir>,
+}
+
+impl HirListLiteralWithSizeExpr<'_> {
+    pub fn size_as_usize(&self) -> Option<usize> {
+        match &*self.size {
+            HirExpr::IntegerLiteral(i) => Some(i.value as usize),
+            HirExpr::UnsignedIntegerLiteral(u) => Some(u.value as usize),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -217,7 +224,7 @@ pub struct HirIndexingExpr<'hir> {
 pub struct HirCastExpr<'hir> {
     pub span: Span,
     pub expr: Box<HirExpr<'hir>>,
-    pub ty: &'hir HirTy<'hir>,
+    pub target_ty: &'hir HirTy<'hir>,
 }
 
 #[derive(Debug, Clone)]
@@ -245,6 +252,19 @@ pub struct HirFunctionCallExpr<'hir> {
     pub generics: Vec<&'hir HirTy<'hir>>,
     /// Result type of the call
     pub ty: &'hir HirTy<'hir>,
+    pub kind: HirFunctionKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HirFunctionKind {
+    Constructor,
+    DefaultConstructor,
+    MoveConstructor,
+    CopyConstructor,
+    Method,
+    StaticMethod,
+    Function,
+    ExternFunction,
 }
 
 #[derive(Debug, Clone)]
@@ -350,38 +370,5 @@ pub struct HirIntegerLiteralExpr<'hir> {
 pub struct HirIdentExpr<'hir> {
     pub name: &'hir str,
     pub span: Span,
-    pub ty: &'hir HirTy<'hir>,
-}
-
-/// Move expression: transfers ownership from the source.
-/// After a move, the source variable is no longer valid.
-///
-/// This is inserted by the ownership pass when:
-/// - A non-copyable type is used in an ownership-consuming context
-/// - A copyable type is used for the last time (optimization from copy)
-#[derive(Debug, Clone)]
-pub struct HirMoveExpr<'hir> {
-    pub span: Span,
-    /// The source variable name being moved from
-    pub source_name: &'hir str,
-    /// The expression being moved (usually an identifier)
-    pub expr: Box<HirExpr<'hir>>,
-    /// The type of the value being moved
-    pub ty: &'hir HirTy<'hir>,
-}
-
-/// Copy expression: creates a new owned copy via copy constructor.
-/// The source variable remains valid after this operation.
-///
-/// For primitive types, this is a bitwise copy.
-/// For structs with a `_copy` method, this calls the copy constructor.
-#[derive(Debug, Clone)]
-pub struct HirCopyExpr<'hir> {
-    pub span: Span,
-    /// The source variable name being copied from
-    pub source_name: &'hir str,
-    /// The expression being copied (usually an identifier)
-    pub expr: Box<HirExpr<'hir>>,
-    /// The type of the value being copied
     pub ty: &'hir HirTy<'hir>,
 }

@@ -14,15 +14,50 @@ declare_error_type! {
     pub enum SyntaxError {
         UnexpectedEndOfFile(UnexpectedEndOfFileError),
         UnexpectedToken(UnexpectedTokenError),
-        OnlyOneConstructorAllowed(OnlyOneConstructorAllowedError),
+        OnlyOneDestructorAllowed(OnlyOneDestructorAllowedError),
         NoFieldInStruct(NoFieldInStructError),
         InvalidCharacter(InvalidCharacterError),
         DestructorWithParameters(DestructorWithParametersError),
         FlagDoesntExist(FlagDoesntExistError),
+        SizeOfArrayMustBeKnownAtCompileTime(SizeOfArrayMustBeKnownAtCompileTimeError),
+        ConstTypeNotSupportedYet(ConstTypeNotSupportedYetError),
+        MissPlacedComment(MissPlacedCommentError),
     }
 }
 
 pub type ParseResult<T> = Result<T, Box<SyntaxError>>;
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(syntax::cannot_end_with_comment),
+    severity(warning),
+    help("Remove this trailing comment (or add a declaration under it)")
+)]
+#[error(
+    "This error shouldn't happen, but please do not have your last item be a trailing comment it fucks up the parser for some reason"
+)]
+pub struct MissPlacedCommentError {
+    #[label = "Here"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(syntax::const_type_is_not_supported),
+    help("Only const pointers exist for now")
+)]
+#[error(
+    "const types (i.e.: `const T`) are not supported yet. The compilation will continue, but the constraint will be ignored"
+)]
+pub struct ConstTypeNotSupportedYetError {
+    #[label = "This type: `{ty}` is not supported yet."]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+    pub ty: String,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
@@ -62,18 +97,12 @@ pub struct NoFieldInStructError {
 }
 
 #[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
-    code(syntax::only_one_constructor_allowed),
-    help(
-        "Try removing that constructor/destructor or make it a static method (e.g. `fun init(...) -> Self)`"
-    )
-)]
-#[error("Only one constructor or destructor is allowed per struct")]
-//This should also have a label pointing to the 1st constructor/destructor
-pub struct OnlyOneConstructorAllowedError {
-    #[label = "only one {kind} is allowed per struct"]
+#[diagnostic(code(syntax::only_one_destructor_allowed))]
+#[error("Only one destructor is allowed per struct")]
+//This should also have a label pointing to the 1st destructor
+pub struct OnlyOneDestructorAllowedError {
+    #[label = "only one destructor is allowed per struct"]
     pub span: Span,
-    pub kind: String,
     #[source_code]
     pub src: NamedSource<String>,
 }
@@ -112,4 +141,17 @@ pub struct InvalidCharacterError {
     #[label("invalid character found here")]
     pub span: Span,
     pub kind: LexingError,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(syntax::size_of_array_must_be_known_at_compile_time),
+    help("Use a compile-time constant expression or an integer literal for the size of the array")
+)]
+#[error("size of array must be known at compile time")]
+pub struct SizeOfArrayMustBeKnownAtCompileTimeError {
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label("size of array must be known at compile time")]
+    pub span: Span,
 }

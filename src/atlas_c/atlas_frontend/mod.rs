@@ -1,8 +1,6 @@
 pub mod lexer;
 pub mod parser;
 
-use std::path::PathBuf;
-
 use lexer::AtlasLexer;
 use parser::{arena::AstArena, ast::AstProgram, error::ParseResult};
 
@@ -17,6 +15,6 @@ pub fn parse<'ast>(
         Ok(tokens) => tokens,
         Err(e) => panic!("Error while lexing: {:?}", e),
     };
-    let mut parser = parser::Parser::new(arena, tokens, PathBuf::from(path));
+    let mut parser = parser::Parser::new(arena, tokens, path);
     parser.parse()
 }

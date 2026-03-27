@@ -2,49 +2,49 @@
 //!
 //! Provides `Time` values, formatting helpers and sleeping primitives.
 //! Use `Time::now()` to obtain the current time and `Time::format()` / `to_iso_string()` to format it.
-// Private functions, you can only use `Time` related functions through the public interface (Time class)
-private extern now() -> Time;
-private extern format_time(t: Time, fmt: string) -> string;
-private extern sleep(t: Time);
-private extern format_time_iso(t: Time) -> string;
+// Private runtime hooks, scoped to this module's public Time API.
+private extern fun atlas77_now_impl() -> Time;
+private extern fun atlas77_format_time_impl(t: Time, fmt: *uint8) -> *uint8;
+private extern fun atlas77_sleep_impl(t: Time);
+private extern fun atlas77_format_time_iso_impl(t: Time) -> *uint8;
 
-public struct Time {
+public extern struct Time {
 public:
     sec: int64;
     nsec: int64;
 public:
     Time(sec: int64, nsec: int64) {
-        this.sec = sec;
-        this.nsec = nsec;
+        this->sec = sec;
+        this->nsec = nsec;
     }
     ~Time() {}
-    Time(from: &const Time) {
-        this.sec = *from.sec;
-        this.nsec = *from.nsec;
+    Time(from: *const Time) {
+        this->sec = from->sec;
+        this->nsec = from->nsec;
     }
 
-    fun to_iso_string(&this) -> string {
-        return format_time(this, "%Y-%m-%dT%H:%M:%S");
+    fun to_iso_string(*const this) -> *uint8 {
+        return atlas77_format_time_iso_impl(this);
     }
 
-    fun format(&this, fmt: string) -> string {
-        return format_time(this, fmt);
+    fun format(*const this, fmt: *uint8) -> *uint8 {
+        return atlas77_format_time_impl(this, fmt);
     }
 
     fun now() -> Time {
-        return now();
+        return atlas77_now_impl();
     }
 
-    fun elapsed(&this, since: Time) -> Time {
-        let sec_diff = this.sec - since.sec;
-        let nsec_diff = this.nsec - since.nsec;
+    fun elapsed(*const this, since: *const Time) -> Time {
+        let sec_diff = this->sec - since->sec;
+        let nsec_diff = this->nsec - since->nsec;
         if nsec_diff < 0 {
             return new Time(sec_diff - 1, nsec_diff + 1000000000);
         }
         return new Time(sec_diff, nsec_diff);
     }
 
-    fun sleep(&this) {
-        sleep(this);
+    fun sleep(*const this) {
+        atlas77_sleep_impl(this);
     }
 }

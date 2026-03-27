@@ -25,7 +25,7 @@ mod scope;
 pub mod signature;
 pub mod stmt;
 pub mod ty;
-mod warning;
+pub mod warning;
 
 #[derive(Debug, Clone, Default)]
 pub struct HirModuleGraph<'hir> {

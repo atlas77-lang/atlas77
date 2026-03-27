@@ -46,7 +46,7 @@ public:
         delete this.source;
     }
     Lexer(from: &const Lexer) {
-        this.source = new String(*from.source);
+        this.source = new String(*from.source.s);
     }
     fun tokenize(&this) -> Vector<Token> {
         let tokens = Vector<Token>::with_capacity(this.source.len());

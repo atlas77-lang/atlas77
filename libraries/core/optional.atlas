@@ -1,0 +1,104 @@
+private union optional_storage<T>
+{
+    value: T;
+    dummy: uint8;
+}
+
+public struct optional<T>
+{
+private:
+    storage: optional_storage<T>;
+    has_value: bool;
+
+    ~optional()
+    {
+        if (this->has_value)
+        {
+            delete this->storage.value;
+        }
+    }
+public:
+    //! Construct an `optional<T>` containing `data`.
+    //!
+    //! Example:
+    //!     let some = optional<int64>::of(42);
+    fun of(data: T) -> optional<T>
+    {
+        return optional<T>{
+            .storage = optional_storage<T> { .value = data },
+            .has_value = true
+        };
+    }
+    //! Construct an empty `optional<T>` with no value.
+    //!
+    //! Example:
+    //!     let none = optional<int64>::empty();
+    fun empty() -> optional<T>
+    {
+        return optional<T>{
+            .storage = optional_storage<T> { .dummy = 0 },
+            .has_value = false
+        };
+    }
+    //! Returns true if no value is present.
+    //!
+    //! Example:
+    //!     if (opt.is_empty()) { println("is empty"); }
+    fun is_empty(*const this) -> bool
+    {
+        return !this->has_value;
+    }
+    //! Returns true if a value is present.
+    //!
+    //! Example:
+    //!     if (opt.has_value()) { println("has value"); }
+    fun has_value(*const this) -> bool
+    {
+        return this->has_value;
+    }
+    fun value(*this) -> T
+    {
+        if (!this->has_value)
+        {
+            panic("Called optional<T>::value on an empty optional");
+        }
+        this->has_value = false;
+        return this->storage.value;
+    }
+}
+
+
+fun move_t<T>(from: *T) -> T
+{
+    return T::__move_ctor(from);
+}
+
+struct Test 
+{
+public:
+    value: int64;
+    Test(value: int64) {
+        this->value = value;
+    }
+    Test(from: *const Test) {
+        this->value = from->value;
+    }
+    Test(dying_obj: *Test) {
+        this->value = dying_obj->value;
+        dying_obj->value = 0;
+    }
+}
+
+extern fun printf<T>(format: *const uint8, arg: T);
+extern fun panic(msg: *const uint8) -> unit;
+
+fun main()
+{
+    let opt1 = optional<Test>::of(Test(42));
+    printf("opt1 has value: %d\n", opt1.has_value());
+    printf("opt1 value: %ld\n", opt1.value().value);
+    printf("opt1 has value after move_t: %d\n", opt1.has_value());
+
+    let opt2 = optional<Test>::empty();
+    printf("opt2 is empty: %d\n", opt2.is_empty());
+}

@@ -1,0 +1,109 @@
+package std::array;
+
+//! Allocation on the heap
+extern fun malloc<T>(size: uint64) -> ptr<T>;
+extern fun free<T>(p: ptr<T>);
+/*
+ * Equivalent of std::array in C++.
+ * NB: Not every feature used here is implemented in atlas77 yet.
+ */
+// Above this threshold, we allocate the array on the heap
+// TODO: tune this value and add target flags to make it different per architecture
+const INLINE_THRESHOLD: uint64 = 256u;
+//! Owned fixed-size array, copyable & moveable if T is copyable & moveable
+public struct array<T, N> {
+    // sadly it seems like it's the only way to have inline storage for now
+    data: [T; N];
+public:
+    // Normal constructor
+    array(data: [T; N]) {
+        const_expr(
+            if N > INLINE_THRESHOLD then
+                // Compile time warning
+                pragma("warning", $"Allocating large array ({N}) on the stack may lead to stack overflow.")
+            end
+        );
+        this.data = data;
+    }
+    // Default constructor
+    array() 
+        where T: std::default 
+    {
+        this.data = new [T; N];
+    }
+    // Copy constructor
+    array(from: const array<T, N>&)
+        where T: std::copyable
+    {
+        // ensure this doesn't require std::default
+        this.data = new [T; N];
+        let i = 0u;
+        while i < N {
+            this.data[i] = from.data[i];
+            i = i + 1u;
+        }
+    }
+    // Move constructor
+    array(from: array<T, N>&&)
+        where T: std::moveable
+    {
+        // ensure this doesn't require std::default
+        this.data = new [T; N];
+        let i = 0u;
+        while i < N {
+            this.data[i] = move<T>(from.data[i]);
+            i = i + 1u;
+        }
+    }
+    ~array() {
+        let i = 0u;
+        while i < N {
+            delete this.data[i];
+            i = i + 1u;
+        }
+    }
+    operator [](const this&, index: uint64) -> const T& {
+        return this.data.get(index);
+    }
+    operator []=(this&, index: uint64, value: T) {
+        let slot = this.data.get_mut(index);
+        *slot = value;
+    }
+    fun from_slice(slice: [T]) -> array<T, N> {
+        if slice.len() != N {
+            panic("Slice length does not match array size");
+        }
+        let arr = new array<T, N>();
+        let i = 0u;
+        while i < N {
+            arr.data[i] = slice[i];
+            i = i + 1u;
+        }
+        return arr;
+    }
+    #[inline]
+    fun get(const this&, index: uint64) -> const T& {
+        if index >= N {
+            panic("Index out of bounds");
+        }
+        return this.data.get(index);
+    }
+    #[inline]
+    fun get_mut(&this, index: uint64) -> T& {
+        if index >= N {
+            panic("Index out of bounds");
+        }
+        return this.data.get_mut(index);
+    }
+    #[inline]
+    fun set(&this, index: uint64, value: T) {
+        if index >= N {
+            panic("Index out of bounds");
+        }
+        this.data.set(index, value);
+    }
+    #[inline]
+    const fun len(&const this) -> uint64 {
+        return N;
+    }
+}

@@ -12,6 +12,7 @@ declare_error_type! {
         UnsupportedHirExpr(UnsupportedHirExprError),
         CurrentFunctionDoesntExist(CurrentFunctionDoesntExistError),
         NoReturnInFunction(NoReturnInFunctionError),
+        UnknownType(UnknownTypeError),
     }
 }
 
@@ -24,12 +25,13 @@ pub type LirResult<T> = Result<T, Box<LirLoweringError>>;
     // It's just a warning for now, the Lir lowering pass isn't ready
     severity(warning)
 )]
-#[error("Unsupported HIR expression for Lir lowering")]
+#[error("Unsupported HIR expression for Lir lowering: {expr}")]
 pub struct UnsupportedHirExprError {
     #[label = "unsupported HIR expression for Lir lowering"]
     pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
+    pub expr: String,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -48,4 +50,20 @@ pub struct CurrentFunctionDoesntExistError;
 #[error("No return statement in function `{name}`")]
 pub struct NoReturnInFunctionError {
     pub name: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(lir_lowering::unknown_type),
+    help("Ensure that the type is defined before using it"),
+    severity(warning)
+)]
+// It doesn't really mean the type is unknown, but that it's not managed by the LIR lowering pass yet
+#[error("Unknown type: `{ty_name}`")]
+pub struct UnknownTypeError {
+    pub ty_name: String,
+    #[label = "unknown type: `{ty_name}`"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
 }

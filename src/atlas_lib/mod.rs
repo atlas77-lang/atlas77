@@ -4,3 +4,7 @@ use include_dir::{Dir, include_dir};
 pub static STD_LIB_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/libraries/std");
 
 pub static BLUE_ENGINE_LIB_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/libraries/blue_engine");
+
+pub static CORE_LIB_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/libraries/core");
+
+pub static RAYLIB_LIB_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/libraries/blue_engine");

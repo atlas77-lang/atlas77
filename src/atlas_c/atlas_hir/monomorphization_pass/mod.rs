@@ -7,16 +7,16 @@ use crate::atlas_c::{
             HirResult, NotEnoughGenericsError, NotEnoughGenericsOrigin, UnknownTypeError,
         },
         expr::HirExpr,
-        item::{HirStruct, HirStructConstructor, HirUnion},
+        item::{HirStruct, HirStructDestructor, HirUnion},
         monomorphization_pass::generic_pool::HirGenericPool,
         signature::{HirGenericConstraint, HirGenericConstraintKind, HirModuleSignature},
         stmt::HirStatement,
-        ty::{HirGenericTy, HirListTy, HirMutableReferenceTy, HirReadOnlyReferenceTy, HirTy},
+        ty::{HirGenericTy, HirInlineArrayTy, HirPtrTy, HirSliceTy, HirTy},
     },
     utils::{self, Span},
 };
 use miette::NamedSource;
-pub(crate) mod generic_pool;
+pub mod generic_pool;
 
 //Maybe all the passes should share a common trait? Or be linked to a common context struct?
 pub struct MonomorphizationPass<'hir> {
@@ -39,7 +39,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             module.signature.structs.remove(instance.name);
         }
         for (name, signature) in module.signature.structs.clone().iter() {
-            if !signature.generics.is_empty() {
+            if !signature.is_instantiated {
                 module.signature.structs.remove(name);
                 module.body.structs.remove(name);
             }
@@ -52,7 +52,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             module.signature.functions.remove(instance.name);
         }
         for (name, signature) in module.signature.functions.clone().iter() {
-            if !signature.generics.is_empty() && !signature.is_external {
+            if !signature.is_instantiated && !signature.is_external && !signature.is_intrinsic {
                 module.signature.functions.remove(name);
                 module.body.functions.remove(name);
             }
@@ -64,7 +64,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             module.signature.unions.remove(instance.name);
         }
         for (name, signature) in module.signature.unions.clone().iter() {
-            if !signature.generics.is_empty() {
+            if !signature.is_instantiated {
                 module.signature.unions.remove(name);
                 module.body.unions.remove(name);
             }
@@ -94,7 +94,11 @@ impl<'hir> MonomorphizationPass<'hir> {
             .body
             .functions
             .iter()
-            .filter(|(_, func)| func.signature.generics.is_empty() && !func.signature.is_external)
+            .filter(|(_, func)| {
+                func.signature.generics.is_empty()
+                    && !func.signature.is_external
+                    && !func.signature.is_intrinsic
+            })
             .map(|(_, func)| func.name)
             .collect();
 
@@ -119,6 +123,38 @@ impl<'hir> MonomorphizationPass<'hir> {
             }
         }
 
+        // Also scan non-generic struct members to discover generic instantiations
+        // used inside methods of concrete structs.
+        let non_generic_structs: Vec<_> = module
+            .body
+            .structs
+            .iter()
+            .filter(|(_, s)| s.signature.generics.is_empty())
+            .map(|(name, _)| *name)
+            .collect();
+
+        for struct_name in non_generic_structs.iter() {
+            let mut updated_struct = if let Some(s) = module.body.structs.get(struct_name) {
+                s.clone()
+            } else {
+                continue;
+            };
+
+            if let Some(dtor) = updated_struct.destructor.as_mut() {
+                for statement in dtor.body.statements.iter_mut() {
+                    self.monomorphize_statement(statement, vec![], module)?;
+                }
+            }
+
+            for method in updated_struct.methods.iter_mut() {
+                for statement in method.body.statements.iter_mut() {
+                    self.monomorphize_statement(statement, vec![], module)?;
+                }
+            }
+
+            module.body.structs.insert(*struct_name, updated_struct);
+        }
+
         let mut generic_pool_clone = self.generic_pool.structs.clone();
         for (_, instance) in generic_pool_clone.iter_mut() {
             if !instance.is_done {
@@ -127,7 +163,6 @@ impl<'hir> MonomorphizationPass<'hir> {
                     inner: instance.args.clone(),
                     span: instance.span,
                 });
-                // Check constraints before monomorphizing (copy constructors are now available)
                 if let Some(struct_sig) = module.signature.structs.get(instance.name) {
                     let constraints = struct_sig.generics.clone();
                     if !constraints.is_empty()
@@ -156,7 +191,6 @@ impl<'hir> MonomorphizationPass<'hir> {
                     inner: instance.args.clone(),
                     span: instance.span,
                 });
-                // Check constraints before monomorphizing (copy constructors are now available)
                 if let Some(union_sig) = module.signature.unions.get(instance.name) {
                     let constraints = union_sig.generics.clone();
                     if !constraints.is_empty()
@@ -186,7 +220,6 @@ impl<'hir> MonomorphizationPass<'hir> {
                     inner: instance.args.clone(),
                     span: instance.span,
                 });
-                // Check constraints before monomorphizing (copy constructors are now available)
                 if let Some(func_sig) = module.signature.functions.get(instance.name) {
                     let constraints = func_sig.generics.clone();
                     if !constraints.is_empty()
@@ -271,6 +304,7 @@ impl<'hir> MonomorphizationPass<'hir> {
         let mut new_union = template.clone();
         new_union.pre_mangled_ty = Some(actual_type);
         new_union.signature.pre_mangled_ty = Some(actual_type);
+        new_union.signature.is_instantiated = true;
         //Collect generic names
         let generic_constraints = template.signature.generics.clone();
         if generic_constraints.len() != actual_type.inner.len() {
@@ -343,74 +377,8 @@ impl<'hir> MonomorphizationPass<'hir> {
 
         self.monomorphize_fields(&mut new_struct, &generics, actual_type, module)?;
 
-        self.monomorphize_constructor(
-            &mut new_struct.constructor,
-            types_to_change.clone(),
-            module,
-        )?;
         if let Some(destructor) = new_struct.destructor.as_mut() {
-            self.monomorphize_constructor(destructor, types_to_change.clone(), module)?;
-        } else {
-            unreachable!(
-                "Struct destructor missing during monomorphization for struct {}",
-                new_struct.signature.name
-            );
-        }
-
-        // Monomorphize copy constructor signature params first, then sync body params
-        if let Some(copy_ctor_sig) = new_struct.signature.copy_constructor.as_mut() {
-            // Check where_clause constraints for copy constructor
-            if let Some(where_clause) = &copy_ctor_sig.where_clause {
-                let is_satisfied = self.check_where_constraints_on_method(
-                    where_clause,
-                    &generics,
-                    actual_type,
-                    &module.signature,
-                );
-                copy_ctor_sig.is_constraint_satisfied = is_satisfied;
-
-                // If constraints are not satisfied, remove the copy constructor body
-                if !is_satisfied {
-                    new_struct.copy_constructor = None;
-                }
-            }
-
-            for arg in copy_ctor_sig.params.iter_mut() {
-                for (j, generic) in generics.iter().enumerate() {
-                    arg.ty = self.change_inner_type(
-                        arg.ty,
-                        generic.generic_name,
-                        actual_type.inner[j].clone(),
-                        module,
-                    );
-                }
-            }
-        }
-
-        // Monomorphize copy constructor body (only if constraints are satisfied)
-        if let Some(copy_ctor) = new_struct.copy_constructor.as_mut() {
-            self.monomorphize_constructor(copy_ctor, types_to_change.clone(), module)?;
-            // Sync body params from signature
-            for (i, _) in copy_ctor.params.clone().iter().enumerate() {
-                copy_ctor.params[i] = new_struct
-                    .signature
-                    .copy_constructor
-                    .as_ref()
-                    .unwrap()
-                    .params[i]
-                    .clone();
-            }
-        }
-
-        for arg in new_struct.signature.constructor.params.iter_mut() {
-            for (j, generic) in generics.iter().enumerate() {
-                arg.ty = self.change_inner_type(
-                    arg.ty,
-                    generic.generic_name,
-                    actual_type.inner[j].clone(),
-                    module,
-                );
-            }
+            self.monomorphize_destructor(destructor, types_to_change.clone(), module)?;
         }
 
         // Check and mark methods based on where_clause constraints
@@ -493,7 +461,7 @@ impl<'hir> MonomorphizationPass<'hir> {
         }
 
         //At this point the signature is fully monomorphized, but the actual struct itself isn't.
-        //We still need to change the new_struct.fields/new_struct.methods/new_struct.constructor
+        //We still need to change the new_struct.fields/new_struct.methods
 
         for (i, field) in new_struct.fields.clone().iter().enumerate() {
             new_struct.fields[i] = new_struct.signature.fields.get(field.name).unwrap().clone();
@@ -509,22 +477,16 @@ impl<'hir> MonomorphizationPass<'hir> {
             );
         }
 
-        for (i, _) in new_struct.constructor.params.clone().iter().enumerate() {
-            new_struct.constructor.params[i] = new_struct.signature.constructor.params[i].clone();
-        }
-
-        //And lastly, we need to update the statements inside the constructor and methods to reflect the new types.
-        //It's mostly changing the name of every `new Struct<Generic>` to `new __atlas77__Struct__actual_types`
-
         for method in new_struct.methods.iter_mut() {
             for statement in method.body.statements.iter_mut() {
                 self.monomorphize_statement(statement, types_to_change.clone(), module)?;
             }
         }
 
-        new_struct.signature.generics = vec![];
+        //new_struct.signature.generics = vec![];
         new_struct.name = mangled_name;
         new_struct.signature.name = mangled_name;
+        new_struct.signature.is_instantiated = true;
 
         module.signature.structs.insert(
             mangled_name,
@@ -626,9 +588,12 @@ impl<'hir> MonomorphizationPass<'hir> {
             let mut new_sig = new_function.signature.clone();
             new_sig.params = new_params;
             new_sig.return_ty = new_return_ty.clone();
-            new_sig.generics = vec![];
+            //new_sig.generics = vec![];
             new_sig.pre_mangled_ty = Some(actual_type);
-            new_function.signature = &*self.arena.intern(new_sig);
+            new_sig.is_instantiated = true;
+
+            // Update the function's signature
+            new_function.signature = self.arena.intern(new_sig);
 
             // Monomorphize function body
             for statement in new_function.body.statements.iter_mut() {
@@ -645,19 +610,14 @@ impl<'hir> MonomorphizationPass<'hir> {
         Ok(())
     }
 
-    fn monomorphize_constructor(
+    fn monomorphize_destructor(
         &mut self,
-        constructor: &mut HirStructConstructor<'hir>,
+        dtor: &mut HirStructDestructor<'hir>,
         types_to_change: Vec<(&'hir str, &'hir HirTy<'hir>)>,
         module: &HirModule<'hir>,
     ) -> HirResult<()> {
-        //Monomorphize params
-        for param in constructor.params.iter_mut() {
-            param.ty = self.swap_generic_types_in_ty(param.ty, types_to_change.clone());
-        }
-
         //Monomorphize body
-        for statement in constructor.body.statements.iter_mut() {
+        for statement in dtor.body.statements.iter_mut() {
             self.monomorphize_statement(statement, types_to_change.clone(), module)?;
         }
         Ok(())
@@ -747,23 +707,17 @@ impl<'hir> MonomorphizationPass<'hir> {
         module: &HirModule<'hir>,
     ) -> HirResult<()> {
         match expr {
-            HirExpr::NewObj(new_obj_expr) => {
-                if let HirTy::Generic(_g) = new_obj_expr.ty {
-                    let monomorphized_ty =
-                        self.swap_generic_types_in_ty(new_obj_expr.ty, types_to_change.clone());
-
-                    // Register the monomorphized struct, not the generic one with unresolved parameters
-                    if let HirTy::Generic(g_mono) = monomorphized_ty {
-                        self.generic_pool
-                            .register_struct_instance(g_mono.clone(), &module.signature);
-                    }
-
-                    new_obj_expr.ty = monomorphized_ty;
-                }
-                for arg in new_obj_expr.args.iter_mut() {
-                    self.monomorphize_expression(arg, types_to_change.clone(), module)?;
-                }
-            }
+            HirExpr::Ident(_)
+            | HirExpr::FloatLiteral(_)
+            | HirExpr::CharLiteral(_)
+            | HirExpr::IntegerLiteral(_)
+            | HirExpr::UnsignedIntegerLiteral(_)
+            | HirExpr::UnitLiteral(_)
+            | HirExpr::BooleanLiteral(_)
+            | HirExpr::ThisLiteral(_)
+            | HirExpr::StringLiteral(_)
+            | HirExpr::NullLiteral(_)
+            | HirExpr::FieldAccess(_) => {}
             HirExpr::ObjLiteral(obj_lit_expr) => {
                 if let HirTy::Generic(_g) = obj_lit_expr.ty {
                     let monomorphized_ty =
@@ -852,7 +806,14 @@ impl<'hir> MonomorphizationPass<'hir> {
                 }
             }
             HirExpr::Casting(casting_expr) => {
-                self.monomorphize_expression(&mut casting_expr.expr, types_to_change, module)?;
+                self.monomorphize_expression(
+                    &mut casting_expr.expr,
+                    types_to_change.clone(),
+                    module,
+                )?;
+                let monomorphized_ty =
+                    self.swap_generic_types_in_ty(casting_expr.target_ty, types_to_change);
+                casting_expr.target_ty = monomorphized_ty;
             }
             HirExpr::Delete(delete_expr) => {
                 self.monomorphize_expression(&mut delete_expr.expr, types_to_change, module)?;
@@ -862,20 +823,8 @@ impl<'hir> MonomorphizationPass<'hir> {
                     self.monomorphize_expression(item, types_to_change.clone(), module)?;
                 }
             }
-            HirExpr::NewArray(new_array_expr) => {
-                if let HirTy::List(_l) = new_array_expr.ty {
-                    let ty =
-                        self.swap_generic_types_in_ty(new_array_expr.ty, types_to_change.clone());
-
-                    if let HirTy::List(l_mono) = ty
-                        && let HirTy::Generic(g_mono) = l_mono.inner
-                    {
-                        self.generic_pool
-                            .register_struct_instance(g_mono.clone(), &module.signature);
-                    }
-                    new_array_expr.ty = ty;
-                }
-                self.monomorphize_expression(&mut new_array_expr.size, types_to_change, module)?;
+            HirExpr::ListLiteralWithSize(list_expr) => {
+                self.monomorphize_expression(&mut list_expr.item, types_to_change, module)?;
             }
             HirExpr::StaticAccess(static_access) => {
                 let monomorphized_ty =
@@ -883,7 +832,16 @@ impl<'hir> MonomorphizationPass<'hir> {
 
                 static_access.target = monomorphized_ty;
             }
-            _ => {}
+            HirExpr::IntrinsicCall(intrinsic) => {
+                for arg_ty in intrinsic.args_ty.iter_mut() {
+                    let monomorphized_ty =
+                        self.swap_generic_types_in_ty(arg_ty, types_to_change.clone());
+                    *arg_ty = monomorphized_ty;
+                }
+                for arg in intrinsic.args.iter_mut() {
+                    self.monomorphize_expression(arg, types_to_change.clone(), module)?;
+                }
+            }
         }
 
         Ok(())
@@ -931,10 +889,17 @@ impl<'hir> MonomorphizationPass<'hir> {
                 }
                 ty
             }
-            HirTy::List(l) => {
+            HirTy::Slice(l) => {
                 let new_inner = self.swap_generic_types_in_ty(l.inner, types_to_change);
                 self.arena
-                    .intern(HirTy::List(HirListTy { inner: new_inner }))
+                    .intern(HirTy::Slice(HirSliceTy { inner: new_inner }))
+            }
+            HirTy::InlineArray(arr) => {
+                let new_inner = self.swap_generic_types_in_ty(arr.inner, types_to_change);
+                self.arena.intern(HirTy::InlineArray(HirInlineArrayTy {
+                    inner: new_inner,
+                    size: arr.size,
+                }))
             }
             HirTy::Generic(g) => {
                 let new_inner_types: Vec<HirTy<'hir>> = g
@@ -951,19 +916,13 @@ impl<'hir> MonomorphizationPass<'hir> {
                     span: g.span,
                 }))
             }
-            HirTy::MutableReference(m) => {
-                let new_inner = self.swap_generic_types_in_ty(m.inner, types_to_change.clone());
-                self.arena
-                    .intern(HirTy::MutableReference(HirMutableReferenceTy {
-                        inner: new_inner,
-                    }))
-            }
-            HirTy::ReadOnlyReference(r) => {
-                let new_inner = self.swap_generic_types_in_ty(r.inner, types_to_change.clone());
-                self.arena
-                    .intern(HirTy::ReadOnlyReference(HirReadOnlyReferenceTy {
-                        inner: new_inner,
-                    }))
+            HirTy::PtrTy(ptr_ty) => {
+                let new_inner = self.swap_generic_types_in_ty(ptr_ty.inner, types_to_change);
+                self.arena.intern(HirTy::PtrTy(HirPtrTy {
+                    inner: new_inner,
+                    is_const: ptr_ty.is_const,
+                    span: ptr_ty.span,
+                }))
             }
             _ => ty,
         }
@@ -983,19 +942,11 @@ impl<'hir> MonomorphizationPass<'hir> {
             .iter()
             .map(|t| match t {
                 HirTy::Generic(g) => Self::generate_mangled_name(arena, g, kind).to_string(),
-                _ => format!("{}", t),
+                _ => t.get_valid_c_string(),
             })
             .collect();
-        let name = format!("__atlas77__{}__{}__{}", kind, generic.name, parts.join("_"));
+        let name = format!("_{}_{}_{}_A77", kind, generic.name, parts.join("_"));
         arena.intern(name)
-    }
-
-    /// Compute a stable mangled name for a monomorphized function given its base name
-    /// and the actual type arguments.
-    #[inline]
-    fn _mangle_function_name(&self, base_name: &str, actual_tys: &[&'hir HirTy<'hir>]) -> String {
-        let parts: Vec<String> = actual_tys.iter().map(|t| format!("{}", t)).collect();
-        format!("__atlas77__fun__{}__{}", base_name, parts.join("_"))
     }
 
     /// Check if a method's where_clause constraints are satisfied by the concrete types.
@@ -1050,11 +1001,6 @@ impl<'hir> MonomorphizationPass<'hir> {
         true
     }
 
-    /// Add a new struct signature to the module signature.
-    ///
-    /// The name of the new struct will be `__atlas77__StructType_actual_type_names`, so it's actually mangled.
-    ///
-    /// Helper function to change the inner type of generic type recursively if matches.
     fn change_inner_type(
         &mut self,
         type_to_change: &'hir HirTy<'hir>,
@@ -1070,8 +1016,12 @@ impl<'hir> MonomorphizationPass<'hir> {
                     type_to_change
                 }
             }
-            HirTy::List(l) => self.arena.intern(HirTy::List(HirListTy {
+            HirTy::Slice(l) => self.arena.intern(HirTy::Slice(HirSliceTy {
                 inner: self.change_inner_type(l.inner, generic_name, new_type, module),
+            })),
+            HirTy::InlineArray(arr) => self.arena.intern(HirTy::InlineArray(HirInlineArrayTy {
+                inner: self.change_inner_type(arr.inner, generic_name, new_type, module),
+                size: arr.size,
             })),
             HirTy::Generic(g) => {
                 let new_inner_types: Vec<HirTy<'hir>> = g
@@ -1098,18 +1048,11 @@ impl<'hir> MonomorphizationPass<'hir> {
                 }
                 res
             }
-            HirTy::MutableReference(m) => {
-                self.arena
-                    .intern(HirTy::MutableReference(HirMutableReferenceTy {
-                        inner: self.change_inner_type(m.inner, generic_name, new_type, module),
-                    }))
-            }
-            HirTy::ReadOnlyReference(r) => {
-                self.arena
-                    .intern(HirTy::ReadOnlyReference(HirReadOnlyReferenceTy {
-                        inner: self.change_inner_type(r.inner, generic_name, new_type, module),
-                    }))
-            }
+            HirTy::PtrTy(ptr_ty) => self.arena.intern(HirTy::PtrTy(HirPtrTy {
+                inner: self.change_inner_type(ptr_ty.inner, generic_name, new_type, module),
+                is_const: ptr_ty.is_const,
+                span: ptr_ty.span,
+            })),
             _ => type_to_change,
         }
     }

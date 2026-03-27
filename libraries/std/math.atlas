@@ -2,17 +2,16 @@
 //!
 //! Provides a small set of helpers and wrappers around platform math functions.
 //! Example: `let r = math::round(3.7)`
-public extern round(x: float64) -> int64;
-public extern random(min: int64, max: int64) -> int64;
-public extern sin_f(x: float64) -> float64;
-public extern cos_f(x: float64) -> float64;
+public extern fun round(x: float64) -> int64;
+public extern fun random(min: int64, max: int64) -> int64;
+public extern fun sin_f(x: float64) -> float64;
+public extern fun cos_f(x: float64) -> float64;
+public extern fun expf(x: float32) -> float32;
+public extern fun logf(x: float32) -> float32;
 
-public fun abs(x: int64) -> int64 {
-    if x < 0 {
-        return -x;
-    }
-    return x;
-}
+
+public extern fun abs(x: int64) -> int64;
+
 
 public fun abs_f(x: float64) -> float64 {
     if x < 0.0 {
@@ -21,47 +20,11 @@ public fun abs_f(x: float64) -> float64 {
     return x;
 }
 
-public fun min(x: int64, y: int64) -> int64 {
-    if x < y {
-        return x;
-    }
-    return y;
-}
-public fun min_f(x: float64, y: float64) -> float64 {
-    if x < y {
-        return x;
-    }
-    return y;
-}
+public extern fun min(x: int64, y: int64) -> int64;
+public extern fun min_f(x: float64, y: float64) -> float64;
 
-public fun max(x: int64, y: int64) -> int64 {
-    if x > y {
-        return x;
-    }
-    return y;
-}
+public extern fun max(x: int64, y: int64) -> int64;
+public extern fun max_f(x: float64, y: float64) -> float64;
 
-public fun max_f(x: float64, y: float64) -> float64 {
-    if x > y {
-        return x;
-    }
-    return y;
-}
-
-public fun pow(x: int64, y: int64) -> int64 {
-    let result: int64 = 1;
-    while y > 0 {
-        result = result * x;
-        y = y - 1;
-    }
-    return result;
-}
-//! Computes x raised to the integer power y (floating variant).
-public fun pow_f(x: float64, y: int64) -> float64 {
-    let result: float64 = 1.0;
-    while y > 0 {
-        result = result * x;
-        y = y - 1;
-    }
-    return result;
-}
+public extern fun pow(x: int64, y: int64) -> int64;
+public extern fun pow_f(x: float64, y: int64) -> float64;

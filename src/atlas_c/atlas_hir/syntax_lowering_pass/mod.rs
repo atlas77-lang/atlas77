@@ -10,10 +10,10 @@ use crate::atlas_c::{
         parser::{
             arena::AstArena,
             ast::{
-                AstBinaryOp, AstBlock, AstConstructor, AstDestructor, AstEnum, AstExpr,
-                AstExternFunction, AstFunction, AstGeneric, AstGenericConstraint, AstIdentifier,
-                AstImport, AstItem, AstLiteral, AstMethod, AstMethodModifier, AstObjField,
-                AstProgram, AstStatement, AstStruct, AstType, AstUnaryOp, AstUnion,
+                AstArg, AstBinaryOp, AstBlock, AstDestructor, AstEnum, AstExpr, AstExternFunction,
+                AstFlag, AstFunction, AstGeneric, AstGenericConstraint, AstIdentifier, AstImport,
+                AstItem, AstLiteral, AstMethod, AstMethodModifier, AstProgram, AstStatement,
+                AstStruct, AstType, AstUnaryOp, AstUnion,
             },
         },
     },
@@ -21,28 +21,30 @@ use crate::atlas_c::{
         HirImport, HirModule, HirModuleBody,
         arena::HirArena,
         error::{
-            AssignmentCannotBeAnExpressionError, CannotGenerateADestructorForThisTypeError,
-            ConstructorCannotHaveAWhereClauseError, HirError, HirResult, NonConstantValueError,
-            NullableTypeRequiresStdLibraryError, StructNameCannotBeOneLetterError,
-            UnknownFileImportError, UnsupportedExpr, UnsupportedItemError, UselessError,
+            AssignmentCannotBeAnExpressionError, HirError, HirResult,
+            IncorrectIntrinsicCallArgumentsError, NonConstantValueError,
+            NullableTypeRequiresStdLibraryError, ReservedVariableNameError,
+            StructNameCannotBeOneLetterError, UnknownFileImportError, UnknownTypeError,
+            UnsupportedExpr, UnsupportedItemError, UselessError,
         },
         expr::{
             HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr,
             HirCharLiteralExpr, HirDeleteExpr, HirExpr, HirFieldAccessExpr, HirFieldInit,
-            HirFloatLiteralExpr, HirFunctionCallExpr, HirIdentExpr, HirIndexingExpr,
-            HirIntegerLiteralExpr, HirListLiteralExpr, HirNewArrayExpr, HirNewObjExpr,
-            HirObjLiteralExpr, HirStaticAccessExpr, HirStringLiteralExpr, HirThisLiteral,
-            HirUnaryOp, HirUnitLiteralExpr, HirUnsignedIntegerLiteralExpr, UnaryOpExpr,
+            HirFloatLiteralExpr, HirFunctionCallExpr, HirFunctionKind, HirIdentExpr,
+            HirIndexingExpr, HirIntegerLiteralExpr, HirIntrinsicCallExpr, HirListLiteralExpr,
+            HirListLiteralWithSizeExpr, HirNullLiteralExpr, HirObjLiteralExpr, HirStaticAccessExpr,
+            HirStringLiteralExpr, HirThisLiteral, HirUnaryOp, HirUnitLiteralExpr,
+            HirUnsignedIntegerLiteralExpr, UnaryOpExpr,
         },
         item::{
-            HirEnum, HirEnumVariant, HirFunction, HirStruct, HirStructConstructor, HirStructMethod,
+            HirEnum, HirEnumVariant, HirFunction, HirStruct, HirStructDestructor, HirStructMethod,
             HirUnion,
         },
-        monomorphization_pass::{MonomorphizationPass, generic_pool::HirGenericPool},
+        monomorphization_pass::generic_pool::HirGenericPool,
         signature::{
             ConstantValue, HirFunctionParameterSignature, HirFunctionSignature,
             HirGenericConstraint, HirGenericConstraintKind, HirModuleSignature,
-            HirStructConstantSignature, HirStructConstructorSignature, HirStructFieldSignature,
+            HirStructConstantSignature, HirStructDestructorSignature, HirStructFieldSignature,
             HirStructMethodModifier, HirStructMethodSignature, HirStructSignature,
             HirTypeParameterItemSignature, HirUnionSignature, HirVisibility,
         },
@@ -52,11 +54,7 @@ use crate::atlas_c::{
         },
         syntax_lowering_pass::case::Case,
         ty::{HirGenericTy, HirNamedTy, HirTy},
-        warning::{
-            CannotGenerateACopyConstructorForThisTypeWarning, HirWarning,
-            NameShouldBeInDifferentCaseWarning, ThisTypeIsStillUnstableWarning,
-            UnionFieldCannotBeAutomaticallyDeletedWarning,
-        },
+        warning::{HirWarning, NameShouldBeInDifferentCaseWarning, ThisTypeIsStillUnstableWarning},
     },
     utils::{self, Span},
 };
@@ -73,6 +71,7 @@ pub struct AstSyntaxLoweringPass<'ast, 'hir> {
     /// Keep track of already imported modules to avoid duplicate imports
     pub already_imported: BTreeMap<&'hir str, ()>,
     pub using_std: bool,
+    temp_counter: usize,
 }
 
 impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
@@ -92,11 +91,20 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             warnings: Vec::new(),
             already_imported: BTreeMap::new(),
             using_std,
+            temp_counter: 0,
         }
     }
 }
 
 impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
+    fn method_returns_self(&self, method: &HirStructMethod<'hir>, struct_name: &'hir str) -> bool {
+        match &method.signature.return_ty {
+            HirTy::Named(n) => n.name == struct_name,
+            HirTy::Generic(g) => g.name == struct_name,
+            _ => false,
+        }
+    }
+
     pub fn lower(&mut self) -> HirResult<&'hir mut HirModule<'hir>> {
         for item in self.ast.items {
             self.visit_item(item)?;
@@ -108,11 +116,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             eprintln!("{:?}", report);
         }
 
-        // Now we can generate all the copy constructors for the every structs
-        // Collect struct names and info first to avoid borrow checker conflicts
-        self.generate_all_copy_constructors()?;
-        self.generate_all_destructors()?;
-
         Ok(self.arena.intern(HirModule {
             body: self.module_body.clone(),
             signature: self.module_signature.clone(),
@@ -120,9 +123,19 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     }
     pub fn visit_item(&mut self, ast_item: &'ast AstItem<'ast>) -> HirResult<()> {
         match ast_item {
-            AstItem::Constant(_) => {
+            AstItem::Constant(c) => {
                 let path = ast_item.span().path;
                 let src = utils::get_file_content(path).unwrap();
+                if c.name.name.starts_with("__tmp") {
+                    eprintln!(
+                        "{:?}",
+                        Into::<miette::ErrReport>::into(ReservedVariableNameError {
+                            name: String::from("__tmp"),
+                            src: NamedSource::new(path, src.clone()),
+                            span: c.name.span
+                        })
+                    )
+                }
                 return Err(HirError::UnsupportedItem(UnsupportedItemError {
                     span: ast_item.span(),
                     item: "Global constants".to_string(),
@@ -148,6 +161,13 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
             AstItem::Struct(ast_struct) => {
                 let class = self.visit_struct(ast_struct)?;
+                self.module_signature
+                    .structs
+                    .insert(class.name, self.arena.intern(class.signature.clone()));
+                self.module_body.structs.insert(class.name, class);
+            }
+            AstItem::ExternStruct(_ast_struct) => {
+                let class = self.visit_struct(_ast_struct)?;
                 self.module_signature
                     .structs
                     .insert(class.name, self.arena.intern(class.signature.clone()));
@@ -266,6 +286,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             declaration_span: ast_union.span,
             name_span: ast_union.name.span,
             vis: ast_union.vis.into(),
+            is_instantiated: generics.is_empty(),
             generics,
             name,
             variants: {
@@ -393,6 +414,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             span: ast_extern_func.span,
             vis: ast_extern_func.vis.into(),
             params,
+            is_instantiated: generics.is_empty(),
             generics,
             type_params,
             return_ty: ty,
@@ -404,6 +426,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             } else {
                 None
             },
+            is_intrinsic: matches!(ast_extern_func.flag, AstFlag::Intrinsic(_)),
         });
         self.module_signature.functions.insert(name, hir);
         Ok(())
@@ -507,20 +530,26 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             );
         }
 
-        let constructor =
-            self.visit_constructor(node.name_span, node.constructor, &fields, false)?;
-        let had_user_defined_constructor = node.constructor.is_some();
         let had_user_defined_destructor = node.destructor.is_some();
         let destructor = if let Some(destructor) = node.destructor {
             Some(self.visit_destructor(destructor)?)
         } else {
             None
         };
-        let copy_constructor = if node.copy_constructor.is_some() {
-            Some(self.visit_constructor(node.name_span, node.copy_constructor, &fields, true)?)
-        } else {
-            None
-        };
+
+        let has_copy_method = methods.iter().any(|method| {
+            method.name == "copy"
+                && method.signature.modifier == HirStructMethodModifier::Const
+                && method.signature.params.len() == 1
+                && self.method_returns_self(method, name)
+        });
+        let has_default_method = methods.iter().any(|method| {
+            method.name == "default"
+                && method.signature.modifier == HirStructMethodModifier::Static
+                && method.signature.params.is_empty()
+                && self.method_returns_self(method, name)
+        });
+        let is_trivially_copyable = matches!(node.flag, AstFlag::TriviallyCopyable(_));
 
         let signature = HirStructSignature {
             declaration_span: node.span,
@@ -546,17 +575,19 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             },
             operators,
             constants,
+            is_instantiated: generics.is_empty(),
             generics,
-            constructor: constructor.signature.clone(),
-            copy_constructor: copy_constructor.as_ref().map(|c| c.signature.clone()),
             destructor: destructor.as_ref().map(|d| d.signature.clone()),
-            had_user_defined_constructor,
             had_user_defined_destructor,
+            is_std_copyable: has_copy_method || is_trivially_copyable,
+            is_std_default: has_default_method,
+            is_trivially_copyable,
             docstring: if let Some(docstring) = node.docstring {
                 Some(self.arena.names().get(docstring))
             } else {
                 None
             },
+            is_extern: node.is_extern,
         };
 
         Ok(HirStruct {
@@ -568,91 +599,10 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             signature,
             methods,
             fields,
-            constructor,
-            copy_constructor,
             destructor,
-            had_user_defined_destructor,
-            had_user_defined_constructor,
             vis: node.vis.into(),
             flag: node.flag.into(),
         })
-    }
-
-    fn make_default_constructor(
-        &mut self,
-        name_span: Span,
-        fields: &[HirStructFieldSignature<'hir>],
-    ) -> HirStructConstructor<'hir> {
-        let mut params: Vec<HirFunctionParameterSignature<'hir>> = Vec::new();
-        for field in fields.iter() {
-            let ty = field.ty;
-            let name = field.name;
-            params.push(HirFunctionParameterSignature {
-                span: field.span,
-                name,
-                name_span: field.name_span,
-                ty,
-                ty_span: field.ty_span,
-            });
-        }
-        let mut type_params: Vec<HirTypeParameterItemSignature<'hir>> = Vec::new();
-        for type_param in params.iter() {
-            type_params.push(HirTypeParameterItemSignature {
-                span: type_param.span,
-                name: type_param.name,
-                name_span: type_param.name_span,
-            });
-        }
-
-        let constructor_signature = HirStructConstructorSignature {
-            span: name_span,
-            params: params.clone(),
-            type_params: type_params.clone(),
-            vis: HirVisibility::Public,
-            where_clause: None,
-            is_constraint_satisfied: true,
-            docstring: None,
-        };
-
-        let mut statements = vec![];
-        for field in fields.iter() {
-            let init_stmt = HirStatement::Assign(HirAssignStmt {
-                span: field.span,
-                dst: HirExpr::FieldAccess(HirFieldAccessExpr {
-                    span: field.span,
-                    target: Box::new(HirExpr::ThisLiteral(HirThisLiteral {
-                        span: field.span,
-                        ty: self.arena.types().get_uninitialized_ty(),
-                    })),
-                    field: Box::new(HirIdentExpr {
-                        span: field.span,
-                        name: field.name,
-                        ty: field.ty,
-                    }),
-                    ty: field.ty,
-                }),
-                val: HirExpr::Ident(HirIdentExpr {
-                    span: field.span,
-                    name: field.name,
-                    ty: field.ty,
-                }),
-                ty: field.ty,
-            });
-            statements.push(init_stmt);
-        }
-
-        HirStructConstructor {
-            span: name_span,
-            signature: self.arena.intern(constructor_signature),
-            params,
-            type_params,
-            body: HirBlock {
-                span: name_span,
-                statements,
-            },
-            //Constructor is public by default
-            vis: HirVisibility::Public,
-        }
     }
 
     fn visit_constraint(
@@ -878,146 +828,23 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         (updated_method_generics, updated_where_clause)
     }
 
-    fn visit_constructor(
-        &mut self,
-        name_span: Span,
-        constructor: Option<&'ast AstConstructor<'ast>>,
-        fields: &[HirStructFieldSignature<'hir>],
-        is_copy_constructor: bool,
-    ) -> HirResult<HirStructConstructor<'hir>> {
-        if constructor.is_none() {
-            let hir = self.make_default_constructor(name_span, fields);
-            return Ok(hir);
-        }
-        let constructor = constructor.unwrap();
-        if !is_copy_constructor && constructor.where_clause.is_some() {
-            let path = constructor.span.path;
-            let src = utils::get_file_content(path).unwrap();
-            return Err(HirError::ConstructorCannotHaveAWhereClause(
-                ConstructorCannotHaveAWhereClauseError {
-                    span: constructor.span,
-                    src: NamedSource::new(path, src),
-                },
-            ));
-        }
-        let mut params: Vec<HirFunctionParameterSignature<'hir>> = Vec::new();
-        for param in constructor.args.iter() {
-            let ty = self.visit_ty(param.ty)?;
-            let name = self.arena.names().get(param.name.name);
-            params.push(HirFunctionParameterSignature {
-                span: param.span,
-                name,
-                name_span: param.name.span,
-                ty,
-                ty_span: param.ty.span(),
-            });
-        }
-
-        let mut type_params: Vec<HirTypeParameterItemSignature<'hir>> = Vec::new();
-        for type_param in params.iter() {
-            type_params.push(HirTypeParameterItemSignature {
-                span: type_param.span,
-                name: type_param.name,
-                name_span: type_param.name_span,
-            });
-        }
-
-        let (_, where_clause) = self.merge_generic_constraints(None, constructor.where_clause);
-
-        let constructor_signature = HirStructConstructorSignature {
-            span: constructor.span,
-            params: params.clone(),
-            type_params: type_params.clone(),
-            vis: constructor.vis.into(),
-            where_clause,
-            // Sets to true by default; monomorphization pass will update if needed
-            is_constraint_satisfied: true,
-            docstring: if let Some(docstring) = constructor.docstring {
-                Some(self.arena.names().get(docstring))
-            } else {
-                None
-            },
-        };
-
-        let hir = HirStructConstructor {
-            span: constructor.span,
-            signature: self.arena.intern(constructor_signature),
-            params,
-            type_params,
-            body: self.visit_block(constructor.body)?,
-            vis: constructor.vis.into(),
-        };
-        Ok(hir)
-    }
-
-    fn find_conflicting_destructor_field(
-        &self,
-        fields: &[HirStructFieldSignature<'hir>],
-    ) -> Option<Span> {
-        for field in fields.iter() {
-            match field.ty {
-                HirTy::Named(HirNamedTy { name, .. })
-                | HirTy::Generic(HirGenericTy { name, .. }) => {
-                    if self.module_signature.unions.contains_key(name) {
-                        return Some(field.span);
-                    }
-                }
-                _ => continue,
-            }
-            if self
-                .module_signature
-                .unions
-                .contains_key(format!("{}", field.ty).as_str())
-            {
-                return Some(field.span);
-            }
-        }
-        None
-    }
-
     fn visit_destructor(
         &mut self,
         destructor: &'ast AstDestructor<'ast>,
-    ) -> HirResult<HirStructConstructor<'hir>> {
-        let mut params: Vec<HirFunctionParameterSignature<'hir>> = Vec::new();
-        for param in destructor.args.iter() {
-            let ty = self.visit_ty(param.ty)?;
-            let name = self.arena.names().get(param.name.name);
-            params.push(HirFunctionParameterSignature {
-                span: param.span,
-                name,
-                name_span: param.name.span,
-                ty,
-                ty_span: param.ty.span(),
-            });
-        }
-
-        let mut type_params: Vec<HirTypeParameterItemSignature<'hir>> = Vec::new();
-        for type_param in params.iter() {
-            type_params.push(HirTypeParameterItemSignature {
-                span: type_param.span,
-                name: type_param.name,
-                name_span: type_param.name_span,
-            });
-        }
-        let signature = HirStructConstructorSignature {
+    ) -> HirResult<HirStructDestructor<'hir>> {
+        let signature = HirStructDestructorSignature {
             span: destructor.span,
-            params: params.clone(),
-            type_params: type_params.clone(),
             vis: destructor.vis.into(),
             where_clause: None,
-            is_constraint_satisfied: true,
             docstring: if let Some(docstring) = destructor.docstring {
                 Some(self.arena.names().get(docstring))
             } else {
                 None
             },
         };
-        let hir = HirStructConstructor {
+        let hir = HirStructDestructor {
             span: destructor.span,
             signature: self.arena.intern(signature),
-            params,
-            type_params,
             body: self.visit_block(destructor.body)?,
             vis: destructor.vis.into(),
         };
@@ -1090,23 +917,29 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
             Ok((new_hir, ast_lowering_pass.generic_pool))
         } else {
-            Err(HirError::UselessError(UselessError {}))
+            Err(HirError::UselessError(UselessError {
+                span: node.span,
+                src: NamedSource::new(
+                    node.span.path,
+                    utils::get_file_content(node.span.path).unwrap(),
+                ),
+            }))
         }
     }
 
     fn visit_block(&mut self, node: &'ast AstBlock<'ast>) -> HirResult<HirBlock<'hir>> {
-        let statements = node
-            .stmts
-            .iter()
-            .map(|stmt| self.visit_stmt(stmt))
-            .collect::<HirResult<Vec<_>>>()?;
+        let mut statements = Vec::new();
+        for stmt in node.stmts.iter() {
+            let mut lowered = self.visit_stmt(stmt)?;
+            statements.append(&mut lowered);
+        }
         Ok(HirBlock {
             statements,
             span: node.span,
         })
     }
 
-    fn visit_stmt(&mut self, node: &'ast AstStatement<'ast>) -> HirResult<HirStatement<'hir>> {
+    fn visit_stmt(&mut self, node: &'ast AstStatement<'ast>) -> HirResult<Vec<HirStatement<'hir>>> {
         match node {
             AstStatement::While(ast_while) => {
                 let condition = self.visit_expr(ast_while.condition)?;
@@ -1116,12 +949,12 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     condition,
                     body,
                 });
-                Ok(hir)
+                Ok(vec![hir])
             }
             AstStatement::Block(ast_block) => {
                 let block = self.visit_block(ast_block)?;
                 let hir = HirStatement::Block(block);
-                Ok(hir)
+                Ok(vec![hir])
             }
             AstStatement::Const(ast_const) => {
                 let name = self.arena.names().get(ast_const.name.name);
@@ -1134,9 +967,19 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         &name.to_snake_case(),
                     );
                 }
+                if name.starts_with("__tmp") {
+                    let path = ast_const.span.path;
+                    let src = crate::atlas_c::utils::get_file_content(path).unwrap();
+                    return Err(HirError::ReservedVariableName(ReservedVariableNameError {
+                        name: String::from("__tmp"),
+                        src: NamedSource::new(path, src.clone()),
+                        span: ast_const.name.span,
+                    }));
+                }
                 let ty = self.visit_ty(ast_const.ty)?;
 
                 let value = self.visit_expr(ast_const.value)?;
+                let (mut temps, value) = self.separate_temporaries(value, true);
                 let hir = HirStatement::Const(HirVariableStmt {
                     span: node.span(),
                     name,
@@ -1145,10 +988,20 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     ty_span: Some(ast_const.ty.span()),
                     value,
                 });
-                Ok(hir)
+                temps.push(hir);
+                Ok(temps)
             }
             AstStatement::Let(ast_let) => {
                 let name = self.arena.names().get(ast_let.name.name);
+                if name.starts_with("__tmp") {
+                    let path = ast_let.span.path;
+                    let src = crate::atlas_c::utils::get_file_content(path).unwrap();
+                    return Err(HirError::ReservedVariableName(ReservedVariableNameError {
+                        name: String::from("__tmp"),
+                        src: NamedSource::new(path, src.clone()),
+                        span: ast_let.name.span,
+                    }));
+                }
                 if !name.is_snake_case() {
                     Self::name_should_be_in_different_case_warning(
                         &ast_let.span,
@@ -1161,6 +1014,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 let ty = ast_let.ty.map(|ty| self.visit_ty(ty)).transpose()?;
 
                 let value = self.visit_expr(ast_let.value)?;
+                let (mut temps, value) = self.separate_temporaries(value, true);
                 let hir = HirStatement::Let(HirVariableStmt {
                     span: node.span(),
                     name,
@@ -1170,21 +1024,27 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     ty_span: ty.map(|_| ast_let.ty.unwrap().span()),
                     value,
                 });
-                Ok(hir)
+                temps.push(hir);
+                Ok(temps)
             }
             AstStatement::Assign(assign) => {
                 let target = self.visit_expr(assign.target)?;
                 let value = self.visit_expr(assign.value)?;
+                let (mut dst_temps, target) = self.separate_temporaries(target, true);
+                let (mut val_temps, value) = self.separate_temporaries(value, true);
                 let hir = HirStatement::Assign(HirAssignStmt {
                     span: node.span(),
                     dst: target,
                     val: value,
                     ty: self.arena.types().get_uninitialized_ty(),
                 });
-                Ok(hir)
+                dst_temps.append(&mut val_temps);
+                dst_temps.push(hir);
+                Ok(dst_temps)
             }
             AstStatement::IfElse(ast_if_else) => {
                 let condition = self.visit_expr(ast_if_else.condition)?;
+                let (mut cond_temps, condition) = self.separate_temporaries(condition, true);
                 let then_branch = self.visit_block(ast_if_else.body)?;
                 //If you don't type, the compiler will use it as an "Option<&mut HirBlock<'hir>>"
                 //Which is dumb asf
@@ -1198,25 +1058,30 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     then_branch,
                     else_branch,
                 });
-                Ok(hir)
+                cond_temps.push(hir);
+                Ok(cond_temps)
             }
             //The parser really need a bit of work
             AstStatement::Return(ast_return) => {
                 let expr = self.visit_expr(ast_return.value)?;
+                let (mut temps, expr) = self.separate_temporaries(expr, true);
                 let hir = HirStatement::Return(HirReturn {
                     span: node.span(),
                     ty: expr.ty(),
                     value: expr,
                 });
-                Ok(hir)
+                temps.push(hir);
+                Ok(temps)
             }
             AstStatement::Expr(ast_expr) => {
                 let expr = self.visit_expr(ast_expr)?;
+                let (mut temps, expr) = self.separate_temporaries(expr, true);
                 let hir = HirStatement::Expr(HirExprStmt {
                     span: node.span(),
                     expr,
                 });
-                Ok(hir)
+                temps.push(hir);
+                Ok(temps)
             } /*
               _ => {
                   let path = node.span().path;
@@ -1228,6 +1093,190 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                   }))
               }
               */
+        }
+    }
+
+    fn should_hoist_temporary_expr(&self, expr: &HirExpr<'hir>) -> bool {
+        matches!(expr, HirExpr::Call(_))
+    }
+
+    fn find_function_signature_in_module(
+        &self,
+        module_sig: &HirModuleSignature<'hir>,
+        name: &str,
+    ) -> Option<&'hir HirFunctionSignature<'hir>> {
+        if let Some(sig) = module_sig.functions.get(name) {
+            return Some(*sig);
+        }
+
+        for imported in module_sig.imported_modules.values() {
+            if let Some(sig) = self.find_function_signature_in_module(imported, name) {
+                return Some(sig);
+            }
+        }
+
+        None
+    }
+
+    fn call_returns_unit(&self, call: &HirFunctionCallExpr<'hir>) -> bool {
+        if call.ty.is_unit() {
+            return true;
+        }
+
+        match call.callee.as_ref() {
+            HirExpr::Ident(ident) => self
+                .find_function_signature_in_module(&self.module_signature, ident.name)
+                .is_some_and(|sig| sig.return_ty.is_unit()),
+            _ => false,
+        }
+    }
+
+    fn fresh_temp_name(&mut self) -> &'hir str {
+        let name = format!("__tmp{}", self.temp_counter);
+        self.temp_counter += 1;
+        self.arena.names().get(&name)
+    }
+
+    fn hoist_expr_into_temp(&mut self, expr: HirExpr<'hir>) -> (HirStatement<'hir>, HirExpr<'hir>) {
+        let span = expr.span();
+        let name = self.fresh_temp_name();
+        let uninit = self.arena.types().get_uninitialized_ty();
+
+        let stmt = HirStatement::Let(HirVariableStmt {
+            span,
+            name,
+            name_span: span,
+            ty: uninit,
+            ty_span: None,
+            value: expr,
+        });
+
+        let ident = HirExpr::Ident(HirIdentExpr {
+            name,
+            span,
+            ty: uninit,
+        });
+
+        (stmt, ident)
+    }
+
+    fn separate_temporaries(
+        &mut self,
+        expr: HirExpr<'hir>,
+        is_root: bool,
+    ) -> (Vec<HirStatement<'hir>>, HirExpr<'hir>) {
+        match expr {
+            HirExpr::HirBinaryOperation(mut b) => {
+                let (mut lhs_temps, lhs) = self.separate_temporaries(*b.lhs, false);
+                let (mut rhs_temps, rhs) = self.separate_temporaries(*b.rhs, false);
+                b.lhs = Box::new(lhs);
+                b.rhs = Box::new(rhs);
+                let rebuilt = HirExpr::HirBinaryOperation(b);
+                lhs_temps.append(&mut rhs_temps);
+                if !is_root && self.should_hoist_temporary_expr(&rebuilt) {
+                    let (stmt, ident) = self.hoist_expr_into_temp(rebuilt);
+                    lhs_temps.push(stmt);
+                    (lhs_temps, ident)
+                } else {
+                    (lhs_temps, rebuilt)
+                }
+            }
+            HirExpr::Call(mut c) => {
+                let (mut callee_temps, callee) = self.separate_temporaries(*c.callee, false);
+                c.callee = Box::new(callee);
+
+                let mut new_args = Vec::with_capacity(c.args.len());
+                for arg in c.args {
+                    let (mut arg_temps, new_arg) = self.separate_temporaries(arg, false);
+                    callee_temps.append(&mut arg_temps);
+                    new_args.push(new_arg);
+                }
+                c.args = new_args;
+
+                let rebuilt = HirExpr::Call(c);
+                if !is_root
+                    && self.should_hoist_temporary_expr(&rebuilt)
+                    && !matches!(&rebuilt, HirExpr::Call(call) if self.call_returns_unit(call))
+                {
+                    let (stmt, ident) = self.hoist_expr_into_temp(rebuilt);
+                    callee_temps.push(stmt);
+                    (callee_temps, ident)
+                } else {
+                    (callee_temps, rebuilt)
+                }
+            }
+            HirExpr::Unary(mut u) => {
+                // Preserve root context for parser-introduced no-op unary wrappers.
+                // Otherwise a root call statement like `panic(...)` can be treated as
+                // non-root and incorrectly hoisted into `let __tmp: unit = ...`.
+                let child_is_root = is_root && u.op.is_none();
+                let (temps, inner) = self.separate_temporaries(*u.expr, child_is_root);
+                u.expr = Box::new(inner);
+                (temps, HirExpr::Unary(u))
+            }
+            HirExpr::Casting(mut c) => {
+                let (temps, inner) = self.separate_temporaries(*c.expr, false);
+                c.expr = Box::new(inner);
+                (temps, HirExpr::Casting(c))
+            }
+            HirExpr::Indexing(mut i) => {
+                let (mut target_temps, target) = self.separate_temporaries(*i.target, false);
+                let (mut index_temps, index) = self.separate_temporaries(*i.index, false);
+                i.target = Box::new(target);
+                i.index = Box::new(index);
+                target_temps.append(&mut index_temps);
+                (target_temps, HirExpr::Indexing(i))
+            }
+            HirExpr::Delete(mut d) => {
+                let (temps, inner) = self.separate_temporaries(*d.expr, false);
+                d.expr = Box::new(inner);
+                (temps, HirExpr::Delete(d))
+            }
+            HirExpr::FieldAccess(mut f) => {
+                let (temps, target) = self.separate_temporaries(*f.target, false);
+                f.target = Box::new(target);
+                (temps, HirExpr::FieldAccess(f))
+            }
+            HirExpr::ObjLiteral(mut o) => {
+                let mut temps = Vec::new();
+                for field in o.fields.iter_mut() {
+                    let (mut field_temps, value) =
+                        self.separate_temporaries(*field.value.clone(), false);
+                    *field.value = value;
+                    temps.append(&mut field_temps);
+                }
+                let rebuilt = HirExpr::ObjLiteral(o);
+                if !is_root && self.should_hoist_temporary_expr(&rebuilt) {
+                    let (stmt, ident) = self.hoist_expr_into_temp(rebuilt);
+                    temps.push(stmt);
+                    (temps, ident)
+                } else {
+                    (temps, rebuilt)
+                }
+            }
+            HirExpr::ListLiteral(mut l) => {
+                let mut temps = Vec::new();
+                let mut items = Vec::with_capacity(l.items.len());
+                for item in l.items {
+                    let (mut item_temps, lowered_item) = self.separate_temporaries(item, false);
+                    temps.append(&mut item_temps);
+                    items.push(lowered_item);
+                }
+                l.items = items;
+                (temps, HirExpr::ListLiteral(l))
+            }
+            HirExpr::IntrinsicCall(mut i) => {
+                let mut temps = Vec::new();
+                let mut args = Vec::with_capacity(i.args.len());
+                for arg in i.args {
+                    let (mut arg_temps, lowered_arg) = self.separate_temporaries(arg, false);
+                    temps.append(&mut arg_temps);
+                    args.push(lowered_arg);
+                }
+                i.args = args;
+                (temps, HirExpr::IntrinsicCall(i))
+            }
+            other => (Vec::new(), other),
         }
     }
 
@@ -1305,12 +1354,97 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 let hir = HirExpr::Casting(HirCastExpr {
                     span: node.span(),
                     expr: Box::new(expr.clone()),
-                    ty,
+                    target_ty: ty,
                 });
                 Ok(hir)
             }
             AstExpr::Call(c) => {
                 let callee = self.visit_expr(c.callee)?;
+                match &callee {
+                    HirExpr::Ident(ident) => {
+                        match ident.name {
+                            "size_of" => {
+                                if c.generics.len() != 1 {
+                                    let path = node.span().path;
+                                    let src =
+                                        crate::atlas_c::utils::get_file_content(path).unwrap();
+                                    return Err(HirError::IncorrectIntrinsicCallArguments(
+                                        IncorrectIntrinsicCallArgumentsError {
+                                            span: node.span(),
+                                            name: "size_of".to_string(),
+                                            expected: 1,
+                                            found: c.generics.len(),
+                                            src: NamedSource::new(path, src),
+                                        },
+                                    ));
+                                }
+                                let ty = self.visit_ty(c.generics[0])?;
+                                let hir = HirExpr::IntrinsicCall(HirIntrinsicCallExpr {
+                                    name: "size_of",
+                                    args: vec![],
+                                    args_ty: vec![ty],
+                                    span: node.span(),
+                                    ty,
+                                });
+                                return Ok(hir);
+                            }
+                            "align_of" => {
+                                if c.generics.len() != 1 {
+                                    let path = node.span().path;
+                                    let src =
+                                        crate::atlas_c::utils::get_file_content(path).unwrap();
+                                    return Err(HirError::IncorrectIntrinsicCallArguments(
+                                        IncorrectIntrinsicCallArgumentsError {
+                                            span: node.span(),
+                                            name: "align_of".to_string(),
+                                            expected: 1,
+                                            found: c.generics.len(),
+                                            src: NamedSource::new(path, src),
+                                        },
+                                    ));
+                                }
+                                let ty = self.visit_ty(c.generics[0])?;
+                                let hir = HirExpr::IntrinsicCall(HirIntrinsicCallExpr {
+                                    name: "align_of",
+                                    args: vec![],
+                                    args_ty: vec![ty],
+                                    span: node.span(),
+                                    ty,
+                                });
+                                return Ok(hir);
+                            }
+                            "move" => {
+                                // move<T>(T) -> T
+                                if c.generics.len() != 1 && c.args.len() != 1 {
+                                    let path = node.span().path;
+                                    let src =
+                                        crate::atlas_c::utils::get_file_content(path).unwrap();
+                                    return Err(HirError::IncorrectIntrinsicCallArguments(
+                                        IncorrectIntrinsicCallArgumentsError {
+                                            span: node.span(),
+                                            name: "move".to_string(),
+                                            expected: 1,
+                                            found: c.generics.len(),
+                                            src: NamedSource::new(path, src),
+                                        },
+                                    ));
+                                }
+                                //let ty = self.visit_ty(c.generics[0])?;
+                                let src_expr = self.visit_expr(c.args[0])?;
+                                let hir = HirExpr::IntrinsicCall(HirIntrinsicCallExpr {
+                                    name: "move",
+                                    ty: src_expr.ty(),
+                                    args: vec![src_expr],
+                                    args_ty: vec![self.arena.types().get_uninitialized_ty()],
+                                    span: node.span(),
+                                });
+                                return Ok(hir);
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {}
+                }
                 let args = c
                     .args
                     .iter()
@@ -1332,6 +1466,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     generics,
                     args_ty: Vec::new(),
                     ty: self.arena.types().get_uninitialized_ty(),
+                    kind: HirFunctionKind::Function,
                 });
                 Ok(hir)
             }
@@ -1340,25 +1475,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     name: self.arena.names().get(i.name),
                     span: i.span,
                     ty: self.arena.types().get_uninitialized_ty(),
-                });
-                Ok(hir)
-            }
-            AstExpr::NewObj(obj) => {
-                let ty = match self.visit_ty(obj.ty)? {
-                    HirTy::Generic(ty) => self.register_generic_type(ty),
-                    other => other,
-                };
-                let hir = HirExpr::NewObj(HirNewObjExpr {
-                    span: node.span(),
-                    ty,
-                    args: obj
-                        .args
-                        .iter()
-                        .map(|arg| self.visit_expr(arg))
-                        .collect::<HirResult<Vec<_>>>()?,
-                    args_ty: Vec::new(),
-                    // Filled in during type checking
-                    is_copy_constructor_call: false,
                 });
                 Ok(hir)
             }
@@ -1426,14 +1542,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 });
                 Ok(hir)
             }
-            AstExpr::NewArray(a) => {
-                let hir = HirExpr::NewArray(HirNewArrayExpr {
-                    span: node.span(),
-                    ty: self.visit_ty(a.ty)?,
-                    size: Box::new(self.visit_expr(a.size)?),
-                });
-                Ok(hir)
-            }
             AstExpr::Indexing(c) => {
                 let target = self.visit_expr(c.target)?;
                 let index = self.visit_expr(c.index)?;
@@ -1457,7 +1565,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     AstLiteral::Integer(i) => HirExpr::IntegerLiteral(HirIntegerLiteralExpr {
                         span: l.span(),
                         value: i.value,
-                        ty: self.arena.types().get_integer64_ty(),
+                        ty: self.arena.types().get_literal_int_ty(i.value, l.span()),
                     }),
                     AstLiteral::Boolean(b) => HirExpr::BooleanLiteral(HirBooleanLiteralExpr {
                         span: l.span(),
@@ -1467,17 +1575,21 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     AstLiteral::Float(f) => HirExpr::FloatLiteral(HirFloatLiteralExpr {
                         span: l.span(),
                         value: f.value,
-                        ty: self.arena.types().get_float64_ty(),
+                        ty: self.arena.types().get_literal_float_ty(f.value, l.span()),
                     }),
                     AstLiteral::UnsignedInteger(u) => {
                         HirExpr::UnsignedIntegerLiteral(HirUnsignedIntegerLiteralExpr {
                             span: l.span(),
                             value: u.value,
-                            ty: self.arena.types().get_uint64_ty(),
+                            ty: self.arena.types().get_literal_uint_ty(u.value, l.span()),
                         })
                     }
                     AstLiteral::ThisLiteral(_) => HirExpr::ThisLiteral(HirThisLiteral {
                         span: l.span(),
+                        ty: self.arena.types().get_uninitialized_ty(),
+                    }),
+                    AstLiteral::NullLiteral(n) => HirExpr::NullLiteral(HirNullLiteralExpr {
+                        span: n.span,
                         ty: self.arena.types().get_uninitialized_ty(),
                     }),
                     AstLiteral::Char(ast_char) => HirExpr::CharLiteral(HirCharLiteralExpr {
@@ -1493,7 +1605,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         HirExpr::StringLiteral(HirStringLiteralExpr {
                             span: l.span(),
                             value: self.arena.intern(ast_string.value.to_owned()),
-                            ty: self.arena.types().get_str_ty(),
+                            ty: self.arena.types().get_ptr_ty(
+                                self.arena.types().get_uint_ty(8),
+                                false,
+                                l.span(),
+                            ),
                         })
                     }
                     AstLiteral::List(l) => {
@@ -1505,6 +1621,16 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         HirExpr::ListLiteral(HirListLiteralExpr {
                             span: l.span,
                             items: elements,
+                            ty: self.arena.types().get_uninitialized_ty(),
+                        })
+                    }
+                    AstLiteral::ListWithSize(l) => {
+                        let item = self.visit_expr(&l.item)?;
+                        let size = self.visit_expr(&l.size)?;
+                        HirExpr::ListLiteralWithSize(HirListLiteralWithSizeExpr {
+                            span: l.span,
+                            item: Box::new(item),
+                            size: Box::new(size),
                             ty: self.arena.types().get_uninitialized_ty(),
                         })
                     }
@@ -1534,6 +1660,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         ty: self.arena.types().get_uninitialized_ty(),
                     }),
                     ty: self.arena.types().get_uninitialized_ty(),
+                    is_arrow: ast_field_access.is_arrow,
                 });
                 Ok(hir)
             }
@@ -1615,12 +1742,13 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             span: node.span,
             vis: node.vis.into(),
             params: parameters?,
-            //Generics aren't supported yet for normal functions
+            is_instantiated: generics.is_empty(),
             generics,
             type_params: type_parameters?,
             return_ty: ret_type,
             return_ty_span: Some(ret_type_span),
             is_external: false,
+            is_intrinsic: false,
             pre_mangled_ty: None,
             docstring: if let Some(docstring) = node.docstring {
                 Some(self.arena.names().get(docstring))
@@ -1641,7 +1769,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
     fn visit_func_param(
         &mut self,
-        node: &'ast AstObjField<'ast>,
+        node: &'ast AstArg<'ast>,
     ) -> HirResult<HirFunctionParameterSignature<'hir>> {
         let name = self.arena.names().get(node.name.name);
         let ty = self.visit_ty(node.ty)?;
@@ -1658,7 +1786,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
     fn visit_type_param_item(
         &self,
-        node: &'ast AstObjField<'ast>,
+        node: &'ast AstArg<'ast>,
     ) -> HirResult<&'hir HirTypeParameterItemSignature<'hir>> {
         let name = self.arena.names().get(node.name.name);
 
@@ -1673,19 +1801,23 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     fn visit_ty(&mut self, node: &'ast AstType<'ast>) -> HirResult<&'hir HirTy<'hir>> {
         let ty = match node {
             AstType::Boolean(_) => self.arena.types().get_boolean_ty(),
-            AstType::Integer(_) => self.arena.types().get_integer64_ty(),
-            AstType::Float(_) => self.arena.types().get_float64_ty(),
+            AstType::Integer(i) => self.arena.types().get_int_ty(i.size_in_bits),
+            AstType::Float(f) => self.arena.types().get_float_ty(f.size_in_bits),
             AstType::Char(_) => self.arena.types().get_char_ty(),
-            AstType::UnsignedInteger(_) => self.arena.types().get_uint64_ty(),
+            AstType::UnsignedInteger(u) => self.arena.types().get_uint_ty(u.size_in_bits),
             AstType::Unit(_) => self.arena.types().get_unit_ty(),
             AstType::String(_) => self.arena.types().get_str_ty(),
             AstType::Named(n) => {
                 let name = self.arena.names().get(n.name.name);
                 self.arena.types().get_named_ty(name, n.span)
             }
-            AstType::List(l) => {
+            AstType::Slice(l) => {
                 let ty = self.visit_ty(l.inner)?;
-                self.arena.types().get_list_ty(ty)
+                self.arena.types().get_slice_ty(ty)
+            }
+            AstType::InlineArray(arr) => {
+                let ty = self.visit_ty(arr.inner)?;
+                self.arena.types().get_inline_arr_ty(ty, arr.size)
             }
             AstType::Nullable(n) => {
                 if !self.using_std {
@@ -1705,10 +1837,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     .types()
                     .get_generic_ty("Option", vec![ty], n.span)
             }
-            AstType::ReadOnlyRef(const_ref) => {
-                let inner_ty = self.visit_ty(const_ref.inner)?;
-                self.arena.types().get_readonly_reference_ty(inner_ty)
-            }
             AstType::Generic(g) => {
                 let inner_types = g
                     .inner_types
@@ -1725,19 +1853,13 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 }
                 ty
             }
-            AstType::MutableRef(ptr) => {
-                let inner_ty = self.visit_ty(ptr.inner)?;
-                self.arena.types().get_ref_ty(inner_ty)
-            }
             //The "this" ty is replaced during the type checking phase
             AstType::ThisTy(_) => self.arena.types().get_uninitialized_ty(),
-            AstType::ExternTy(extern_ty) => {
-                let type_hint = if let Some(hint) = extern_ty.type_hint {
-                    Some(self.visit_ty(hint)?)
-                } else {
-                    None
-                };
-                self.arena.types().get_extern_ty(type_hint)
+            AstType::PtrTy(ptr_ty) => {
+                let inner_ty = self.visit_ty(ptr_ty.inner)?;
+                self.arena
+                    .types()
+                    .get_ptr_ty(inner_ty, ptr_ty.is_const, ptr_ty.span)
             }
             AstType::Function(func_ty) => {
                 let span = func_ty.span;
@@ -1751,352 +1873,18 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     .types()
                     .get_function_ty(parameters, return_ty, span)
             }
-        };
-        Ok(ty)
-    }
-
-    fn generate_all_destructors(&mut self) -> HirResult<()> {
-        let structs_to_process: Vec<_> = self
-            .module_body
-            .structs
-            .iter()
-            .filter(|(_, s)| s.destructor.is_none())
-            .map(|(name, s)| {
-                (
-                    ((*name).to_string(), s.name_span),
-                    s.signature
-                        .fields
-                        .values()
-                        .cloned()
-                        .collect::<Vec<HirStructFieldSignature>>(),
-                )
-            })
-            .collect();
-
-        for ((struct_name, struct_span), fields) in structs_to_process {
-            if let Some(conflicting_field) = self.find_conflicting_destructor_field(&fields) {
-                let path = struct_span.path;
-                let src = utils::get_file_content(path).unwrap();
-                return Err(HirError::CannotGenerateADestructorForThisType(
-                    CannotGenerateADestructorForThisTypeError {
-                        conflicting_field,
-                        name_span: struct_span,
-                        type_name: struct_name.to_string(),
-                        src: NamedSource::new(path, src),
-                    },
-                ));
-            }
-            let signature = HirStructConstructorSignature {
-                span: struct_span,
-                params: Vec::new(),
-                type_params: Vec::new(),
-                vis: HirVisibility::Public,
-                where_clause: None,
-                is_constraint_satisfied: true,
-                docstring: None,
-            };
-            let mut statements = vec![];
-            for field in fields.iter() {
-                if field.ty.is_primitive() {
-                    // No need to delete primitive types
-                    continue;
-                }
-                // TODO: Handle unions properly
-                // It's very messy to use the AST for the check here, but for now it works
-                if let Some(name) = self.get_union_name(field.ty)
-                    && self.ast.items.iter().any(|item| {
-                        if let AstItem::Union(ast_union) = item {
-                            let union_name = self.arena.names().get(ast_union.name.name);
-                            return union_name == name;
-                        }
-                        false
-                    })
-                {
-                    // Deleting union causes Undefined Behavior, so we skip it
-                    let path = field.span.path;
-                    let src = utils::get_file_content(path).unwrap();
-                    let warning: ErrReport = HirWarning::UnionFieldCannotBeAutomaticallyDeleted(
-                        UnionFieldCannotBeAutomaticallyDeletedWarning {
-                            span: field.span,
-                            field_name: field.name.to_string(),
-                            struct_name: struct_name.to_string(),
-                            src: NamedSource::new(path, src),
-                        },
-                    )
-                    .into();
-                    eprintln!("{:?}", warning);
-                    continue;
-                }
-                if self.ast.items.iter().any(|item| {
-                    if let AstItem::Enum(ast_enum) = item {
-                        let enum_name = self.arena.names().get(ast_enum.name.name);
-                        return enum_name == field.ty.to_string();
-                    }
-                    false
-                }) {
-                    // No need to delete enums
-                    continue;
-                }
-                let delete_expr = HirExpr::Delete(HirDeleteExpr {
-                    span: field.span,
-                    expr: Box::new(HirExpr::FieldAccess(HirFieldAccessExpr {
-                        span: field.span,
-                        target: Box::new(HirExpr::ThisLiteral(HirThisLiteral {
-                            span: field.span,
-                            ty: self.arena.types().get_uninitialized_ty(),
-                        })),
-                        field: Box::new(HirIdentExpr {
-                            span: field.span,
-                            name: field.name,
-                            ty: field.ty,
-                        }),
-                        ty: field.ty,
-                    })),
-                });
-                statements.push(HirStatement::Expr(HirExprStmt {
-                    span: field.span,
-                    expr: delete_expr,
+            AstType::Const(_) => {
+                let path = node.span().path;
+                let src = utils::get_file_content(path)
+                    .unwrap_or_else(|_| panic!("Failed to open file {path}"));
+                return Err(HirError::UnknownType(UnknownTypeError {
+                    name: node.name(),
+                    span: node.span(),
+                    src: NamedSource::new(path, src),
                 }));
             }
-            let hir = HirStructConstructor {
-                span: struct_span,
-                signature: self.arena.intern(signature),
-                params: Vec::new(),
-                type_params: Vec::new(),
-                body: HirBlock {
-                    span: struct_span,
-                    statements,
-                },
-                //Destructor is public by default
-                vis: HirVisibility::Public,
-            };
-            let strct = self
-                .module_body
-                .structs
-                .get_mut(struct_name.as_str())
-                .unwrap();
-            strct.signature.destructor = Some(hir.signature.clone());
-            strct.destructor = Some(hir);
-            if let Some(current_struct_sig) =
-                self.module_signature.structs.get_mut(struct_name.as_str())
-            {
-                *current_struct_sig = self.arena.intern(strct.signature.clone());
-            }
-        }
-        Ok(())
-    }
-
-    fn generate_all_copy_constructors(&mut self) -> HirResult<()> {
-        let structs_to_process: Vec<_> = self
-            .module_body
-            .structs
-            .iter()
-            .filter(|(_, s)| {
-                s.copy_constructor.is_none()
-                    && !s.flag.is_non_copyable()
-                    // If the struct has a user-defined destructor AND no flag saying it's copyable,
-                    //  we cannot auto-generate a copy constructor
-                    && !(s.had_user_defined_destructor && s.flag.is_no_flag())
-            })
-            .map(|(name, s)| {
-                (
-                    ((*name).to_string(), s.name_span),
-                    self.arena.types().get_named_ty(s.name, s.name_span),
-                    s.signature
-                        .fields
-                        .values()
-                        .cloned()
-                        .collect::<Vec<HirStructFieldSignature>>(),
-                    s.flag.clone(),
-                )
-            })
-            .collect();
-
-        // Now assign copy constructors using the collected data
-        for ((struct_name, struct_span), ty, fields, flag) in structs_to_process {
-            let copy_ctor = self.make_copy_constructor(ty, &fields);
-            if copy_ctor.is_none() && flag.is_copyable() {
-                let path = flag.span().unwrap().path;
-                let src = utils::get_file_content(path).unwrap();
-                let report: ErrReport = HirWarning::CannotGenerateACopyConstructorForThisType(
-                    CannotGenerateACopyConstructorForThisTypeWarning {
-                        type_name: struct_name.clone(),
-                        flag_span: flag.span().unwrap(),
-                        name_span: struct_span,
-                        src: NamedSource::new(path, src),
-                    },
-                )
-                .into();
-                eprintln!("{:?}", report);
-            }
-            if let Some(strct) = self.module_body.structs.get_mut(struct_name.as_str()) {
-                strct.signature.copy_constructor = copy_ctor.as_ref().map(|c| c.signature.clone());
-                strct.copy_constructor = copy_ctor.clone();
-                if let Some(current_struct_sig) =
-                    self.module_signature.structs.get_mut(struct_name.as_str())
-                {
-                    *current_struct_sig = self.arena.intern(strct.signature.clone());
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn make_copy_constructor(
-        &mut self,
-        ty: &'hir HirTy<'hir>,
-        fields: &[HirStructFieldSignature<'hir>],
-    ) -> Option<HirStructConstructor<'hir>> {
-        if self.can_be_copyable(ty) {
-            let (name, span) = match ty {
-                HirTy::Named(named) => (named.name, named.span),
-                HirTy::Generic(generic) => (
-                    MonomorphizationPass::generate_mangled_name(self.arena, generic, "struct"),
-                    generic.span,
-                ),
-                // Shouldn't happen
-                _ => ("hehehehehehe", Span::default()),
-            };
-            let params = vec![HirFunctionParameterSignature {
-                span,
-                name: self.arena.names().get("from"),
-                name_span: span,
-                ty: self.arena.types().get_readonly_reference_ty(ty),
-                ty_span: span,
-            }];
-
-            let type_params = vec![HirTypeParameterItemSignature {
-                span,
-                name: self.arena.names().get("from"),
-                name_span: span,
-            }];
-
-            let copy_ctor_signature = HirStructConstructorSignature {
-                span,
-                params: params.clone(),
-                type_params: type_params.clone(),
-                vis: HirVisibility::Public,
-                where_clause: None,
-                // Initially true; monomorphization pass will check constraints and update if needed
-                is_constraint_satisfied: true,
-                docstring: None,
-            };
-            // each statement is of the form: this.field = *from.field;
-            let mut statements = vec![];
-            for field in fields.iter() {
-                let init_stmt = HirStatement::Assign(HirAssignStmt {
-                    span: field.span,
-                    dst: HirExpr::FieldAccess(HirFieldAccessExpr {
-                        span: field.span,
-                        target: Box::new(HirExpr::ThisLiteral(HirThisLiteral {
-                            span: field.span,
-                            ty: self.arena.types().get_named_ty(name, span),
-                        })),
-                        field: Box::new(HirIdentExpr {
-                            span: field.span,
-                            name: field.name,
-                            ty: field.ty,
-                        }),
-                        ty: field.ty,
-                    }),
-                    val: HirExpr::Unary(UnaryOpExpr {
-                        span: field.span,
-                        op: Some(HirUnaryOp::Deref),
-                        expr: Box::new(HirExpr::FieldAccess(HirFieldAccessExpr {
-                            span: field.span,
-                            target: Box::new(HirExpr::Ident(HirIdentExpr {
-                                span,
-                                name: self.arena.names().get("from"),
-                                ty: self.arena.types().get_readonly_reference_ty(ty),
-                            })),
-                            field: Box::new(HirIdentExpr {
-                                span: field.span,
-                                name: field.name,
-                                ty: field.ty,
-                            }),
-                            ty: field.ty,
-                        })),
-                        ty: field.ty,
-                    }),
-                    ty: field.ty,
-                });
-                statements.push(init_stmt);
-            }
-            let hir = HirStructConstructor {
-                span,
-                signature: self.arena.intern(copy_ctor_signature),
-                params,
-                type_params,
-                body: HirBlock { span, statements },
-                //Copy constructor is public by default
-                vis: HirVisibility::Public,
-            };
-            return Some(hir);
-        }
-        None
-    }
-
-    /// A type can be copyable if:
-    /// - It's a primitive type (int, float, bool, char, uint, string)
-    /// - It's a reference type (&T, &const T) - references are pointers
-    /// - If it has a copy constructor defined AND no pre define destructor (to avoid double free)
-    /// - If all its fields are copyable
-    fn can_be_copyable(&self, ty: &'hir HirTy<'hir>) -> bool {
-        match ty {
-            HirTy::Int64(_)
-            | HirTy::Float64(_)
-            | HirTy::Boolean(_)
-            | HirTy::Char(_)
-            | HirTy::UInt64(_)
-            | HirTy::String(_)
-            | HirTy::Unit(_)
-            | HirTy::MutableReference(_)
-            | HirTy::ReadOnlyReference(_)
-            | HirTy::ExternTy(_)
-            | HirTy::Function(_) => true,
-            // TODO: Add support for list copy constructors
-            // HirTy::List(list) => self.can_be_copyable(list.inner, module),
-            HirTy::Named(named) => {
-                let obj_name = named.name;
-                if let Some(hir_struct) = self.module_signature.structs.get(obj_name) {
-                    // TODO: Add a check for the presence of a destructor in the struct
-                    if hir_struct.copy_constructor.is_some() {
-                        return true;
-                    }
-                    //Check all fields
-                    for field in hir_struct.fields.values() {
-                        if !self.can_be_copyable(field.ty) {
-                            return false;
-                        }
-                    }
-                    return true;
-                }
-                // enums are just uint64 under the hood
-                self.module_signature.enums.contains_key(obj_name)
-            }
-            HirTy::Generic(generic) => {
-                let struct_name =
-                    MonomorphizationPass::generate_mangled_name(self.arena, generic, "struct");
-                // We only search in structs because unions can't be auto-copyable for safety reasons
-                if let Some(hir_struct) = self.module_signature.structs.get(struct_name) {
-                    // TODO: Add a check for the presence of a destructor in the struct
-                    if hir_struct.copy_constructor.is_some() {
-                        return true;
-                    }
-                    //Check all fields
-                    for field in hir_struct.fields.values() {
-                        if !self.can_be_copyable(field.ty) {
-                            return false;
-                        }
-                    }
-                    return true;
-                }
-                false
-            }
-            HirTy::Nullable(nullable) => self.can_be_copyable(nullable.inner),
-            // We just assume other types are not copyable for now
-            _ => false,
-        }
+        };
+        Ok(ty)
     }
 
     fn nullable_types_are_unstable_warning(span: &Span) {
@@ -2107,7 +1895,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 src: NamedSource::new(path, src),
                 span: *span,
                 type_name: "The nullable type".to_string(),
-                info: "Nullable types haven't been properly stabilized yet. Also they are just syntactic sugar for `Option<T>`".to_string(),
+                info: "Nullable types haven't been properly stabilized yet. Also they are just syntactic sugar for `optional<T>`".to_string(),
             })
             .into();
         eprintln!("{:?}", report);
@@ -2145,13 +1933,5 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             src: NamedSource::new(path, src),
             span: *span,
         })
-    }
-
-    fn get_union_name(&self, ty: &'hir HirTy<'hir>) -> Option<&'hir str> {
-        match ty {
-            HirTy::Named(n) => Some(n.name),
-            HirTy::Generic(g) => Some(g.name),
-            _ => None,
-        }
     }
 }

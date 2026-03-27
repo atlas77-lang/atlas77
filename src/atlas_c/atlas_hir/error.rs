@@ -15,6 +15,8 @@ pub type HirResult<T> = Result<T, HirError>;
 declare_error_type! {
     #[error("semantic error: {0}")]
     pub enum HirError {
+        InvalidListSize(InvalidListSizeError),
+        NonConstantListSize(NonConstantListSizeError),
         UnknownFileImport(UnknownFileImportError),
         NotEnoughGenerics(NotEnoughGenericsError),
         NotEnoughArguments(NotEnoughArgumentsError),
@@ -22,7 +24,7 @@ declare_error_type! {
         BreakOutsideLoop(BreakOutsideLoopError),
         ContinueOutsideLoop(ContinueOutsideLoopError),
         TypeMismatch(TypeMismatchError),
-        UnsupportedStatement(UnsupportedStatement),
+        UnsupportedStatement(UnsupportedStatementError),
         UnsupportedExpr(UnsupportedExpr),
         UnsupportedType(UnsupportedTypeError),
         TryingToNegateUnsigned(TryingToNegateUnsignedError),
@@ -30,11 +32,10 @@ declare_error_type! {
         EmptyListLiteral(EmptyListLiteralError),
         AccessingClassFieldOutsideClass(AccessingClassFieldOutsideClassError),
         AccessingPrivateField(AccessingPrivateFieldError),
-        AccessingPrivateConstructor(AccessingPrivateConstructorError),
+        AccessingPrivateDestructor(AccessingPrivateDestructorError),
         NonConstantValue(NonConstantValueError),
         ConstTyToNonConstTy(ConstTyToNonConstTyError),
         CanOnlyConstructStructs(CanOnlyConstructStructsError),
-        ThisStructDoesNotHaveACopyConstructor(ThisStructDoesNotHaveACopyConstructorError),
         TryingToIndexNonIndexableType(TryingToIndexNonIndexableTypeError),
         UselessError(UselessError),
         InvalidReadOnlyType(InvalidReadOnlyTypeError),
@@ -50,39 +51,44 @@ declare_error_type! {
         TryingToAccessFieldOnNonObjectType(TryingToAccessFieldOnNonObjectTypeError),
         NullableTypeRequiresStdLibrary(NullableTypeRequiresStdLibraryError),
         TryingToAccessAMovedValue(TryingToAccessAMovedValueError),
+        TryingToAccessAConsumedValue(TryingToAccessAConsumedValueError),
         TryingToAccessAPotentiallyMovedValue(TryingToAccessAPotentiallyMovedValueError),
+        TryingToAccessAPotentiallyDeletedValue(TryingToAccessAPotentiallyDeletedValueError),
+        TryingToAccessAPotentiallyConsumedValue(TryingToAccessAPotentiallyConsumedValueError),
         TryingToAccessADeletedValue(TryingToAccessADeletedValueError),
         CannotMoveOutOfLoop(CannotMoveOutOfLoopError),
         CannotDeleteOutOfLoop(CannotDeleteOutOfLoopError),
         CallingNonConstMethodOnConstReference(CallingNonConstMethodOnConstReferenceError),
         CallingConsumingMethodOnMutableReference(CallingConsumingMethodOnMutableReferenceError),
-        TryingToMutateConstReference(TryingToMutateConstReferenceError),
+        TryingToMutateConstPointer(TryingToMutateConstPointerError),
         TryingToCreateAnUnionWithMoreThanOneActiveField(TryingToCreateAnUnionWithMoreThanOneActiveFieldError),
         TypeDoesNotImplementRequiredConstraint(TypeDoesNotImplementRequiredConstraintError),
         InvalidSpecialMethodSignature(InvalidSpecialMethodSignatureError),
-        ReturningReferenceToLocalVariable(ReturningReferenceToLocalVariableError),
+        ReturningReferenceToLocalVariable(ReturningPointerToLocalVariableError),
         VariableNameAlreadyDefined(VariableNameAlreadyDefinedError),
-        TryingToCopyNonCopyableType(TryingToCopyNonCopyableTypeError),
         DoubleMoveError(DoubleMoveError),
         UnknownIdentifier(UnknownIdentifierError),
         UnknownField(UnknownFieldError),
         UnknownMethod(UnknownMethodError),
-        CannotTransferOwnershipInBorrowingMethod(CannotTransferOwnershipInBorrowingMethodError),
-        CannotMoveOutOfContainer(CannotMoveOutOfContainerError),
-        CannotMoveOutOfReference(CannotMoveOutOfReferenceError),
-        RecursiveCopyConstructor(RecursiveCopyConstructorError),
-        StdNonCopyableStructCannotHaveCopyConstructor(StdNonCopyableStructCannotHaveCopyConstructorError),
-        CopyConstructorParameterMustBeCopyable(CopyConstructorParameterMustBeCopyableError),
         StructCannotHaveAFieldOfItsOwnType(StructCannotHaveAFieldOfItsOwnTypeError),
         UnionMustHaveAtLeastTwoVariant(UnionMustHaveAtLeastTwoVariantError),
         UnionVariantDefinedMultipleTimes(UnionVariantDefinedMultipleTimesError),
         LifetimeDependencyViolation(LifetimeDependencyViolationError),
         ReturningValueWithLocalLifetimeDependency(ReturningValueWithLocalLifetimeDependencyError),
-        ConstructorCannotHaveAWhereClause(ConstructorCannotHaveAWhereClauseError),
         MethodConstraintNotSatisfied(MethodConstraintNotSatisfiedError),
         TooManyReferenceLevels(TooManyReferenceLevelsError),
         AssignmentCannotBeAnExpression(AssignmentCannotBeAnExpressionError),
         CannotGenerateADestructorForThisType(CannotGenerateADestructorForThisTypeError),
+        CannotMoveFromRvalue(CannotMoveFromRvalueError),
+        TypeIsNotCopyable(TypeIsNotCopyableError),
+        TypeIsNotTriviallyCopyable(TypeIsNotTriviallyCopyableError),
+        OwnershipAnalysisFailed(OwnershipAnalysisFailedError),
+        TypeCheckFailed(TypeCheckFailedError),
+        SemanticAnalysisFailed(SemanticAnalysisFailedError),
+        ListIndexOutOfBounds(ListIndexOutOfBoundsError),
+        IncorrectIntrinsicCallArguments(IncorrectIntrinsicCallArgumentsError),
+        CannotAccessFieldOfPointers(CannotAccessFieldOfPointersError),
+        ReservedVariableName(ReservedVariableNameError),
     }
 }
 
@@ -91,7 +97,7 @@ pub enum HirPass {
     SyntaxLowering = 0,
     Monomorphization = 1,
     TypeCheck = 2,
-    LifetimeAnalysis = 3,
+    OwnershipPass = 3,
     ConstantFolding = 4,
     DeadCodeElimination = 5,
 }
@@ -115,9 +121,66 @@ impl HirError {
             }
             HirError::UnsupportedItem(_) => HirErrorGravity::CanFinishCurrentPassButNotContinue,
             HirError::UnknownFileImport(_) => HirErrorGravity::CanGoUpTo(HirPass::SyntaxLowering),
+            HirError::TypeCheckFailed(_) => HirErrorGravity::CanGoUpTo(HirPass::OwnershipPass),
+            HirError::OwnershipAnalysisFailed(_) => {
+                HirErrorGravity::CanFinishCurrentPassButNotContinue
+            }
             _ => HirErrorGravity::Critical,
         }
     }
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::invalid_list_size),
+    help("list size must be a non-negative and non-zero integer")
+)]
+#[error("invalid list size: {size}")]
+pub struct InvalidListSizeError {
+    #[label = "list size must be a non-negative and non-zero integer"]
+    pub span: Span,
+    pub size: usize,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::non_constant_list_size),
+    help("Only literal integers can be used as list size for now")
+)]
+#[error("list size must be a constant expression")]
+pub struct NonConstantListSizeError {
+    #[label = "list size must be a constant expression"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::reserved_variable_name), help("Try renaming your variable"))]
+#[error("This kind of variable as a special behaviour, please rename it")]
+pub struct ReservedVariableNameError {
+    #[label = "{name} is a reserved name for variable"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+    pub name: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::list_index_out_of_bounds),
+    help("ensure the index is within the bounds of the list")
+)]
+#[error("list index {index} is out of bounds for list of size {size}")]
+pub struct ListIndexOutOfBoundsError {
+    #[label = "index {index} is out of bounds for list of size {size}"]
+    pub span: Span,
+    pub index: usize,
+    pub size: usize,
+    #[source_code]
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -135,14 +198,14 @@ pub struct TooManyReferenceLevelsError {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
-    code(sema::returning_reference_to_local_variable),
+    code(sema::returning_pointer_to_local_variable),
     help(
-        "references to local variables cannot be returned because the variable will be dropped when the function returns"
+        "pointers to local variables cannot be returned because the variable will be dropped when the function returns"
     )
 )]
-#[error("cannot return reference to local variable `{var_name}`")]
-pub struct ReturningReferenceToLocalVariableError {
-    #[label = "returns a reference to local variable `{var_name}`"]
+#[error("cannot return pointers to local variable `{var_name}`")]
+pub struct ReturningPointerToLocalVariableError {
+    #[label = "returns a pointer to local variable `{var_name}`"]
     pub span: Span,
     pub var_name: String,
     #[source_code]
@@ -233,12 +296,12 @@ pub struct TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
-    code(sema::trying_to_mutate_const_reference),
-    help("consider using a mutable reference instead")
+    code(sema::trying_to_mutate_const_pointer),
+    help("consider using a mutable pointer instead")
 )]
-#[error("trying to mutate a const reference")]
-pub struct TryingToMutateConstReferenceError {
-    #[label = "cannot mutate `{ty}` as it is a const reference"]
+#[error("trying to mutate a const pointer")]
+pub struct TryingToMutateConstPointerError {
+    #[label = "cannot mutate `{ty}` as it is a const pointer"]
     pub span: Span,
     pub ty: String,
     #[source_code]
@@ -331,14 +394,61 @@ pub struct TryingToAccessAMovedValueError {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
+    code(sema::trying_to_access_a_consumed_value),
+    help("the value has already been consumed on all control-flow paths")
+)]
+#[error("trying to access a consumed value")]
+pub struct TryingToAccessAConsumedValueError {
+    #[label(collection, "value was moved/deleted here")]
+    pub consume_spans: Vec<Span>,
+    #[label(primary, "trying to access consumed value here")]
+    pub access_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
     code(sema::trying_to_access_a_potentially_moved_value),
     help("consider cloning the value before moving it, or using a reference")
 )]
 #[error("trying to access a potentially moved value")]
 pub struct TryingToAccessAPotentiallyMovedValueError {
-    #[label = "value was potentially moved here"]
+    #[label = "value was conditionally moved here"]
     pub move_span: Span,
     #[label = "trying to access potentially moved value here"]
+    pub access_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::trying_to_access_a_potentially_deleted_value),
+    help("ensure the value is not conditionally deleted before this access")
+)]
+#[error("trying to access a potentially deleted value")]
+pub struct TryingToAccessAPotentiallyDeletedValueError {
+    #[label = "value was conditionally deleted here"]
+    pub delete_span: Span,
+    #[label = "trying to access potentially deleted value here"]
+    pub access_span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::trying_to_access_a_potentially_consumed_value),
+    help(
+        "the value is consumed across control-flow branches (moved in one branch and deleted in another)"
+    )
+)]
+#[error("trying to access a potentially consumed value")]
+pub struct TryingToAccessAPotentiallyConsumedValueError {
+    #[label(collection, "value was conditionally moved/deleted here")]
+    pub consume_spans: Vec<Span>,
+    #[label(primary, "trying to access potentially consumed value here")]
     pub access_span: Span,
     #[source_code]
     pub src: NamedSource<String>,
@@ -383,7 +493,7 @@ pub struct UnsupportedItemError {
 )]
 #[error("Not enough arguments provided to {kind}, expected {} but found {found}", origin.expected)]
 pub struct NotEnoughArgumentsError {
-    //The kind of callable (function, method, constructor, destructor etc.)
+    //The kind of callable (function or method, etc.)
     pub kind: String,
     pub found: usize,
     #[label = "only {found} were provided"]
@@ -540,15 +650,14 @@ pub struct CannotDeletePrimitiveTypeError {
 }
 
 #[derive(Error, Diagnostic, Debug)]
-#[diagnostic(code(sema::accessing_private_constructor))]
-#[error("Can't access private {kind} outside of its class")]
-pub struct AccessingPrivateConstructorError {
-    #[label("Trying to access a private {kind}")]
+#[diagnostic(code(sema::accessing_private_destructor))]
+#[error("Can't access the private destructor of {ty} outside of its class")]
+pub struct AccessingPrivateDestructorError {
+    #[label("Trying to access the private destructor here")]
     pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
-    //Either "constructor" or "destructor"
-    pub kind: String,
+    pub ty: String,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -569,7 +678,12 @@ pub struct InvalidReadOnlyTypeError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::this_should_not_appear))]
 #[error("This is just a useless error that should not appear")]
-pub struct UselessError {}
+pub struct UselessError {
+    #[label = "useless error"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::trying_to_index_non_indexable_type))]
@@ -587,18 +701,6 @@ pub struct TryingToIndexNonIndexableTypeError {
 #[error("You cannot construct non-struct types")]
 pub struct CanOnlyConstructStructsError {
     #[label = "only struct types can be constructed"]
-    pub span: Span,
-    #[source_code]
-    pub src: NamedSource<String>,
-}
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(code(sema::this_struct_does_not_have_a_copy_constructor))]
-#[error(
-    "It seems like you are trying to use a copy constructor on a struct that does not have one."
-)]
-pub struct ThisStructDoesNotHaveACopyConstructorError {
-    #[label = "trying to use copy constructor, but this struct does not have one defined"]
     pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
@@ -760,7 +862,7 @@ pub struct UnsupportedTypeError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::unsupported_stmt))]
 #[error("{stmt} isn't supported yet")]
-pub struct UnsupportedStatement {
+pub struct UnsupportedStatementError {
     #[label = "unsupported statement"]
     pub span: Span,
     pub stmt: String,
@@ -820,22 +922,6 @@ pub struct TypeMismatchActual {
     pub actual_ty: String,
     #[label = "found {actual_ty}"]
     pub span: Span,
-    #[source_code]
-    pub src: NamedSource<String>,
-}
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
-    code(sema::trying_to_copy_non_copyable_type),
-    help(
-        "type `{ty}` does not implement a copy constructor (`_copy` method). Consider moving the value instead, or implement a `_copy` method for the type."
-    )
-)]
-#[error("cannot copy value of type `{ty}` because it does not implement a copy constructor")]
-pub struct TryingToCopyNonCopyableTypeError {
-    #[label = "trying to copy this value"]
-    pub span: Span,
-    pub ty: String,
     #[source_code]
     pub src: NamedSource<String>,
 }
@@ -923,56 +1009,6 @@ pub struct MethodConstraintNotSatisfiedError {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
-    code(sema::cannot_transfer_ownership_in_borrowing_method),
-    help(
-        "change the method to use `this` instead of `&this` if it needs to transfer ownership, or copy the value if the type is copyable"
-    )
-)]
-#[error("cannot transfer ownership of `{value_name}` in a borrowing method")]
-pub struct CannotTransferOwnershipInBorrowingMethodError {
-    #[label = "this method borrows `this` (uses `&this`), it does not own it"]
-    pub method_span: Span,
-    #[label = "trying to transfer ownership here"]
-    pub transfer_span: Span,
-    pub value_name: String,
-    #[source_code]
-    pub src: NamedSource<String>,
-}
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
-    code(sema::cannot_move_out_of_container),
-    help(
-        "consider returning a reference (`&T` or `&const T`) instead, or implement `_copy` for this type to make it copyable"
-    )
-)]
-#[error("cannot move non-copyable type `{ty_name}` out of container")]
-pub struct CannotMoveOutOfContainerError {
-    #[label = "attempting to move `{ty_name}` out of array/container here"]
-    pub span: Span,
-    pub ty_name: String,
-    #[source_code]
-    pub src: NamedSource<String>,
-}
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
-    code(sema::cannot_move_out_of_reference),
-    help(
-        "cannot dereference (copy/move out of) a reference to a non-copyable type. \nTo fix this:\n  - Implement a copy constructor for `{ty_name}` if it should be copyable\n  - Or work with the reference directly without dereferencing it"
-    )
-)]
-#[error("cannot dereference non-copyable type `{ty_name}` from a reference")]
-pub struct CannotMoveOutOfReferenceError {
-    #[label = "trying to dereference `{ty_name}` here, but it's not copyable"]
-    pub span: Span,
-    pub ty_name: String,
-    #[source_code]
-    pub src: NamedSource<String>,
-}
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
     code(sema::cannot_move_out_of_loop),
     help(
         "variables cannot be moved inside loops because the loop could iterate multiple times, causing use-after-move. Consider moving the variable before the loop, or restructuring your code"
@@ -1009,63 +1045,6 @@ pub struct CannotDeleteOutOfLoopError {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
-    code(sema::recursive_copy_constructor),
-    help(
-        "a copy constructor cannot copy the same type it's constructing, as this would cause infinite recursion."
-    )
-)]
-#[error("recursive copy detected in the Copy constructor for type `{type_name}`")]
-pub struct RecursiveCopyConstructorError {
-    #[label = "copy constructor defined here"]
-    pub method_span: Span,
-    #[label = "attempting to copy `{type_name}` inside its own copy constructor"]
-    pub copy_span: Span,
-    pub type_name: String,
-    #[source_code]
-    pub src: NamedSource<String>,
-}
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
-    code(sema::std_non_copyable_struct_cannot_have_copy_constructor),
-    help(
-        "structs marked as `std::non_copyable` are not allowed to have copy constructors. Remove either the copy constructor or the `std::non_copyable` attribute."
-    )
-)]
-#[error(
-    "struct `{struct_name}` is marked as `std::non_copyable` and cannot have a copy constructor"
-)]
-pub struct StdNonCopyableStructCannotHaveCopyConstructorError {
-    #[label = "copy constructor defined here"]
-    pub copy_ctor_span: Span,
-    #[label = "`std::non_copyable` flag set here"]
-    pub flag_span: Span,
-    #[source_code]
-    pub src: NamedSource<String>,
-    pub struct_name: String,
-}
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
-    code(sema::copy_constructor_parameter_must_be_copyable),
-    help(
-        "a copy constructor copies the fields of the source object. If the type contains non-copyable fields, you cannot implement a copy constructor. Consider implementing a move constructor or restructuring your type."
-    )
-)]
-#[error(
-    "copy constructor for `{struct_name}` cannot be used because it contains non-copyable fields"
-)]
-pub struct CopyConstructorParameterMustBeCopyableError {
-    #[label = "copy constructor defined here"]
-    pub copy_ctor_span: Span,
-    #[label = "but `{struct_name}` contains fields that are not copyable"]
-    pub struct_span: Span,
-    pub struct_name: String,
-    #[source_code]
-    pub src: NamedSource<String>,
-}
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
     code(sema::struct_cannot_have_a_field_of_its_own_type),
     help(
         "A struct cannot directly or indirectly contain itself as a field, as this would create infinite size.
@@ -1074,7 +1053,7 @@ This error occurs when:
   - A struct contains another struct that eventually contains the first struct (indirect cycle): `struct A {{ b: B }}` where `struct B {{ a: A }}`
 
 Solutions:
-  - Use a reference: `&T` or `&const T` (references are fixed-size pointers)
+  - Use a pointer: `*T` or `*const T` (pointers are fixed-size (8 bytes))
   - Use an indirection type: `optional<T>` or `expected<T, E>` (these allow null/empty states)
   - Redesign the data structure to avoid the cycle"
     )
@@ -1169,21 +1148,6 @@ pub struct ReturningValueWithLocalLifetimeDependencyError {
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
-    code(sema::constructor_cannot_have_a_where_clause),
-    help(
-        "constructors cannot have where clauses, maybe you meant to use that clause on the copy constructor?"
-    )
-)]
-#[error("constructors cannot have where clauses, they aren't conditionally defined")]
-pub struct ConstructorCannotHaveAWhereClauseError {
-    #[label = "constructors cannot have where clauses"]
-    pub span: Span,
-    #[source_code]
-    pub src: NamedSource<String>,
-}
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
     code(sema::assignment_cannot_be_an_expression),
     help("assignments are statements and do not produce a value")
 )]
@@ -1213,4 +1177,108 @@ pub struct CannotGenerateADestructorForThisTypeError {
     #[label("Type `{type_name}` declared here")]
     pub name_span: Span,
     pub type_name: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[error("Cannot move from rvalue")]
+#[diagnostic(code(sema::cannot_move_from_rvalue))]
+pub struct CannotMoveFromRvalueError {
+    #[source_code]
+    pub src: NamedSource<String>,
+
+    #[label("Cannot move from this expression")]
+    pub span: Span,
+
+    #[help]
+    pub hint: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[error("Type is not copyable")]
+#[diagnostic(code(sema::type_not_copyable))]
+pub struct TypeIsNotCopyableError {
+    #[source_code]
+    pub src: NamedSource<String>,
+
+    #[label("Type '{type_name}' doesn't implement std::copyable")]
+    pub span: Span,
+
+    pub type_name: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[error("Type is not trivially copyable")]
+#[diagnostic(
+    code(sema::type_not_trivially_copyable),
+    help(
+        "implicit copies (e.g. `let foo = bar`) require `std::trivially_copyable`; use `std::move(&p)`/`std::take(&p)` to transfer ownership, or `p.copy()`/`std::copy(&p)` for an explicit copy when available"
+    )
+)]
+pub struct TypeIsNotTriviallyCopyableError {
+    #[source_code]
+    pub src: NamedSource<String>,
+
+    #[label("Type '{type_name}' doesn't implement std::trivially_copyable")]
+    pub span: Span,
+
+    pub type_name: String,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[error("Ownership analysis found {error_count} error(s)")]
+#[diagnostic(code(sema::ownership_analysis_failed))]
+pub struct OwnershipAnalysisFailedError {
+    pub error_count: usize,
+
+    #[related]
+    pub errors: Vec<HirError>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[error("Type checking found {error_count} error(s)")]
+#[diagnostic(code(sema::type_check_failed))]
+pub struct TypeCheckFailedError {
+    pub error_count: usize,
+
+    #[related]
+    pub errors: Vec<HirError>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[error("Semantic analysis found {error_count} error(s)")]
+#[diagnostic(code(sema::semantic_analysis_failed))]
+pub struct SemanticAnalysisFailedError {
+    pub error_count: usize,
+
+    #[related]
+    pub errors: Vec<HirError>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::incorrect_intrinsic_call_arguments),
+    help("provide the correct number of arguments ({expected}) to the intrinsic function")
+)]
+#[error("intrinsic function `{name}` expected {expected} arguments, but found {found}")]
+pub struct IncorrectIntrinsicCallArgumentsError {
+    pub expected: usize,
+    pub found: usize,
+    pub name: String,
+    #[label = "only {found} were provided"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::trying_to_access_field_of_pointer),
+    help("Try using the `->` operator to dereference and access the field.")
+)]
+#[error("Cannot access a struct field directly from a pointer")]
+pub struct CannotAccessFieldOfPointersError {
+    #[label = "Try using `->` instead of `.`"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
 }

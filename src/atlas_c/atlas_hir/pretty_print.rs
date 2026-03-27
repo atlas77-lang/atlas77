@@ -10,7 +10,7 @@ use crate::atlas_c::atlas_hir::{
 use super::{
     HirModule, HirModuleBody,
     expr::*,
-    item::{HirEnum, HirFunction, HirImport, HirStruct, HirStructConstructor, HirStructMethod},
+    item::{HirEnum, HirFunction, HirImport, HirStruct, HirStructDestructor, HirStructMethod},
     signature::{HirFunctionSignature, HirStructFieldSignature, HirVisibility},
     stmt::*,
     ty::HirTy,
@@ -30,6 +30,11 @@ impl HirPrettyPrinter {
         }
     }
 
+    pub fn clear(&mut self) {
+        self.output = String::new();
+        self.indent = 0;
+    }
+
     pub fn get_output(&mut self) -> String {
         let output = self.output.clone();
         self.output = String::new();
@@ -37,9 +42,9 @@ impl HirPrettyPrinter {
         output
     }
 
-    pub fn print_module(&mut self, module: &HirModule) -> String {
+    pub fn print_module(&mut self, module: &HirModule, pass: &str) -> String {
         self.writeln("// HIR Module");
-        self.writeln("// Generated after ownership pass");
+        self.writeln(&format!("// Generated after {pass}"));
         self.writeln("");
 
         for (name, extern_fn) in &module.signature.functions {
@@ -109,7 +114,7 @@ impl HirPrettyPrinter {
             HirFlag::Copyable(_) => {
                 self.writeln("#[std::copyable]");
             }
-            HirFlag::None => {}
+            _ => {}
         }
 
         let struct_name = if let Some(pre_mangled_ty) = struct_def.pre_mangled_ty {
@@ -126,14 +131,22 @@ impl HirPrettyPrinter {
 
         // Type parameters (from generics in signature)
         if !struct_def.signature.generics.is_empty() {
-            self.write("<");
+            self.write("where ");
             for (i, generic) in struct_def.signature.generics.iter().enumerate() {
                 if i > 0 {
                     self.write(", ");
                 }
                 self.write(generic.generic_name);
+                if generic.kind.is_empty() {
+                    self.write(": no_constraints");
+                    continue;
+                } else {
+                    self.write(": ");
+                }
+                for kind in &generic.kind {
+                    self.print_constraint_kind(kind);
+                }
             }
-            self.write(">");
         }
 
         self.writeln(" {");
@@ -148,21 +161,10 @@ impl HirPrettyPrinter {
             self.writeln("");
         }
 
-        // Constructor
-        self.writeln("// Constructor");
-        self.print_constructor(&struct_name, &struct_def.constructor);
-        self.writeln("");
-
-        if let Some(copy_ctor) = &struct_def.copy_constructor {
-            self.writeln("// Copy Constructor");
-            self.print_constructor(&struct_name, copy_ctor);
-            self.writeln("");
-        }
-
         // Destructor
         if let Some(destructor) = &struct_def.destructor {
             self.writeln("// Destructor");
-            self.print_constructor(&format!("~{}", struct_name), destructor);
+            self.print_destructor(&struct_name, destructor);
             self.writeln("");
         }
 
@@ -183,23 +185,12 @@ impl HirPrettyPrinter {
         self.writeln(&format!("{}: {};", field.name, Self::type_str(field.ty)));
     }
 
-    fn print_constructor(&mut self, name: &str, constructor: &HirStructConstructor) {
+    fn print_destructor(&mut self, name: &str, dtor: &HirStructDestructor) {
         self.write_indent();
-        self.write(&format!(
-            "{} {}(",
-            self.visibility_str(constructor.vis),
-            name
-        ));
-
-        for (i, param) in constructor.params.iter().enumerate() {
-            if i > 0 {
-                self.write(", ");
-            }
-            self.write(&format!("{}: {}", param.name, Self::type_str(param.ty)));
-        }
+        self.write(&format!("~{} {}(", self.visibility_str(dtor.vis), name));
 
         self.write(")");
-        if let Some(where_clause) = &constructor.signature.where_clause {
+        if let Some(where_clause) = &dtor.signature.where_clause {
             self.write("\n");
             self.indent();
             self.write_indent();
@@ -210,7 +201,7 @@ impl HirPrettyPrinter {
         self.write_indent();
         self.write("{\n");
         self.indent();
-        self.print_block(&constructor.body);
+        self.print_block(&dtor.body);
         self.dedent();
         self.writeln("}");
     }
@@ -346,6 +337,15 @@ impl HirPrettyPrinter {
                     self.write(", ");
                 }
                 self.write(param.generic_name);
+                if !param.kind.is_empty() {
+                    self.write(": ");
+                    for (j, constraint) in param.kind.iter().enumerate() {
+                        if j > 0 {
+                            self.write(" + ");
+                        }
+                        self.print_constraint_kind(constraint);
+                    }
+                }
             }
             self.write(">");
         }
@@ -468,13 +468,16 @@ impl HirPrettyPrinter {
                 self.write(&lit.value.to_string());
             }
             HirExpr::CharLiteral(lit) => {
-                self.write(&format!("'{}'", lit.value));
+                self.write(&format!("'{}'", lit.value.escape_default()));
             }
             HirExpr::StringLiteral(lit) => {
-                self.write(&format!("\"{}\"", lit.value));
+                self.write(&format!("\"{}\"", lit.value.escape_default()));
             }
             HirExpr::UnitLiteral(_) => {
                 self.write("()");
+            }
+            HirExpr::NullLiteral(_) => {
+                self.write("null");
             }
             HirExpr::ThisLiteral(_) => {
                 self.write("this");
@@ -488,7 +491,7 @@ impl HirPrettyPrinter {
             }
             HirExpr::Unary(unary) => {
                 if let Some(op) = &unary.op {
-                    self.write(&format!("{}(", op));
+                    self.write(&format!("({}", op));
                 }
                 self.print_expr(&unary.expr);
                 if unary.op.is_some() {
@@ -497,10 +500,20 @@ impl HirPrettyPrinter {
             }
             HirExpr::Casting(cast) => {
                 self.print_expr(&cast.expr);
-                self.write(&format!(" as {}", Self::type_str(cast.ty)));
+                self.write(&format!(" as {}", Self::type_str(cast.target_ty)));
             }
             HirExpr::Call(call) => {
                 self.print_expr(&call.callee);
+                if !call.generics.is_empty() {
+                    self.write("<");
+                    for (i, generic) in call.generics.iter().enumerate() {
+                        if i > 0 {
+                            self.write(", ");
+                        }
+                        self.write(&Self::type_str(generic));
+                    }
+                    self.write(">");
+                }
                 self.write("(");
                 for (i, arg) in call.args.iter().enumerate() {
                     if i > 0 {
@@ -512,7 +525,11 @@ impl HirPrettyPrinter {
             }
             HirExpr::FieldAccess(field) => {
                 self.print_expr(&field.target);
-                self.write(&format!(".{}", field.field.name));
+                if field.is_arrow {
+                    self.write(&format!("->{}", field.field.name));
+                } else {
+                    self.write(&format!(".{}", field.field.name));
+                }
             }
             HirExpr::Indexing(index) => {
                 self.print_expr(&index.target);
@@ -530,35 +547,22 @@ impl HirPrettyPrinter {
                 }
                 self.write("]");
             }
-            HirExpr::NewArray(new_array) => {
-                let ty = match new_array.ty {
-                    HirTy::List(l) => l.inner,
-                    _ => panic!("NewArray must have List type"),
-                };
-                self.write(&format!("new [{}; ", Self::type_str(ty)));
-                self.print_expr(&new_array.size);
+            HirExpr::ListLiteralWithSize(list_with_size) => {
+                self.write("[");
+                self.print_expr(&list_with_size.item);
+                self.write("; ");
+                self.print_expr(&list_with_size.size);
                 self.write("]");
-            }
-            HirExpr::NewObj(new_obj) => {
-                self.write(&format!("new {}(", Self::type_str(new_obj.ty)));
-                for (i, arg) in new_obj.args.iter().enumerate() {
-                    if i > 0 {
-                        self.write(", ");
-                    }
-                    self.print_expr(arg);
-                }
-                self.write(")");
             }
             HirExpr::ObjLiteral(obj_lit) => {
                 self.write(&format!("{} {{\n", Self::type_str(obj_lit.ty)));
                 self.indent();
-                for (i, field_init) in obj_lit.fields.iter().enumerate() {
+                for field_init in obj_lit.fields.iter() {
                     self.write_indent();
                     self.write(&format!(".{} = ", field_init.name));
                     self.print_expr(&field_init.value);
-                    if i > 0 {
-                        self.write(", ");
-                    }
+                    self.write(", ");
+
                     self.write("\n");
                 }
                 self.dedent();
@@ -576,14 +580,25 @@ impl HirPrettyPrinter {
                     static_access.field.name
                 ));
             }
-            HirExpr::Move(move_expr) => {
-                self.write("move<>(");
-                self.print_expr(&move_expr.expr);
-                self.write(")");
-            }
-            HirExpr::Copy(copy_expr) => {
-                self.write("copy<>(");
-                self.print_expr(&copy_expr.expr);
+            HirExpr::IntrinsicCall(intrinsic) => {
+                self.write(intrinsic.name);
+                if !intrinsic.args_ty.is_empty() {
+                    self.write("<");
+                    for (i, ty) in intrinsic.args_ty.iter().enumerate() {
+                        if i > 0 {
+                            self.write(", ");
+                        }
+                        self.write(&Self::type_str(ty));
+                    }
+                    self.write(">");
+                }
+                self.write("(");
+                for (i, arg) in intrinsic.args.iter().enumerate() {
+                    if i > 0 {
+                        self.write(", ");
+                    }
+                    self.print_expr(arg);
+                }
                 self.write(")");
             }
         }
@@ -607,17 +622,23 @@ impl HirPrettyPrinter {
 
     pub fn type_str(ty: &HirTy) -> String {
         match ty {
-            HirTy::Int64(_) => "int64".to_string(),
-            HirTy::Float64(_) => "float64".to_string(),
-            HirTy::UInt64(_) => "uint64".to_string(),
+            HirTy::Integer(i) => format!("int{}", i.size_in_bits),
+            HirTy::LiteralInteger(l) => format!("int{}", l.get_minimal_int_ty().size_in_bits),
+            HirTy::Float(f) => format!("float{}", f.size_in_bits),
+            HirTy::LiteralFloat(l) => format!("float{}", l.get_float_ty().size_in_bits),
+            HirTy::UnsignedInteger(u) => format!("uint{}", u.size_in_bits),
+            HirTy::LiteralUnsignedInteger(lu) => {
+                format!("uint{}", lu.get_minimal_uint_ty().size_in_bits)
+            }
             HirTy::Boolean(_) => "bool".to_string(),
             HirTy::Char(_) => "char".to_string(),
             HirTy::String(_) => "string".to_string(),
             HirTy::Unit(_) => "unit".to_string(),
             HirTy::Named(n) => n.name.to_string(),
-            HirTy::List(l) => format!("[{}]", Self::type_str(l.inner)),
-            HirTy::ReadOnlyReference(r) => format!("&const {}", Self::type_str(r.inner)),
-            HirTy::MutableReference(r) => format!("&{}", Self::type_str(r.inner)),
+            HirTy::Slice(l) => format!("[{}]", Self::type_str(l.inner)),
+            HirTy::InlineArray(arr) => {
+                format!("[{}; {}]", Self::type_str(arr.inner), arr.size)
+            }
             HirTy::Generic(g) => format!(
                 "{}<{}>",
                 g.name,
@@ -628,8 +649,11 @@ impl HirPrettyPrinter {
                     .join(", ")
             ),
             HirTy::Uninitialized(_) => "<uninit>".to_string(),
-            HirTy::Nullable(n) => format!("{}?", Self::type_str(n.inner)),
-            HirTy::ExternTy(e) => format!("extern {:?}", e.type_hint),
+            HirTy::PtrTy(ptr_ty) => format!(
+                "*{}{}",
+                if ptr_ty.is_const { "const " } else { "" },
+                Self::type_str(ptr_ty.inner)
+            ),
             HirTy::Function(f) => {
                 let params = f
                     .params
@@ -645,7 +669,7 @@ impl HirPrettyPrinter {
     fn visibility_str(&self, vis: HirVisibility) -> &'static str {
         match vis {
             HirVisibility::Public => "public",
-            HirVisibility::Private => "",
+            HirVisibility::Private => "private",
         }
     }
 

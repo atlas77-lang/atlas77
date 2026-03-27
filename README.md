@@ -35,17 +35,14 @@
 
 ## About The Project
 
-Atlas77 is an experimental **statically typed systems language** designed around a **small core** and everything else be **userland**.
-It runs on a **custom VM** and aims to provide a clear, minimal foundation for building higher-level abstractions in
-libraries rather than in the compiler itself.
+Atlas77 is an experimental **statically typed wannabe systems language** designed around a **small core** and everything else be **userland**.
+It compiles to C code, which is then compiled to machine code either using an external C compiler of your own (GCC/Clang/MSVC/...) or by using the embedded TinyCC compiler.
 > [!Note]
-> The VM will be reworked soon as it doesn't really fit the language design anymore.
+> A cranelift/LLVM backend is planned for the future, but for now, I'll keep focusing on the C backend as it is easier for me.
 
 The 2 core philosophies are simple:
 - **Keep the core language tiny, make everything else userland.**
 - **Safety opt-in: you pay for what you use.**
-> Well... Now that I have added full on move semantics, I am not sure about the second point anymore.
-> The language is now safe by default... ig, I could add some features to let you shoot yourself in the foot if you really want to.
 
 > [!Note] 
 > If you find the code to be messy, it's because it kinda is. I am sort of "speedrunning" the bootstrapping of the language, so the Rust implementation is not really the main focus right now.

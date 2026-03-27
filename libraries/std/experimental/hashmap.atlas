@@ -1,44 +1,331 @@
-//! Experimental hash map implementation.
-//!
-//! Provides a simple hash map API with buckets and entries.
-//!
-//! Entry stored in a HashMap bucket.
-public struct HashMapEntry<K, V> {
+/*
+    An experimental HashMap implementation using Robin Hood hashing.
+    Note: This is a very basic and VERY experimental implementation.
+    The std::default/std::hash/std::eq constraints DO NOT even exist yet.
+    This is just to get the basic structure down, and will be improved
+ */
+
+import "std/experimental/c_vec.atlas";
+import "std/experimental/optional.atlas";
+
+private struct HashMapEntry<K: std::default + std::hash + std::eq, V: std::default> {
 public:
-    //! Key for this entry.
     key: K;
-    //! Value for this entry.
     value: V;
-    //! Construct an entry from key and value.
-    HashMapEntry(key: K, value: V) {
+    hash: uint64;
+    psl: uint64;
+    occupied: bool;
+    HashMapEntry(key: K, value: V, hash: uint64, psl: uint64, occupied: bool) {
         this.key = key;
         this.value = value;
+        this.hash = hash;
+        this.psl = psl;
+        this.occupied = occupied;
     }
-    //! Return the key.
-    fun get_key() -> K {
-        return this.key;
-    }
-    //! Return the value.
-    fun get_value() -> V {
-        return this.value;
+    HashMapEntry() {
+        this.key = K::default();
+        this.value = V::default();
+        this.hash = 0u;
+        this.psl = 0u;
+        this.occupied = false;
     }
 }
 
-//! Bucket holding multiple entries for a given hash.
-public struct HashMapBucket<K, V> {
+public struct HashMap<K: std::default + std::hash + std::eq, V: std::default> {
+private:
+    buckets: CVec<HashMapEntry<K, V>>;
+    count: uint64;
+    capacity: uint64;
+    load_factor: float64;
 public:
-    //! Stored entries.
-    entries: [HashMapEntry<K, V>];
-    //! Create an empty bucket.
-    HashMapBucket() {
-        this.entries = [];
+    // Constructor
+    HashMap() {
+        let initial_capacity = 16u;
+        this.buckets = CVec<HashMapEntry<K, V>>::with_capacity(initial_capacity);
+        
+        // Initialize all buckets as empty
+        let i = 0u;
+        while (i < initial_capacity) {
+            this.buckets.push(HashMapEntry<K, V>::empty());
+            i = i + 1u;
+        }
+        
+        this.count = 0u;
+        this.capacity = initial_capacity;
+        this.load_factor = 75u;  // 75% load factor
     }
-    //! Add an entry to the bucket.
-    fun add_entry(key: K, value: V) {
-        this.entries.push(HashMapEntry<K, V>(key, value));
+    ~HashMap() {
+        // CVec destructor will handle cleanup
+        delete this.buckets;
     }
-    //! Return the entries array.
-    fun get_entries() -> [HashMapEntry<K, V>] {
-        return this.entries;
+    // Copy constructor (if V and K are copyable)
+    HashMap(from: &const HashMap<K, V>)
+        where K: std::copyable, V: std::copyable
+    {
+        this.buckets = std::copy(&(*from).buckets);
+        this.count = (*from).count;
+        this.capacity = (*from).capacity;
+        this.load_factor = (*from).load_factor;
+    }
+
+    // Insert or update a key-value pair
+    fun insert(&this, key: K, value: V) {
+        // Check if we need to resize
+        let current_load = ((*this).count * 100u) / (*this).capacity;
+        if (current_load >= (*this).load_factor) {
+            this.resize((*this).capacity * 2u);
+        }
+        
+        let hash = key.hash();
+        let mut_idx = hash % (*this).capacity;
+        let mut_psl = 0u;
+        
+        let mut_key = key;
+        let mut_value = value;
+        let mut_hash = hash;
+        
+        // Robin Hood insertion
+        while (true) {
+            let entry = (*this).buckets.get_mut(mut_idx);
+            
+            if (!(*entry).occupied) {
+                // Empty slot - insert here
+                *entry = new HashMapEntry<K, V>(mut_key, mut_value, mut_hash, mut_psl);
+                (*this).count = (*this).count + 1u;
+                return;
+            }
+            
+            // Check if same key (update case)
+            if ((*entry).hash == mut_hash && (*entry).key.equals(&mut_key)) {
+                // Update existing value
+                (*entry).value = mut_value;
+                return;
+            }
+            
+            // Robin Hood: if our PSL is greater, swap and continue
+            if (mut_psl > (*entry).psl) {
+                // Swap
+                let temp_key = (*entry).key;
+                let temp_value = (*entry).value;
+                let temp_hash = (*entry).hash;
+                let temp_psl = (*entry).psl;
+                
+                (*entry).key = mut_key;
+                (*entry).value = mut_value;
+                (*entry).hash = mut_hash;
+                (*entry).psl = mut_psl;
+                
+                mut_key = temp_key;
+                mut_value = temp_value;
+                mut_hash = temp_hash;
+                mut_psl = temp_psl;
+            }
+            
+            // Move to next slot
+            mut_idx = (mut_idx + 1u) % (*this).capacity;
+            mut_psl = mut_psl + 1u;
+        }
+    }
+    
+    // Get a value by key (returns optional)
+    fun get(&const this, key: &const K) -> optional<&const V> {
+        let hash = (*key).hash();
+        let mut_idx = hash % (*this).capacity;
+        let mut_psl = 0u;
+        
+        while (true) {
+            let entry = (*this).buckets.get(mut_idx);
+            
+            if (!(*entry).occupied) {
+                // Empty slot - key not found
+                return optional<&const V>::empty();
+            }
+            
+            // Check if this is our key
+            if ((*entry).hash == hash && (*entry).key.equals(key)) {
+                return optional<&const V>::of(&(*entry).value);
+            }
+            
+            // If we've gone past where it would be (PSL check)
+            if (mut_psl > (*entry).psl) {
+                return optional<&const V>::empty();
+            }
+            
+            // Continue probing
+            mut_idx = (mut_idx + 1u) % (*this).capacity;
+            mut_psl = mut_psl + 1u;
+            
+            // Safety: prevent infinite loop
+            if (mut_psl > (*this).capacity) {
+                return optional<&const V>::empty();
+            }
+        }
+    }
+    
+    // Get a mutable reference to a value
+    fun get_mut(&this, key: &const K) -> optional<&V> {
+        let hash = (*key).hash();
+        let mut_idx = hash % (*this).capacity;
+        let mut_psl = 0u;
+        
+        while (true) {
+            let entry = (*this).buckets.get_mut(mut_idx);
+            
+            if (!(*entry).occupied) {
+                return optional<&V>::empty();
+            }
+            
+            if ((*entry).hash == hash && (*entry).key.equals(key)) {
+                return optional<&V>::of(&(*entry).value);
+            }
+            
+            if (mut_psl > (*entry).psl) {
+                return optional<&V>::empty();
+            }
+            
+            mut_idx = (mut_idx + 1u) % (*this).capacity;
+            mut_psl = mut_psl + 1u;
+            
+            if (mut_psl > (*this).capacity) {
+                return optional<&V>::empty();
+            }
+        }
+    }
+    
+    // Check if key exists
+    fun contains_key(&const this, key: &const K) -> bool {
+        let result = this.get(key);
+        return result.has_value();
+    }
+    
+    // Remove a key-value pair
+    fun remove(&this, key: &const K) -> optional<V> {
+        let hash = (*key).hash();
+        let mut_idx = hash % (*this).capacity;
+        let mut_psl = 0u;
+        
+        // Find the entry
+        while (true) {
+            let entry = (*this).buckets.get_mut(mut_idx);
+            
+            if (!(*entry).occupied) {
+                return optional<V>::empty();
+            }
+            
+            if ((*entry).hash == hash && (*entry).key.equals(key)) {
+                // Found it - extract value
+                let value = (*entry).value;
+                (*entry).occupied = false;
+                (*this).count = (*this).count - 1u;
+                
+                // Backward shift deletion (Robin Hood cleanup)
+                this.backward_shift(mut_idx);
+                
+                return optional<V>::of(value);
+            }
+            
+            if (mut_psl > (*entry).psl) {
+                return optional<V>::empty();
+            }
+            
+            mut_idx = (mut_idx + 1u) % (*this).capacity;
+            mut_psl = mut_psl + 1u;
+            
+            if (mut_psl > (*this).capacity) {
+                return optional<V>::empty();
+            }
+        }
+    }
+    
+    // Get current size
+    fun len(&const this) -> uint64 {
+        return (*this).count;
+    }
+    
+    // Check if empty
+    fun is_empty(&const this) -> bool {
+        return (*this).count == 0u;
+    }
+    
+    // Clear all entries
+    fun clear(&this) {
+        let i = 0u;
+        while (i < (*this).capacity) {
+            let entry = (*this).buckets.get_mut(i);
+            if ((*entry).occupied) {
+                delete (*entry).key;
+                delete (*entry).value;
+                (*entry).occupied = false;
+            }
+            i = i + 1u;
+        }
+        (*this).count = 0u;
+    }
+
+private:
+    // Resize the hash table
+    fun resize(&this, new_capacity: uint64) {
+        let old_buckets = (*this).buckets;
+        
+        // Create new bucket array
+        (*this).buckets = CVec<HashMapEntry<K, V>>::with_capacity(new_capacity);
+        let i = 0u;
+        while (i < new_capacity) {
+            (*this).buckets.push(HashMapEntry<K, V>::empty());
+            i = i + 1u;
+        }
+        
+        (*this).capacity = new_capacity;
+        (*this).count = 0u;
+        
+        // Rehash all old entries
+        let j = 0u;
+        while (j < old_buckets.len) {
+            let entry = old_buckets.get(j);
+            if ((*entry).occupied) {
+                this.insert((*entry).key, (*entry).value);
+            }
+            j = j + 1u;
+        }
+        
+        delete old_buckets;
+    }
+    
+    // Backward shift deletion (Robin Hood cleanup)
+    fun backward_shift(&this, start_idx: uint64) {
+        let mut_idx = (start_idx + 1u) % (*this).capacity;
+        
+        while (true) {
+            let entry = (*this).buckets.get(mut_idx);
+            
+            // Stop if empty or PSL is 0 (element is in ideal position)
+            if (!(*entry).occupied || (*entry).psl == 0u) {
+                return;
+            }
+            
+            // Shift this entry backward
+            let prev_idx = 0;
+            if (mut_idx == 0u) {
+                prev_idx = (*this).capacity - 1u;
+            } else {
+                prev_idx = mut_idx - 1u;
+            }
+            
+            let prev_entry = (*this).buckets.get_mut(prev_idx);
+            let curr_entry = (*this).buckets.get(mut_idx);
+            
+            // Move current to previous
+            (*prev_entry).key = (*curr_entry).key;
+            (*prev_entry).value = (*curr_entry).value;
+            (*prev_entry).hash = (*curr_entry).hash;
+            (*prev_entry).psl = (*curr_entry).psl - 1u;
+            (*prev_entry).occupied = true;
+            
+            // Mark current as empty
+            let curr_entry_mut = (*this).buckets.get_mut(mut_idx);
+            (*curr_entry_mut).occupied = false;
+            
+            mut_idx = (mut_idx + 1u) % (*this).capacity;
+        }
     }
 }

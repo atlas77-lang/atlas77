@@ -6,12 +6,14 @@ use std::{
 };
 
 use super::ty::{
-    HirBooleanTy, HirCharTy, HirFloatTy, HirGenericTy, HirIntegerTy, HirListTy,
-    HirMutableReferenceTy, HirNamedTy, HirNullableTy, HirStringTy, HirTy, HirTyId,
-    HirUninitializedTy, HirUnitTy, HirUnsignedIntTy,
+    HirBooleanTy, HirCharTy, HirFloatTy, HirGenericTy, HirIntegerTy, HirNamedTy, HirSliceTy,
+    HirStringTy, HirTy, HirTyId, HirUninitializedTy, HirUnitTy, HirUnsignedIntTy,
 };
 use crate::atlas_c::{
-    atlas_hir::ty::{HirExternTy, HirFunctionTy, HirReadOnlyReferenceTy},
+    atlas_hir::ty::{
+        HirFunctionTy, HirLiteralFloatTy, HirLiteralIntegerTy, HirLiteralUnsignedIntegerTy,
+        HirPtrTy,
+    },
     utils::Span,
 };
 use bumpalo::Bump;
@@ -93,28 +95,57 @@ impl<'arena> TypeArena<'arena> {
         self.intern.borrow().get(&id).copied()
     }
 
-    pub fn get_integer64_ty(&'arena self) -> &'arena HirTy<'arena> {
-        let id = HirTyId::compute_integer64_ty_id();
-        self.intern
-            .borrow_mut()
-            .entry(id)
-            .or_insert_with(|| self.allocator.alloc(HirTy::Int64(HirIntegerTy {})))
+    pub fn get_int_ty(&'arena self, size_in_bits: u8) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_int_ty_id(size_in_bits);
+        self.intern.borrow_mut().entry(id).or_insert_with(|| {
+            self.allocator
+                .alloc(HirTy::Integer(HirIntegerTy { size_in_bits }))
+        })
     }
 
-    pub fn get_float64_ty(&'arena self) -> &'arena HirTy<'arena> {
-        let id = HirTyId::compute_float64_ty_id();
-        self.intern
-            .borrow_mut()
-            .entry(id)
-            .or_insert_with(|| self.allocator.alloc(HirTy::Float64(HirFloatTy {})))
+    pub fn get_literal_int_ty(&'arena self, value: i64, span: Span) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_literal_int_ty_id(value);
+        self.intern.borrow_mut().entry(id).or_insert_with(|| {
+            self.allocator
+                .alloc(HirTy::LiteralInteger(HirLiteralIntegerTy { value, span }))
+        })
     }
 
-    pub fn get_uint64_ty(&'arena self) -> &'arena HirTy<'arena> {
-        let id = HirTyId::compute_uint64_ty_id();
-        self.intern
-            .borrow_mut()
-            .entry(id)
-            .or_insert_with(|| self.allocator.alloc(HirTy::UInt64(HirUnsignedIntTy {})))
+    pub fn get_float_ty(&'arena self, size_in_bits: u8) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_float_ty_id(size_in_bits);
+        self.intern.borrow_mut().entry(id).or_insert_with(|| {
+            self.allocator
+                .alloc(HirTy::Float(HirFloatTy { size_in_bits }))
+        })
+    }
+
+    pub fn get_literal_float_ty(&'arena self, value: f64, span: Span) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_literal_float_ty_id(value);
+        self.intern.borrow_mut().entry(id).or_insert_with(|| {
+            self.allocator.alloc(HirTy::LiteralFloat(HirLiteralFloatTy {
+                value: value.to_bits(),
+                span,
+            }))
+        })
+    }
+
+    pub fn get_uint_ty(&'arena self, size_in_bits: u8) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_uint_ty_id(size_in_bits);
+        self.intern.borrow_mut().entry(id).or_insert_with(|| {
+            self.allocator
+                .alloc(HirTy::UnsignedInteger(HirUnsignedIntTy { size_in_bits }))
+        })
+    }
+
+    pub fn get_literal_uint_ty(&'arena self, value: u64, span: Span) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_literal_uint_ty_id(value);
+        self.intern.borrow_mut().entry(id).or_insert_with(|| {
+            self.allocator
+                .alloc(HirTy::LiteralUnsignedInteger(HirLiteralUnsignedIntegerTy {
+                    value,
+                    span,
+                }))
+        })
     }
 
     pub fn get_char_ty(&'arena self) -> &'arena HirTy<'arena> {
@@ -141,14 +172,6 @@ impl<'arena> TypeArena<'arena> {
             .or_insert_with(|| self.allocator.alloc(HirTy::String(HirStringTy {})))
     }
 
-    pub fn get_nullable_ty(&'arena self, inner: &'arena HirTy<'arena>) -> &'arena HirTy<'arena> {
-        let id = HirTyId::compute_nullable_ty_id(&HirTyId::from(inner));
-        self.intern.borrow_mut().entry(id).or_insert_with(|| {
-            self.allocator
-                .alloc(HirTy::Nullable(HirNullableTy { inner }))
-        })
-    }
-
     pub fn get_unit_ty(&'arena self) -> &'arena HirTy<'arena> {
         let id = HirTyId::compute_unit_ty_id();
         self.intern
@@ -165,12 +188,25 @@ impl<'arena> TypeArena<'arena> {
         })
     }
 
-    pub fn get_list_ty(&'arena self, ty: &'arena HirTy<'arena>) -> &'arena HirTy<'arena> {
-        let id = HirTyId::compute_list_ty_id(&HirTyId::from(ty));
+    pub fn get_slice_ty(&'arena self, ty: &'arena HirTy<'arena>) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_slice_ty_id(&HirTyId::from(ty));
         self.intern
             .borrow_mut()
             .entry(id)
-            .or_insert_with(|| self.allocator.alloc(HirTy::List(HirListTy { inner: ty })))
+            .or_insert_with(|| self.allocator.alloc(HirTy::Slice(HirSliceTy { inner: ty })))
+    }
+
+    pub fn get_inline_arr_ty(
+        &'arena self,
+        ty: &'arena HirTy<'arena>,
+        size: usize,
+    ) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_inline_arr_ty_id(&HirTyId::from(ty), size);
+        self.intern.borrow_mut().entry(id).or_insert_with(|| {
+            self.allocator.alloc(HirTy::InlineArray(
+                crate::atlas_c::atlas_hir::ty::HirInlineArrayTy { inner: ty, size },
+            ))
+        })
     }
 
     pub fn get_named_ty(&'arena self, name: &'arena str, span: Span) -> &'arena HirTy<'arena> {
@@ -202,34 +238,19 @@ impl<'arena> TypeArena<'arena> {
         })
     }
 
-    pub fn get_ref_ty(&'arena self, inner: &'arena HirTy<'arena>) -> &'arena HirTy<'arena> {
-        let id = HirTyId::compute_ref_ty_id(&HirTyId::from(inner));
-        self.intern.borrow_mut().entry(id).or_insert_with(|| {
-            self.allocator
-                .alloc(HirTy::MutableReference(HirMutableReferenceTy { inner }))
-        })
-    }
-
-    pub fn get_readonly_reference_ty(
+    pub fn get_ptr_ty(
         &'arena self,
         inner: &'arena HirTy<'arena>,
+        is_const: bool,
+        span: Span,
     ) -> &'arena HirTy<'arena> {
-        let id = HirTyId::compute_readonly_ref_ty_id(&HirTyId::from(inner));
+        let id = HirTyId::compute_pointer_ty_id(&HirTyId::from(inner), is_const);
         self.intern.borrow_mut().entry(id).or_insert_with(|| {
-            self.allocator
-                .alloc(HirTy::ReadOnlyReference(HirReadOnlyReferenceTy { inner }))
-        })
-    }
-
-    pub fn get_extern_ty(
-        &'arena self,
-        type_hint: Option<&'arena HirTy<'arena>>,
-    ) -> &'arena HirTy<'arena> {
-        let type_hint_id = type_hint.map(HirTyId::from);
-        let id = HirTyId::compute_extern_ty_id(type_hint_id.as_ref());
-        self.intern.borrow_mut().entry(id).or_insert_with(|| {
-            self.allocator
-                .alloc(HirTy::ExternTy(HirExternTy { type_hint }))
+            self.allocator.alloc(HirTy::PtrTy(HirPtrTy {
+                inner,
+                is_const,
+                span,
+            }))
         })
     }
 

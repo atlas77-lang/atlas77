@@ -6,59 +6,81 @@
 #![allow(clippy::new_without_default)]
 #![allow(clippy::unusual_byte_groupings)]
 
-use atlas_77::{CompilationFlag, build, generate_docs, run};
+use std::str::FromStr;
+
+use atlas_77::{CompilationFlag, SupportedCompiler, build, generate_docs};
 use clap::Parser;
 
 #[derive(Parser)] // requires `derive` feature
 #[command(name = "Atlas77")]
 #[command(
-    bin_name = "atlas_77",
+    bin_name = "atlas77",
     author = "atlas77-lang",
-    version("v0.7.3 Covenant"),
-    about = "Programming language made in Rust, a goofy cousin to C++. \nNB: The language is still in early development and is not stable yet, BEWARE.",
-    long_about = "Atlas77 is a programming language made in Rust. It is a statically typed language with a focus on being a goofy cousin to C++ and useful for me (Gipson62) at least. \n\nNB: The language is still in early development and is not stable yet, BEWARE."
+    version("v0.8.0 Reforged"),
+    about = "Programming language made in Rust, a goofy cousin to C++ and a modern version of C. \nNB: The language is still in early development and is not stable yet, BEWARE.",
+    long_about = "Atlas77 is a programming language made in Rust. It is a statically typed language with a focus on being a goofy cousin to C++ and a modern version of C and useful for me (Gipson62) at least. \n\nNB: The language is still in early development and is not stable yet, BEWARE."
 )]
 enum AtlasRuntimeCLI {
     #[command(
-        about = "Compile then run a local package",
-        long_about = "Compile then run a local package. The output will be written to the current directory."
-    )]
-    Run {
-        file_path: Option<String>,
-        #[arg(short = 'r', long)]
-        /// Build then run in release mode
-        release: bool,
-        #[arg(short = 'd', long)]
-        /// Build then run in debug mode
-        debug: bool,
-        #[arg(long)]
-        /// Do not include the standard library
-        /// As of now, it just means the Runtime won't load all the extern functions from the standard library
-        ///
-        /// BEWARE: It is not stable yet, so using this flag may lead to unexpected behavior
-        no_std: bool,
-    },
-    #[command(
         about = "Compile a local package and all of its dependencies",
-        long_about = "Compile a local package and all of its dependencies. The output will be written to the current directory as `output.atlas_asm`. NB: That output file is not executable."
+        long_about = "Compile a local package and all of its dependencies. The output directory is specified with the -o flag (default is ./build). \
+        By default, it will try to use the embedded TinyCC compiler. You can specify a different compiler with the -c flag."
     )]
     Build {
         file_path: Option<String>,
-        #[arg(short = 'r', long)]
+        #[arg(
+            short = 'r',
+            long,
+            long_help = "Build in release mode (equivalent to -O2 for major compilers)"
+        )]
         /// Build in release mode
         release: bool,
-        #[arg(short = 'd', long)]
+        #[arg(
+            short = 'd',
+            long,
+            long_help = "Build in debug mode (with debug symbols and no optimizations)"
+        )]
         /// Build in debug mode
         debug: bool,
-        #[arg(long)]
+        #[arg(
+            long,
+            default_value_t = false,
+            help = "Do not include the standard library"
+        )]
         /// Do not include the standard library
-        /// As of now, it just means the Runtime won't load all the extern functions from the standard library
-        ///
-        /// BEWARE: It is not stable yet, so using this flag may lead to unexpected behavior
         no_std: bool,
-        #[arg(long)]
-        /// Do not produce output files, only check for errors
-        no_output: bool,
+        #[arg(
+            short = 'c',
+            long,
+            default_value = "tinycc",
+            help = "Specify the C compiler to use (Available: tinycc, gcc, msvc, clang, intel)",
+            long_help = "Specify the C compiler to use. Supported compilers:\n* TCC: \"tinycc\"/\"tcc\"\n* GCC: \"gcc\"\n* MSVC: \"msvc\"/\"cl\"\n* Clang: \"clang\"\n* Intel: \"intel\"/\"icc\""
+        )]
+        /// Specify the C compiler to use. Supported compilers:
+        /// * TCC: "tinycc"/"tcc"
+        /// * GCC: "gcc"
+        /// * MSVC: "msvc"/"cl"
+        /// * Clang: "clang"
+        /// * Intel: "intel"/"icc"
+        compiler: String,
+        #[arg(
+            short = 'o',
+            long,
+            default_value = "./build",
+            help = "Output directory for the executable",
+            long_help = "Output directory for the executable. Example: -o ./build"
+        )]
+        /// Output directory for the executable
+        output_dir: String,
+        #[arg(
+            long = "c-arg",
+            value_name = "ARG",
+            action = clap::ArgAction::Append,
+            help = "Extra argument passed directly to the selected C compiler",
+            long_help = "Extra argument passed directly to the selected C compiler. Repeat this flag to pass multiple arguments (example: --c-arg=-lraylib --c-arg=-lm)."
+        )]
+        /// Extra arguments forwarded to the selected C compiler command
+        c_args: Vec<String>,
     },
     #[command(
         arg_required_else_help = true,
@@ -87,33 +109,14 @@ enum AtlasRuntimeCLI {
 
 fn main() -> miette::Result<()> {
     match AtlasRuntimeCLI::parse() {
-        AtlasRuntimeCLI::Run {
-            file_path,
-            release,
-            debug,
-            no_std: no_standard_lib,
-        } => {
-            if release && debug {
-                eprintln!("Cannot run in both release and debug mode");
-                std::process::exit(1);
-            }
-            let path = file_path.unwrap_or("src/main.atlas".to_string());
-            run(
-                path,
-                if release {
-                    CompilationFlag::Release
-                } else {
-                    CompilationFlag::Debug
-                },
-                no_standard_lib,
-            )
-        }
         AtlasRuntimeCLI::Build {
             file_path,
             release,
             debug,
             no_std: no_standard_lib,
-            no_output,
+            compiler,
+            output_dir,
+            c_args,
         } => {
             if release && debug {
                 eprintln!("Cannot build in both release and debug mode");
@@ -128,7 +131,10 @@ fn main() -> miette::Result<()> {
                     CompilationFlag::Debug
                 },
                 no_standard_lib,
-                !no_output,
+                SupportedCompiler::from_str(&compiler.to_lowercase())
+                    .expect("Invalid compiler specified"),
+                output_dir,
+                c_args,
             )
             .map(|_| ())
         }
@@ -153,7 +159,10 @@ fn main() -> miette::Result<()> {
                     CompilationFlag::Debug
                 },
                 true,
-                false,
+                // We don't care about the compiler here, as we won't compile
+                SupportedCompiler::from_str("none").expect("Invalid compiler specified"),
+                "build".to_string(),
+                Vec::new(),
             )
             .map(|_| ())
         }

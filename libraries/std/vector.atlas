@@ -3,12 +3,12 @@ import "std/iter";
 // We need to import std/mem to use memcpy for the try_take function
 import "std/mem";
 
-public extern len<T>(data: &const [T]) -> uint64;
-public extern slice<T>(data: &const [T], start: uint64, end: uint64) -> [T];
+public extern fun len<T>(data: &const [T]) -> uint64;
+public extern fun slice<T>(data: &const [T], start: uint64, end: uint64) -> [T];
 
 public struct Vector<T> {
-private:
-    data: [T];
+private:    
+    data: ptr<T>;
 public:
     length: uint64;
     capacity: uint64;

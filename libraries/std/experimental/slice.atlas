@@ -1,0 +1,69 @@
+//! Very experimental slice implementation.
+//! operator overloading & typedef do not work yet in Atlas77.
+package std;
+
+#[std::non_moveable]
+//! View over a contiguous sequence of elements in memory
+public struct Slice<T> {
+    // TODO: This needs to have some ways of telling the lifetime of T
+    data: ptr<T>;
+    len: uint64;
+public:
+    // Constructor
+    Slice(data: ptr<T>, len: uint64) {
+        this.data = data;
+        this.len = len;
+    }
+    // Copy constructor
+    //! Shallow copy
+    Slice(from: &const Slice<T>) {
+        this.data = (*from).data;
+        this.len = (*from).len;
+    }
+    // Default constructor
+    Slice() {
+        // Needs to allocate on the stack
+        this.data = null;
+        this.len = 0u;
+    }
+    operator [](&const this, index: uint64) -> &T {
+        if index >= (*this).len {
+            panic("Index out of bounds");
+        }
+        return &((*this).data[index]);
+    }
+    operator []=(&this, index: uint64, value: T) {
+        if index >= (*this).len {
+            panic("Index out of bounds");
+        }
+        (*this).data[index] = value;
+    }
+
+    fun get(&const this, index: uint64) -> &const T {
+        if index >= (*this).len {
+            panic("Index out of bounds");
+        }
+        return &((*this).data[index]);
+    }
+    fun get_mut(&this, index: uint64) -> &T {
+        if index >= (*this).len {
+            panic("Index out of bounds");
+        }
+        return &((*this).data[index]);
+    }
+    fun set(&this, index: uint64, value: T) {
+        if index >= (*this).len {
+            panic("Index out of bounds");
+        }
+        (*this).data[index] = value;
+    }
+    // Generic len accessor
+    fun len(&const this) -> uint64 {
+        return (*this).len;
+    }
+}
+
+// The idea is to completely remove the primitive string type and replace it with Slice<char>
+typedef string = Slice<char>;
+// Same for arrays
+typedef [T] = Slice<T>;
