@@ -8,9 +8,7 @@ use miette::NamedSource;
 use crate::atlas_c::{
     atlas_frontend::parser::{
         ast::{
-            AstArg, AstEnum, AstEnumVariant, AstFlag, AstGlobalConst, AstInlineArrayType,
-            AstNullLiteral, AstObjLiteralExpr, AstObjLiteralField, AstPtrTy,
-            AstStdGenericConstraint, AstUnion,
+            AstArg, AstEnum, AstEnumVariant, AstFlag, AstGlobalConst, AstInlineArrayType, AstListLiteralWithSize, AstNullLiteral, AstObjLiteralExpr, AstObjLiteralField, AstPtrTy, AstStdGenericConstraint, AstUnion
         },
         error::{
             ConstTypeNotSupportedYetError, DestructorWithParametersError, FlagDoesntExistError,
@@ -324,6 +322,10 @@ impl<'ast> Parser<'ast> {
                 let span = self.advance().span;
                 AstFlag::Intrinsic(Span::union_span(&start_span, &span))
             }
+            TokenKind::Identifier(ref s) if s == "trivially_copyable" => {
+                let span = self.advance().span;
+                AstFlag::TriviallyCopyable(Span::union_span(&start_span, &span))
+            }
             _ => {
                 return Err(Box::new(SyntaxError::FlagDoesntExist(
                     FlagDoesntExistError {
@@ -539,7 +541,7 @@ impl<'ast> Parser<'ast> {
                     docs.clear();
                     methods.push(method);
                 }
-                TokenKind::Identifier(s) => {
+                TokenKind::Identifier(_) => {
                     curr_vis = self.parse_current_vis(curr_vis)?;
 
                     let mut obj_field = self.parse_obj_field()?;
@@ -1338,6 +1340,36 @@ impl<'ast> Parser<'ast> {
             TokenKind::LBracket => {
                 let start = self.advance();
                 let mut elements = vec![];
+                let first_element = if self.current().kind() != TokenKind::RBracket {
+                    Some(self.parse_expr()?)
+                } else {
+                    None
+                };
+                if self.current().kind() == TokenKind::Semicolon {
+                    // Array literal with specified length, like `[0; 10]`
+                    if first_element.is_none() {
+                        return Err(self.unexpected_token_error(
+                            TokenVec(vec![TokenKind::RBracket]),
+                            &self.current().span(),
+                        ));
+                    }
+                    let _ = self.advance();
+                    let length_expr = self.parse_expr()?;
+                    self.expect(TokenKind::RBracket)?;
+                    return Ok(AstExpr::Literal(AstLiteral::ListWithSize(AstListLiteralWithSize {
+                        span: Span::union_span(&start.span(), &self.current().span()),
+                        item: self.arena.alloc(first_element.unwrap()),
+                        size: self.arena.alloc(length_expr),
+                    })));
+                } else {
+                    // Normal list literal like `[1, 2, 3]`
+                    if let Some(expr) = first_element {
+                        elements.push(expr);
+                    }
+                    if self.current().kind() == TokenKind::Comma {
+                        let _ = self.advance();
+                    }
+                }
                 while self.current().kind() != TokenKind::RBracket {
                     elements.push(self.parse_expr()?);
                     if self.current().kind() == TokenKind::Comma {

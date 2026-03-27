@@ -150,6 +150,7 @@ impl<'ast> AstItem<'ast> {
 /// ```
 pub enum AstFlag {
     Copyable(Span),
+    TriviallyCopyable(Span),
     NonCopyable(Span),
     Intrinsic(Span),
     #[default]
@@ -674,6 +675,7 @@ pub enum AstLiteral<'ast> {
     String(AstStringLiteral<'ast>),
     Boolean(AstBooleanLiteral),
     List(AstListLiteral<'ast>),
+    ListWithSize(AstListLiteralWithSize<'ast>),
 }
 
 impl AstLiteral<'_> {
@@ -689,6 +691,7 @@ impl AstLiteral<'_> {
             AstLiteral::String(l) => l.span,
             AstLiteral::Boolean(l) => l.span,
             AstLiteral::List(l) => l.span,
+            AstLiteral::ListWithSize(l) => l.span,
         }
     }
 }
@@ -718,6 +721,14 @@ pub struct AstUnitLiteral {
 pub struct AstListLiteral<'ast> {
     pub span: Span,
     pub items: &'ast [&'ast AstExpr<'ast>],
+}
+
+#[derive(Debug, Clone)]
+// Represent the `[expr; size]` syntax for inline arrays, e.g., `[0; 5]` creates an inline array of size 5 initialized with 0s.
+pub struct AstListLiteralWithSize<'ast> {
+    pub span: Span,
+    pub item: &'ast AstExpr<'ast>,
+    pub size: &'ast AstExpr<'ast>,
 }
 
 #[derive(Debug, Clone)]

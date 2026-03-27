@@ -6,13 +6,9 @@ use super::{
     expr,
     stmt::{HirBlock, HirExprStmt, HirStatement},
 };
-use crate::atlas_c::atlas_hir::error::{
-    AccessingPrivateUnionError, CallingConsumingMethodOnMutableReferenceError,
-    CallingConsumingMethodOnMutableReferenceOrigin, CannotAccessFieldOfPointersError,
-    ListIndexOutOfBoundsError, StructCannotHaveAFieldOfItsOwnTypeError, TypeIsNotCopyableError,
-    UnionMustHaveAtLeastTwoVariantError, UnionVariantDefinedMultipleTimesError,
-    VariableNameAlreadyDefinedError,
-};
+use crate::atlas_c::atlas_hir::{error::{
+    AccessingPrivateUnionError, CallingConsumingMethodOnMutableReferenceError, CallingConsumingMethodOnMutableReferenceOrigin, CannotAccessFieldOfPointersError, InvalidListSizeError, ListIndexOutOfBoundsError, NonConstantListSizeError, StructCannotHaveAFieldOfItsOwnTypeError, TypeIsNotCopyableError, UnionMustHaveAtLeastTwoVariantError, UnionVariantDefinedMultipleTimesError, VariableNameAlreadyDefinedError
+}, warning::NonTriviallyCopyableStructHoldsARawPointerWithNoCustomDestructorWarning};
 use crate::atlas_c::atlas_hir::item::{HirStructDestructor, HirUnion};
 use crate::atlas_c::atlas_hir::pretty_print::HirPrettyPrinter;
 use crate::atlas_c::atlas_hir::signature::{
@@ -278,6 +274,29 @@ impl<'hir> TypeChecker<'hir> {
                 }
             }
         }
+
+        // Recompute copyability based on the final (possibly synthesized) destructor state.
+        // This keeps ownership checks in sync now that destructor synthesis happens here.
+        for (struct_name, strct) in hir.body.structs.iter_mut() {
+            let has_destructor = strct.destructor.is_some() || strct.signature.destructor.is_some();
+
+            let is_trivially_copyable = if strct.signature.flag.is_non_copyable() {
+                false
+            } else if strct.signature.flag.is_trivially_copyable() {
+                true
+            } else {
+                !has_destructor
+            };
+
+            strct.signature.is_trivially_copyable = is_trivially_copyable;
+            if is_trivially_copyable {
+                strct.signature.is_std_copyable = true;
+            }
+
+            if let Some(sig_ref) = hir.signature.structs.get_mut(struct_name) {
+                *sig_ref = self.arena.intern(strct.signature.clone());
+            }
+        }
     }
 
     fn check_union(&mut self, hir_union: &HirUnion<'hir>) -> HirResult<()> {
@@ -343,6 +362,17 @@ impl<'hir> TypeChecker<'hir> {
                 ));
             }
         }
+
+        // Warn when a struct owns raw pointers but is not trivially copyable and has no custom destructor.
+        if !class.signature.flag.is_trivially_copyable() && !class.signature.had_user_defined_destructor {
+            if let Some(pointer_field) = class.fields.iter().find(|field| matches!(field.ty, HirTy::PtrTy(_))) {
+                Self::non_trivially_copyable_struct_holds_a_raw_pointer_with_no_custom_destructor_warning(
+                    class,
+                    pointer_field.span,
+                );
+            }
+        }
+
         for method in &mut class.methods {
             self.current_class_name = Some(class.name);
             self.current_func_name = Some(method.name);
@@ -898,8 +928,11 @@ impl<'hir> TypeChecker<'hir> {
                 let can_cast = matches!(
                     expr_ty,
                     HirTy::Integer(_)
+                        | HirTy::LiteralInteger(_)
                         | HirTy::Float(_)
+                        | HirTy::LiteralFloat(_)
                         | HirTy::UnsignedInteger(_)
+                        | HirTy::LiteralUnsignedInteger(_)
                         | HirTy::Boolean(_)
                         | HirTy::Char(_)
                         | HirTy::String(_)
@@ -1117,6 +1150,45 @@ impl<'hir> TypeChecker<'hir> {
                     self.is_equivalent_ty(e_ty, e.span(), ty, l.span)?;
                 }
                 l.ty = self.arena.types().get_inline_arr_ty(ty, l.items.len());
+                Ok(l.ty)
+            }
+            // Represent the `[expr; size]` syntax.
+            HirExpr::ListLiteralWithSize(l) => {
+                let path = l.span.path;
+                let size = match self.strip_noop_unary(&l.size) {
+                    HirExpr::IntegerLiteral(i) => {
+                        if i.value <= 0 {
+                            let src = utils::get_file_content(path).unwrap();
+                            return Err(HirError::InvalidListSize(InvalidListSizeError {
+                                span: l.span,
+                                size: i.value as usize,
+                                src: NamedSource::new(path, src),
+                            }));
+                        };
+                        i.value as usize
+                    }
+                    HirExpr::UnsignedIntegerLiteral(u) => {
+                        if u.value == 0 {
+                            let src = utils::get_file_content(path).unwrap();
+                            return Err(HirError::InvalidListSize(InvalidListSizeError {
+                                span: l.span,
+                                size: 0,
+                                src: NamedSource::new(path, src),
+                            }));
+                        };
+                        u.value as usize
+                    }
+                    _ => {
+                        let src = utils::get_file_content(path).unwrap();
+                        return Err(HirError::NonConstantListSize(NonConstantListSizeError {
+                            span: l.span,
+                            src: NamedSource::new(path, src),
+                        }));
+                    }
+                };
+
+                let ty = self.check_expr(&mut l.item)?;
+                l.ty = self.arena.types().get_inline_arr_ty(ty, size);
                 Ok(l.ty)
             }
             HirExpr::ObjLiteral(obj_lit) => {
@@ -2778,6 +2850,24 @@ impl<'hir> TypeChecker<'hir> {
         eprintln!("{:?}", warning);
     }
 
+    fn non_trivially_copyable_struct_holds_a_raw_pointer_with_no_custom_destructor_warning(
+        class: &HirStruct<'hir>,
+        pointer_span: Span,
+    ) {
+        let path = class.span.path;
+        let src = utils::get_file_content(path).unwrap();
+        let warning: ErrReport = HirWarning::NonTriviallyCopyableStructHoldsARawPointerWithNoCustomDestructor(
+            NonTriviallyCopyableStructHoldsARawPointerWithNoCustomDestructorWarning {
+                src: NamedSource::new(path, src),
+                struct_span: class.name_span,
+                pointer_span,
+                struct_name: class.name.to_string(),
+            },
+        )
+        .into();
+        eprintln!("{:?}", warning);
+    }
+
     /// Check if the expression is a pointer (`&expr`) to a local variable,
     /// or an identifier that holds a pointer to a local variable.
     /// Returns the name of the local variable if it is, None otherwise.
@@ -2856,6 +2946,19 @@ impl<'hir> TypeChecker<'hir> {
         true
     }
 
+    fn strip_noop_unary<'a>(&self, mut expr: &'a HirExpr<'hir>) -> &'a HirExpr<'hir> {
+        while let HirExpr::Unary(unary) = expr {
+            if unary.op == Some(HirUnaryOp::AsRef) || unary.op == Some(HirUnaryOp::Deref) {
+                break;
+            }
+            if unary.op.is_some() {
+                break;
+            }
+            expr = &unary.expr;
+        }
+        expr
+    }
+
     fn insert_new_variable(&mut self, var: ContextVariable<'hir>) -> HirResult<()> {
         if let Some(context_map) = self.context_functions.last_mut()
             && let Some(context_func) = context_map.get_mut(self.current_func_name.unwrap())
@@ -2885,7 +2988,7 @@ impl<'hir> TypeChecker<'hir> {
     fn is_arithmetic_type(ty: &HirTy) -> bool {
         matches!(
             ty,
-            HirTy::Integer(_) | HirTy::UnsignedInteger(_) | HirTy::Float(_) | HirTy::Char(_)
+            HirTy::Integer(_) | HirTy::LiteralInteger(_) | HirTy::UnsignedInteger(_) | HirTy::LiteralUnsignedInteger(_) | HirTy::Float(_) | HirTy::LiteralFloat(_) | HirTy::Char(_) 
         )
     }
 
@@ -2893,8 +2996,11 @@ impl<'hir> TypeChecker<'hir> {
     fn is_equality_comparable(&self, ty: &HirTy) -> bool {
         match ty {
             HirTy::Integer(_)
+            | HirTy::LiteralInteger(_)
             | HirTy::UnsignedInteger(_)
+            | HirTy::LiteralUnsignedInteger(_)
             | HirTy::Float(_)
+            | HirTy::LiteralFloat(_)
             | HirTy::Char(_)
             | HirTy::Boolean(_)
             | HirTy::PtrTy(_)
@@ -2907,7 +3013,7 @@ impl<'hir> TypeChecker<'hir> {
     fn is_orderable_type(ty: &HirTy) -> bool {
         matches!(
             ty,
-            HirTy::Integer(_) | HirTy::UnsignedInteger(_) | HirTy::Float(_) | HirTy::Char(_)
+            HirTy::Integer(_) | HirTy::LiteralInteger(_) | HirTy::UnsignedInteger(_) | HirTy::LiteralUnsignedInteger(_) | HirTy::Float(_) | HirTy::LiteralFloat(_) | HirTy::Char(_)
         )
     }
 }

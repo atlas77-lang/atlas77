@@ -547,6 +547,13 @@ impl HirPrettyPrinter {
                 }
                 self.write("]");
             }
+            HirExpr::ListLiteralWithSize(list_with_size) => {
+                self.write("[");
+                self.print_expr(&list_with_size.item);
+                self.write("; ");
+                self.print_expr(&list_with_size.size);
+                self.write("]");
+            }
             HirExpr::ObjLiteral(obj_lit) => {
                 self.write(&format!("{} {{\n", Self::type_str(obj_lit.ty)));
                 self.indent();

@@ -121,6 +121,7 @@ impl From<AstVisibility> for HirVisibility {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum HirFlag {
     Copyable(Span),
+    TriviallyCopyable(Span),
     NonCopyable(Span),
     NonMoveable(Span),
     #[default]
@@ -130,6 +131,7 @@ pub enum HirFlag {
 impl From<AstFlag> for HirFlag {
     fn from(ast_flag: AstFlag) -> Self {
         match ast_flag {
+            AstFlag::TriviallyCopyable(span) => HirFlag::TriviallyCopyable(span),
             AstFlag::Copyable(span) => HirFlag::Copyable(span),
             AstFlag::NonCopyable(span) => HirFlag::NonCopyable(span),
             AstFlag::Intrinsic(_) => HirFlag::None,
@@ -144,11 +146,15 @@ impl HirFlag {
             HirFlag::Copyable(span) => Some(*span),
             HirFlag::NonCopyable(span) => Some(*span),
             HirFlag::NonMoveable(span) => Some(*span),
+            HirFlag::TriviallyCopyable(span) => Some(*span),
             HirFlag::None => None,
         }
     }
     pub fn is_non_copyable(&self) -> bool {
         matches!(self, HirFlag::NonCopyable(_))
+    }
+    pub fn is_trivially_copyable(&self) -> bool {
+        matches!(self, HirFlag::TriviallyCopyable(_))
     }
     pub fn is_copyable(&self) -> bool {
         matches!(self, HirFlag::Copyable(_))

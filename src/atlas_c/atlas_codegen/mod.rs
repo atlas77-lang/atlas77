@@ -677,22 +677,6 @@ impl CCodeGen {
                     Self::write_to_file(&mut self.c_file, &free_line, self.indent_level);
                 }
             }
-            LirInstr::Construct {
-                ty,
-                dst,
-                args,
-                ctor_kind,
-            } => {
-                let dest_str = self.codegen_operand(dst);
-                let type_str = self.codegen_type(ty);
-                let type_name_str = type_str.trim_end_matches('*').to_string();
-                let mut args_str: Vec<String> =
-                    args.iter().map(|arg| self.codegen_operand(arg)).collect();
-                args_str.insert(0, format!("&{}", dest_str));
-                let ctor_call = format!("{}_{}({})", type_name_str, ctor_kind, args_str.join(", "));
-                let line = format!("{} {} = {{0}};\n\t{};", type_str, dest_str, ctor_call);
-                Self::write_to_file(&mut self.c_file, &line, self.indent_level);
-            }
             LirInstr::HeapAllocCopy { ty, dst, src } => {
                 let dest_str = self.codegen_operand(dst);
                 let src_str = self.codegen_operand(src);
@@ -732,7 +716,7 @@ impl CCodeGen {
             }
             // Similar to {foo: bar, baz: qux}
             // It DOES NOT allocate memory, just creates a raw object on the stack
-            LirInstr::ConstructUnion {
+            LirInstr::ConstructObject {
                 ty,
                 dst,
                 field_values,

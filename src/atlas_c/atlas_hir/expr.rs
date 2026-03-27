@@ -20,6 +20,7 @@ pub enum HirExpr<'hir> {
     ThisLiteral(HirThisLiteral<'hir>),
     StringLiteral(HirStringLiteralExpr<'hir>),
     ListLiteral(HirListLiteralExpr<'hir>),
+    ListLiteralWithSize(HirListLiteralWithSizeExpr<'hir>),
     NullLiteral(HirNullLiteralExpr<'hir>),
     ObjLiteral(HirObjLiteralExpr<'hir>),
     Delete(HirDeleteExpr<'hir>),
@@ -47,6 +48,7 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::Call(expr) => expr.span,
             HirExpr::StringLiteral(expr) => expr.span,
             HirExpr::ListLiteral(expr) => expr.span,
+            HirExpr::ListLiteralWithSize(expr) => expr.span,
             HirExpr::ObjLiteral(expr) => expr.span,
             HirExpr::Delete(expr) => expr.span,
             HirExpr::FieldAccess(expr) => expr.span,
@@ -73,6 +75,7 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::Call(_) => "Function Call Expression",
             HirExpr::StringLiteral(_) => "String Literal",
             HirExpr::ListLiteral(_) => "List Literal",
+            HirExpr::ListLiteralWithSize(_) => "List Literal with Size",
             HirExpr::ObjLiteral(_) => "Object Literal Expression",
             HirExpr::Delete(_) => "Delete Expression",
             HirExpr::FieldAccess(_) => "Field Access Expression",
@@ -99,6 +102,7 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::Call(expr) => expr.ty,
             HirExpr::StringLiteral(expr) => expr.ty,
             HirExpr::ListLiteral(expr) => expr.ty,
+            HirExpr::ListLiteralWithSize(expr) => expr.ty,
             HirExpr::ObjLiteral(expr) => expr.ty,
             HirExpr::Delete(_) => &HirTy::Unit(HirUnitTy {}),
             HirExpr::FieldAccess(expr) => expr.ty,
@@ -188,6 +192,24 @@ pub struct HirListLiteralExpr<'hir> {
     pub span: Span,
     pub items: Vec<HirExpr<'hir>>,
     pub ty: &'hir HirTy<'hir>,
+}
+
+#[derive(Debug, Clone)]
+pub struct HirListLiteralWithSizeExpr<'hir> {
+    pub span: Span,
+    pub item: Box<HirExpr<'hir>>,
+    pub size: Box<HirExpr<'hir>>,
+    pub ty: &'hir HirTy<'hir>,
+}
+
+impl HirListLiteralWithSizeExpr<'_> {
+    pub fn size_as_usize(&self) -> Option<usize> {
+        match &*self.size {
+            HirExpr::IntegerLiteral(i) => Some(i.value as usize),
+            HirExpr::UnsignedIntegerLiteral(u) => Some(u.value as usize),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

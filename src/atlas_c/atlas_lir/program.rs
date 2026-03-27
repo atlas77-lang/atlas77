@@ -345,17 +345,6 @@ pub enum LirInstr {
         func_name: String,
         args: Vec<LirOperand>,
     },
-    /// Construct a value of the given type in local storage,
-    /// then call the constructor on it.
-    #[deprecated(note = "Will need to be reviewed to remove the `ctor_kind` field. \
-        It should just be a normal struct initialization")]
-    Construct {
-        ty: LirTy,
-        dst: LirOperand,
-        args: Vec<LirOperand>,
-        #[deprecated(note = "There are no constructors anymore")]
-        ctor_kind: String,
-    },
     HeapAllocCopy {
         ty: LirTy,
         dst: LirOperand,
@@ -366,7 +355,7 @@ pub enum LirInstr {
         dst: LirOperand,
         size: usize,
     },
-    ConstructUnion {
+    ConstructObject {
         ty: LirTy,
         dst: LirOperand,
         field_values: HashMap<String, LirOperand>,

@@ -28,13 +28,7 @@ use crate::atlas_c::{
             UnsupportedExpr, UnsupportedItemError, UselessError,
         },
         expr::{
-            HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr,
-            HirCharLiteralExpr, HirDeleteExpr, HirExpr, HirFieldAccessExpr, HirFieldInit,
-            HirFloatLiteralExpr, HirFunctionCallExpr, HirFunctionKind, HirIdentExpr,
-            HirIndexingExpr, HirIntegerLiteralExpr, HirIntrinsicCallExpr, HirListLiteralExpr,
-            HirNullLiteralExpr, HirObjLiteralExpr, HirStaticAccessExpr, HirStringLiteralExpr,
-            HirThisLiteral, HirUnaryOp, HirUnitLiteralExpr, HirUnsignedIntegerLiteralExpr,
-            UnaryOpExpr,
+            HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr, HirCharLiteralExpr, HirDeleteExpr, HirExpr, HirFieldAccessExpr, HirFieldInit, HirFloatLiteralExpr, HirFunctionCallExpr, HirFunctionKind, HirIdentExpr, HirIndexingExpr, HirIntegerLiteralExpr, HirIntrinsicCallExpr, HirListLiteralExpr, HirListLiteralWithSizeExpr, HirNullLiteralExpr, HirObjLiteralExpr, HirStaticAccessExpr, HirStringLiteralExpr, HirThisLiteral, HirUnaryOp, HirUnitLiteralExpr, HirUnsignedIntegerLiteralExpr, UnaryOpExpr
         },
         item::{
             HirEnum, HirEnumVariant, HirFunction, HirStruct, HirStructDestructor, HirStructMethod,
@@ -549,7 +543,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 && method.signature.params.is_empty()
                 && self.method_returns_self(method, name)
         });
-        let is_trivially_copyable = matches!(node.flag, AstFlag::Copyable(_));
+        let is_trivially_copyable = matches!(node.flag, AstFlag::TriviallyCopyable(_));
 
         let signature = HirStructSignature {
             declaration_span: node.span,
@@ -1630,6 +1624,16 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         HirExpr::ListLiteral(HirListLiteralExpr {
                             span: l.span,
                             items: elements,
+                            ty: self.arena.types().get_uninitialized_ty(),
+                        })
+                    }
+                    AstLiteral::ListWithSize(l) => {
+                        let item = self.visit_expr(&l.item)?;
+                        let size = self.visit_expr(&l.size)?;
+                        HirExpr::ListLiteralWithSize(HirListLiteralWithSizeExpr {
+                            span: l.span,
+                            item: Box::new(item),
+                            size: Box::new(size),
                             ty: self.arena.types().get_uninitialized_ty(),
                         })
                     }

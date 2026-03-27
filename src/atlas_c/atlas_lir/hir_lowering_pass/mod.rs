@@ -659,6 +659,94 @@ impl<'hir> HirLoweringPass<'hir> {
                 Ok(LirOperand::Arg(0))
             }
 
+            HirExpr::ListLiteral(list) => {
+                let dst = self.new_temp();
+                let lir_arr_ty = self.hir_ty_to_lir_ty(list.ty, list.span);
+                self.emit(LirInstr::ConstructArray {
+                    ty: lir_arr_ty,
+                    dst: dst.clone(),
+                    size: list.items.len(),
+                })?;
+
+                let elem_hir_ty = match list.ty {
+                    HirTy::InlineArray(arr) => arr.inner,
+                    _ => {
+                        if let Some(first) = list.items.first() {
+                            first.ty()
+                        } else {
+                            return Ok(dst);
+                        }
+                    }
+                };
+                let elem_lir_ty = self.hir_ty_to_lir_ty(elem_hir_ty, list.span);
+
+                for (idx, item) in list.items.iter().enumerate() {
+                    let src = self.lower_expr(item)?;
+                    let index_operand = LirOperand::Index {
+                        src: Box::new(dst.clone()),
+                        index: Box::new(LirOperand::ImmUInt(idx as u64)),
+                    };
+                    self.emit(LirInstr::Assign {
+                        ty: elem_lir_ty.clone(),
+                        dst: index_operand,
+                        src,
+                    })?;
+                }
+
+                Ok(dst)
+            }
+            HirExpr::ListLiteralWithSize(list) => {
+                fn const_list_size(expr: &HirExpr<'_>) -> Option<usize> {
+                    match expr {
+                        HirExpr::IntegerLiteral(i) => Some(i.value as usize),
+                        HirExpr::UnsignedIntegerLiteral(u) => Some(u.value as usize),
+                        HirExpr::Unary(unary) if unary.op.is_none() => const_list_size(&unary.expr),
+                        _ => None,
+                    }
+                }
+
+                let size = const_list_size(&list.size).ok_or_else(|| {
+                    unsupported_expr(
+                        list.span,
+                        "non-constant list-with-size length after type-check".to_string(),
+                    )
+                })?;
+
+                let dst = self.new_temp();
+                let lir_arr_ty = self.hir_ty_to_lir_ty(list.ty, list.span);
+                self.emit(LirInstr::ConstructArray {
+                    ty: lir_arr_ty,
+                    dst: dst.clone(),
+                    size,
+                })?;
+
+                if size == 0 {
+                    return Ok(dst);
+                }
+
+                let elem_hir_ty = match list.ty {
+                    HirTy::InlineArray(arr) => arr.inner,
+                    _ => list.item.ty(),
+                };
+                let elem_lir_ty = self.hir_ty_to_lir_ty(elem_hir_ty, list.span);
+
+                // Evaluate the repeated item once and reuse it for each slot.
+                let repeated_item = self.lower_expr(&list.item)?;
+                for idx in 0..size {
+                    let index_operand = LirOperand::Index {
+                        src: Box::new(dst.clone()),
+                        index: Box::new(LirOperand::ImmUInt(idx as u64)),
+                    };
+                    self.emit(LirInstr::Assign {
+                        ty: elem_lir_ty.clone(),
+                        dst: index_operand,
+                        src: repeated_item.clone(),
+                    })?;
+                }
+
+                Ok(dst)
+            }
+
             // === Casting ===
             HirExpr::Casting(casting_expr) => {
                 let expr_operand = self.lower_expr(&casting_expr.expr)?;
@@ -809,9 +897,6 @@ impl<'hir> HirLoweringPass<'hir> {
                         a: lhs,
                         b: rhs,
                     },
-                    _ => {
-                        return Err(unsupported_expr(expr.span(), format!("{:?}", expr)));
-                    }
                 };
 
                 self.emit(instr)?;
@@ -828,7 +913,7 @@ impl<'hir> HirLoweringPass<'hir> {
 
                 let dest = self.new_temp();
 
-                self.emit(LirInstr::ConstructUnion {
+                self.emit(LirInstr::ConstructObject {
                     ty: self.hir_ty_to_lir_ty(obj_lit.ty, obj_lit.span),
                     dst: dest.clone(),
                     field_values: args.into_iter().collect(),
@@ -1104,7 +1189,6 @@ impl<'hir> HirLoweringPass<'hir> {
                     Ok(dest.unwrap_or(LirOperand::ImmInt(0)))
                 }
             },
-            _ => Err(unsupported_expr(expr.span(), format!("{:?}", expr))),
         }
     }
 
@@ -1112,6 +1196,18 @@ impl<'hir> HirLoweringPass<'hir> {
     fn hir_ty_to_lir_ty(&self, ty: &HirTy, span: Span) -> LirTy {
         match ty {
             HirTy::Integer(i) => match i.size_in_bits {
+                8 => LirTy::Int8,
+                16 => LirTy::Int16,
+                32 => LirTy::Int32,
+                64 => LirTy::Int64,
+                _ => {
+                    let report: miette::Report =
+                        (*unknown_type_err(&format!("{}", ty), span)).into();
+                    eprintln!("{:?}", report);
+                    std::process::exit(1);
+                }
+            },
+            HirTy::LiteralInteger(li) => match li.get_minimal_int_ty().size_in_bits {
                 8 => LirTy::Int8,
                 16 => LirTy::Int16,
                 32 => LirTy::Int32,
@@ -1135,7 +1231,29 @@ impl<'hir> HirLoweringPass<'hir> {
                     std::process::exit(1);
                 }
             },
+            HirTy::LiteralUnsignedInteger(lu) => match lu.get_minimal_uint_ty().size_in_bits {
+                8 => LirTy::UInt8,
+                16 => LirTy::UInt16,
+                32 => LirTy::UInt32,
+                64 => LirTy::UInt64,
+                _ => {
+                    let report: miette::Report =
+                        (*unknown_type_err(&format!("{}", ty), span)).into();
+                    eprintln!("{:?}", report);
+                    std::process::exit(1);
+                }
+            },
             HirTy::Float(flt) => match flt.size_in_bits {
+                32 => LirTy::Float32,
+                64 => LirTy::Float64,
+                _ => {
+                    let report: miette::Report =
+                        (*unknown_type_err(&format!("{}", ty), span)).into();
+                    eprintln!("{:?}", report);
+                    std::process::exit(1);
+                }
+            },
+            HirTy::LiteralFloat(lf) => match lf.get_float_ty().size_in_bits {
                 32 => LirTy::Float32,
                 64 => LirTy::Float64,
                 _ => {
@@ -1480,23 +1598,10 @@ impl std::fmt::Display for LirInstr {
                     write!(f, "call_extern @{}({})", func_name, args_str)
                 }
             }
-            LirInstr::Construct {
-                ty,
-                dst,
-                args,
-                ctor_kind,
-            } => {
-                let args_str = args
-                    .iter()
-                    .map(|a| format!("{}", a))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "{} = {} {}({})", dst, ctor_kind, ty, args_str)
-            }
             LirInstr::ConstructArray { ty, dst, size } => {
                 write!(f, "{} = new_array {}[{}]", dst, ty, size)
             }
-            LirInstr::ConstructUnion {
+            LirInstr::ConstructObject {
                 ty,
                 dst,
                 field_values,

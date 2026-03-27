@@ -823,6 +823,9 @@ impl<'hir> MonomorphizationPass<'hir> {
                     self.monomorphize_expression(item, types_to_change.clone(), module)?;
                 }
             }
+            HirExpr::ListLiteralWithSize(list_expr) => {
+                self.monomorphize_expression(&mut list_expr.item, types_to_change, module)?;
+            }
             HirExpr::StaticAccess(static_access) => {
                 let monomorphized_ty =
                     self.swap_generic_types_in_ty(static_access.target, types_to_change.clone());

@@ -16,8 +16,28 @@ declare_warning_type!(
         ConsumingMethodMayLeakThis(ConsumingMethodMayLeakThisWarning),
         UnnecessaryCopyDueToLaterBorrows(UnnecessaryCopyDueToLaterBorrowsWarning),
         UnionFieldCannotBeAutomaticallyDeleted(UnionFieldCannotBeAutomaticallyDeletedWarning),
+        NonTriviallyCopyableStructHoldsARawPointerWithNoCustomDestructor(NonTriviallyCopyableStructHoldsARawPointerWithNoCustomDestructorWarning),
     }
 );
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::non_trivially_copyable_struct_holds_a_raw_pointer_with_no_custom_destructor),
+    severity(warning),
+    help(
+        "Consider marking the struct as `std::trivially_copyable` if it is safe to do so, or implement a custom destructor to properly manage the raw pointer's memory"
+    )
+)]
+#[error("Struct `{struct_name}` is not marked as `std::trivially_copyable` but holds a raw pointer and does not have a custom destructor, which may lead to memory safety issues if the struct is copied or moved without proper handling")]
+pub struct NonTriviallyCopyableStructHoldsARawPointerWithNoCustomDestructorWarning {
+    #[source_code]
+    pub src: NamedSource<String>,
+    #[label = "Struct not marked as `std::trivially_copyable` declared here"]
+    pub struct_span: Span,
+    #[label = "Raw pointer field declared here"]
+    pub pointer_span: Span,
+    pub struct_name: String,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(

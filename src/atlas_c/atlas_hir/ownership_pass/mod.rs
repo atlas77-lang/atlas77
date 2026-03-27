@@ -271,11 +271,15 @@ impl<'hir> HirOwnershipPass<'hir> {
                 .structs
                 .get(named.name)
                 .is_some_and(|sig| sig.destructor.is_some()),
-            HirTy::Generic(generic) => self
-                .signature
-                .structs
-                .get(generic.name)
-                .is_some_and(|sig| sig.destructor.is_some()),
+            HirTy::Generic(generic) => {
+                let sig = self.signature.structs.get(generic.name).copied().or_else(|| {
+                    self.signature.structs.values().find(|sig| {
+                        sig.pre_mangled_ty
+                            .is_some_and(|pre| pre.name == generic.name && pre.inner == generic.inner)
+                    }).copied()
+                });
+                sig.is_some_and(|sig| sig.destructor.is_some())
+            }
             HirTy::InlineArray(arr) => self.should_auto_delete(arr.inner),
             _ => false,
         }
@@ -306,11 +310,15 @@ impl<'hir> HirOwnershipPass<'hir> {
                 .structs
                 .get(named.name)
                 .is_some_and(|sig| sig.is_trivially_copyable),
-            HirTy::Generic(generic) => self
-                .signature
-                .structs
-                .get(generic.name)
-                .is_some_and(|sig| sig.is_trivially_copyable),
+            HirTy::Generic(generic) => {
+                let sig = self.signature.structs.get(generic.name).copied().or_else(|| {
+                    self.signature.structs.values().find(|sig| {
+                        sig.pre_mangled_ty
+                            .is_some_and(|pre| pre.name == generic.name && pre.inner == generic.inner)
+                    }).copied()
+                });
+                sig.is_some_and(|sig| sig.is_trivially_copyable)
+            }
             _ => false,
         }
     }
@@ -492,6 +500,19 @@ impl<'hir> HirOwnershipPass<'hir> {
                 for item in &list.items {
                     self.validate_expr(item, scope_stack, conditional_depth);
                 }
+            }
+            HirExpr::ListLiteralWithSize(list) => {
+                // list.size > 1, we need to ensure the type isn't being moved into the list multiple times.
+                let size = list.size_as_usize().unwrap_or(0);
+                if size > 1 {
+                    self.validate_expr(&list.item, scope_stack, conditional_depth);
+                    self.record_result(self.ensure_identifier_copy_allowed(
+                        scope_stack,
+                        &list.item,
+                        None,
+                    ));
+                }
+                
             }
             HirExpr::ObjLiteral(obj) => {
                 for field in &obj.fields {

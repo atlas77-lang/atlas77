@@ -15,6 +15,8 @@ pub type HirResult<T> = Result<T, HirError>;
 declare_error_type! {
     #[error("semantic error: {0}")]
     pub enum HirError {
+        InvalidListSize(InvalidListSizeError),
+        NonConstantListSize(NonConstantListSizeError),
         UnknownFileImport(UnknownFileImportError),
         NotEnoughGenerics(NotEnoughGenericsError),
         NotEnoughArguments(NotEnoughArgumentsError),
@@ -126,6 +128,28 @@ impl HirError {
             _ => HirErrorGravity::Critical,
         }
     }
+}
+
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::invalid_list_size), help("list size must be a non-negative and non-zero integer"))]
+#[error("invalid list size: {size}")]
+pub struct InvalidListSizeError {
+    #[label = "list size must be a non-negative and non-zero integer"]
+    pub span: Span,
+    pub size: usize,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(sema::non_constant_list_size), help("Only literal integers can be used as list size for now"))]
+#[error("list size must be a constant expression")]
+pub struct NonConstantListSizeError {
+    #[label = "list size must be a constant expression"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug)]
