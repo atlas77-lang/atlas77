@@ -1,161 +1,146 @@
 import "std/io";
-import "std/iter";
 // We need to import std/mem to use memcpy for the try_take function
-import "std/mem";
-
-public extern fun len<T>(data: &const [T]) -> uint64;
-public extern fun slice<T>(data: &const [T], start: uint64, end: uint64) -> [T];
+import "std/memory";
+import "std/optional";
 
 public struct Vector<T> {
 private:    
-    data: ptr<T>;
+    data: *T;
 public:
     length: uint64;
     capacity: uint64;
 
-    Vector(data: [T]) {
-        this.length = len(&data);
-        this.capacity = this.length;
-        this.data = data;
+    fun new(ptr_: *T, len: uint64) -> Vector<T> {
+        let data = malloc<T>(sizeof<T>() * len);
+        memcpy(data, ptr_, sizeof<T>() * len);
+        return Vector<T> {
+            .data = data,
+            .length = len,
+            .capacity = len, // We assume the capacity is equal to the initial length
+        };
     }
     ~Vector() {
         // We shouldn't delete anything outside of data[0..length]
         let i: uint64 = 0u;
-        while i < this.length {
-            delete this.data[i];
-            i = i + 1u;
-        }
-        // We free only the allocated array
-        // This doesn't call the destructor of the elements again
-        delete_from_ref(&this.data);
-    }
-    //! TODO: Add a where T: std::copyable constraint here
-    Vector(from: &const Vector<T>) 
-        where T: std::copyable
-    {
-        this.length = *(from.length);
-        this.capacity = *(from.capacity);
-        // We only allocate the size we need
-        this.data = new [T; this.length];
-        let i: uint64 = 0u;
-        while i < this.length {
-            this.data[i] = *from.get(i);
+        while i < this->length {
+            delete this->data[i];
             i = i + 1u;
         }
     }
     //! Creates a new Vector with the specified capacity.
     fun with_capacity(capacity: uint64) -> Vector<T> {
-        let vec = new Vector<T>(new [T; capacity]);
-        vec.length = 0u;
-        return vec;
+        let data = malloc<T>(size_of<T>() * capacity);
+        return Vector<T> {
+            .data = data,
+            .length = 0u,
+            .capacity = capacity,
+        };
     }
     //! Returns the number of elements in the vector.
-    fun len(&const this) -> uint64 {
-        return *this.length;
+    fun len(*const this) -> uint64 {
+        return this->length;
     }
     //! Returns a const reference to the element at `index`.
     //! Panics on out-of-bounds access.
-    fun get(&const this, index: uint64) -> &const T {
-        if index >= *this.length {
+    fun get(*const this, index: uint64) -> *const T {
+        if index >= this->length {
             panic("Index out of bounds");
         }
-        return &((*this.data)[index]);
+        return &this->data[index];
     }
     //! Returns a mutable reference to the element at `index`.
     //! Panics on out-of-bounds access.
-    fun get_mut(&this, index: uint64) -> &T {
-        if index >= this.length {
+    fun get_mut(*this, index: uint64) -> *T {
+        if index >= this->length {
             panic("Index out of bounds");
         }
-        return &(this.data[index]);
+        return &(this->data[index]);
     }
     //! Sets the element at `index` to `val`.
     //! Panics on out-of-bounds access.
-    fun set(&this, index: uint64, val: T) {
-        if index >= this.length {
+    fun set(*this, index: uint64, val: T) {
+        if index >= this->length {
             panic("Index out of bounds");
         }
-        this.data[index] = val;
+        this->data[index] = val;
     }
 
     //! Appends `val` to the end of the vector, resizing if necessary.
-    fun push(&this, val: T) {
-        if this.length >= this.capacity {
+    fun push(*this, val: T) {
+        if this->length >= this->capacity {
             // Resize
             let new_capacity: uint64 = 0u;
-            if this.capacity == 0u {
+            if this->capacity == 0u {
                 new_capacity = 1u;
             } else {
-                new_capacity = this.capacity * 2u;
+                new_capacity = this->capacity * 2u;
             }
-            let new_data = new [T; new_capacity];
+            let new_data = malloc<T>(sizeof<T>() * new_capacity);
             let i: uint64 = 0u;
-            while i < this.length {
-                new_data[i] = this.data[i];
+            while i < this->length {
+                new_data[i] = this->data[i];
                 i = i + 1u;
             }
-            this.data = new_data;
-            this.capacity = new_capacity;
+            free(this->data);
+            this->data = new_data;
+            this->capacity = new_capacity;
         }
-        this.data[this.length] = val;
-        this.length = this.length + 1u;
+        this->data[this->length] = val;
+        this->length = this->length + 1u;
     }
     
     //! Removes and returns the last element of the vector.
     //! Panics when the vector is empty.
-    fun pop(&this) -> T {
-        if this.length == 0u {
+    fun pop(*this) -> T {
+        if this->length == 0u {
             panic("Cannot pop from an empty vector");
         }
-        let popped = memcpy(this.get(this.length - 1u));
-        this.length = this.length - 1u;
+        let popped: T = move<T>(this->get(this->length - 1u));
+        this->length = this->length - 1u;
         return popped;
     }
 
-    //! Consumes the vector and returns an iterator over its elements.
-    //! The vector cannot be used after calling this method.
-    fun into_iter(this) -> Iter<T> {
-        let arr = replace(&this.data, new [T; 0u]);
-        this.length = 0u;
-        delete this;
-        return new Iter<T>(arr);
-    }
     //! Takes an element out of the vector at the specified index,
     //! shifting subsequent elements to the left.
-    fun take(&this, index: uint64) -> T {
+    fun take(*this, index: uint64) -> T {
         // Public method to take an element out of the vector
-        let result = this.try_take(index);
+        let result: optional<T> = this->try_take(index);
         if result.is_empty() {
             panic("Index out of bounds");
         }
         return result.value();
     }
 
-    //! Returns a slice of the underlying array from `start` to `end`.
-    fun get_slice(&this, start: uint64, end: uint64) -> [T] {
-        if start > end || end > this.length {
-            panic("Slice indices out of bounds");
-        }
-        return slice(&this.data, start, end);
-    }
-
 private:
     //! Internal: tries to take an element at `index`, returning an optional.
-    fun try_take(&this, index: uint64) -> optional<T> {
-        if index >= this.length {
+    fun try_take(*this, index: uint64) -> optional<T> {
+        if index >= this->length {
             return optional<T>::empty();
         }
         // We do memcpy and not a call to a copy constructor, because we only
         // need a shallow copy here to move the value out of the container.
         // The underlying data of T doesn't need to itself be copied.
-        let item: T = memcpy(this.get(index));
+        let item: T = move<T>(this->get(index));
         // Shift elements to fill the gap
         let i: uint64 = index;
-        while i + 1u < this.length {
-            this.data[i] = this.data[i + 1u];
+        while i + 1u < this->length {
+            this->data[i] = this->data[i + 1u];
             i = i + 1u;
         }
-        this.length = this.length - 1u;
+        this->length = this->length - 1u;
         return optional<T>::of(item);
     }
+}
+
+fun main() {
+    let vec = Vector<int64>::with_capacity(4u);
+    vec.push(10);
+    vec.push(20);
+    vec.push(30);
+    vec.push(40);
+    printf("Vector length: %lu\n", vec.len());
+    printf("Element at index 2: %ld\n", *vec.get(2u));
+    let popped = vec.pop();
+    printf("Popped element: %ld\n", popped);
+    printf("Vector length after pop: %lu\n", vec.len());
 }

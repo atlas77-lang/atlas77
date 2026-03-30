@@ -7,7 +7,7 @@
 //! the stored value when present.
 
 import "std/io";
-import "std/mem";
+import "std/memory";
 
 
 //! Internal storage for `optional<T>`.
@@ -29,32 +29,14 @@ public struct optional<T> {
 private:
     data: optional_storage<T>;
     has_value: bool;
-    //! Private constructor used by helpers `of` and `empty`.
-    optional(data: optional_storage<T>, has_value: bool) {
-        this.data = data;
-        this.has_value = has_value;
-    }
 public:
     //! Destructor: drops the contained value if present.
     //!
     //! If `has_value` is true, `this.data.value` is deleted. Otherwise,
     //! nothing is performed.
     ~optional() {
-        if (this.has_value) {
-            delete this.data.value;
-        }
-    }
-    optional(from: &const optional<T>)
-        where T: std::copyable
-    {
-        this.has_value = *from.has_value;
-        if (this.has_value) {
-            this.data.value = *from.data.value;
-        } else {
-            this.data = optional_storage<T> {
-                .empty = ()
-            };
-            this.has_value = false;
+        if (this->has_value) {
+            delete this->data.value;
         }
     }
 
@@ -63,49 +45,49 @@ public:
     //! Example:
     //!     let some = optional<int64>::of(42);
     fun of(data: T) -> optional<T> {
-        return new optional<T>(
-            optional_storage<T> { 
+        return optional<T> {
+            .data = optional_storage<T> { 
                 .value = data 
             }, 
-            true
-        );
+            .has_value = true
+        };
     }
     //! Construct an empty `optional<T>` with no value.
     //!
     //! Example:
     //!     let none = optional<int64>::empty();
     fun empty() -> optional<T> {
-        return new optional<T>(
-            optional_storage<T> { 
+        return optional<T> {
+            .data = optional_storage<T> { 
                 .empty = ()
             }, 
-            false
-        );
+            .has_value = false
+        };
     }
-    fun is_empty(&const this) -> bool {
-        return !(*this.has_value);
+    fun is_empty(*const this) -> bool {
+        return !this->has_value;
     }
     //! Returns true if a value is present.
     //!
     //! Example:
     //!     if (opt.has_value()) { println("has value"); }
-    fun has_value(&const this) -> bool {
-        return *this.has_value;
+    fun has_value(*const this) -> bool {
+        return this->has_value;
     }
     //! Consume the optional and return the contained value.
     //!
     //! Panics with a descriptive message when `has_value` is false.
     //! Consider using `value_or(default)` to avoid panics.
-    fun value(this) -> T {
-        if (!this.has_value) {
+    fun value(*this) -> T {
+        if (!this->has_value) {
             panic("Called value on a empty optional");
         }
         // Move the value out before marking as empty
-        let value = memcpy(&this.data.value);
+        let value: T = move(this->data.value);
         // Mark as empty before returning to prevent destructor from double-freeing
-        this.has_value = false;
-        // Delete the container structure itself (but not the value we already moved)
-        delete this;
+        this->has_value = false;
+        // ensure it's really empty to prevent destructor from double-freeing
+        this->data.empty = ();
         return value;
     }
     //! Consume the optional and return the contained value or `default` if empty.
@@ -113,14 +95,14 @@ public:
     //! Example:
     //!     let opt = optional<int64>::empty();
     //!     let n = opt.value_or(0);
-    fun value_or(this, default: T) -> T {
-        if (this.has_value) {
+    fun value_or(*this, default: T) -> T {
+        if (this->has_value) {
             // Move the value out before marking as empty
-            let value = memcpy(&this.data.value);
+            let value: T = move(this->data.value);
             // Mark as empty before returning
-            this.has_value = false;
-            // Delete the container structure itself
-            delete this;
+            this->has_value = false;
+            // ensure it's really empty to prevent destructor from double-freeing
+            this->data.empty = ();
             return value;
         } else {
             delete this;
