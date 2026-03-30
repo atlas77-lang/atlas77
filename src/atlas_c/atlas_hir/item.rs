@@ -1,8 +1,7 @@
 use super::{signature::HirFunctionSignature, stmt::HirBlock};
 use crate::atlas_c::atlas_hir::signature::{
-    HirFlag, HirFunctionParameterSignature, HirStructDestructorSignature, HirStructFieldSignature,
-    HirStructMethodSignature, HirStructSignature, HirTypeParameterItemSignature, HirUnionSignature,
-    HirVisibility,
+    HirFlag, HirStructDestructorSignature, HirStructFieldSignature, HirStructMethodSignature,
+    HirStructSignature, HirUnionSignature, HirVisibility,
 };
 use crate::atlas_c::atlas_hir::ty::HirGenericTy;
 use crate::atlas_c::utils::Span;

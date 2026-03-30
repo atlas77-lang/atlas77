@@ -76,7 +76,7 @@ impl<'hir> HirOwnershipPass<'hir> {
                 );
             }
 
-            function.body = self.transform_block(function.body.clone(), &mut scope_stack, 0);
+            function.body = self.transform_block(function.body.clone(), &mut scope_stack);
         }
 
         if !self.errors.is_empty() {
@@ -96,7 +96,6 @@ impl<'hir> HirOwnershipPass<'hir> {
         &mut self,
         block: HirBlock<'hir>,
         scope_stack: &mut Vec<ScopeFrame<'hir>>,
-        conditional_depth: usize,
     ) -> HirBlock<'hir> {
         scope_stack.push(ScopeFrame::default());
 
@@ -104,24 +103,24 @@ impl<'hir> HirOwnershipPass<'hir> {
         for statement in block.statements {
             match statement {
                 HirStatement::Block(inner) => {
-                    let transformed = self.transform_block(inner, scope_stack, conditional_depth);
+                    let transformed = self.transform_block(inner, scope_stack);
                     statements.push(HirStatement::Block(transformed));
                 }
                 HirStatement::Return(ret) => {
-                    self.validate_expr(&ret.value, scope_stack, conditional_depth);
+                    self.validate_expr(&ret.value, scope_stack);
                     let excluded = self.returned_identifier_name(&ret.value);
                     statements.extend(self.collect_scope_drops(scope_stack, excluded));
                     statements.push(HirStatement::Return(ret));
                 }
                 HirStatement::Expr(expr_stmt) => {
-                    self.validate_expr(&expr_stmt.expr, scope_stack, conditional_depth);
+                    self.validate_expr(&expr_stmt.expr, scope_stack);
                     if let Some((name, span)) = self.deleted_identifier(&expr_stmt.expr) {
                         self.mark_deleted(scope_stack, name, span);
                     }
                     statements.push(HirStatement::Expr(expr_stmt));
                 }
                 HirStatement::Let(let_stmt) => {
-                    self.validate_expr(&let_stmt.value, scope_stack, conditional_depth);
+                    self.validate_expr(&let_stmt.value, scope_stack);
                     self.record_result(self.ensure_identifier_copy_allowed(
                         scope_stack,
                         &let_stmt.value,
@@ -147,7 +146,7 @@ impl<'hir> HirOwnershipPass<'hir> {
                     statements.push(HirStatement::Let(let_stmt));
                 }
                 HirStatement::Const(const_stmt) => {
-                    self.validate_expr(&const_stmt.value, scope_stack, conditional_depth);
+                    self.validate_expr(&const_stmt.value, scope_stack);
                     self.record_result(self.ensure_identifier_copy_allowed(
                         scope_stack,
                         &const_stmt.value,
@@ -173,8 +172,8 @@ impl<'hir> HirOwnershipPass<'hir> {
                     statements.push(HirStatement::Const(const_stmt));
                 }
                 HirStatement::Assign(assign_stmt) => {
-                    self.validate_expr(&assign_stmt.dst, scope_stack, conditional_depth);
-                    self.validate_expr(&assign_stmt.val, scope_stack, conditional_depth);
+                    self.validate_expr(&assign_stmt.dst, scope_stack);
+                    self.validate_expr(&assign_stmt.val, scope_stack);
                     let dst_name = match self.strip_noop_unary(&assign_stmt.dst) {
                         HirExpr::Ident(id) => Some(id.name),
                         _ => None,
@@ -198,22 +197,16 @@ impl<'hir> HirOwnershipPass<'hir> {
                     statements.push(HirStatement::Assign(assign_stmt));
                 }
                 HirStatement::IfElse(mut if_else) => {
-                    self.validate_expr(&if_else.condition, scope_stack, conditional_depth);
+                    self.validate_expr(&if_else.condition, scope_stack);
                     let mut then_stack = scope_stack.clone();
-                    if_else.then_branch = self.transform_block(
-                        if_else.then_branch,
-                        &mut then_stack,
-                        conditional_depth + 1,
-                    );
+                    if_else.then_branch =
+                        self.transform_block(if_else.then_branch, &mut then_stack);
 
                     let mut else_stack: Option<Vec<ScopeFrame<'hir>>> = None;
                     if let Some(else_branch) = if_else.else_branch.take() {
                         let mut local_else_stack = scope_stack.clone();
-                        if_else.else_branch = Some(self.transform_block(
-                            else_branch,
-                            &mut local_else_stack,
-                            conditional_depth + 1,
-                        ));
+                        if_else.else_branch =
+                            Some(self.transform_block(else_branch, &mut local_else_stack));
                         else_stack = Some(local_else_stack);
                     }
 
@@ -221,13 +214,9 @@ impl<'hir> HirOwnershipPass<'hir> {
                     statements.push(HirStatement::IfElse(if_else));
                 }
                 HirStatement::While(mut while_stmt) => {
-                    self.validate_expr(&while_stmt.condition, scope_stack, conditional_depth);
+                    self.validate_expr(&while_stmt.condition, scope_stack);
                     let mut loop_stack = scope_stack.clone();
-                    while_stmt.body = self.transform_block(
-                        while_stmt.body,
-                        &mut loop_stack,
-                        conditional_depth + 1,
-                    );
+                    while_stmt.body = self.transform_block(while_stmt.body, &mut loop_stack);
                     self.merge_control_flow_states(scope_stack, &loop_stack, None);
                     statements.push(HirStatement::While(while_stmt));
                 }
@@ -488,44 +477,35 @@ impl<'hir> HirOwnershipPass<'hir> {
         }
     }
 
-    fn validate_expr(
-        &mut self,
-        expr: &HirExpr<'hir>,
-        scope_stack: &mut Vec<ScopeFrame<'hir>>,
-        conditional_depth: usize,
-    ) {
+    fn validate_expr(&mut self, expr: &HirExpr<'hir>, scope_stack: &mut Vec<ScopeFrame<'hir>>) {
         match self.strip_noop_unary(expr) {
             HirExpr::Ident(id) => {
                 self.record_result(self.validate_identifier_use(scope_stack, id.name, id.span))
             }
-            HirExpr::Delete(del) => self.validate_expr(&del.expr, scope_stack, conditional_depth),
-            HirExpr::Unary(unary) => {
-                self.validate_expr(&unary.expr, scope_stack, conditional_depth)
-            }
-            HirExpr::Casting(cast) => {
-                self.validate_expr(&cast.expr, scope_stack, conditional_depth)
-            }
+            HirExpr::Delete(del) => self.validate_expr(&del.expr, scope_stack),
+            HirExpr::Unary(unary) => self.validate_expr(&unary.expr, scope_stack),
+            HirExpr::Casting(cast) => self.validate_expr(&cast.expr, scope_stack),
             HirExpr::HirBinaryOperation(binary) => {
-                self.validate_expr(&binary.lhs, scope_stack, conditional_depth);
-                self.validate_expr(&binary.rhs, scope_stack, conditional_depth);
+                self.validate_expr(&binary.lhs, scope_stack);
+                self.validate_expr(&binary.rhs, scope_stack);
             }
             HirExpr::Call(call) => {
-                self.validate_expr(&call.callee, scope_stack, conditional_depth);
+                self.validate_expr(&call.callee, scope_stack);
                 for arg in &call.args {
-                    self.validate_expr(arg, scope_stack, conditional_depth);
+                    self.validate_expr(arg, scope_stack);
                     self.record_result(self.ensure_identifier_copy_allowed(scope_stack, arg, None));
                 }
             }
             HirExpr::ListLiteral(list) => {
                 for item in &list.items {
-                    self.validate_expr(item, scope_stack, conditional_depth);
+                    self.validate_expr(item, scope_stack);
                 }
             }
             HirExpr::ListLiteralWithSize(list) => {
                 // list.size > 1, we need to ensure the type isn't being moved into the list multiple times.
                 let size = list.size_as_usize().unwrap_or(0);
                 if size > 1 {
-                    self.validate_expr(&list.item, scope_stack, conditional_depth);
+                    self.validate_expr(&list.item, scope_stack);
                     self.record_result(self.ensure_identifier_copy_allowed(
                         scope_stack,
                         &list.item,
@@ -535,7 +515,7 @@ impl<'hir> HirOwnershipPass<'hir> {
             }
             HirExpr::ObjLiteral(obj) => {
                 for field in &obj.fields {
-                    self.validate_expr(&field.value, scope_stack, conditional_depth);
+                    self.validate_expr(&field.value, scope_stack);
                     self.record_result(self.ensure_identifier_copy_allowed(
                         scope_stack,
                         &field.value,
@@ -543,17 +523,15 @@ impl<'hir> HirOwnershipPass<'hir> {
                     ));
                 }
             }
-            HirExpr::FieldAccess(field) => {
-                self.validate_expr(&field.target, scope_stack, conditional_depth)
-            }
+            HirExpr::FieldAccess(field) => self.validate_expr(&field.target, scope_stack),
             HirExpr::Indexing(indexing) => {
-                self.validate_expr(&indexing.target, scope_stack, conditional_depth);
-                self.validate_expr(&indexing.index, scope_stack, conditional_depth);
+                self.validate_expr(&indexing.target, scope_stack);
+                self.validate_expr(&indexing.index, scope_stack);
             }
             HirExpr::StaticAccess(_) => {}
             HirExpr::IntrinsicCall(intrinsic) => {
                 for arg in &intrinsic.args {
-                    self.validate_expr(arg, scope_stack, conditional_depth);
+                    self.validate_expr(arg, scope_stack);
                 }
                 if intrinsic.name == "move"
                     && let Some(first_arg) = intrinsic.args.first()

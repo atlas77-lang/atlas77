@@ -1625,8 +1625,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         })
                     }
                     AstLiteral::ListWithSize(l) => {
-                        let item = self.visit_expr(&l.item)?;
-                        let size = self.visit_expr(&l.size)?;
+                        let item = self.visit_expr(l.item)?;
+                        let size = self.visit_expr(l.size)?;
                         HirExpr::ListLiteralWithSize(HirListLiteralWithSizeExpr {
                             span: l.span,
                             item: Box::new(item),
