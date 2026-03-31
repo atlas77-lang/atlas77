@@ -322,8 +322,6 @@ pub enum TokenKind {
     ThisTy,
     #[token("string")]
     StrTy,
-    #[token("ptr")]
-    PtrTy,
     // === Keywords for compile-time ===
     #[token("comptime")]
     KwComptime,

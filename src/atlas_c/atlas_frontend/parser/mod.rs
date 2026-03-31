@@ -2263,17 +2263,6 @@ impl<'ast> Parser<'ast> {
                     ret: self.arena.alloc(ret),
                 })
             }
-            TokenKind::PtrTy => {
-                let _ = self.advance();
-                self.expect(TokenKind::LAngle)?;
-                let ty = self.parse_type()?;
-                self.expect(TokenKind::RAngle)?;
-                AstType::PtrTy(AstPtrTy {
-                    inner: self.arena.alloc(ty),
-                    span: Span::union_span(&start, &self.current().span()),
-                    is_const: false,
-                })
-            }
             // For readonly types: const T
             TokenKind::KwConst => {
                 let start = self.advance().span;
