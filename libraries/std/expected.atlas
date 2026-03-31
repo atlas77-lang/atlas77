@@ -1,3 +1,5 @@
+import "std/io";
+
 //! Storage for `expected<T, E>`.
 //!
 //! Holds either an `expected_value: T` when the computation succeeded,
@@ -18,27 +20,12 @@ public struct expected<T, E> {
 private:
     data: expected_storage<T, E>;
     has_expected_value: bool;
-    //! Private constructor used by `expect` and `unexpected`.
-    expected(data: expected_storage<T, E>, has_expected_value: bool) {
-        this.data = data;
-        this.has_expected_value = has_expected_value;
-    }
 public:
     ~expected() {
-        if (this.has_expected_value) {
-            delete this.data.expected_value;
+        if (this->has_expected_value) {
+            delete this->data.expected_value;
         } else {
-            delete this.data.unexpected_value;
-        }
-    }
-    expected(from: &const expected<T, E>) 
-        where T: std::copyable, E: std::copyable
-    {
-        this.has_expected_value = *(from.has_expected_value);
-        if (this.has_expected_value) {
-            this.data.expected_value = copy<>(*(from.data.expected_value));
-        } else {
-            this.data.unexpected_value = copy<>(*(from.data.unexpected_value));
+            delete this->data.unexpected_value;
         }
     }
     //! Construct a successful `expected` containing `data`.
@@ -46,68 +33,87 @@ public:
     //! Example:
     //!     let e = expected<int64, string>::expect(42);
     fun expect(data: T) -> expected<T, E> {
-        return new expected<T, E>(
-            expected_storage<T, E> { 
-                .expected_value = data 
-            }, 
-            true
-        );
+        return expected<T, E> {
+                .data = expected_storage<T, E> { 
+                    .expected_value = data 
+                }, 
+                .has_expected_value = true
+            };
     }
     //! Construct a failing `expected` containing `error`.
     //!
     //! Example:
     //!     let e = expected<int64, string>::unexpected("oops");
     fun unexpected(error: E) -> expected<T, E> {
-        return new expected<T, E>(
-            expected_storage<T, E> { 
+        return expected<T, E> {
+            .data = expected_storage<T, E> { 
                 .unexpected_value = error 
             }, 
-            false
-        );
+            .has_expected_value = false
+        };
     }
     //! Returns true if this holds an expected value.
-    fun is_expected(&this) -> bool {
-        return this.has_expected_value;
+    fun is_expected(*const this) -> bool {
+        return this->has_expected_value;
     }
     //! Returns true if this holds an unexpected error.
-    fun is_unexpected(&this) -> bool {
-        return !this.has_expected_value;
+    fun is_unexpected(*const this) -> bool {
+        return !this->has_expected_value;
     }
     //! Consume the expected and return the contained value, panicking if this is an unexpected error.
     //!
     //! Consider using `expected_value_or(default)` to avoid panics.
-    fun expected_value(this) -> T {
-        if (!this.has_expected_value) {
+    fun expected_value(*this) -> T {
+        if (!this->has_expected_value) {
             panic("called expected_value() on an unexpected error");
         } else {
-            return this.data.expected_value;
+            this->has_expected_value = false; // Prevent double delete in destructor
+            return this->data.expected_value;
         }
     }
     //! Consume the expected and return the contained error, panicking if this is an expected value.
     //!
     //! Consider using `unexpected_value_or(default)` to avoid panics.
-    fun unexpected_value(this) -> E {
-        if (this.has_expected_value) {
+    fun unexpected_value(*this) -> E {
+        if (this->has_expected_value) {
             panic("called unexpected_value() on an expected value");
         } else {
-            return this.data.unexpected_value;
+            this->has_expected_value = false; // Prevent double delete in destructor
+            return this->data.unexpected_value;
         }
     }
     //! Consume the expected and return the contained value, or return `default` if this is an unexpected error.
-    fun expected_value_or(this, default: T) -> T {
-        if (this.has_expected_value) {
-            return this.data.expected_value;
+    fun expected_value_or(*this, default: T) -> T {
+        if (this->has_expected_value) {
+            return this->data.expected_value;
         } else {
             return default;
         }
     }
 
     //! Consume the expected and return the contained error, or return `default` if this is an expected value.
-    fun unexpected_value_or(this, default: E) -> E {
-        if (!this.has_expected_value) {
-            return this.data.unexpected_value;
+    fun unexpected_value_or(*this, default: E) -> E {
+        if (!this->has_expected_value) {
+            return this->data.unexpected_value;
         } else {
             return default;
         }
+    }
+}
+
+fun main() {
+    let success = expected<int64, *uint8>::expect(42); //NB: The turbo fish operator is also accepted: expected::<int64, *uint8>::expect(42)
+    let failure = expected<int64, *uint8>::unexpected("error");
+    assert(success.is_expected());
+    assert(!success.is_unexpected());
+    assert(!failure.is_expected());
+    assert(failure.is_unexpected());
+    assert(success.expected_value() == 42);
+    assert(failure.unexpected_value() == "error");
+}
+
+fun assert(cond: bool) {
+    if (!cond) {
+        panic("Assertion failed");
     }
 }
