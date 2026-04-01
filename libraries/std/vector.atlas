@@ -131,16 +131,3 @@ private:
         return optional<T>::of(item);
     }
 }
-
-fun main() {
-    let vec = Vector<int64>::with_capacity(4u);
-    vec.push(10);
-    vec.push(20);
-    vec.push(30);
-    vec.push(40);
-    printf("Vector length: %lu\n", vec.len());
-    printf("Element at index 2: %ld\n", *vec.get(2u));
-    let popped = vec.pop();
-    printf("Popped element: %ld\n", popped);
-    printf("Vector length after pop: %lu\n", vec.len());
-}

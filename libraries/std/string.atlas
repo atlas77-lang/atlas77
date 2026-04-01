@@ -198,14 +198,3 @@ public:
         };
     }
 }
-
-fun main()
-{
-    let str: const String = String::from_chars("Hello World");
-    printf("Normal: %s\n", str.c_str());
-    let str_ptr: *String = &str;
-    printf("Pointer: %s\n", str_ptr->c_str());
-
-    let concatenated = str.concat(&str);
-    printf("Concatenated: %s\n", concatenated.c_str());
-}

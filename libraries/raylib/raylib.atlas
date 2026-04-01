@@ -300,23 +300,6 @@ extern fun GetRandomValue(min: int32, max: int32) -> int32;
 
 extern fun printf<T>(format: string, value: T);
 
-
-fun main() {
-    InitWindow(2400, 1800, "Atlas77 Game!");
-
-    while (!WindowShouldClose()) {
-        BeginDrawing();
-        ClearBackground(Color::BLACK());
-
-        DrawText("Hello from Atlas77!", 30, 30, 60, Color::WHITE());
-        DrawFPS(30, 120);
-
-        EndDrawing();
-    }
-
-    CloseWindow();
-}
-
 //------------------------------------------------------------------------------------
 // Program main entry point
 //------------------------------------------------------------------------------------

@@ -100,20 +100,3 @@ public:
         }
     }
 }
-
-fun main() {
-    let success = expected<int64, *uint8>::expect(42); //NB: The turbo fish operator is also accepted: expected::<int64, *uint8>::expect(42)
-    let failure = expected<int64, *uint8>::unexpected("error");
-    assert(success.is_expected());
-    assert(!success.is_unexpected());
-    assert(!failure.is_expected());
-    assert(failure.is_unexpected());
-    assert(success.expected_value() == 42);
-    assert(failure.unexpected_value() == "error");
-}
-
-fun assert(cond: bool) {
-    if (!cond) {
-        panic("Assertion failed");
-    }
-}
