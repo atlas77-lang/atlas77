@@ -228,7 +228,11 @@ impl<'hir> HirOwnershipPass<'hir> {
         }
 
         // Block exit RAII: destroy surviving locals declared in this scope in reverse order.
-        if let Some(frame) = scope_stack.last() {
+        // When the block ends with an explicit return, return handling already emits
+        // the required scope drops and preserves returned ownership transfer.
+        if !matches!(statements.last(), Some(HirStatement::Return(_)))
+            && let Some(frame) = scope_stack.last()
+        {
             let mut tail_drops = Vec::new();
             for local in frame.locals.iter().rev() {
                 if !matches!(frame.states.get(local.name), Some(OwnershipState::Alive)) {
