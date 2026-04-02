@@ -2,23 +2,29 @@ import "std/io";
 import "std/math"; // For random number generation
 import "std/string";
 
+extern fun srand(seed: uint64);
+extern fun rand() -> uint64;
+extern fun time(second: *unit) -> uint64;
+extern fun atoi(s: *const uint8) -> int64;
+
 fun main() {
     println("Welcome to the Guessing Game!");
-    let secret_number = random(1, 101); // Random number between 1 and 100
-    let guessed_correctly = false;
+    srand(time(null)); // Initialize random seed
+    let secret_number: int64 = ((rand() % 100) + 1) as int64; // Random number between 1 and 100
+    let guessed_correctly: bool = false;
 
     while !guessed_correctly {
         print("Please enter your guess (1-100): ");
-        let input = input();
-        let guess_str = trim(input);
-        let guess = guess_str as int64;
+        let input: String = input();
+        let guess_str: String = input.copy(); // Remove leading/trailing whitespace
+        let guess: int64 = atoi(guess_str.c_str()); // Convert string to integer
         if guess < secret_number {
             println("Too small!");
         } else if guess > secret_number {
             println("Too big!");
         } else {
             print("You guessed it! The secret number was ");
-            print(secret_number);
+            printf("%d", secret_number);
             println(".");
             guessed_correctly = true;
         }        
