@@ -1475,6 +1475,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     callee_span: callee.span(),
                     args,
                     generics,
+                    is_reference: c.is_reference,
                     args_ty: Vec::new(),
                     ty: self.arena.types().get_uninitialized_ty(),
                     kind: HirFunctionKind::Function,

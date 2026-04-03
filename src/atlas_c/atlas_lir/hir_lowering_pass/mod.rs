@@ -935,6 +935,33 @@ impl<'hir> HirLoweringPass<'hir> {
 
             // === Function calls ===
             HirExpr::Call(call) => {
+                if call.is_reference {
+                    if let HirExpr::Ident(ident) = call.callee.as_ref() {
+                        let func_name = if !call.generics.is_empty()
+                            && !self.hir_module.signature.functions.contains_key(ident.name)
+                        {
+                            MonomorphizationPass::generate_mangled_name(
+                                self.hir_arena,
+                                &HirGenericTy {
+                                    name: ident.name,
+                                    inner: call
+                                        .generics
+                                        .iter()
+                                        .map(|g| (*g).clone())
+                                        .collect::<Vec<_>>(),
+                                    span: ident.span,
+                                },
+                                "function",
+                            )
+                            .to_string()
+                        } else {
+                            ident.name.to_string()
+                        };
+                        return Ok(LirOperand::GlobalFn(func_name));
+                    }
+                    return Err(unsupported_expr(expr.span(), format!("{:?}", expr)));
+                }
+
                 // Indirect call through a function value (identifier variable, field, static field, etc.).
                 if let HirTy::Function(fn_ty) = call.callee.ty() {
                     let callee = self.lower_expr(&call.callee)?;

@@ -114,12 +114,20 @@ impl<'ast> Parser<'ast> {
                 TokenKind::LAngle => depth += 1,
                 TokenKind::RAngle => {
                     if depth == 0 {
-                        // Found matching `>`, check if `(` or `::` follows
+                        // Found matching `>`, check if this can be used as a generic suffix.
+                        // This includes calls (`foo<T>(...)`), static access (`Foo<T>::bar`),
+                        // object literals (`Foo<T> {...}`), and standalone generic refs (`foo<T>`).
                         return matches!(
                             self.peek_at(offset + 1),
                             Some(TokenKind::LParen)
                                 | Some(TokenKind::DoubleColon)
                                 | Some(TokenKind::LBrace)
+                                | Some(TokenKind::Semicolon)
+                                | Some(TokenKind::Comma)
+                                | Some(TokenKind::RParen)
+                                | Some(TokenKind::RBracket)
+                                | Some(TokenKind::RBrace)
+                                | Some(TokenKind::EoI)
                         );
                     }
                     depth -= 1;
@@ -1481,14 +1489,7 @@ impl<'ast> Parser<'ast> {
                             node = AstExpr::ObjLiteral(self.parse_obj_literal(node, generics)?);
                             return Ok(node);
                         } else {
-                            return Err(self.unexpected_token_error(
-                                TokenVec(vec![
-                                    TokenKind::LParen,
-                                    TokenKind::DoubleColon,
-                                    TokenKind::LBrace,
-                                ]),
-                                &self.current().span,
-                            ));
+                            node = AstExpr::Call(self.parse_fn_reference(node, generics)?);
                         }
                     } else {
                         //Not a generic call, let the binary operator parser handle it
@@ -1996,6 +1997,23 @@ impl<'ast> Parser<'ast> {
             callee: self.arena.alloc(callee),
             args: self.arena.alloc_vec(args),
             generics: self.arena.alloc_vec(instantiated_generics),
+            is_reference: false,
+        };
+        Ok(node)
+    }
+
+    fn parse_fn_reference(
+        &mut self,
+        callee: AstExpr<'ast>,
+        instantiated_generics: Vec<AstType<'ast>>,
+    ) -> ParseResult<AstCallExpr<'ast>> {
+        let span = callee.span();
+        let node = AstCallExpr {
+            span,
+            callee: self.arena.alloc(callee),
+            args: self.arena.alloc_vec(vec![]),
+            generics: self.arena.alloc_vec(instantiated_generics),
+            is_reference: true,
         };
         Ok(node)
     }

@@ -561,6 +561,9 @@ pub struct AstCallExpr<'ast> {
     pub callee: &'ast AstExpr<'ast>,
     pub args: &'ast [&'ast AstExpr<'ast>],
     pub generics: &'ast [&'ast AstType<'ast>],
+    /// True when this expression denotes a generic function value reference
+    /// (e.g. `add<int64>`) rather than an invocation.
+    pub is_reference: bool,
 }
 
 #[derive(Debug, Clone)]

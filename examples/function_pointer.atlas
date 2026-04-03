@@ -23,6 +23,17 @@ public:
     }
 }
 
+struct GenericStruct<T>
+{
+public:
+    value: T;
+    fun add(a: T, b: T) -> T
+    {
+        // This is just a placeholder implementation. In a real scenario, you'd have some logic here.
+        return a + b;
+    }
+}
+
 fun apply_twice(fn: fun(int32, int32) -> int32, a: int32, b: int32) -> int32
 {
     return fn(a, b) + fn(b, a);
@@ -54,9 +65,26 @@ fun main()
     let static_method_ptr: fun(int32, int32) -> int32 = Foo::add;
     let static_result = static_method_ptr(8, 9);
     printf("Static method pointer Result: %d\n", static_result);
+
+    let pick_i64: fun(int64, int64) -> int64 = pick_first<int64>;
+    let pick_i64_result = pick_i64(111, 222);
+    printf("Generic fn ptr int64 Result: %d\n", pick_i64_result);
+
+    let pick_u8: fun(uint8, uint8) -> uint8 = pick_first<uint8>;
+    let pick_u8_result = pick_u8(42, 99);
+    printf("Generic fn ptr uint8 Result: %u\n", pick_u8_result);
+
+    let generic_add = GenericStruct<int64>::add;
+    let generic_result = generic_add(10, 20);
+    printf("Generic struct Result: %d\n", generic_result);
 }
 
 fun add(a: int32, b: int32) -> int32
 {
     return a + b;
+}
+
+fun pick_first<T>(a: T, _b: T) -> T
+{
+    return a;
 }

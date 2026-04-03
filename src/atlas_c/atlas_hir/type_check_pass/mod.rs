@@ -1417,8 +1417,11 @@ impl<'hir> TypeChecker<'hir> {
                 Ok(obj_lit.ty)
             }
             HirExpr::Call(func_expr) => {
-                let path = func_expr.span.path;
+                if func_expr.is_reference {
+                    return self.check_generic_function_reference(func_expr);
+                }
 
+                let path = func_expr.span.path;
                 let callee = func_expr.callee.as_mut();
                 match callee {
                     HirExpr::Ident(i) => {
@@ -2107,6 +2110,108 @@ impl<'hir> TypeChecker<'hir> {
                 intrinsic.ty = ty;
                 Ok(ty)
             }
+        }
+    }
+
+    fn check_generic_function_reference(
+        &mut self,
+        func_expr: &mut expr::HirFunctionCallExpr<'hir>,
+    ) -> HirResult<&'hir HirTy<'hir>> {
+        let path = func_expr.span.path;
+        let callee = func_expr.callee.as_mut();
+        match callee {
+            HirExpr::Ident(i) => {
+                let base_func = self.signature.functions.get(i.name).copied();
+                let is_external = base_func.map(|f| f.is_external).unwrap_or(false);
+
+                let name = if func_expr.generics.is_empty() || is_external {
+                    i.name
+                } else {
+                    MonomorphizationPass::generate_mangled_name(
+                        self.arena,
+                        &HirGenericTy {
+                            name: i.name,
+                            inner: func_expr.generics.iter().map(|g| (*g).clone()).collect(),
+                            span: i.span,
+                        },
+                        "function",
+                    )
+                };
+
+                let func = match self.signature.functions.get(name) {
+                    Some(f) => *f,
+                    None => {
+                        return Err(Self::unknown_identifier_err(i.name, &i.span));
+                    }
+                };
+
+                if !func.generics.is_empty() && func_expr.generics.is_empty() {
+                    return Err(Self::type_mismatch_err(
+                        "generic function reference with explicit type arguments",
+                        &func_expr.span,
+                        i.name,
+                        &i.span,
+                    ));
+                }
+
+                let mut generic_pairs: Vec<(&'hir str, &'hir HirTy<'hir>)> = Vec::new();
+                for (generic_param, concrete_ty) in
+                    func.generics.iter().zip(func_expr.generics.iter())
+                {
+                    generic_pairs.push((generic_param.generic_name, concrete_ty));
+                }
+
+                let params: Vec<&'hir HirTy<'hir>> = func
+                    .params
+                    .iter()
+                    .map(|param| {
+                        if let Some(generic_name) = Self::get_generic_name(param.ty) {
+                            if let Some((_, concrete_ty)) =
+                                generic_pairs.iter().find(|(name, _)| *name == generic_name)
+                            {
+                                self.get_generic_ret_ty(param.ty, concrete_ty)
+                            } else {
+                                param.ty
+                            }
+                        } else {
+                            param.ty
+                        }
+                    })
+                    .collect();
+
+                let ret_ty = if let Some(generic_name) =
+                    Self::get_generic_name(self.arena.intern(func.return_ty.clone()))
+                {
+                    if let Some((_, concrete_ty)) =
+                        generic_pairs.iter().find(|(name, _)| *name == generic_name)
+                    {
+                        self.get_generic_ret_ty(
+                            self.arena.intern(func.return_ty.clone()),
+                            concrete_ty,
+                        )
+                    } else {
+                        self.arena.intern(func.return_ty.clone())
+                    }
+                } else {
+                    self.arena.intern(func.return_ty.clone())
+                };
+
+                let fn_ty = self.arena.types().get_function_ty_with_spans(
+                    params,
+                    func.params.iter().map(|p| p.ty_span).collect(),
+                    ret_ty,
+                    func.return_ty_span.unwrap_or(func.span),
+                    func.span,
+                );
+                i.ty = fn_ty;
+                func_expr.ty = fn_ty;
+                Ok(fn_ty)
+            }
+            _ => Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                span: func_expr.span,
+                expr: "Generic function reference on non-identifier expression".to_string(),
+                src: NamedSource::new(path, utils::get_file_content(path).unwrap()),
+            })),
         }
     }
 
