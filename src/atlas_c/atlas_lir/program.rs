@@ -30,7 +30,7 @@ impl LirProgram {
             LirTy::Int32 | LirTy::UInt32 | LirTy::Float32 => (4, 4),
             LirTy::Int64 | LirTy::UInt64 | LirTy::Float64 => (8, 8),
             LirTy::Char => (4, 4),
-            LirTy::Str | LirTy::Ptr { .. } | LirTy::Unit => (8, 8),
+            LirTy::Str | LirTy::Ptr { .. } | LirTy::FnPtr { .. } | LirTy::Unit => (8, 8),
             LirTy::ArrayTy { inner, size } => {
                 let (inner_size, inner_align) = self.layout_of_ty(inner, visiting);
                 (inner_size.saturating_mul(*size), inner_align)
@@ -208,6 +208,7 @@ pub enum LirTy {
     // Unicode Character
     Char,
     Unit,
+    FnPtr { ret: Box<LirTy>, args: Vec<LirTy> },
     Ptr { is_const: bool, inner: Box<LirTy> },
     StructType(String),
     UnionType(String),
@@ -345,6 +346,13 @@ pub enum LirInstr {
         func_name: String,
         args: Vec<LirOperand>,
     },
+    CallPtr {
+        ty: LirTy,
+        dst: Option<LirOperand>,
+        callee: LirOperand,
+        args: Vec<LirOperand>,
+        param_tys: Vec<LirTy>,
+    },
     HeapAllocCopy {
         ty: LirTy,
         dst: LirOperand,
@@ -400,6 +408,7 @@ pub enum LirOperand {
     /// e.g., t1, t2, etc.
     Temp(u32),
     Arg(u8),
+    GlobalFn(String),
     Const(ConstantValue),
     // Should those two be operands or instructions?
     Deref(Box<LirOperand>),

@@ -1,0 +1,62 @@
+extern fun printf<T>(format: *const uint8, data: T);
+
+struct Foo
+{
+public:
+    my_amazing_fn_pointer: fun(int32, int32) -> int32;
+    const_add_pointer: fun(*const Foo, int32) -> int32;
+    mutable_add_pointer: fun(*Foo, int32) -> int32;
+
+    fun add(a: int32, b: int32) -> int32
+    {
+        return a + b;
+    }
+
+    fun add_const(*const this, value: int32) -> int32
+    {
+        return value + 100;
+    }
+
+    fun add_mut(*this, value: int32) -> int32
+    {
+        return value + 200;
+    }
+}
+
+fun apply_twice(fn: fun(int32, int32) -> int32, a: int32, b: int32) -> int32
+{
+    return fn(a, b) + fn(b, a);
+}
+
+fun main()
+{
+    let add_fn: fun(int32, int32) -> int32 = add;
+    let result = add_fn(2, 3);
+    printf("Result: %d\n", result);
+
+    let applied = apply_twice(add_fn, 4, 5);
+    printf("Apply twice: %d\n", applied);
+
+    let foo = Foo {
+        .my_amazing_fn_pointer = add_fn,
+        .const_add_pointer = Foo::add_const,
+        .mutable_add_pointer = Foo::add_mut,
+    };
+    let foo_result = foo.my_amazing_fn_pointer(5, 7);
+    printf("Foo Result: %d\n", foo_result);
+
+    let const_result = foo.const_add_pointer(&foo, 11);
+    printf("Const method pointer Result: %d\n", const_result);
+
+    let mut_result = foo.mutable_add_pointer(&foo, 13);
+    printf("Mutable method pointer Result: %d\n", mut_result);
+
+    let static_method_ptr: fun(int32, int32) -> int32 = Foo::add;
+    let static_result = static_method_ptr(8, 9);
+    printf("Static method pointer Result: %d\n", static_result);
+}
+
+fun add(a: int32, b: int32) -> int32
+{
+    return a + b;
+}

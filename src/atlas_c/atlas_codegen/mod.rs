@@ -211,7 +211,7 @@ impl CCodeGen {
                 LirTy::ArrayTy { .. } => {
                     format!("\t{};\n", self.codegen_array_decl(field_type, field_name))
                 }
-                _ => format!("\t{} {};\n", self.codegen_type(field_type), field_name),
+                _ => format!("\t{};\n", self.codegen_declaration(field_type, field_name)),
             };
             struct_def.push_str(&field_sig);
         }
@@ -245,12 +245,9 @@ impl CCodeGen {
     }
 
     fn codegen_signature(&mut self, name: &str, args: &[LirTy], ret: &LirTy) -> String {
-        let mut prototype = format!("{} {}(", self.codegen_type(ret), name);
+        let mut prototype = format!("{}(", self.codegen_return_type(ret, name));
         for (i, arg) in args.iter().enumerate() {
-            let arg_sig = match arg {
-                LirTy::ArrayTy { .. } => self.codegen_array_decl(arg, &format!("arg_{}", i)),
-                _ => format!("{} arg_{}", self.codegen_type(arg), i),
-            };
+            let arg_sig = self.codegen_declaration(arg, &format!("arg_{}", i));
             self.codegen_type(arg);
             // For now, just name args arg0, arg1, etc.
             prototype.push_str(&arg_sig);
@@ -277,6 +274,43 @@ impl CCodeGen {
         decl
     }
 
+    fn codegen_declaration(&mut self, ty: &LirTy, name: &str) -> String {
+        match ty {
+            LirTy::FnPtr { ret, args } => {
+                let ret_str = self.codegen_type(ret);
+                let args_str = if args.is_empty() {
+                    "void".to_string()
+                } else {
+                    args.iter()
+                        .map(|arg| self.codegen_type(arg))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+                format!("{} (*{})({})", ret_str, name, args_str)
+            }
+            LirTy::ArrayTy { .. } => self.codegen_array_decl(ty, name),
+            _ => format!("{} {}", self.codegen_type(ty), name),
+        }
+    }
+
+    fn codegen_return_type(&mut self, ty: &LirTy, name: &str) -> String {
+        match ty {
+            LirTy::FnPtr { ret, args } => {
+                let ret_str = self.codegen_type(ret);
+                let args_str = if args.is_empty() {
+                    "void".to_string()
+                } else {
+                    args.iter()
+                        .map(|arg| self.codegen_type(arg))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+                format!("{} (*{} )({})", ret_str, name, args_str).replace("* ", "*")
+            }
+            _ => format!("{} {}", self.codegen_type(ty), name),
+        }
+    }
+
     fn codegen_type(&mut self, ty: &LirTy) -> String {
         match ty {
             LirTy::Unit => "void".to_string(),
@@ -293,6 +327,18 @@ impl CCodeGen {
             LirTy::Boolean => "bool".to_string(),
             LirTy::Char => "uint32_t".to_string(),
             LirTy::Str => "uint8_t*".to_string(),
+            LirTy::FnPtr { ret, args } => {
+                let ret_str = self.codegen_type(ret);
+                let args_str = if args.is_empty() {
+                    "void".to_string()
+                } else {
+                    args.iter()
+                        .map(|arg| self.codegen_type(arg))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+                format!("{} (*)({})", ret_str, args_str)
+            }
             LirTy::Ptr { is_const, inner } => {
                 let inner_type = self.codegen_type(inner);
                 format!("{}{}*", if *is_const { "const " } else { "" }, inner_type)
@@ -553,7 +599,7 @@ impl CCodeGen {
             LirInstr::LoadImm { ty, dst, value } => {
                 let dest_str = self.codegen_operand(dst);
                 let value = self.codegen_operand(value);
-                let line = format!("{} {} = {};", self.codegen_type(ty), dest_str, value);
+                let line = format!("{} = {};", self.codegen_declaration(ty, &dest_str), value);
                 Self::write_to_file(&mut self.c_file, &line, self.indent_level);
             }
             LirInstr::LoadConst { dst, value } => {
@@ -615,6 +661,46 @@ impl CCodeGen {
                     Self::write_to_file(&mut self.c_file, &line, self.indent_level);
                 } else {
                     let line = format!("{}({});", func_name, args_joined);
+                    Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+                }
+            }
+            LirInstr::CallPtr {
+                dst,
+                callee,
+                args,
+                ty,
+                param_tys,
+            } => {
+                let args_str: Vec<String> =
+                    args.iter().map(|arg| self.codegen_operand(arg)).collect();
+                let args_joined = args_str.join(", ");
+                let callee_expr = self.codegen_operand(callee);
+                let param_list = if param_tys.is_empty() {
+                    String::from("void")
+                } else {
+                    param_tys
+                        .iter()
+                        .map(|p| self.codegen_type(p))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+                let call_expr = format!(
+                    "(({} (*)({})){})({})",
+                    self.codegen_type(ty),
+                    param_list,
+                    callee_expr,
+                    args_joined
+                );
+
+                if *ty == LirTy::Unit {
+                    let line = format!("{};", call_expr);
+                    Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+                } else if let Some(dest_op) = dst {
+                    let dest_str = self.codegen_operand(dest_op);
+                    let line = format!("{} {} = {};", self.codegen_type(ty), dest_str, call_expr);
+                    Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+                } else {
+                    let line = format!("{};", call_expr);
                     Self::write_to_file(&mut self.c_file, &line, self.indent_level);
                 }
             }
@@ -776,6 +862,7 @@ impl CCodeGen {
         match operand {
             LirOperand::Arg(a) => format!("arg_{}", a),
             LirOperand::Temp(t) => format!("temp_{}", t),
+            LirOperand::GlobalFn(name) => name.to_string(),
             LirOperand::Const(c) => match c {
                 ConstantValue::Int(i) => format!("{}", i),
                 ConstantValue::UInt(u) => format!("{}", u),

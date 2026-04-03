@@ -584,7 +584,9 @@ pub struct HirStringTy {}
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct HirFunctionTy<'hir> {
     pub ret_ty: &'hir HirTy<'hir>,
+    pub ret_ty_span: Span,
     pub params: Vec<HirTy<'hir>>,
+    pub param_spans: Vec<Span>,
     pub span: Span,
 }
 

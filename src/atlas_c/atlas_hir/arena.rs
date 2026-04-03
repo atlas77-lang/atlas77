@@ -254,10 +254,12 @@ impl<'arena> TypeArena<'arena> {
         })
     }
 
-    pub fn get_function_ty(
+    pub fn get_function_ty_with_spans(
         &'arena self,
         params: Vec<&'arena HirTy<'arena>>,
+        param_spans: Vec<Span>,
         ret_ty: &'arena HirTy<'arena>,
+        ret_ty_span: Span,
         span: Span,
     ) -> &'arena HirTy<'arena> {
         let param_ids = params.iter().map(|t| HirTyId::from(*t)).collect::<Vec<_>>();
@@ -267,9 +269,20 @@ impl<'arena> TypeArena<'arena> {
             let params_owned = params.iter().map(|t| (*t).clone()).collect::<Vec<_>>();
             self.allocator.alloc(HirTy::Function(HirFunctionTy {
                 ret_ty,
+                ret_ty_span,
                 params: params_owned,
+                param_spans,
                 span,
             }))
         })
+    }
+
+    pub fn get_function_ty(
+        &'arena self,
+        params: Vec<&'arena HirTy<'arena>>,
+        ret_ty: &'arena HirTy<'arena>,
+        span: Span,
+    ) -> &'arena HirTy<'arena> {
+        self.get_function_ty_with_spans(params, vec![], ret_ty, span, span)
     }
 }

@@ -11,7 +11,7 @@ use crate::atlas_c::{
         monomorphization_pass::generic_pool::HirGenericPool,
         signature::{HirGenericConstraint, HirGenericConstraintKind, HirModuleSignature},
         stmt::HirStatement,
-        ty::{HirGenericTy, HirInlineArrayTy, HirPtrTy, HirSliceTy, HirTy},
+        ty::{HirFunctionTy, HirGenericTy, HirInlineArrayTy, HirPtrTy, HirSliceTy, HirTy},
     },
     utils::{self, Span},
 };
@@ -924,6 +924,24 @@ impl<'hir> MonomorphizationPass<'hir> {
                     inner: new_inner,
                     is_const: ptr_ty.is_const,
                     span: ptr_ty.span,
+                }))
+            }
+            HirTy::Function(fn_ty) => {
+                let new_ret = self.swap_generic_types_in_ty(fn_ty.ret_ty, types_to_change.clone());
+                let new_params = fn_ty
+                    .params
+                    .iter()
+                    .map(|p| {
+                        self.swap_generic_types_in_ty(p, types_to_change.clone())
+                            .clone()
+                    })
+                    .collect();
+                self.arena.intern(HirTy::Function(HirFunctionTy {
+                    ret_ty: new_ret,
+                    ret_ty_span: fn_ty.ret_ty_span,
+                    params: new_params,
+                    param_spans: fn_ty.param_spans.clone(),
+                    span: fn_ty.span,
                 }))
             }
             _ => ty,

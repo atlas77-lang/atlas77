@@ -1874,15 +1874,20 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
             AstType::Function(func_ty) => {
                 let span = func_ty.span;
+                let param_spans = func_ty.args.iter().map(|arg| arg.span()).collect();
                 let parameters = func_ty
                     .args
                     .iter()
                     .map(|arg| self.visit_ty(arg))
                     .collect::<HirResult<Vec<_>>>()?;
                 let return_ty = self.visit_ty(func_ty.ret)?;
-                self.arena
-                    .types()
-                    .get_function_ty(parameters, return_ty, span)
+                self.arena.types().get_function_ty_with_spans(
+                    parameters,
+                    param_spans,
+                    return_ty,
+                    func_ty.ret.span(),
+                    span,
+                )
             }
             AstType::Const(_) => {
                 let path = node.span().path;

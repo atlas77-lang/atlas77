@@ -2238,11 +2238,12 @@ impl<'ast> Parser<'ast> {
                     })
                 }
             }
-            TokenKind::LParen => {
+            TokenKind::KwFunc => {
                 let _ = self.advance();
-                let mut types = vec![];
+                self.expect(TokenKind::LParen)?;
+                let mut arg_types = vec![];
                 while self.current().kind() != TokenKind::RParen {
-                    types.push(self.parse_type()?);
+                    arg_types.push(self.parse_type()?);
                     if self.current().kind() == TokenKind::Comma {
                         let _ = self.advance();
                     }
@@ -2251,12 +2252,12 @@ impl<'ast> Parser<'ast> {
 
                 self.expect(TokenKind::RArrow)?;
 
-                let ret = self.parse_type()?;
+                let ret_type = self.parse_type()?;
 
                 AstType::Function(AstFunctionType {
                     span: Span::union_span(&start, &self.current().span()),
-                    args: self.arena.alloc_vec(types),
-                    ret: self.arena.alloc(ret),
+                    args: self.arena.alloc_vec(arg_types),
+                    ret: self.arena.alloc(ret_type),
                 })
             }
             // For readonly types: const T

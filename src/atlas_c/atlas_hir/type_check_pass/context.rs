@@ -79,7 +79,7 @@ impl<'hir> ContextScope<'hir> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 //TODO: start using all the fields
 pub struct ContextVariable<'hir> {
     pub name: &'hir str,

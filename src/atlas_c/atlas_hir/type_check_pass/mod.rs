@@ -1451,6 +1451,14 @@ impl<'hir> TypeChecker<'hir> {
                         let func = match self.signature.functions.get(name) {
                             Some(f) => *f,
                             None => {
+                                if let Ok(var) = self.get_ident_ty(i) {
+                                    return self.check_callable_ty_call(
+                                        var.ty,
+                                        i.span,
+                                        "function pointer",
+                                        func_expr,
+                                    );
+                                }
                                 return Err(Self::unknown_type_err(name, &i.span));
                             }
                         };
@@ -1674,6 +1682,33 @@ impl<'hir> TypeChecker<'hir> {
                                 self.arena.intern(method_signature.return_ty.clone());
 
                             Ok(func_expr.ty)
+                        } else if let Some((_, field_signature)) = class
+                            .fields
+                            .iter()
+                            .find(|f| *f.0 == field_access.field.name)
+                        {
+                            if self.current_class_name != Some(name)
+                                && field_signature.vis != HirVisibility::Public
+                            {
+                                let src = utils::get_file_content(path).unwrap();
+                                return Err(HirError::AccessingPrivateField(
+                                    AccessingPrivateFieldError {
+                                        span: field_access.span,
+                                        kind: FieldKind::Field,
+                                        src: NamedSource::new(path, src),
+                                        field_name: field_access.field.name.to_string(),
+                                    },
+                                ));
+                            }
+
+                            field_access.ty = field_signature.ty;
+                            field_access.field.ty = field_signature.ty;
+                            self.check_callable_ty_call(
+                                field_signature.ty,
+                                field_signature.span,
+                                "function pointer field",
+                                func_expr,
+                            )
                         } else {
                             Err(Self::unknown_method_err(
                                 field_access.field.name,
@@ -1767,6 +1802,19 @@ impl<'hir> TypeChecker<'hir> {
                                 self.arena.intern(method_signature.return_ty.clone());
 
                             Ok(func_expr.ty)
+                        } else if let Some((_, const_signature)) = class
+                            .constants
+                            .iter()
+                            .find(|f| *f.0 == static_access.field.name)
+                        {
+                            static_access.ty = const_signature.ty;
+                            static_access.field.ty = const_signature.ty;
+                            self.check_callable_ty_call(
+                                const_signature.ty,
+                                static_access.span,
+                                "function pointer static field",
+                                func_expr,
+                            )
                         } else {
                             Err(Self::unknown_method_err(
                                 static_access.field.name,
@@ -1973,6 +2021,65 @@ impl<'hir> TypeChecker<'hir> {
                     static_access.field.ty = const_signature.ty;
                     static_access.ty = const_signature.ty;
                     Ok(const_signature.ty)
+                } else if let Some(method_signature) = class.methods.get(static_access.field.name) {
+                    if self.current_class_name != Some(name)
+                        && method_signature.vis != HirVisibility::Public
+                    {
+                        let path = static_access.span.path;
+                        let src = utils::get_file_content(path).unwrap();
+                        return Err(HirError::AccessingPrivateField(
+                            AccessingPrivateFieldError {
+                                span: static_access.span,
+                                kind: FieldKind::Function,
+                                src: NamedSource::new(path, src),
+                                field_name: static_access.field.name.to_string(),
+                            },
+                        ));
+                    }
+
+                    let mut params: Vec<&HirTy<'hir>> = Vec::new();
+                    let mut param_spans: Vec<Span> = Vec::new();
+                    if method_signature.modifier != HirStructMethodModifier::Static {
+                        let this_ty = match method_signature.modifier {
+                            HirStructMethodModifier::Const => self.arena.types().get_ptr_ty(
+                                self.arena
+                                    .types()
+                                    .get_named_ty(name, class.declaration_span),
+                                true,
+                                method_signature.span,
+                            ),
+                            HirStructMethodModifier::Mutable => self.arena.types().get_ptr_ty(
+                                self.arena
+                                    .types()
+                                    .get_named_ty(name, class.declaration_span),
+                                false,
+                                method_signature.span,
+                            ),
+                            HirStructMethodModifier::Consuming => self
+                                .arena
+                                .types()
+                                .get_named_ty(name, class.declaration_span),
+                            HirStructMethodModifier::Static => unreachable!(),
+                        };
+                        params.push(this_ty);
+                        param_spans.push(method_signature.span);
+                    }
+
+                    params.extend(method_signature.params.iter().map(|p| p.ty));
+                    param_spans.extend(method_signature.params.iter().map(|p| p.ty_span));
+
+                    let fn_ty = self.arena.types().get_function_ty_with_spans(
+                        params,
+                        param_spans,
+                        &method_signature.return_ty,
+                        method_signature
+                            .return_ty_span
+                            .unwrap_or(method_signature.span),
+                        method_signature.span,
+                    );
+                    static_access.field.ty = fn_ty;
+                    static_access.ty = fn_ty;
+                    Ok(fn_ty)
                 } else {
                     Err(Self::unknown_field_err(
                         static_access.field.name,
@@ -2208,7 +2315,54 @@ impl<'hir> TypeChecker<'hir> {
         }
     }
 
-    fn get_ident_ty(&mut self, i: &mut HirIdentExpr<'hir>) -> HirResult<&ContextVariable<'hir>> {
+    fn check_callable_ty_call(
+        &mut self,
+        callable_ty: &'hir HirTy<'hir>,
+        callable_span: Span,
+        kind: &str,
+        func_expr: &mut expr::HirFunctionCallExpr<'hir>,
+    ) -> HirResult<&'hir HirTy<'hir>> {
+        let HirTy::Function(function_ty) = callable_ty else {
+            return Err(Self::illegal_operation_err(
+                callable_ty,
+                self.arena.types().get_unit_ty(),
+                callable_span,
+                "call expression",
+            ));
+        };
+
+        if function_ty.params.len() != func_expr.args.len() {
+            return Err(Self::not_enough_arguments_err(
+                kind.to_string(),
+                function_ty.params.len(),
+                &function_ty.span,
+                func_expr.args.len(),
+                &func_expr.span,
+            ));
+        }
+
+        for (idx, (param_ty, arg)) in function_ty
+            .params
+            .iter()
+            .zip(func_expr.args.iter_mut())
+            .enumerate()
+        {
+            let expected_span = function_ty
+                .param_spans
+                .get(idx)
+                .copied()
+                .unwrap_or(function_ty.span);
+            self.retag_integer_literal_for_expected_ty(param_ty, arg);
+            let arg_ty = self.check_expr(arg)?;
+            self.is_equivalent_ty(param_ty, expected_span, arg_ty, arg.span())?;
+            func_expr.args_ty.push(param_ty);
+        }
+
+        func_expr.ty = function_ty.ret_ty;
+        Ok(function_ty.ret_ty)
+    }
+
+    fn get_ident_ty(&mut self, i: &mut HirIdentExpr<'hir>) -> HirResult<ContextVariable<'hir>> {
         if let Some(ctx_var) = self
             .context_functions
             .last()
@@ -2218,9 +2372,29 @@ impl<'hir> TypeChecker<'hir> {
             .get(i.name)
         {
             i.ty = ctx_var.ty;
-            Ok(ctx_var)
+            Ok(ctx_var.clone())
         } else {
-            Err(Self::unknown_identifier_err(i.name, &i.span))
+            // Then it might just be a function name (e.g. `foo` instead of `foo()`)
+            if let Some(func_signature) = self.signature.functions.get(i.name) {
+                i.ty = self.arena.types().get_function_ty_with_spans(
+                    func_signature.params.iter().map(|p| p.ty).collect(),
+                    func_signature.params.iter().map(|p| p.ty_span).collect(),
+                    &func_signature.return_ty,
+                    func_signature.return_ty_span.unwrap_or(func_signature.span),
+                    func_signature.span,
+                );
+                Ok(ContextVariable {
+                    name: i.name,
+                    name_span: i.span,
+                    ty: i.ty,
+                    _is_mut: false,
+                    is_param: false,
+                    _ty_span: i.span,
+                    ptrs_to_locals: vec![],
+                })
+            } else {
+                Err(Self::unknown_identifier_err(i.name, &i.span))
+            }
         }
     }
 

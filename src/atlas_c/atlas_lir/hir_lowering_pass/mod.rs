@@ -778,6 +778,10 @@ impl<'hir> HirLoweringPass<'hir> {
                 // Check if it's a local variable
                 else if let Some(&temp_id) = self.local_map.get(ident.name) {
                     Ok(LirOperand::Temp(temp_id))
+                }
+                // Check if it's a global function symbol (used as a function pointer value)
+                else if self.hir_module.signature.functions.contains_key(ident.name) {
+                    Ok(LirOperand::GlobalFn(ident.name.to_string()))
                 } else {
                     // Unknown identifier - shouldn't happen after type checking
                     panic!("Unknown identifier: {}", ident.name);
@@ -931,6 +935,47 @@ impl<'hir> HirLoweringPass<'hir> {
 
             // === Function calls ===
             HirExpr::Call(call) => {
+                // Indirect call through a function value (identifier variable, field, static field, etc.).
+                if let HirTy::Function(fn_ty) = call.callee.ty() {
+                    let callee = self.lower_expr(&call.callee)?;
+                    let mut args = Vec::new();
+                    for (idx, arg) in call.args.iter().enumerate() {
+                        let lowered = self.lower_expr(arg)?;
+                        let adjusted = if let Some(expected_ty) = call.args_ty.get(idx) {
+                            if matches!(expected_ty, HirTy::PtrTy(_))
+                                && !matches!(arg.ty(), HirTy::PtrTy(_))
+                            {
+                                LirOperand::AsRef(Box::new(lowered))
+                            } else {
+                                lowered
+                            }
+                        } else {
+                            lowered
+                        };
+                        args.push(adjusted);
+                    }
+
+                    let dest = if matches!(call.ty, HirTy::Unit(_)) {
+                        None
+                    } else {
+                        Some(self.new_temp())
+                    };
+
+                    self.emit(LirInstr::CallPtr {
+                        ty: self.hir_ty_to_lir_ty(call.ty, call.span),
+                        dst: dest.clone(),
+                        callee,
+                        args,
+                        param_tys: fn_ty
+                            .params
+                            .iter()
+                            .map(|p| self.hir_ty_to_lir_ty(p, call.span))
+                            .collect(),
+                    })?;
+
+                    return Ok(dest.unwrap_or(LirOperand::ImmInt(0)));
+                }
+
                 // Get function name from callee
                 // "take_this" indicates if there is an implicit "this" argument
                 let (func_name, take_this) = match call.callee.as_ref() {
@@ -1104,6 +1149,35 @@ impl<'hir> HirLoweringPass<'hir> {
             }
 
             HirExpr::StaticAccess(_) => {
+                if let HirExpr::StaticAccess(static_access) = expr {
+                    let object_name = match static_access.target {
+                        HirTy::Named(n) => n.name,
+                        HirTy::Generic(g) => {
+                            MonomorphizationPass::generate_mangled_name(self.hir_arena, g, "struct")
+                        }
+                        _ => {
+                            return Err(unsupported_expr(
+                                static_access.span,
+                                format!("{:?}", static_access),
+                            ));
+                        }
+                    };
+
+                    if self
+                        .hir_module
+                        .signature
+                        .structs
+                        .get(object_name)
+                        .and_then(|class| class.methods.get(static_access.field.name))
+                        .is_some()
+                    {
+                        return Ok(LirOperand::GlobalFn(format!(
+                            "{}_{}",
+                            object_name, static_access.field.name
+                        )));
+                    }
+                }
+
                 let dst = self.new_temp();
                 self.emit(LirInstr::LoadConst {
                     dst: dst.clone(),
@@ -1118,7 +1192,7 @@ impl<'hir> HirLoweringPass<'hir> {
                 let target_operand = self.lower_expr(&field_access.target)?;
 
                 Ok(LirOperand::FieldAccess {
-                    ty: self.hir_ty_to_lir_ty(field_access.target.ty(), field_access.target.span()),
+                    ty: self.hir_ty_to_lir_ty(field_access.ty, field_access.span),
                     src: Box::new(target_operand),
                     field_name: field_access.field.name.to_string(),
                     is_arrow: field_access.is_arrow,
@@ -1319,6 +1393,14 @@ impl<'hir> HirLoweringPass<'hir> {
                     }
                 }
             }
+            HirTy::Function(func_ty) => LirTy::FnPtr {
+                ret: Box::new(self.hir_ty_to_lir_ty(func_ty.ret_ty, span)),
+                args: func_ty
+                    .params
+                    .iter()
+                    .map(|param_ty| self.hir_ty_to_lir_ty(param_ty, span))
+                    .collect(),
+            },
             HirTy::PtrTy(ptr_ty) => {
                 let inner = self.hir_ty_to_lir_ty(ptr_ty.inner, span);
                 LirTy::Ptr {
@@ -1326,11 +1408,6 @@ impl<'hir> HirLoweringPass<'hir> {
                     inner: Box::new(inner),
                 }
             }
-            _ => {
-                let report: miette::Report = (*unknown_type_err(&format!("{}", ty), span)).into();
-                eprintln!("{:?}", report);
-                std::process::exit(1);
-            } // Default fallback
         }
     }
 
@@ -1349,7 +1426,7 @@ impl<'hir> HirLoweringPass<'hir> {
             LirTy::Int32 | LirTy::UInt32 | LirTy::Float32 => (4, 4),
             LirTy::Int64 | LirTy::UInt64 | LirTy::Float64 => (8, 8),
             LirTy::Char => (4, 4),
-            LirTy::Str | LirTy::Ptr { .. } | LirTy::Unit => (8, 8),
+            LirTy::Str | LirTy::Ptr { .. } | LirTy::FnPtr { .. } | LirTy::Unit => (8, 8),
             LirTy::ArrayTy { inner, size } => {
                 let (inner_size, inner_align) = self.lir_type_size_and_align_impl(inner, visiting);
                 (inner_size.saturating_mul(*size), inner_align)
@@ -1617,6 +1694,24 @@ impl std::fmt::Display for LirInstr {
                     write!(f, "call_extern @{}({})", func_name, args_str)
                 }
             }
+            LirInstr::CallPtr {
+                ty: _,
+                dst,
+                callee,
+                args,
+                param_tys: _,
+            } => {
+                let args_str = args
+                    .iter()
+                    .map(|a| format!("{}", a))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                if let Some(d) = dst {
+                    write!(f, "{} = call_ptr {}({})", d, callee, args_str)
+                } else {
+                    write!(f, "call_ptr {}({})", callee, args_str)
+                }
+            }
             LirInstr::ConstructArray { ty, dst, size } => {
                 write!(f, "{} = new_array {}[{}]", dst, ty, size)
             }
@@ -1668,6 +1763,7 @@ impl std::fmt::Display for LirOperand {
         match self {
             LirOperand::Temp(id) => write!(f, "%t{}", id),
             LirOperand::Arg(idx) => write!(f, "%arg{}", idx),
+            LirOperand::GlobalFn(name) => write!(f, "@{}", name),
             LirOperand::Const(val) => write!(f, "#{}", val),
             LirOperand::ImmInt(i) => write!(f, "%imm{}", i),
             LirOperand::ImmUInt(u) => write!(f, "%imm{}", u),
@@ -1712,6 +1808,14 @@ impl std::fmt::Display for LirTy {
             LirTy::Str => write!(f, "str"),
             LirTy::Unit => write!(f, "unit"),
             LirTy::Ptr { is_const: _, inner } => write!(f, "ptr<{}>", inner),
+            LirTy::FnPtr { ret, args } => {
+                let args = args
+                    .iter()
+                    .map(|arg| format!("{}", arg))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "fnptr<({}) -> {}>", args, ret)
+            }
             LirTy::StructType(name) => write!(f, "struct {}", name),
             LirTy::UnionType(name) => write!(f, "union {}", name),
             LirTy::ArrayTy { inner, size } => write!(f, "[{}; {}]", inner, size),
