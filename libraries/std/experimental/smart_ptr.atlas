@@ -115,16 +115,3 @@ public:
     }
 }
 
-extern fun len<T>(data: [T]) -> uint64;
-
-#[std::trivially_copyable]
-struct slice<T> {
-public:
-    // Just for testing
-    data: *T;
-    length: uint64;
-public:
-    fun new(data: *T) -> slice<T> {
-        return slice<T> { .data = data, .length = 3u };
-    }
-}

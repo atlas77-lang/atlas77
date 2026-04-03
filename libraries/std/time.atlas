@@ -3,48 +3,38 @@
 //! Provides `Time` values, formatting helpers and sleeping primitives.
 //! Use `Time::now()` to obtain the current time and `Time::format()` / `to_iso_string()` to format it.
 // Private runtime hooks, scoped to this module's public Time API.
-private extern fun atlas77_now_impl() -> Time;
-private extern fun atlas77_format_time_impl(t: Time, fmt: *uint8) -> *uint8;
-private extern fun atlas77_sleep_impl(t: Time);
-private extern fun atlas77_format_time_iso_impl(t: Time) -> *uint8;
 
 public extern struct Time {
 public:
     sec: int64;
     nsec: int64;
 public:
-    Time(sec: int64, nsec: int64) {
-        this->sec = sec;
-        this->nsec = nsec;
-    }
-    ~Time() {}
-    Time(from: *const Time) {
-        this->sec = from->sec;
-        this->nsec = from->nsec;
+    //! Get the current time as a `Time` struct.
+    public extern fun now() -> Time {
+
     }
 
-    fun to_iso_string(*const this) -> *uint8 {
-        return atlas77_format_time_iso_impl(this);
-    }
+    //! Format the time using a custom format string.
+    //!
+    //! The format string supports the following specifiers:
+    //! - `%Y`: Year (e.g. 2024)
+    //! - `%m`: Month (01-12)
+    //! - `%d`: Day of the month (01-31)
+    //! - `%H`: Hour (00-23)
+    //! - `%M`: Minute (00-59)
+    //! - `%S`: Second (00-60, allowing for leap seconds)
+    //!
+    //! Example usage:
+    //!     let t = Time::now();
+    //!     println(t.format("%Y-%m-%d %H:%M:%S"));
+    public extern fun format(*this, fmt: *const uint8) -> String;
 
-    fun format(*const this, fmt: *uint8) -> *uint8 {
-        return atlas77_format_time_impl(this, fmt);
-    }
-
-    fun now() -> Time {
-        return atlas77_now_impl();
-    }
-
-    fun elapsed(*const this, since: *const Time) -> Time {
-        let sec_diff = this->sec - since->sec;
-        let nsec_diff = this->nsec - since->nsec;
-        if nsec_diff < 0 {
-            return new Time(sec_diff - 1, nsec_diff + 1000000000);
-        }
-        return new Time(sec_diff, nsec_diff);
-    }
-
-    fun sleep(*const this) {
-        atlas77_sleep_impl(this);
+    //! Format the time as an ISO 8601 string in UTC.
+    //!
+    //! Example usage:
+    //!     let t = Time::now();
+    //!     println(t.to_iso_string());
+    public extern fun to_iso_string(*this) -> String {
+        
     }
 }

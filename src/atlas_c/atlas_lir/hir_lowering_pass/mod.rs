@@ -457,7 +457,7 @@ impl<'hir> HirLoweringPass<'hir> {
         match stmt {
             HirStatement::Return(ret) => {
                 if let Some(value) = &ret.value {
-                let value = self.lower_expr(value)?;
+                    let value = self.lower_expr(value)?;
                     self.emit_terminator(LirTerminator::Return { value: Some(value) })?;
                 } else {
                     self.emit_terminator(LirTerminator::Return { value: None })?;
@@ -1138,7 +1138,11 @@ impl<'hir> HirLoweringPass<'hir> {
             HirExpr::Delete(delete_expr) => {
                 // If the value type is copyable / trivially copyable, it has no destructor
                 // and we can emit an empty/unit value so later passes can optimize it away.
-                if delete_expr.expr.ty().is_trivially_copyable(&self.hir_module.signature) {
+                if delete_expr
+                    .expr
+                    .ty()
+                    .is_trivially_copyable(&self.hir_module.signature)
+                {
                     let dst = self.new_temp();
                     self.emit(LirInstr::LoadConst {
                         dst: dst.clone(),
@@ -1151,7 +1155,11 @@ impl<'hir> HirLoweringPass<'hir> {
                 let src = self.lower_expr(&delete_expr.expr)?;
                 let ty = self.hir_ty_to_lir_ty(delete_expr.expr.ty(), delete_expr.span);
                 let should_free = matches!(delete_expr.expr.ty(), HirTy::PtrTy(_));
-                self.emit(LirInstr::Delete { ty, src, should_free })?;
+                self.emit(LirInstr::Delete {
+                    ty,
+                    src,
+                    should_free,
+                })?;
                 Ok(dst)
             }
 
