@@ -730,27 +730,6 @@ impl CCodeGen {
                     Self::write_to_file(&mut self.c_file, &line, self.indent_level);
                 }
             },
-            LirInstr::AggregateCopy { ty, dst, src } => {
-                let dest_str = self.codegen_operand(dst);
-                let src_str = self.codegen_operand(src);
-                let line = match ty {
-                    LirTy::ArrayTy { inner, size } => {
-                        let elem = self.codegen_type(inner);
-                        format!(
-                            "memcpy({}, {}, sizeof({}) * {});",
-                            dest_str, src_str, elem, size
-                        )
-                    }
-                    LirTy::StructType(name) | LirTy::UnionType(name) => {
-                        format!("memcpy({}, {}, sizeof({}));", dest_str, src_str, name)
-                    }
-                    _ => {
-                        // Fallback for non-aggregate usages.
-                        format!("{} = {};", dest_str, src_str)
-                    }
-                };
-                Self::write_to_file(&mut self.c_file, &line, self.indent_level);
-            }
             LirInstr::Delete {
                 ty,
                 src,

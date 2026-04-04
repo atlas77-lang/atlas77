@@ -1772,9 +1772,6 @@ impl std::fmt::Display for LirInstr {
             LirInstr::Assign { ty: _, dst, src } => {
                 write!(f, "{} = assign {}", dst, src)
             }
-            LirInstr::AggregateCopy { ty, dst, src } => {
-                write!(f, "agg_copy.{} {}, {}", ty, dst, src)
-            }
             LirInstr::HeapAllocCopy { ty, dst, src } => {
                 write!(f, "heap_alloc_copy.{} {}, {}", ty, dst, src)
             }

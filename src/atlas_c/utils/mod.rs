@@ -36,6 +36,7 @@ pub fn get_file_content(path: &str) -> Result<String, std::io::Error> {
     } else {
         format!("{}.atlas", path)
     };
+
     if path.starts_with("std/") {
         let file_name = path.trim_start_matches("std/");
         return match STD_LIB_DIR.get_file(file_name) {
@@ -51,8 +52,7 @@ pub fn get_file_content(path: &str) -> Result<String, std::io::Error> {
                 format!("Standard library file '{}' not found", file_name),
             )),
         };
-    }
-    if path.starts_with("raylib/") {
+    } else if path.starts_with("raylib/") {
         let file_name = path.trim_start_matches("raylib/");
         return match RAYLIB_LIB_DIR.get_file(file_name) {
             Some(file) => match file.contents_utf8() {

@@ -7,4 +7,4 @@ pub static BLUE_ENGINE_LIB_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/libr
 
 pub static CORE_LIB_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/libraries/core");
 
-pub static RAYLIB_LIB_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/libraries/blue_engine");
+pub static RAYLIB_LIB_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/libraries/raylib");

@@ -388,11 +388,6 @@ pub enum LirInstr {
         dst: LirOperand,
         src: LirOperand,
     },
-    AggregateCopy {
-        ty: LirTy,
-        dst: LirOperand,
-        src: LirOperand,
-    },
     Cast {
         ty: LirTy,
         from: LirTy,
