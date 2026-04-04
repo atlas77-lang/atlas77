@@ -417,7 +417,7 @@ fn render_library_dir_arg(compiler: SupportedCompiler, library_dir: &str) -> Str
     }
 }
 
-fn load_build_config(project_dir: &PathBuf) -> miette::Result<AtlasBuildConfig> {
+fn load_build_config(project_dir: &Path) -> miette::Result<AtlasBuildConfig> {
     let config_path = project_dir.join("atlas.toml");
     if !config_path.exists() {
         return Ok(AtlasBuildConfig::default());
@@ -544,6 +544,85 @@ fn build_compiler_args(config: &AtlasBuildConfig, compiler: SupportedCompiler) -
     compiler_args.extend(config.compiler_args.clone());
     compiler_args
 }
+
+fn normalize_library_name_for_runtime(lib: &str) -> String {
+    lib.strip_prefix("-l")
+        .unwrap_or(lib)
+        .trim_end_matches(".lib")
+        .trim_end_matches(".a")
+        .trim_end_matches(".so")
+        .trim_end_matches(".dylib")
+        .to_lowercase()
+}
+
+#[cfg(target_os = "windows")]
+fn stage_runtime_dlls(output_dir: &str, config: &AtlasBuildConfig) {
+    let output_path = PathBuf::from(output_dir);
+    if let Err(err) = std::fs::create_dir_all(&output_path) {
+        eprintln!(
+            "Warning: failed to ensure output directory exists for runtime DLL staging: {}",
+            err
+        );
+        return;
+    }
+
+    let requested_libs = config
+        .libraries
+        .iter()
+        .map(|lib| normalize_library_name_for_runtime(lib))
+        .collect::<std::collections::HashSet<_>>();
+
+    for library_dir in &config.library_dirs {
+        let library_path = Path::new(library_dir);
+        let entries = match std::fs::read_dir(library_path) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+
+        for entry in entries.flatten() {
+            let dll_path = entry.path();
+            let Some(ext) = dll_path.extension().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            if !ext.eq_ignore_ascii_case("dll") {
+                continue;
+            }
+
+            let stem = dll_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_lowercase())
+                .unwrap_or_default();
+
+            // Only stage DLLs that likely match linked libraries.
+            let should_stage = requested_libs.contains(&stem)
+                || requested_libs.contains(stem.strip_prefix("lib").unwrap_or(&stem));
+            if !should_stage {
+                continue;
+            }
+
+            let target_path =
+                output_path.join(dll_path.file_name().expect("DLL path without a file name"));
+            if let Err(err) = std::fs::copy(&dll_path, &target_path) {
+                eprintln!(
+                    "Warning: failed to copy runtime DLL {} to {}: {}",
+                    dll_path.display(),
+                    target_path.display(),
+                    err
+                );
+            } else {
+                eprintln!(
+                    "Staged runtime DLL: {} -> {}",
+                    dll_path.display(),
+                    target_path.display()
+                );
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn stage_runtime_dlls(_output_dir: &str, _config: &AtlasBuildConfig) {}
 
 fn create_probe_source(headers: &[String]) -> String {
     let mut source = String::new();
@@ -859,11 +938,12 @@ pub fn build(
             #[cfg(all(feature = "embedded-tinycc", not(tinycc_unavailable)))]
             {
                 emit_binary(
-                    output_dir,
+                    output_dir.clone(),
                     &atlas_build_config.include_dirs,
                     &atlas_build_config.library_dirs,
                     &atlas_build_config.libraries,
                 )?;
+                stage_runtime_dlls(&output_dir, &atlas_build_config);
             }
             #[cfg(all(not(feature = "embedded-tinycc"), tinycc_unavailable))]
             {
@@ -885,6 +965,7 @@ pub fn build(
                 let status = command.status().expect("Failed to invoke TCC");
                 if status.success() {
                     println!("Program compiled successfully with TCC.");
+                    stage_runtime_dlls(&output_dir, &atlas_build_config);
                 } else {
                     eprintln!("TCC compilation failed.");
                 }
@@ -910,6 +991,7 @@ pub fn build(
             let status = command.status().expect("Failed to invoke GCC");
             if status.success() {
                 println!("Program compiled successfully with GCC.");
+                stage_runtime_dlls(&output_dir, &atlas_build_config);
             } else {
                 eprintln!("GCC compilation failed.");
             }
@@ -933,6 +1015,7 @@ pub fn build(
             let status = command.status().expect("Failed to invoke MSVC cl.exe");
             if status.success() {
                 println!("Program compiled successfully with MSVC.");
+                stage_runtime_dlls(&output_dir, &atlas_build_config);
             } else {
                 eprintln!("MSVC compilation failed.");
             }
@@ -957,6 +1040,7 @@ pub fn build(
             let status = command.status().expect("Failed to invoke Clang");
             if status.success() {
                 println!("Program compiled successfully with Clang.");
+                stage_runtime_dlls(&output_dir, &atlas_build_config);
             } else {
                 eprintln!("Clang compilation failed.");
             }
@@ -981,6 +1065,7 @@ pub fn build(
             let status = command.status().expect("Failed to invoke Intel ICC");
             if status.success() {
                 println!("Program compiled successfully with Intel ICC.");
+                stage_runtime_dlls(&output_dir, &atlas_build_config);
             } else {
                 eprintln!("Intel ICC compilation failed.");
             }
