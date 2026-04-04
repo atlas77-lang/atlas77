@@ -190,6 +190,21 @@ This version will focus on correctness, fix
 - Introduction of `memcpy<T>(&T) -> T` for explicit shallow copies
 - Addition of a **HIR pretty printer** to inspect the output of the compiler after the last HIR pass.
 
+
+### v0.8.x "Reforge"
+
+This version was another rewrite, though partial in this case. It introduced and removed some features, and stabilized the language design by a lot. Here are the key features and changes:
+
+- **References**: they have been fully removed from the language, as they were badly designed and hard to implement correctly as the rest of the language wasn't stabled nor mature enough to support them.
+- **Pointers**: well, they have replaced references and are just C pointers. The compiler will only forbid returning pointers to local variables, but other than that, they are just C pointers, and you can do whatever you want with them.
+- **Constructors**: They have also been removed in favour of factory method (e.g.: `new()`, `default()`, `with_capacity()`, etc...). 
+- **C codegen**: The language will now fully compile down to C code, an embedded C compiler (TinyCC) is available for convenience, but you can also use your own C compiler (GCC/Clang/MSVC/...) to compile the generated C code.
+> NB: TinyCC isn't stable yet on all platforms, so for now, I recommend you to use your own C compiler, but in the future, I'll try to make it work on all platforms.
+- **Ownership**: The ownership design has been reworked to be simpler and make more sense in the idea of "tiny core, everything else userland". The language uses RAII as its base, and copy/move are explicit. All types are considered to be `std::trivially_copyable` by default, meaning they will get bitwise copied upon assignment or when passed to a function. Types with a custom destructor are not considered `std::trivially_copyable`, meaning they can't be passed to another variable/function/struct by value, unless you `take()`, `.copy()` or `move()` them.
+> NB: There are still issues with auto clean up of scopes in some edge cases, but for the most part, it works as intended.
+- **Stack allocation**: Objects or arrays can now be allocated on the stack instead of just being heap allocated. It's done as you would in C: `let x = MyStruct { ... };` or `let arr = [1, 2, 3];`. The language will automatically call the destructor of the object/array when it goes out of scope, so you don't have to worry about memory leaks in this case.
+- **Intrinsics**: There are now a few set of intrinsics available for you to be able to "ask" something to the compiler. e.g.: `sizeof<T>()`, `alignof<T>()`, `move(T)`. A lot more to come.
+
 #### Stability and Refinement
 
 > As the language is still in alpha (not 1.0 yet), I won't make "alpha"/"beta" build, it doesn't really make sense.
