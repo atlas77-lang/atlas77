@@ -45,7 +45,7 @@ impl CCodeGen {
         }
     }
 
-    pub fn emit_c(&mut self, program: &LirProgram) -> Result<(), String> {
+    pub fn emit_c(&mut self, program: &LirProgram, extra_headers: &[String]) -> Result<(), String> {
         self.emit_type_forward_declarations(program);
         self.codegen_type_definitions_dependency_order(program);
         for func in program.functions.iter() {
@@ -62,6 +62,14 @@ impl CCodeGen {
             &mut self.c_file,
             "#include <stdint.h>\n#include <stdbool.h>\n#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n#include <math.h>\n#include <time.h>\n",
         );
+        for header in extra_headers.iter().rev() {
+            let include = if header.starts_with('<') || header.starts_with('"') {
+                format!("#include {}\n", header)
+            } else {
+                format!("#include <{}>\n", header)
+            };
+            Self::write_to_top(&mut self.c_header, &include);
+        }
         Ok(())
     }
 

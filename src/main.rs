@@ -52,9 +52,8 @@ enum AtlasRuntimeCLI {
         #[arg(
             short = 'c',
             long,
-            default_value = "tinycc",
-            help = "Specify the C compiler to use (Available: tinycc, gcc, msvc, clang, intel)",
-            long_help = "Specify the C compiler to use. Supported compilers:\n* TCC: \"tinycc\"/\"tcc\"\n* GCC: \"gcc\"\n* MSVC: \"msvc\"/\"cl\"\n* Clang: \"clang\"\n* Intel: \"intel\"/\"icc\""
+            help = "Specify the C compiler to use (overrides atlas.toml build.compiler)",
+            long_help = "Specify the C compiler to use. Supported compilers:\n* TCC: \"tinycc\"/\"tcc\"\n* GCC: \"gcc\"\n* MSVC: \"msvc\"/\"cl\"\n* Clang: \"clang\"\n* Intel: \"intel\"/\"icc\"\n\nIf omitted, atlas77 will read build.compiler from atlas.toml and default to tinycc when not set."
         )]
         /// Specify the C compiler to use. Supported compilers:
         /// * TCC: "tinycc"/"tcc"
@@ -62,7 +61,7 @@ enum AtlasRuntimeCLI {
         /// * MSVC: "msvc"/"cl"
         /// * Clang: "clang"
         /// * Intel: "intel"/"icc"
-        compiler: String,
+        compiler: Option<String>,
         #[arg(
             short = 'o',
             long,
@@ -131,8 +130,10 @@ fn main() -> miette::Result<()> {
                     CompilationFlag::Debug
                 },
                 no_standard_lib,
-                SupportedCompiler::from_str(&compiler.to_lowercase())
-                    .expect("Invalid compiler specified"),
+                compiler.as_deref().map(|value| {
+                    SupportedCompiler::from_str(&value.to_lowercase())
+                        .expect("Invalid compiler specified")
+                }),
                 output_dir,
                 c_args,
             )
@@ -160,7 +161,7 @@ fn main() -> miette::Result<()> {
                 },
                 true,
                 // We don't care about the compiler here, as we won't compile
-                SupportedCompiler::from_str("none").expect("Invalid compiler specified"),
+                Some(SupportedCompiler::from_str("none").expect("Invalid compiler specified")),
                 "build".to_string(),
                 Vec::new(),
             )

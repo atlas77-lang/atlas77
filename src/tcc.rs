@@ -37,6 +37,8 @@ unsafe extern "C" {
     pub fn tcc_add_include_path(s: *mut TCCState, path: *const c_char) -> c_int;
     /// Add a library path for libtcc1.a and other libs
     pub fn tcc_add_library_path(s: *mut TCCState, path: *const c_char) -> c_int;
+    /// Add a library by short name (e.g. "m", "raylib")
+    pub fn tcc_add_library(s: *mut TCCState, library_name: *const c_char) -> c_int;
     /// Set the output file name
     pub fn tcc_output_file(s: *mut TCCState, filename: *const c_char) -> c_int;
 }
