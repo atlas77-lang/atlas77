@@ -257,6 +257,8 @@ pub enum TokenKind {
     KwEnum,
     #[token("union")]
     KwUnion,
+    #[token("namespace")]
+    KwNamespace,
     #[token("import")]
     KwImport,
     //Visibility

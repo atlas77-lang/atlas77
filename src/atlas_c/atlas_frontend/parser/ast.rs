@@ -16,6 +16,7 @@ pub struct AstProgram<'ast> {
 //todo: Add classes and a trait-ish stuff
 pub enum AstItem<'ast> {
     Import(AstImport<'ast>),
+    Namespace(AstNamespace<'ast>),
     Struct(AstStruct<'ast>),
     ExternFunction(AstExternFunction<'ast>),
     ExternStruct(AstStruct<'ast>),
@@ -29,6 +30,7 @@ impl AstItem<'_> {
     pub fn set_vis(&mut self, vis: AstVisibility) {
         match self {
             AstItem::Import(_) => {}
+            AstItem::Namespace(v) => v.vis = vis,
             AstItem::Struct(v) => v.vis = vis,
             AstItem::ExternFunction(v) => v.vis = vis,
             AstItem::ExternStruct(v) => v.vis = vis,
@@ -42,12 +44,14 @@ impl AstItem<'_> {
         match self {
             AstItem::Struct(v) => v.flag = flag,
             AstItem::ExternFunction(f) => f.flag = flag,
+            AstItem::Namespace(_) => {}
             _ => {}
         }
     }
     pub fn span(&self) -> Span {
         match self {
             AstItem::Import(v) => v.span,
+            AstItem::Namespace(v) => v.span,
             AstItem::Struct(v) => v.span,
             AstItem::ExternFunction(v) => v.span,
             AstItem::ExternStruct(v) => v.span,
@@ -64,6 +68,15 @@ impl<'ast> AstItem<'ast> {
     pub fn set_docstring(&mut self, docstring: &'ast str, arena: &'ast AstArena<'ast>) {
         match self {
             AstItem::Struct(v) => match v.docstring {
+                Some(existing) => {
+                    let combined = format!("{}\n{}", docstring, existing);
+                    v.docstring = Some(arena.alloc(combined));
+                }
+                None => {
+                    v.docstring = Some(docstring);
+                }
+            },
+            AstItem::Namespace(v) => match v.docstring {
                 Some(existing) => {
                     let combined = format!("{}\n{}", docstring, existing);
                     v.docstring = Some(arena.alloc(combined));
@@ -129,6 +142,15 @@ impl<'ast> AstItem<'ast> {
             _ => {}
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct AstNamespace<'ast> {
+    pub span: Span,
+    pub name: &'ast AstIdentifier<'ast>,
+    pub items: &'ast [&'ast AstItem<'ast>],
+    pub vis: AstVisibility,
+    pub docstring: Option<&'ast str>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

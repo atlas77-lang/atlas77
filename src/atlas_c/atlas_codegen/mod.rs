@@ -35,6 +35,28 @@ pub struct CCodeGen {
 }
 
 impl CCodeGen {
+    fn c_ident(name: &str) -> String {
+        let mut out = String::with_capacity(name.len());
+        let mut chars = name.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch == ':' && chars.peek() == Some(&':') {
+                let _ = chars.next();
+                out.push('_');
+                continue;
+            }
+            if ch.is_ascii_alphanumeric() || ch == '_' {
+                out.push(ch);
+            } else {
+                out.push('_');
+            }
+        }
+        if out.is_empty() {
+            "_".to_string()
+        } else {
+            out
+        }
+    }
+
     pub fn new() -> Self {
         Self {
             c_file: String::new(),
@@ -75,18 +97,20 @@ impl CCodeGen {
 
     fn emit_type_forward_declarations(&mut self, program: &LirProgram) {
         for union in program.unions.iter() {
+            let union_name = Self::c_ident(&union.name);
             Self::write_to_top(
                 &mut self.c_header,
-                &format!("typedef union {} {};", union.name, union.name),
+                &format!("typedef union {} {};", union_name, union_name),
             );
         }
         for strukt in program.structs.iter() {
             if strukt.is_extern {
                 continue;
             }
+            let struct_name = Self::c_ident(&strukt.name);
             Self::write_to_top(
                 &mut self.c_header,
-                &format!("typedef struct {} {};", strukt.name, strukt.name),
+                &format!("typedef struct {} {};", struct_name, struct_name),
             );
         }
     }
@@ -202,18 +226,20 @@ impl CCodeGen {
     }
 
     fn codegen_union(&mut self, union: &LirUnion) {
-        let mut union_def = format!("typedef union {} {{\n", union.name);
+        let union_name = Self::c_ident(&union.name);
+        let mut union_def = format!("typedef union {} {{\n", union_name);
         for (variant_name, variant_type) in union.variants.iter() {
             let variant_type_str = self.codegen_type(variant_type);
             union_def.push_str(&format!("\t{} {};\n", variant_type_str, variant_name));
         }
-        union_def.push_str(&format!("}} {};\n\n", union.name));
+        union_def.push_str(&format!("}} {};\n\n", union_name));
         self.union_names.push(union.name.clone());
         Self::write_to_file(&mut self.c_header, &union_def, self.indent_level);
     }
 
     fn codegen_struct(&mut self, strukt: &LirStruct) {
-        let mut struct_def = format!("typedef struct {} {{\n", strukt.name);
+        let struct_name = Self::c_ident(&strukt.name);
+        let mut struct_def = format!("typedef struct {} {{\n", struct_name);
         for (field_name, field_type) in strukt.fields.iter() {
             let field_sig = match field_type {
                 LirTy::ArrayTy { .. } => {
@@ -223,7 +249,7 @@ impl CCodeGen {
             };
             struct_def.push_str(&field_sig);
         }
-        struct_def.push_str(&format!("}} {};\n\n", strukt.name));
+        struct_def.push_str(&format!("}} {};\n\n", struct_name));
         self.struct_names.push(strukt.name.clone());
         Self::write_to_file(&mut self.c_header, &struct_def, self.indent_level);
     }
@@ -253,7 +279,8 @@ impl CCodeGen {
     }
 
     fn codegen_signature(&mut self, name: &str, args: &[LirTy], ret: &LirTy) -> String {
-        let mut prototype = format!("{}(", self.codegen_return_type(ret, name));
+        let mangled_name = Self::c_ident(name);
+        let mut prototype = format!("{}(", self.codegen_return_type(ret, &mangled_name));
         for (i, arg) in args.iter().enumerate() {
             let arg_sig = self.codegen_declaration(arg, &format!("arg_{}", i));
             self.codegen_type(arg);
@@ -352,9 +379,9 @@ impl CCodeGen {
                 format!("{}{}*", if *is_const { "const " } else { "" }, inner_type)
             }
             // Struct type is a value type in LIR. Pointer semantics are represented by LirTy::Ptr.
-            LirTy::StructType(name) => name.to_string(),
+            LirTy::StructType(name) => Self::c_ident(name),
             // For union types, we don't use pointers for now
-            LirTy::UnionType(name) => name.to_string(),
+            LirTy::UnionType(name) => Self::c_ident(name),
             LirTy::ArrayTy { inner, size } => format!("{}[{}]", self.codegen_type(inner), size),
             /* _ => unimplemented!("Type codegen not implemented for {:?}", ty), */
         }
@@ -624,6 +651,7 @@ impl CCodeGen {
                 args,
                 ty,
             } => {
+                let callee_name = Self::c_ident(func_name);
                 let args_str: Vec<String> =
                     args.iter().map(|arg| self.codegen_operand(arg)).collect();
                 let args_joined = args_str.join(", ");
@@ -633,12 +661,12 @@ impl CCodeGen {
                         "{} {} = {}({});",
                         self.codegen_type(ty),
                         dest_str,
-                        func_name,
+                        callee_name,
                         args_joined
                     );
                     Self::write_to_file(&mut self.c_file, &line, self.indent_level);
                 } else {
-                    let line = format!("{}({});", func_name, args_joined);
+                    let line = format!("{}({});", callee_name, args_joined);
                     Self::write_to_file(&mut self.c_file, &line, self.indent_level);
                 }
             }
@@ -648,12 +676,13 @@ impl CCodeGen {
                 args,
                 ty,
             } => {
+                let callee_name = Self::c_ident(func_name);
                 let args_str: Vec<String> =
                     args.iter().map(|arg| self.codegen_operand(arg)).collect();
                 let args_joined = args_str.join(", ");
                 if ty == &LirTy::Unit {
                     // For extern calls that return void, we don't need to declare a variable
-                    let line = format!("{}({});", func_name, args_joined);
+                    let line = format!("{}({});", callee_name, args_joined);
                     Self::write_to_file(&mut self.c_file, &line, self.indent_level);
                     return;
                 }
@@ -663,12 +692,12 @@ impl CCodeGen {
                         "{} {} = {}({});",
                         self.codegen_type(ty),
                         dest_str,
-                        func_name,
+                        callee_name,
                         args_joined
                     );
                     Self::write_to_file(&mut self.c_file, &line, self.indent_level);
                 } else {
-                    let line = format!("{}({});", func_name, args_joined);
+                    let line = format!("{}({});", callee_name, args_joined);
                     Self::write_to_file(&mut self.c_file, &line, self.indent_level);
                 }
             }
@@ -741,12 +770,14 @@ impl CCodeGen {
                 // Pointer delete: run destructor when applicable, then free.
                 match ty {
                     LirTy::StructType(name) => {
-                        let dtor_line = format!("{}___dtor(&{});", name, src_str);
+                        let dtor_line =
+                            format!("{}___dtor(&{});", Self::c_ident(name), src_str);
                         Self::write_to_file(&mut self.c_file, &dtor_line, self.indent_level);
                     }
                     LirTy::Ptr { inner, .. } => {
                         if let LirTy::StructType(name) = inner.as_ref() {
-                            let dtor_line = format!("{}___dtor({});", name, src_str);
+                            let dtor_line =
+                                format!("{}___dtor({});", Self::c_ident(name), src_str);
                             Self::write_to_file(&mut self.c_file, &dtor_line, self.indent_level);
                         }
                     }

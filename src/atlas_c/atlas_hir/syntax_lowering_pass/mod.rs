@@ -12,8 +12,8 @@ use crate::atlas_c::{
             ast::{
                 AstArg, AstBinaryOp, AstBlock, AstDestructor, AstEnum, AstExpr, AstExternFunction,
                 AstFlag, AstFunction, AstGeneric, AstGenericConstraint, AstIdentifier, AstImport,
-                AstItem, AstLiteral, AstMethod, AstMethodModifier, AstProgram, AstStatement,
-                AstStruct, AstType, AstUnaryOp, AstUnion,
+                AstItem, AstLiteral, AstMethod, AstMethodModifier, AstNamespace, AstProgram,
+                AstStatement, AstStruct, AstType, AstUnaryOp, AstUnion,
             },
         },
     },
@@ -72,6 +72,7 @@ pub struct AstSyntaxLoweringPass<'ast, 'hir> {
     pub already_imported: BTreeMap<&'hir str, ()>,
     pub using_std: bool,
     temp_counter: usize,
+    namespace_stack: Vec<&'hir str>,
 }
 
 impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
@@ -92,11 +93,51 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             already_imported: BTreeMap::new(),
             using_std,
             temp_counter: 0,
+            namespace_stack: Vec::new(),
         }
     }
 }
 
 impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
+    fn qualified_name(&self, name: &str) -> String {
+        if self.namespace_stack.is_empty() || name.contains("::") {
+            return name.to_string();
+        }
+        let mut parts = self.namespace_stack.join("::");
+        parts.push_str("::");
+        parts.push_str(name);
+        parts
+    }
+
+    fn qualified_type_name(&self, name: &str) -> String {
+        if self.namespace_stack.is_empty() || name.contains("::") {
+            return name.to_string();
+        }
+        // Keep common generic placeholders untouched.
+        if name.len() == 1 {
+            return name.to_string();
+        }
+        self.qualified_name(name)
+    }
+
+    fn enter_namespace(&mut self, ns: &'hir str) {
+        self.namespace_stack.push(ns);
+    }
+
+    fn leave_namespace(&mut self) {
+        let _ = self.namespace_stack.pop();
+    }
+
+    fn visit_namespace(&mut self, node: &'ast AstNamespace<'ast>) -> HirResult<()> {
+        let ns_name = self.arena.names().get(node.name.name);
+        self.enter_namespace(ns_name);
+        for item in node.items {
+            self.visit_item(item)?;
+        }
+        self.leave_namespace();
+        Ok(())
+    }
+
     fn method_returns_self(&self, method: &HirStructMethod<'hir>, struct_name: &'hir str) -> bool {
         match &method.signature.return_ty {
             HirTy::Named(n) => n.name == struct_name,
@@ -123,6 +164,9 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     }
     pub fn visit_item(&mut self, ast_item: &'ast AstItem<'ast>) -> HirResult<()> {
         match ast_item {
+            AstItem::Namespace(ns) => {
+                self.visit_namespace(ns)?;
+            }
             AstItem::Constant(c) => {
                 let path = ast_item.span().path;
                 let src = utils::get_file_content(path).unwrap();
@@ -144,7 +188,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
             AstItem::Function(ast_function) => {
                 let hir_func = self.visit_func(ast_function)?;
-                let name = self.arena.names().get(ast_function.name.name);
+                let qualified = self.qualified_name(ast_function.name.name);
+                let name = self.arena.names().get(&qualified);
                 if !name.is_snake_case() {
                     Self::name_should_be_in_different_case_warning(
                         &ast_function.name.span,
@@ -212,22 +257,26 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
             AstItem::Enum(e) => {
                 let hir_enum = self.visit_enum(e)?;
+                let qualified = self.qualified_name(e.name.name);
+                let enum_name = self.arena.names().get(&qualified);
                 self.module_body
                     .enums
-                    .insert(self.arena.names().get(e.name.name), hir_enum.clone());
+                    .insert(enum_name, hir_enum.clone());
                 self.module_signature.enums.insert(
-                    self.arena.names().get(e.name.name),
+                    enum_name,
                     self.arena.intern(hir_enum),
                 );
             }
             AstItem::Union(ast_union) => {
                 let hir_union = self.visit_union(ast_union)?;
+                let qualified = self.qualified_name(ast_union.name.name);
+                let union_name = self.arena.names().get(&qualified);
                 self.module_body.unions.insert(
-                    self.arena.names().get(ast_union.name.name),
+                    union_name,
                     hir_union.clone(),
                 );
                 self.module_signature.unions.insert(
-                    self.arena.names().get(ast_union.name.name),
+                    union_name,
                     self.arena.intern(hir_union.signature.clone()),
                 );
             }
@@ -236,7 +285,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     }
 
     fn visit_union(&mut self, ast_union: &'ast AstUnion<'ast>) -> HirResult<HirUnion<'hir>> {
-        let name = self.arena.names().get(ast_union.name.name);
+        let qualified = self.qualified_name(ast_union.name.name);
+        let name = self.arena.names().get(&qualified);
         if !name.is_pascal_case() {
             Self::name_should_be_in_different_case_warning(
                 &ast_union.name.span,
@@ -317,7 +367,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     }
 
     fn visit_enum(&mut self, ast_enum: &'ast AstEnum<'ast>) -> HirResult<HirEnum<'hir>> {
-        let name = self.arena.names().get(ast_enum.name.name);
+        let qualified = self.qualified_name(ast_enum.name.name);
+        let name = self.arena.names().get(&qualified);
         if !name.is_pascal_case() {
             Self::name_should_be_in_different_case_warning(
                 &ast_enum.name.span,
@@ -356,7 +407,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     }
 
     fn visit_extern_func(&mut self, ast_extern_func: &AstExternFunction<'ast>) -> HirResult<()> {
-        let name = self.arena.names().get(ast_extern_func.name.name);
+        let qualified = self.qualified_name(ast_extern_func.name.name);
+        let name = self.arena.names().get(&qualified);
         if !name.is_snake_case() {
             Self::name_should_be_in_different_case_warning(
                 &ast_extern_func.name.span,
@@ -433,7 +485,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     }
 
     fn visit_struct(&mut self, node: &'ast AstStruct<'ast>) -> HirResult<HirStruct<'hir>> {
-        let name = self.arena.names().get(node.name.name);
+        let qualified = self.qualified_name(node.name.name);
+        let name = self.arena.names().get(&qualified);
         if !name.is_pascal_case() {
             Self::name_should_be_in_different_case_warning(
                 &node.name.span,
@@ -1770,7 +1823,10 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         });
         let fun = HirFunction {
             span: node.span,
-            name: self.arena.names().get(node.name.name),
+            name: {
+                let qualified = self.qualified_name(node.name.name);
+                self.arena.names().get(&qualified)
+            },
             name_span: node.name.span,
             signature,
             body,
@@ -1820,7 +1876,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             AstType::Unit(_) => self.arena.types().get_unit_ty(),
             AstType::String(_) => self.arena.types().get_str_ty(),
             AstType::Named(n) => {
-                let name = self.arena.names().get(n.name.name);
+                let qualified = self.qualified_type_name(n.name.name);
+                let name = self.arena.names().get(&qualified);
                 self.arena.types().get_named_ty(name, n.span)
             }
             AstType::Slice(l) => {
@@ -1855,7 +1912,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     .iter()
                     .map(|inner_ast_ty| self.visit_ty(inner_ast_ty))
                     .collect::<HirResult<Vec<_>>>()?;
-                let name = self.arena.names().get(g.name.name);
+                let qualified = self.qualified_type_name(g.name.name);
+                let name = self.arena.names().get(&qualified);
                 let ty = self
                     .arena
                     .types()

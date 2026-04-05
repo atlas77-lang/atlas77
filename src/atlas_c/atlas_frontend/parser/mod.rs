@@ -24,9 +24,10 @@ use ast::{
     AstAssignStmt, AstBinaryOp, AstBinaryOpExpr, AstBlock, AstBooleanLiteral, AstBooleanType,
     AstCallExpr, AstConst, AstExpr, AstExternFunction, AstFieldAccessExpr, AstFloatLiteral,
     AstFloatType, AstFunction, AstFunctionType, AstIdentifier, AstIfElseExpr, AstImport,
-    AstIntegerLiteral, AstIntegerType, AstItem, AstLet, AstLiteral, AstNamedType, AstObjField,
-    AstProgram, AstReturnStmt, AstStatement, AstStringLiteral, AstStringType, AstType, AstUnaryOp,
-    AstUnaryOpExpr, AstUnitType, AstUnsignedIntegerLiteral, AstUnsignedIntegerType, AstWhileExpr,
+    AstIntegerLiteral, AstIntegerType, AstItem, AstLet, AstLiteral, AstNamedType, AstNamespace,
+    AstObjField, AstProgram, AstReturnStmt, AstStatement, AstStringLiteral, AstStringType,
+    AstType, AstUnaryOp, AstUnaryOpExpr, AstUnitType, AstUnsignedIntegerLiteral,
+    AstUnsignedIntegerType, AstWhileExpr,
 };
 
 use crate::atlas_c::atlas_frontend::lexer::{
@@ -241,6 +242,7 @@ impl<'ast> Parser<'ast> {
         let current_tok = self.current();
         match current_tok.kind() {
             TokenKind::KwImport => Ok(AstItem::Import(self.parse_import()?)),
+            TokenKind::KwNamespace => Ok(AstItem::Namespace(self.parse_namespace()?)),
             TokenKind::KwExtern => {
                 let _ = self.advance();
                 match self.current().kind() {
@@ -310,6 +312,26 @@ impl<'ast> Parser<'ast> {
                 &self.current().span(),
             )),
         }
+    }
+
+    fn parse_namespace(&mut self) -> ParseResult<AstNamespace<'ast>> {
+        let start = self.expect(TokenKind::KwNamespace)?.span;
+        let name = self.parse_identifier()?;
+        self.expect(TokenKind::LBrace)?;
+
+        let mut items = vec![];
+        while self.current().kind() != TokenKind::RBrace {
+            items.push(self.parse_item()?);
+        }
+
+        let end = self.expect(TokenKind::RBrace)?.span;
+        Ok(AstNamespace {
+            span: Span::union_span(&start, &end),
+            name: self.arena.alloc(name),
+            items: self.arena.alloc_vec(items),
+            vis: AstVisibility::default(),
+            docstring: None,
+        })
     }
 
     // TODO: Be a bit more flexible with flag names. e.g. `debug`, `display` or whatever without "std" could be allowed
@@ -1870,22 +1892,53 @@ impl<'ast> Parser<'ast> {
     }
 
     fn parse_identifier(&mut self) -> ParseResult<AstIdentifier<'ast>> {
-        let token = self.current();
+        let start_span = self.current().span();
+        let mut end_span;
+        let mut segments: Vec<String> = vec![];
+        let is_namespace_like;
 
-        let node = match token.kind() {
-            TokenKind::Identifier(s) => AstIdentifier {
-                span: Span::union_span(&self.current().span(), &self.current().span()),
-                name: self.arena.alloc(s),
-            },
+        let first = self.current();
+        match first.kind() {
+            TokenKind::Identifier(s) => {
+                is_namespace_like = s
+                    .chars()
+                    .next()
+                    .is_some_and(|ch| ch.is_ascii_lowercase());
+                segments.push(s);
+                end_span = first.span();
+            }
             _ => {
                 return Err(self.unexpected_token_error(
                     TokenVec(vec![TokenKind::Identifier("Identifier".to_string())]),
-                    &token.span,
+                    &first.span,
                 ));
             }
-        };
+        }
         let _ = self.advance();
-        Ok(node)
+
+        while is_namespace_like && self.current().kind() == TokenKind::DoubleColon {
+            let _ = self.advance();
+            let part_tok = self.current();
+            match part_tok.kind() {
+                TokenKind::Identifier(s) => {
+                    segments.push(s);
+                    end_span = part_tok.span();
+                    let _ = self.advance();
+                }
+                _ => {
+                    return Err(self.unexpected_token_error(
+                        TokenVec(vec![TokenKind::Identifier("Identifier".to_string())]),
+                        &part_tok.span,
+                    ));
+                }
+            }
+        }
+
+        let full_name = segments.join("::");
+        Ok(AstIdentifier {
+            span: Span::union_span(&start_span, &end_span),
+            name: self.arena.alloc(full_name),
+        })
     }
 
     ///todo: add support for += -= *= /= %= etc.
