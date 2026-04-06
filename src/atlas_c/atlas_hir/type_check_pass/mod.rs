@@ -1454,6 +1454,19 @@ impl<'hir> TypeChecker<'hir> {
                         let func = match self.signature.functions.get(name) {
                             Some(f) => *f,
                             None => {
+                                if let Some(mut static_access) =
+                                    self.build_static_access_from_qualified_ident(i)
+                                {
+                                    let ty = self.check_call_on_static_access(
+                                        &mut static_access,
+                                        &mut func_expr.args,
+                                        &mut func_expr.args_ty,
+                                        func_expr.span,
+                                    )?;
+                                    *callee = HirExpr::StaticAccess(static_access);
+                                    func_expr.ty = ty;
+                                    return Ok(ty);
+                                }
                                 if let Ok(var) = self.get_ident_ty(i) {
                                     return self.check_callable_ty_call(
                                         var.ty,
@@ -1721,110 +1734,14 @@ impl<'hir> TypeChecker<'hir> {
                         }
                     }
                     HirExpr::StaticAccess(static_access) => {
-                        let name = match static_access.target {
-                            HirTy::Named(n) => n.name,
-                            HirTy::Generic(g) => {
-                                MonomorphizationPass::generate_mangled_name(self.arena, g, "struct")
-                            }
-                            _ => {
-                                let path = static_access.span.path;
-                                let src = utils::get_file_content(path).unwrap();
-                                return Err(HirError::CanOnlyConstructStructs(
-                                    CanOnlyConstructStructsError {
-                                        span: static_access.span,
-                                        src: NamedSource::new(path, src),
-                                    },
-                                ));
-                            }
-                        };
-                        let class = match self.signature.structs.get(name) {
-                            Some(c) => *c,
-                            None => {
-                                return Err(Self::unknown_type_err(name, &static_access.span));
-                            }
-                        };
-                        let func = class
-                            .methods
-                            .iter()
-                            .find(|m| *m.0 == static_access.field.name);
-                        if let Some((_, method_signature)) = func {
-                            // Check if method's where_clause constraints are satisfied
-                            if !method_signature.is_constraint_satisfied {
-                                let path = static_access.span.path;
-                                let src = utils::get_file_content(path).unwrap();
-                                return Err(HirError::MethodConstraintNotSatisfied(
-                                    MethodConstraintNotSatisfiedError {
-                                        member_kind: "method".to_string(),
-                                        member_name: static_access.field.name.to_string(),
-                                        ty_name: if let Some(n) = class.pre_mangled_ty {
-                                            HirPrettyPrinter::generic_ty_str(n)
-                                        } else {
-                                            name.to_string()
-                                        },
-                                        span: static_access.span,
-                                        src: NamedSource::new(path, src),
-                                    },
-                                ));
-                            }
-
-                            if method_signature.modifier == HirStructMethodModifier::Consuming
-                                || method_signature.modifier == HirStructMethodModifier::Const
-                            {
-                                let src = utils::get_file_content(path).unwrap();
-                                return Err(HirError::UnsupportedExpr(UnsupportedExpr {
-                                    span: static_access.span,
-                                    expr: "Instance method call".to_string(),
-                                    src: NamedSource::new(path, src),
-                                }));
-                            }
-                            if method_signature.params.len() != func_expr.args.len() {
-                                return Err(Self::not_enough_arguments_err(
-                                    "static method".to_string(),
-                                    method_signature.params.len(),
-                                    &method_signature.span,
-                                    func_expr.args.len(),
-                                    &func_expr.span,
-                                ));
-                            }
-                            for (param, arg) in method_signature
-                                .params
-                                .iter()
-                                .zip(func_expr.args.iter_mut())
-                            {
-                                self.retag_integer_literal_for_expected_ty(param.ty, arg);
-                                let arg_ty = self.check_expr(arg)?;
-                                self.is_equivalent_ty(param.ty, param.span, arg_ty, arg.span())?;
-                                // Store the expected parameter type for ownership analysis
-                                func_expr.args_ty.push(param.ty);
-                            }
-
-                            static_access.ty =
-                                self.arena.intern(method_signature.return_ty.clone());
-                            func_expr.ty = self.arena.intern(method_signature.return_ty.clone());
-                            static_access.field.ty =
-                                self.arena.intern(method_signature.return_ty.clone());
-
-                            Ok(func_expr.ty)
-                        } else if let Some((_, const_signature)) = class
-                            .constants
-                            .iter()
-                            .find(|f| *f.0 == static_access.field.name)
-                        {
-                            static_access.ty = const_signature.ty;
-                            static_access.field.ty = const_signature.ty;
-                            self.check_callable_ty_call(
-                                const_signature.ty,
-                                static_access.span,
-                                "function pointer static field",
-                                func_expr,
-                            )
-                        } else {
-                            Err(Self::unknown_method_err(
-                                static_access.field.name,
-                                name,
-                                &static_access.span,
-                            ))
-                        }
+                        let ty = self.check_call_on_static_access(
+                            static_access,
+                            &mut func_expr.args,
+                            &mut func_expr.args_ty,
+                            func_expr.span,
+                        )?;
+                        func_expr.ty = ty;
+                        Ok(ty)
                     }
                     _ => Err(HirError::UnsupportedExpr(UnsupportedExpr {
                         span: func_expr.span,
@@ -1834,6 +1751,12 @@ impl<'hir> TypeChecker<'hir> {
                 }
             }
             HirExpr::Ident(i) => {
+                if let Some(static_access) = self.build_static_access_from_qualified_ident(i) {
+                    let mut rewritten = HirExpr::StaticAccess(static_access);
+                    let ty = self.check_expr(&mut rewritten)?;
+                    *expr = rewritten;
+                    return Ok(ty);
+                }
                 let ctx_var = self.get_ident_ty(i)?;
                 Ok(ctx_var.ty)
             }
@@ -2465,6 +2388,167 @@ impl<'hir> TypeChecker<'hir> {
 
         func_expr.ty = function_ty.ret_ty;
         Ok(function_ty.ret_ty)
+    }
+
+    fn build_static_access_from_qualified_ident(
+        &self,
+        ident: &HirIdentExpr<'hir>,
+    ) -> Option<expr::HirStaticAccessExpr<'hir>> {
+        let (target_name, field_name) = ident.name.rsplit_once("::")?;
+        if target_name.is_empty() || field_name.is_empty() {
+            return None;
+        }
+
+        let target = self
+            .arena
+            .types()
+            .get_named_ty(self.arena.names().get(target_name), ident.span);
+        Some(expr::HirStaticAccessExpr {
+            span: ident.span,
+            target,
+            field: Box::new(HirIdentExpr {
+                name: self.arena.names().get(field_name),
+                span: ident.span,
+                ty: self.arena.types().get_uninitialized_ty(),
+            }),
+            ty: self.arena.types().get_uninitialized_ty(),
+        })
+    }
+
+    fn check_call_on_static_access(
+        &mut self,
+        static_access: &mut expr::HirStaticAccessExpr<'hir>,
+        call_args: &mut Vec<HirExpr<'hir>>,
+        call_args_ty: &mut Vec<&'hir HirTy<'hir>>,
+        call_span: Span,
+    ) -> HirResult<&'hir HirTy<'hir>> {
+        let name = match static_access.target {
+            HirTy::Named(n) => n.name,
+            HirTy::Generic(g) => {
+                MonomorphizationPass::generate_mangled_name(self.arena, g, "struct")
+            }
+            _ => {
+                let path = static_access.span.path;
+                let src = utils::get_file_content(path).unwrap();
+                return Err(HirError::CanOnlyConstructStructs(
+                    CanOnlyConstructStructsError {
+                        span: static_access.span,
+                        src: NamedSource::new(path, src),
+                    },
+                ));
+            }
+        };
+        let class = match self.signature.structs.get(name) {
+            Some(c) => *c,
+            None => {
+                return Err(Self::unknown_type_err(name, &static_access.span));
+            }
+        };
+        let func = class
+            .methods
+            .iter()
+            .find(|m| *m.0 == static_access.field.name);
+        if let Some((_, method_signature)) = func {
+            if !method_signature.is_constraint_satisfied {
+                let path = static_access.span.path;
+                let src = utils::get_file_content(path).unwrap();
+                return Err(HirError::MethodConstraintNotSatisfied(
+                    MethodConstraintNotSatisfiedError {
+                        member_kind: "method".to_string(),
+                        member_name: static_access.field.name.to_string(),
+                        ty_name: if let Some(n) = class.pre_mangled_ty {
+                            HirPrettyPrinter::generic_ty_str(n)
+                        } else {
+                            name.to_string()
+                        },
+                        span: static_access.span,
+                        src: NamedSource::new(path, src),
+                    },
+                ));
+            }
+
+            if method_signature.modifier == HirStructMethodModifier::Consuming
+                || method_signature.modifier == HirStructMethodModifier::Const
+            {
+                let path = static_access.span.path;
+                let src = utils::get_file_content(path).unwrap();
+                return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                    span: static_access.span,
+                    expr: "Instance method call".to_string(),
+                    src: NamedSource::new(path, src),
+                }));
+            }
+            if method_signature.params.len() != call_args.len() {
+                return Err(Self::not_enough_arguments_err(
+                    "static method".to_string(),
+                    method_signature.params.len(),
+                    &method_signature.span,
+                    call_args.len(),
+                    &call_span,
+                ));
+            }
+            for (param, arg) in method_signature.params.iter().zip(call_args.iter_mut()) {
+                self.retag_integer_literal_for_expected_ty(param.ty, arg);
+                let arg_ty = self.check_expr(arg)?;
+                self.is_equivalent_ty(param.ty, param.span, arg_ty, arg.span())?;
+                call_args_ty.push(param.ty);
+            }
+
+            static_access.ty = self.arena.intern(method_signature.return_ty.clone());
+            static_access.field.ty = self.arena.intern(method_signature.return_ty.clone());
+
+            Ok(static_access.ty)
+        } else if let Some((_, const_signature)) = class
+            .constants
+            .iter()
+            .find(|f| *f.0 == static_access.field.name)
+        {
+            static_access.ty = const_signature.ty;
+            static_access.field.ty = const_signature.ty;
+            let HirTy::Function(function_ty) = const_signature.ty else {
+                return Err(Self::illegal_operation_err(
+                    const_signature.ty,
+                    self.arena.types().get_unit_ty(),
+                    static_access.span,
+                    "call expression",
+                ));
+            };
+
+            if function_ty.params.len() != call_args.len() {
+                return Err(Self::not_enough_arguments_err(
+                    "function pointer static field".to_string(),
+                    function_ty.params.len(),
+                    &function_ty.span,
+                    call_args.len(),
+                    &call_span,
+                ));
+            }
+
+            for (idx, (param_ty, arg)) in function_ty
+                .params
+                .iter()
+                .zip(call_args.iter_mut())
+                .enumerate()
+            {
+                let expected_span = function_ty
+                    .param_spans
+                    .get(idx)
+                    .copied()
+                    .unwrap_or(function_ty.span);
+                self.retag_integer_literal_for_expected_ty(param_ty, arg);
+                let arg_ty = self.check_expr(arg)?;
+                self.is_equivalent_ty(param_ty, expected_span, arg_ty, arg.span())?;
+                call_args_ty.push(param_ty);
+            }
+
+            Ok(function_ty.ret_ty)
+        } else {
+            Err(Self::unknown_method_err(
+                static_access.field.name,
+                name,
+                &static_access.span,
+            ))
+        }
     }
 
     fn get_ident_ty(&mut self, i: &mut HirIdentExpr<'hir>) -> HirResult<ContextVariable<'hir>> {
