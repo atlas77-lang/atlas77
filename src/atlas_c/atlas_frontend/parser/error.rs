@@ -15,7 +15,6 @@ declare_error_type! {
         UnexpectedEndOfFile(UnexpectedEndOfFileError),
         UnexpectedToken(UnexpectedTokenError),
         OnlyOneDestructorAllowed(OnlyOneDestructorAllowedError),
-        NoFieldInStruct(NoFieldInStructError),
         InvalidCharacter(InvalidCharacterError),
         DestructorWithParameters(DestructorWithParametersError),
         FlagDoesntExist(FlagDoesntExistError),
@@ -81,16 +80,6 @@ pub struct FlagDoesntExistError {
 #[error("Destructor cannot have parameters")]
 pub struct DestructorWithParametersError {
     #[label = "destructor cannot have parameters"]
-    pub span: Span,
-    #[source_code]
-    pub src: NamedSource<String>,
-}
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(code(syntax::no_field_in_class), help("Add fields to the struct"))]
-#[error("No fields in struct")]
-pub struct NoFieldInStructError {
-    #[label = "no fields in struct"]
     pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,

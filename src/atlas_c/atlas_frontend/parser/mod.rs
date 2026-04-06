@@ -14,8 +14,8 @@ use crate::atlas_c::{
         },
         error::{
             ConstTypeNotSupportedYetError, DestructorWithParametersError, FlagDoesntExistError,
-            MissPlacedCommentError, NoFieldInStructError, OnlyOneDestructorAllowedError,
-            ParseResult, SyntaxError, UnexpectedTokenError,
+            MissPlacedCommentError, OnlyOneDestructorAllowedError, ParseResult, SyntaxError,
+            UnexpectedTokenError,
         },
     },
     utils,
@@ -500,18 +500,6 @@ impl<'ast> Parser<'ast> {
 
         let end_span = self.expect(TokenKind::RBrace)?.span;
 
-        if variants.is_empty() {
-            let path = self.current().span.path;
-            let src = crate::atlas_c::utils::get_file_content(path)
-                .expect("Failed to get source content for error reporting");
-            return Err(Box::new(SyntaxError::NoFieldInStruct(
-                NoFieldInStructError {
-                    span: union_identifier.span,
-                    src: NamedSource::new(path, src),
-                },
-            )));
-        }
-
         let node = AstUnion {
             span: Span::union_span(&union_identifier.span, &end_span),
             generics: self.arena.alloc_vec(generics),
@@ -627,26 +615,22 @@ impl<'ast> Parser<'ast> {
 
         self.expect(TokenKind::RBrace)?;
 
-        if fields.is_empty() {
-            let path = self.current().span.path;
-            let src = crate::atlas_c::utils::get_file_content(path)
-                .expect("Failed to get source content for error reporting");
-            return Err(Box::new(SyntaxError::NoFieldInStruct(
-                NoFieldInStructError {
-                    span: struct_identifier.span,
-                    src: NamedSource::new(path, src),
-                },
-            )));
-        }
-
         let node = AstStruct {
             span: Span::union_span(&struct_identifier.span, &self.current().span()),
+            field_span: Span::union_span(
+                if !fields.is_empty() {
+                    &fields.first().unwrap().span
+                } else {
+                    &struct_identifier.span
+                },
+                if !fields.is_empty() {
+                    &fields.last().unwrap().span
+                } else {
+                    &struct_identifier.span
+                },
+            ),
             name_span: struct_identifier.span,
             name: self.arena.alloc(struct_identifier),
-            field_span: Span::union_span(
-                &fields.first().unwrap().span,
-                &fields.last().unwrap().span,
-            ),
             fields: self.arena.alloc_vec(fields),
             destructor,
             generics: self.arena.alloc_vec(generics),
