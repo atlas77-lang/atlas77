@@ -43,6 +43,8 @@ pub struct HirGenericInstance<'hir> {
     pub args: Vec<HirTy<'hir>>,
     pub span: Span,
     pub is_done: bool,
+    /// When false, instantiate fields/signature only and skip method expansion.
+    pub monomorphize_methods: bool,
 }
 
 impl<'hir> HirGenericPool<'hir> {
@@ -60,6 +62,15 @@ impl<'hir> HirGenericPool<'hir> {
         generic: HirGenericTy<'hir>,
         module: &HirModuleSignature<'hir>,
     ) {
+        self.register_struct_instance_with_policy(generic, module, true);
+    }
+
+    pub fn register_struct_instance_with_policy(
+        &mut self,
+        generic: HirGenericTy<'hir>,
+        module: &HirModuleSignature<'hir>,
+        monomorphize_methods: bool,
+    ) {
         //We need to check if it's an instantiated generics or a generic definition e.g.: Vector<T> or Vector<uint64>
         if !self.is_generic_instantiated(&generic, module) {
             return;
@@ -67,12 +78,26 @@ impl<'hir> HirGenericPool<'hir> {
 
         //TODO: Differentiate between struct and union here
         let name = MonomorphizationPass::generate_mangled_name(self.arena, &generic, "struct");
-        self.structs.entry(name).or_insert(HirGenericInstance {
-            name: generic.name,
-            args: generic.inner,
-            is_done: false,
-            span: generic.span,
-        });
+        if let Some(existing) = self.structs.get_mut(name) {
+            existing.monomorphize_methods = existing.monomorphize_methods || monomorphize_methods;
+            // Keep the earliest source span so errors point closer to the generic type
+            // declaration/use site rather than nested field expressions discovered later.
+            if generic.span.path == existing.span.path && generic.span.start < existing.span.start {
+                existing.span = generic.span;
+            }
+            return;
+        }
+
+        self.structs.insert(
+            name,
+            HirGenericInstance {
+                name: generic.name,
+                args: generic.inner,
+                is_done: false,
+                span: generic.span,
+                monomorphize_methods,
+            },
+        );
     }
 
     pub fn register_union_instance(
@@ -85,12 +110,22 @@ impl<'hir> HirGenericPool<'hir> {
             return;
         }
         let name = MonomorphizationPass::generate_mangled_name(self.arena, generic, "union");
-        self.unions.entry(name).or_insert(HirGenericInstance {
-            name: generic.name,
-            args: generic.inner.clone(),
-            is_done: false,
-            span: generic.span,
-        });
+        if let Some(existing) = self.unions.get_mut(name) {
+            if generic.span.path == existing.span.path && generic.span.start < existing.span.start {
+                existing.span = generic.span;
+            }
+            return;
+        }
+        self.unions.insert(
+            name,
+            HirGenericInstance {
+                name: generic.name,
+                args: generic.inner.clone(),
+                is_done: false,
+                span: generic.span,
+                monomorphize_methods: false,
+            },
+        );
     }
 
     pub fn register_function_instance(
@@ -124,14 +159,22 @@ impl<'hir> HirGenericPool<'hir> {
 
         let mangled_name =
             MonomorphizationPass::generate_mangled_name(self.arena, &generic, "function");
-        self.functions
-            .entry(mangled_name)
-            .or_insert(HirGenericInstance {
+        if let Some(existing) = self.functions.get_mut(mangled_name) {
+            if generic.span.path == existing.span.path && generic.span.start < existing.span.start {
+                existing.span = generic.span;
+            }
+            return;
+        }
+        self.functions.insert(
+            mangled_name,
+            HirGenericInstance {
                 name: generic.name,
                 args: generic.inner,
                 is_done: false,
                 span: generic.span,
-            });
+                monomorphize_methods: false,
+            },
+        );
     }
 
     fn is_generic_instantiated(

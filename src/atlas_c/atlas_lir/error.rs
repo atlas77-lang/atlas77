@@ -55,8 +55,9 @@ pub struct NoReturnInFunctionError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
     code(lir_lowering::unknown_type),
-    help("Ensure that the type is defined before using it"),
-    severity(warning)
+    help(
+        "The type may exist but was not materialized from inference yet. Try an explicit type annotation, e.g. `let x: MyType = expr;` (or assign to a typed temporary first)."
+    )
 )]
 // It doesn't really mean the type is unknown, but that it's not managed by the LIR lowering pass yet
 #[error("Unknown type: `{ty_name}`")]

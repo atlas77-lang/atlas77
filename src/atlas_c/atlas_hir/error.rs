@@ -76,6 +76,7 @@ declare_error_type! {
         LifetimeDependencyViolation(LifetimeDependencyViolationError),
         ReturningValueWithLocalLifetimeDependency(ReturningValueWithLocalLifetimeDependencyError),
         MethodConstraintNotSatisfied(MethodConstraintNotSatisfiedError),
+        GenericPointerDepthExceeded(GenericPointerDepthExceededError),
         TooManyReferenceLevels(TooManyReferenceLevelsError),
         AssignmentCannotBeAnExpression(AssignmentCannotBeAnExpressionError),
         CannotGenerateADestructorForThisType(CannotGenerateADestructorForThisTypeError),
@@ -191,6 +192,25 @@ pub struct ListIndexOutOfBoundsError {
 #[error("type has too many reference levels")]
 pub struct TooManyReferenceLevelsError {
     #[label = "type has too many reference levels"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::generic_pointer_depth_exceeded),
+    help(
+        "generic pointer depth exceeded because this generic asked for {found_depth} pointer recursion levels; the hard limit is {max_depth} (4 or more is rejected)"
+    )
+)]
+#[error(
+    "generic pointer depth exceeded because this generic asked for {found_depth} pointer recursion levels (4 or more pointer recursion is rejected; max allowed: {max_depth})"
+)]
+pub struct GenericPointerDepthExceededError {
+    pub found_depth: usize,
+    pub max_depth: usize,
+    #[label = "generic pointer depth exceeded here: this instantiation asked for 4 or more pointer recursion"]
     pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,

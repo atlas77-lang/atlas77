@@ -3,6 +3,7 @@ use crate::atlas_c::{
         HirModule,
         arena::HirArena,
         error::{
+            GenericPointerDepthExceededError,
             HirError::{self, UnknownType},
             HirResult, NotEnoughGenericsError, NotEnoughGenericsOrigin, UnknownTypeError,
         },
@@ -25,6 +26,8 @@ pub struct MonomorphizationPass<'hir> {
 }
 
 impl<'hir> MonomorphizationPass<'hir> {
+    const MAX_GENERIC_POINTER_DEPTH: usize = 4;
+
     pub fn new(arena: &'hir HirArena<'hir>, generic_pool: HirGenericPool<'hir>) -> Self {
         Self {
             arena,
@@ -158,6 +161,7 @@ impl<'hir> MonomorphizationPass<'hir> {
         let mut generic_pool_clone = self.generic_pool.structs.clone();
         for (_, instance) in generic_pool_clone.iter_mut() {
             if !instance.is_done {
+                self.ensure_pointer_depth_limit(instance.name, &instance.args, instance.span)?;
                 let generic_ty = self.arena.intern(HirGenericTy {
                     name: instance.name,
                     inner: instance.args.clone(),
@@ -186,6 +190,7 @@ impl<'hir> MonomorphizationPass<'hir> {
         let mut union_pool_clone = self.generic_pool.unions.clone();
         for (_, instance) in union_pool_clone.iter_mut() {
             if !instance.is_done {
+                self.ensure_pointer_depth_limit(instance.name, &instance.args, instance.span)?;
                 let generic_ty = self.arena.intern(HirGenericTy {
                     name: instance.name,
                     inner: instance.args.clone(),
@@ -215,6 +220,7 @@ impl<'hir> MonomorphizationPass<'hir> {
         let mut function_pool_clone = self.generic_pool.functions.clone();
         for (_, instance) in function_pool_clone.iter_mut() {
             if !instance.is_done {
+                self.ensure_pointer_depth_limit(instance.name, &instance.args, instance.span)?;
                 let generic_ty = self.arena.intern(HirGenericTy {
                     name: instance.name,
                     inner: instance.args.clone(),
@@ -1074,6 +1080,81 @@ impl<'hir> MonomorphizationPass<'hir> {
                 span: ptr_ty.span,
             })),
             _ => type_to_change,
+        }
+    }
+
+    fn ensure_pointer_depth_limit(
+        &self,
+        type_name: &str,
+        args: &[HirTy<'hir>],
+        span: Span,
+    ) -> HirResult<()> {
+        for ty in args {
+            let found_depth = Self::max_pointer_depth_in_ty(ty);
+            if found_depth >= Self::MAX_GENERIC_POINTER_DEPTH {
+                let path = span.path;
+                let src = crate::atlas_c::utils::get_file_content(path).unwrap();
+                let refined_span = Self::refine_span_to_type_name(span, &src, type_name);
+                return Err(HirError::GenericPointerDepthExceeded(
+                    GenericPointerDepthExceededError {
+                        found_depth,
+                        max_depth: Self::MAX_GENERIC_POINTER_DEPTH,
+                        span: refined_span,
+                        src: NamedSource::new(path, src),
+                    },
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn refine_span_to_type_name(original: Span, src: &str, type_name: &str) -> Span {
+        if type_name.is_empty() || src.is_empty() {
+            return original;
+        }
+
+        let mut best_idx: Option<usize> = None;
+        let mut best_dist = usize::MAX;
+        for (idx, _) in src.match_indices(type_name) {
+            let dist = idx.abs_diff(original.start);
+            if dist < best_dist {
+                best_dist = dist;
+                best_idx = Some(idx);
+            }
+        }
+
+        if let Some(idx) = best_idx {
+            Span {
+                start: idx,
+                end: idx + type_name.len(),
+                path: original.path,
+            }
+        } else {
+            original
+        }
+    }
+
+    fn max_pointer_depth_in_ty(ty: &HirTy<'hir>) -> usize {
+        match ty {
+            HirTy::PtrTy(ptr) => 1 + Self::max_pointer_depth_in_ty(ptr.inner),
+            HirTy::Generic(g) => g
+                .inner
+                .iter()
+                .map(Self::max_pointer_depth_in_ty)
+                .max()
+                .unwrap_or(0),
+            HirTy::Slice(s) => Self::max_pointer_depth_in_ty(s.inner),
+            HirTy::InlineArray(arr) => Self::max_pointer_depth_in_ty(arr.inner),
+            HirTy::Function(f) => {
+                let params_max = f
+                    .params
+                    .iter()
+                    .map(Self::max_pointer_depth_in_ty)
+                    .max()
+                    .unwrap_or(0);
+                params_max.max(Self::max_pointer_depth_in_ty(f.ret_ty))
+            }
+            _ => 0,
         }
     }
 }
