@@ -190,7 +190,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 let hir_func = self.visit_func(ast_function)?;
                 let qualified = self.qualified_name(ast_function.name.name);
                 let name = self.arena.names().get(&qualified);
-                if !name.is_snake_case() {
+                if !name.is_snake_case() && !hir_func.signature.is_external {
                     Self::name_should_be_in_different_case_warning(
                         &ast_function.name.span,
                         "snake_case",
@@ -404,15 +404,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     fn visit_extern_func(&mut self, ast_extern_func: &AstExternFunction<'ast>) -> HirResult<()> {
         let qualified = self.qualified_name(ast_extern_func.name.name);
         let name = self.arena.names().get(&qualified);
-        if !name.is_snake_case() {
-            Self::name_should_be_in_different_case_warning(
-                &ast_extern_func.name.span,
-                "snake_case",
-                "extern function",
-                name,
-                &name.to_snake_case(),
-            );
-        }
         let ty = self.visit_ty(ast_extern_func.ret_ty)?.clone();
 
         let mut params: Vec<HirFunctionParameterSignature<'hir>> = Vec::new();
@@ -482,7 +473,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     fn visit_struct(&mut self, node: &'ast AstStruct<'ast>) -> HirResult<HirStruct<'hir>> {
         let qualified = self.qualified_name(node.name.name);
         let name = self.arena.names().get(&qualified);
-        if !name.is_pascal_case() {
+        if !name.is_pascal_case() && !node.is_extern {
             Self::name_should_be_in_different_case_warning(
                 &node.name.span,
                 "PascalCase",
