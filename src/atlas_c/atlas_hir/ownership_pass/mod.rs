@@ -539,7 +539,7 @@ impl<'hir> HirOwnershipPass<'hir> {
                 for arg in &intrinsic.args {
                     self.validate_expr(arg, scope_stack);
                 }
-                if intrinsic.name == "move"
+                if intrinsic.name == "std::move"
                     && let Some(first_arg) = intrinsic.args.first()
                     && let HirExpr::Ident(id) = self.strip_noop_unary(first_arg)
                 {

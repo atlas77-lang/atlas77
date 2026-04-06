@@ -1,19 +1,28 @@
-public extern fun free<T>(val: *T);
+namespace std {
+    #[c_name("free")]
+    public extern fun free<T>(val: *T);
+    #[c_name("malloc")]
+    public extern fun malloc<T>(size: uint64) -> *T;
+    #[c_name("memcpy")]
+    public extern fun memcpy<T>(dest: *T, src: *T, size: uint64) -> *T;
 
-public extern fun malloc<T>(size: uint64) -> *T;
+    #[std::intrinsic]
+    //! Moves a value, invalidating the source. 
+    //! [!Note] This is a low-level primitive and should be used with care.
+    public extern fun move<T>(from: T) -> T;
 
-public extern fun memcpy<T>(dest: *T, src: *T, size: uint64) -> *T;
+    public fun copy<T: std::copyable>(from: *const T) -> T
+    {
+        return from.copy();
+    }
 
-#[std::intrinsic]
-//! Moves a value, invalidating the source. 
-//! [!Note] This is a low-level primitive and should be used with care.
-public extern fun move<T>(from: T) -> T;
 
-public fun copy<T: std::copyable>(from: *const T) -> T
-{
-    return from.copy();
 }
 
+#[std::intrinsic]
+public extern fun size_of<T>() -> uint64;
+#[std::intrinsic]
+public extern fun align_of<T>() -> uint64;
 //! For the people who can't add a little underscore...
 public fun sizeof<T>() -> uint64
 {
@@ -25,8 +34,3 @@ public fun alignof<T>() -> uint64
 {
     return align_of<T>();
 }
-
-#[std::intrinsic]
-public extern fun size_of<T>() -> uint64;
-#[std::intrinsic]
-public extern fun align_of<T>() -> uint64;

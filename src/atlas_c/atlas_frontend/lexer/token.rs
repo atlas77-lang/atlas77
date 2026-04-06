@@ -322,7 +322,7 @@ pub enum TokenKind {
     BoolTy,
     #[token("This")]
     ThisTy,
-    #[token("string")]
+    #[token("str")]
     StrTy,
     // === Keywords for compile-time ===
     #[token("comptime")]

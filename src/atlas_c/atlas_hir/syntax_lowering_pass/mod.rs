@@ -110,14 +110,9 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     }
 
     fn qualified_type_name(&self, name: &str) -> String {
-        if self.namespace_stack.is_empty() || name.contains("::") {
-            return name.to_string();
-        }
-        // Keep common generic placeholders untouched.
-        if name.len() == 1 {
-            return name.to_string();
-        }
-        self.qualified_name(name)
+        // Type references are always explicit.
+        // If callers want namespaced types, they must write `ns::Type` directly.
+        name.to_string()
     }
 
     fn enter_namespace(&mut self, ns: &'hir str) {
@@ -1460,7 +1455,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                                 });
                                 return Ok(hir);
                             }
-                            "move" => {
+                            "std::move" => {
                                 // move<T>(T) -> T
                                 if c.generics.len() != 1 && c.args.len() != 1 {
                                     let path = node.span().path;
@@ -1469,7 +1464,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                                     return Err(HirError::IncorrectIntrinsicCallArguments(
                                         IncorrectIntrinsicCallArgumentsError {
                                             span: node.span(),
-                                            name: "move".to_string(),
+                                            name: "std::move".to_string(),
                                             expected: 1,
                                             found: c.generics.len(),
                                             src: NamedSource::new(path, src),
@@ -1479,7 +1474,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                                 //let ty = self.visit_ty(c.generics[0])?;
                                 let src_expr = self.visit_expr(c.args[0])?;
                                 let hir = HirExpr::IntrinsicCall(HirIntrinsicCallExpr {
-                                    name: "move",
+                                    name: "std::move",
                                     ty: src_expr.ty(),
                                     args: vec![src_expr],
                                     // Don't prefill `args_ty` with `uninitialized` here —

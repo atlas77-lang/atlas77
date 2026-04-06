@@ -2019,9 +2019,13 @@ impl<'hir> TypeChecker<'hir> {
                 //Let's just use the extern fn checker for now
                 let signature = match self.signature.functions.get(intrinsic.name) {
                     Some(sig) => sig,
-                    None => todo!(
-                        "Add error when the intrinsic is not declared (shouldn't happen though)"
-                    ),
+                    None => {
+                        return Err(Self::unknown_method_err(
+                            intrinsic.name,
+                            intrinsic.name,
+                            &intrinsic.span,
+                        ));
+                    }
                 };
                 let ty = self.check_extern_fn(
                     intrinsic.name,

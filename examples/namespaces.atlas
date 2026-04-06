@@ -1,32 +1,39 @@
-namespace raylib {
-    // Adding public extern means that a `raylib_InitWindow` function exists in a separate C header file.
-    public extern fun InitWindow(width: int32, height: int32, title: *const uint8);
-    public extern fun CloseWindow();
-    public extern fun DrawRectangleRec(rec: Rectangle, color: Color);
-    public extern struct Rectangle
-    {
-    public:
-        x: float32;
-        y: float32;
-        width: float32;
-        height: float32;
+import "std/string";
+import "std/vector";
+import "std/io";
+
+
+namespace example {
+    fun some_example() {
+        std::println("This is an example function in the example namespace.");
     }
-    public extern struct Color
-    {
-    public:
-        r: uint8;
-        g: uint8;
-        b: uint8;
-        a: uint8;
+    fun use_std_string() {
+        let s = std::string::from_chars("Hello from example namespace!");
+        std::printf("%s\n", s.c_str());
     }
 }
 
 
 fun main() {
-    raylib::InitWindow(800, 600, "Hello, World!");
-    raylib::DrawRectangleRec(
-        raylib::Rectangle{.x = 100.0, .y = 100.0, .width = 200.0, .height = 150.0},
-        raylib::Color{.r = 255, .g = 0, .b = 0, .a = 255}
-    );
-    raylib::CloseWindow();
+    let s: std::string = std::string::from_chars("Hello, world!");
+    std::printf("String length: %d\n", s.len());
+    let s_copy: std::string = s.copy();
+    std::printf("Copied string length: %d\n", s_copy.len());
+
+    let arr: [int32; 5] = [1 as int32, 2 as int32, 3 as int32, 4 as int32, 5 as int32];
+    let vec: std::vector<int32> = std::vector<int32>::new(&arr[0], 5);
+    std::printf("Vector length: %d\n", vec.length);
+    example::some_example();
+
+    let s2 = std::string::from_chars("Hello again!");
+    let arr_of_strings: [std::string; 2] = [std::move(s), std::move(s2)];
+    let vector_std_string: std::vector<std::string> = std::vector<std::string>::new(&arr_of_strings[0], 2);
+    vector_std_string.push(std::string::from_chars("Hello"));
+    vector_std_string.push(std::string::from_chars("Atlas"));
+    let i: uint64 = 0;
+    while i < vector_std_string.len() {
+        std::printf("Vector element %d: ", i);
+        std::printf("%s\n", vector_std_string.get_mut(i)->c_str());
+        i = i + 1;
+    }
 }
