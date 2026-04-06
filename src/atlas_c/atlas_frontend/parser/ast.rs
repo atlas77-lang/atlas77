@@ -48,6 +48,7 @@ impl AstItem<'_> {
             _ => {}
         }
     }
+
     pub fn span(&self) -> Span {
         match self {
             AstItem::Import(v) => v.span,
@@ -64,6 +65,14 @@ impl AstItem<'_> {
 }
 
 impl<'ast> AstItem<'ast> {
+    pub fn set_c_name(&mut self, c_name: &'ast str) {
+        match self {
+            AstItem::ExternFunction(v) => v.c_name = Some(c_name),
+            AstItem::ExternStruct(v) => v.c_name = Some(c_name),
+            _ => {}
+        }
+    }
+
     // If there is already a docstring, we need to push the new one before it
     pub fn set_docstring(&mut self, docstring: &'ast str, arena: &'ast AstArena<'ast>) {
         match self {
@@ -275,6 +284,8 @@ pub struct AstStruct<'ast> {
     pub flag: AstFlag,
     pub docstring: Option<&'ast str>,
     pub is_extern: bool,
+    /// Optional C symbol/type name override, used for extern structs.
+    pub c_name: Option<&'ast str>,
 }
 
 #[derive(Debug, Clone, Default, Copy)]
@@ -391,6 +402,8 @@ pub struct AstExternFunction<'ast> {
     pub vis: AstVisibility,
     pub flag: AstFlag,
     pub docstring: Option<&'ast str>,
+    /// Optional C symbol name override used during codegen.
+    pub c_name: Option<&'ast str>,
 }
 
 #[derive(Debug, Clone)]

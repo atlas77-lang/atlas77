@@ -104,6 +104,7 @@ impl LirProgram {
 #[derive(Debug, Clone)]
 pub struct LirExternFunction {
     pub name: String,
+    pub c_name: Option<String>,
     pub args: Vec<LirTy>,
     pub return_type: Option<LirTy>,
 }
@@ -125,6 +126,7 @@ pub struct LirStruct {
     pub name: String,
     pub fields: HashMap<String, LirTy>,
     pub is_extern: bool,
+    pub c_name: Option<String>,
 }
 
 #[derive(Debug, Clone)]

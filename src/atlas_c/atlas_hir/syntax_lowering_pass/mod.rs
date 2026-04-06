@@ -460,6 +460,9 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 None
             },
             is_intrinsic: matches!(ast_extern_func.flag, AstFlag::Intrinsic(_)),
+            c_name: ast_extern_func
+                .c_name
+                .map(|name| self.arena.names().get(name)),
         });
         self.module_signature.functions.insert(name, hir);
         Ok(())
@@ -622,6 +625,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 None
             },
             is_extern: node.is_extern,
+            c_name: node.c_name.map(|name| self.arena.names().get(name)),
         };
 
         Ok(HirStruct {
@@ -1801,6 +1805,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             } else {
                 None
             },
+            c_name: None,
         });
         let fun = HirFunction {
             span: node.span,

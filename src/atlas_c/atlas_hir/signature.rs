@@ -56,6 +56,8 @@ pub struct HirStructSignature<'hir> {
     pub is_instantiated: bool,
     pub docstring: Option<&'hir str>,
     pub is_extern: bool,
+    /// Optional C type name override for extern structs.
+    pub c_name: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone)]
@@ -309,6 +311,8 @@ pub struct HirFunctionSignature<'hir> {
     pub pre_mangled_ty: Option<&'hir HirGenericTy<'hir>>,
     pub docstring: Option<&'hir str>,
     pub is_instantiated: bool,
+    /// Optional C symbol name override for extern functions.
+    pub c_name: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone)]

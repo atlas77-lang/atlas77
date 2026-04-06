@@ -874,7 +874,7 @@ impl CCodeGen {
         match operand {
             LirOperand::Arg(a) => format!("arg_{}", a),
             LirOperand::Temp(t) => format!("temp_{}", t),
-            LirOperand::GlobalFn(name) => name.to_string(),
+            LirOperand::GlobalFn(name) => Self::c_ident(name),
             LirOperand::Const(c) => match c {
                 ConstantValue::Int(i) => format!("{}", i),
                 ConstantValue::UInt(u) => format!("{}", u),

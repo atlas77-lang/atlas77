@@ -75,6 +75,7 @@ impl<'hir> HirLoweringPass<'hir> {
             if sig.is_external {
                 let lir_extern_func = LirExternFunction {
                     name: name.to_string(),
+                    c_name: sig.c_name.map(|s| s.to_string()),
                     args: sig
                         .params
                         .iter()
@@ -220,6 +221,7 @@ impl<'hir> HirLoweringPass<'hir> {
                 })
                 .collect(),
             is_extern: struct_body.signature.is_extern,
+            c_name: struct_body.signature.c_name.map(|s| s.to_string()),
         };
 
         for method in struct_body.methods.iter() {
@@ -781,7 +783,15 @@ impl<'hir> HirLoweringPass<'hir> {
                 }
                 // Check if it's a global function symbol (used as a function pointer value)
                 else if self.hir_module.signature.functions.contains_key(ident.name) {
-                    Ok(LirOperand::GlobalFn(ident.name.to_string()))
+                    let function_name = self
+                        .hir_module
+                        .signature
+                        .functions
+                        .get(ident.name)
+                        .and_then(|sig| if sig.is_external { sig.c_name } else { None })
+                        .unwrap_or(ident.name)
+                        .to_string();
+                    Ok(LirOperand::GlobalFn(function_name))
                 } else {
                     // Unknown identifier - shouldn't happen after type checking
                     panic!("Unknown identifier: {}", ident.name);
@@ -1142,12 +1152,17 @@ impl<'hir> HirLoweringPass<'hir> {
                 }
 
                 // Check if it's an external function
-                let is_extern = self
+                let extern_sig = self
                     .hir_module
                     .signature
                     .functions
                     .get(func_name.as_str())
-                    .is_some_and(|f| f.is_external);
+                    .filter(|f| f.is_external);
+                let is_extern = extern_sig.is_some();
+                let extern_callee_name = extern_sig
+                    .and_then(|f| f.c_name)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| func_name.clone());
 
                 let dest = if matches!(call.ty, HirTy::Unit(_)) {
                     None
@@ -1159,7 +1174,7 @@ impl<'hir> HirLoweringPass<'hir> {
                     LirInstr::ExternCall {
                         ty: self.hir_ty_to_lir_ty(call.ty, call.span),
                         dst: dest.clone(),
-                        func_name,
+                        func_name: extern_callee_name,
                         args,
                     }
                 } else {
@@ -1400,7 +1415,17 @@ impl<'hir> HirLoweringPass<'hir> {
                 inner: Box::new(self.hir_ty_to_lir_ty(arr.inner, span)),
                 size: arr.size,
             },
-            HirTy::Named(n) => LirTy::StructType(n.name.to_string()),
+            HirTy::Named(n) => {
+                let name = self
+                    .hir_module
+                    .signature
+                    .structs
+                    .get(n.name)
+                    .filter(|sig| sig.is_extern)
+                    .and_then(|sig| sig.c_name)
+                    .unwrap_or(n.name);
+                LirTy::StructType(name.to_string())
+            }
             HirTy::Generic(g) => {
                 let mangled_name =
                     MonomorphizationPass::generate_mangled_name(self.hir_arena, g, "struct");

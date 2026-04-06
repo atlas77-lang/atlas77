@@ -284,10 +284,19 @@ impl<'ast> Parser<'ast> {
                 Ok(item)
             }
             TokenKind::Hash => {
-                let flag = self.parse_flag()?;
-                let mut item = self.parse_item()?;
-                item.set_flag(flag);
-                Ok(item)
+                if self.peek() == Some(TokenKind::LBracket)
+                    && self.peek_at(2) == Some(TokenKind::Identifier("c_name".to_string()))
+                {
+                    let c_name = self.parse_c_name_attribute()?;
+                    let mut item = self.parse_item()?;
+                    item.set_c_name(c_name);
+                    Ok(item)
+                } else {
+                    let flag = self.parse_flag()?;
+                    let mut item = self.parse_item()?;
+                    item.set_flag(flag);
+                    Ok(item)
+                }
             }
             TokenKind::Docs(doc) => {
                 let _ = self.advance();
@@ -376,6 +385,41 @@ impl<'ast> Parser<'ast> {
         };
         self.expect(TokenKind::RBracket)?;
         Ok(flag_token)
+    }
+
+    fn parse_c_name_attribute(&mut self) -> ParseResult<&'ast str> {
+        self.expect(TokenKind::Hash)?;
+        self.expect(TokenKind::LBracket)?;
+
+        match self.current().kind() {
+            TokenKind::Identifier(ref s) if s == "c_name" => {
+                let _ = self.advance();
+            }
+            _ => {
+                return Err(self.unexpected_token_error(
+                    TokenVec(vec![TokenKind::Identifier("c_name".to_string())]),
+                    &self.current().span(),
+                ));
+            }
+        }
+
+        self.expect(TokenKind::LParen)?;
+        let c_name = match self.current().kind() {
+            TokenKind::StringLiteral(s) => {
+                let s = self.arena.alloc(s);
+                let _ = self.advance();
+                s
+            }
+            _ => {
+                return Err(self.unexpected_token_error(
+                    TokenVec(vec![TokenKind::StringLiteral("name_in_c".to_string())]),
+                    &self.current().span(),
+                ));
+            }
+        };
+        self.expect(TokenKind::RParen)?;
+        self.expect(TokenKind::RBracket)?;
+        Ok(c_name)
     }
 
     fn parse_enum(&mut self) -> ParseResult<AstEnum<'ast>> {
@@ -641,6 +685,7 @@ impl<'ast> Parser<'ast> {
             flag: AstFlag::default(),
             docstring: None,
             is_extern: false,
+            c_name: None,
         };
         Ok(node)
     }
@@ -1734,6 +1779,7 @@ impl<'ast> Parser<'ast> {
             vis: AstVisibility::default(),
             docstring: None,
             flag: AstFlag::default(),
+            c_name: None,
         };
         Ok(node)
     }
