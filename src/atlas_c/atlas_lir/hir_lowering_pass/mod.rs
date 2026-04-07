@@ -1305,6 +1305,20 @@ impl<'hir> HirLoweringPass<'hir> {
                     Ok(dest)
                 }
                 "std::move" => self.lower_expr(&intrinsic.args[0]),
+                "std::ptr::read" => {
+                    let ptr = self.lower_expr(&intrinsic.args[0])?;
+                    Ok(LirOperand::Deref(Box::new(ptr)))
+                }
+                "std::ptr::write" => {
+                    let ptr = self.lower_expr(&intrinsic.args[0])?;
+                    let val = self.lower_expr(&intrinsic.args[1])?;
+                    self.emit(LirInstr::Assign {
+                        ty: self.hir_ty_to_lir_ty(intrinsic.args[1].ty(), intrinsic.span),
+                        dst: LirOperand::Deref(Box::new(ptr)),
+                        src: val,
+                    })?;
+                    Ok(LirOperand::ImmUnit)
+                }
                 _ => {
                     let mut args = Vec::new();
                     for arg in &intrinsic.args {

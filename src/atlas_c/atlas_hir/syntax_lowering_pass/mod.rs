@@ -1459,9 +1459,68 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                                 });
                                 return Ok(hir);
                             }
+                            "std::ptr::write" => {
+                                // std::ptr::write<T>(*T, T);
+                                if c.args.len() != 2 {
+                                    let path = node.span().path;
+                                    let src =
+                                        crate::atlas_c::utils::get_file_content(path).unwrap();
+                                    return Err(HirError::IncorrectIntrinsicCallArguments(
+                                        IncorrectIntrinsicCallArgumentsError {
+                                            span: node.span(),
+                                            name: "std::ptr::write".to_string(),
+                                            expected: 2,
+                                            found: c.args.len(),
+                                            src: NamedSource::new(path, src),
+                                        },
+                                    ));
+                                }
+                                let ptr_expr = self.visit_expr(c.args[0])?;
+                                let val_expr = self.visit_expr(c.args[1])?;
+                                let hir = HirExpr::IntrinsicCall(HirIntrinsicCallExpr {
+                                    name: "std::ptr::write",
+                                    ty: self.arena.types().get_unit_ty(),
+                                    args: vec![ptr_expr, val_expr],
+                                    // Don't prefill `args_ty` with `uninitialized` here —
+                                    // leave it empty so the type checker infers parameter
+                                    // types from the actual argument expressions.
+                                    args_ty: vec![],
+                                    span: node.span(),
+                                });
+                                return Ok(hir);
+                            }
+                            "std::ptr::read" => {
+                                // std::ptr::read<T>(*T) -> T;
+                                if c.args.len() != 1 {
+                                    let path = node.span().path;
+                                    let src =
+                                        crate::atlas_c::utils::get_file_content(path).unwrap();
+                                    return Err(HirError::IncorrectIntrinsicCallArguments(
+                                        IncorrectIntrinsicCallArgumentsError {
+                                            span: node.span(),
+                                            name: "std::ptr::read".to_string(),
+                                            expected: 1,
+                                            found: c.args.len(),
+                                            src: NamedSource::new(path, src),
+                                        },
+                                    ));
+                                }
+                                let ptr_expr = self.visit_expr(c.args[0])?;
+                                let hir = HirExpr::IntrinsicCall(HirIntrinsicCallExpr {
+                                    name: "std::ptr::read",
+                                    ty: self.arena.types().get_uninitialized_ty(),
+                                    args: vec![ptr_expr],
+                                    // Don't prefill `args_ty` with `uninitialized` here —
+                                    // leave it empty so the type checker infers parameter
+                                    // types from the actual argument expressions.
+                                    args_ty: vec![],
+                                    span: node.span(),
+                                });
+                                return Ok(hir);
+                            }
                             "std::move" => {
-                                // move<T>(T) -> T
-                                if c.generics.len() != 1 && c.args.len() != 1 {
+                                // std::move<T>(T) -> T
+                                if c.args.len() != 1 {
                                     let path = node.span().path;
                                     let src =
                                         crate::atlas_c::utils::get_file_content(path).unwrap();
@@ -1470,7 +1529,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                                             span: node.span(),
                                             name: "std::move".to_string(),
                                             expected: 1,
-                                            found: c.generics.len(),
+                                            found: c.args.len(),
                                             src: NamedSource::new(path, src),
                                         },
                                     ));

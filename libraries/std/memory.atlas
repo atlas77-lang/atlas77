@@ -24,6 +24,19 @@ namespace std {
         return from.copy();
     }
 
+    namespace ptr {
+        #[std::intrinsic]
+        public extern fun read(ptr: *T) -> T;
+        #[std::intrinsic]
+        public extern fun write(ptr: *T, val: T);
+
+        public fun swap<T>(a: *T, b: *T) {
+            let temp = std::ptr::read(a);
+            std::ptr::write(a, std::ptr::read(b));
+            std::ptr::write(b, temp);
+        }
+    }
+
 
 }
 
