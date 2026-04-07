@@ -14,7 +14,7 @@ use crate::atlas_c::{
             TypeIsNotTriviallyCopyableError,
         },
         expr::{HirDeleteExpr, HirExpr, HirIdentExpr, HirUnaryOp},
-        signature::HirModuleSignature,
+        signature::{HirFunctionParameterSignature, HirModuleSignature},
         stmt::{HirAssignStmt, HirBlock, HirExprStmt, HirStatement},
         ty::HirTy,
     },
@@ -64,19 +64,17 @@ impl<'hir> HirOwnershipPass<'hir> {
         self.errors.clear();
 
         for function in hir_module.body.functions.values_mut() {
-            let mut scope_stack = vec![ScopeFrame::default()];
-            for param in &function.signature.params {
-                self.register_local(
-                    &mut scope_stack,
-                    LocalVar {
-                        name: param.name,
-                        ty: param.ty,
-                        is_compiler_temp: self.is_compiler_temp_name(param.name),
-                    },
-                );
+            self.run_ownership_for_body(&mut function.body, &function.signature.params);
+        }
+
+        for strukt in hir_module.body.structs.values_mut() {
+            for method in &mut strukt.methods {
+                self.run_ownership_for_body(&mut method.body, &method.signature.params);
             }
 
-            function.body = self.transform_block(function.body.clone(), &mut scope_stack);
+            if let Some(destructor) = &mut strukt.destructor {
+                self.run_ownership_for_body(&mut destructor.body, &[]);
+            }
         }
 
         if !self.errors.is_empty() {
@@ -90,6 +88,26 @@ impl<'hir> HirOwnershipPass<'hir> {
         }
 
         Ok(())
+    }
+
+    fn run_ownership_for_body(
+        &mut self,
+        body: &mut HirBlock<'hir>,
+        params: &[HirFunctionParameterSignature<'hir>],
+    ) {
+        let mut scope_stack = vec![ScopeFrame::default()];
+        for param in params {
+            self.register_local(
+                &mut scope_stack,
+                LocalVar {
+                    name: param.name,
+                    ty: param.ty,
+                    is_compiler_temp: self.is_compiler_temp_name(param.name),
+                },
+            );
+        }
+
+        *body = self.transform_block(body.clone(), &mut scope_stack);
     }
 
     fn transform_block(
