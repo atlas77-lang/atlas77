@@ -5,18 +5,15 @@
 // import "std/vector";
 // import "std/iter";
 
-//! Takes a `&const string` and returns its length as `uint64`.
-public extern fun strlen(s: *const uint8) -> uint64;
+//! Takes a `*const uint8` and returns its length as `uint64`.
+#[c_name("strlen")]
+public extern "C" fun strlen(s: *const uint8) -> uint64;
 //! Takes a single character and returns its uppercase equivalent if it's a lowercase letter, otherwise returns the character unchanged.
-public extern fun toupper(c: uint8) -> uint8;
+#[c_name("toupper")]
+public extern "C" fun toupper(c: uint8) -> uint8;
 //! Takes a single character and returns its lowercase equivalent if it's an uppercase letter, otherwise returns the character unchanged.
-public extern fun tolower(c: uint8) -> uint8;
-//! Takes a `&string` and a `&string` separator, and returns an array of `string` split by the separator.
-public extern fun atlas77_split_impl(s: *uint8, sep: *uint8) -> [string];
-//! Compares two constant strings lexicographically.
-public extern fun atlas77_str_cmp_impl(s1: *const uint8, s2: *const uint8) -> uint64;
-//! Converts a `&const string` to an array of `uint8`.
-public extern fun atlas77_to_chars_impl(s: *const uint8) -> [uint8];
+#[c_name("tolower")]
+public extern "C" fun tolower(c: uint8) -> uint8;
 
 
 import "std/memory";
@@ -34,7 +31,7 @@ namespace std {
     public:
         fun default() -> std::string
         {
-            let data = std::malloc<uint8>(0);
+            let data = std::malloc<uint8>(1);
             data[0] = '\0' as uint8;
 
             return std::string { 
@@ -45,11 +42,8 @@ namespace std {
         }
         fun new() -> std::string
         {
-            let data = std::malloc<uint8>(0);
-            data[0] = '\0' as uint8;
-
             return std::string { 
-                .data = data, 
+                .data = null, 
                 .len = 0, 
                 .capacity = 0 
             };
@@ -75,7 +69,7 @@ namespace std {
         fun from_chars(s_: *uint8) -> std::string
         {
             let len = strlen(s_);
-            let data = std::malloc<uint8>(len);
+            let data = std::zero_alloc<uint8>(len);
             std::memcpy(data, s_, len);
             return std::string { 
                 .data = data, 
@@ -83,11 +77,10 @@ namespace std {
                 .capacity = len 
             };
         }
-        //! Creates a new `std::string` with the specified capacity, but with no data.
+        //! Creates a new `std::string` with the specified capacity.
         fun with_capacity(capacity: uint64) -> std::string
         {
-            let data = std::malloc<uint8>(capacity);
-            data[0] = '\0' as uint8;
+            let data = std::zero_alloc<uint8>(capacity);
             return std::string { 
                 .data = data, 
                 .len = 0, 
@@ -114,7 +107,8 @@ namespace std {
             } else if this->len < this->capacity {
                 this->data[this->len] = '\0' as uint8;
             } 
-            // We need to reallocate to add a null terminator, since the string is currently at full capacity. This is a bit inefficient, but it ensures that we always return a null-terminated string.
+            // We need to reallocate to add a null terminator, since the string is currently at full capacity. 
+            // This is a bit inefficient, but it ensures that we always return a null-terminated string.
             let new_capacity = this->capacity + 1;
             let new_data = std::malloc<uint8>(new_capacity);
             std::memcpy(new_data, this->data, this->len);
@@ -125,7 +119,8 @@ namespace std {
             this->capacity = new_capacity;
             return this->data;
         }
-        //! Returns a mutable pointer to the string's data. Use with caution, as this can lead to undefined behavior if the string's invariants are violated.
+        //! Returns a mutable pointer to the string's data. Use with caution, as this
+        // can lead to undefined behavior if the string's invariants are violated.
         fun data_mut(*const this) -> *uint8
         {
             return this->data;
@@ -150,10 +145,20 @@ namespace std {
         {
             let start: uint64 = 0;
             let end: uint64 = this->len;
-            while start < end && (this->data[start] == ' ' as uint8 || this->data[start] == '\t' as uint8 || this->data[start] == '\n' as uint8) {
+            while start < end 
+            && (
+                this->data[start] == ' ' as uint8 
+                    || this->data[start] == '\t' as uint8 
+                    || this->data[start] == '\n' as uint8
+            ) {
                 start = start + 1;
             }
-            while end > start && (this->data[end - 1] == ' ' as uint8 || this->data[end - 1] == '\t' as uint8 || this->data[end - 1] == '\n' as uint8) {
+            while end > start 
+            && (
+                this->data[end - 1] == ' ' as uint8 
+                    || this->data[end - 1] == '\t' as uint8 
+                    || this->data[end - 1] == '\n' as uint8
+            ) {
                 end = end - 1;
             }
             return std::string { 
@@ -198,6 +203,22 @@ namespace std {
                 .len = new_len, 
                 .capacity = new_len 
             };
+        }
+        //! Appends a string slice to the end of this string.
+        fun push_str(*this, s: *const uint8)
+        {
+            let s_len = strlen(s);
+            let new_len = this->len + s_len;
+            if new_len > this->capacity {
+                let new_capacity = new_len * 2;
+                let new_data = std::malloc<uint8>(new_capacity);
+                std::memcpy(new_data, this->data, this->len);
+                std::free(this->data);
+                this->data = new_data;
+                this->capacity = new_capacity;
+            }
+            std::memcpy(this->data + this->len, s, s_len);
+            this->len = new_len;
         }
     }
 }

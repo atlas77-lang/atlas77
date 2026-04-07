@@ -1,0 +1,14 @@
+import "std/string";
+import "std/memory";
+import "std/io";
+
+fun main() 
+{
+    let s: std::string = std::string::from_chars("Hello, Atlas!");
+    std::println(s.c_str());
+
+    let with_capacity = std::string::with_capacity(100);
+    std::println(with_capacity.c_str());
+    with_capacity.push_str("This string has a capacity of 100 bytes.");
+    std::println(with_capacity.c_str());
+}
