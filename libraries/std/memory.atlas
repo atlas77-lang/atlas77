@@ -3,6 +3,14 @@ namespace std {
     public extern fun free<T>(val: *T);
     #[c_name("malloc")]
     public extern fun malloc<T>(size: uint64) -> *T;
+    #[c_name("realloc")]
+    public extern fun realloc<T>(ptr: *T, size: uint64) -> *T;
+    #[c_name("calloc")]
+    public extern fun calloc<T>(nelem: uint64, elsize: uint64) -> *T;
+    public fun zero_alloc<T>(nelem: uint64) -> *T
+    {
+        return std::calloc<T>(nelem, size_of<T>());
+    }
     #[c_name("memcpy")]
     public extern fun memcpy<T>(dest: *T, src: *T, size: uint64) -> *T;
 
