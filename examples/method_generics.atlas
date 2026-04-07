@@ -1,4 +1,5 @@
 import "std/memory";
+import "std/io";
 
 union MyUnion<T> {
 public:
@@ -45,15 +46,13 @@ fun to_float(x: int64) -> float64 {
     return x as float64;
 }
 
-extern fun printf<T>(format: *const uint8, arg: T);
-
 fun main() {
     let opt_int = Optional<int64>::of(42);
     let opt_float = opt_int.map<float64>(to_float);
     if (!opt_float.is_empty()) {
-        printf("Mapped value: %f\n", opt_float.data.value);
+        std::printf("Mapped value: %f\n", opt_float.data.value);
     } else {
-        printf("No value present\n", std::empty {});
+        std::printf("No value present\n", std::empty {});
     }
 }
 

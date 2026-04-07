@@ -2,15 +2,15 @@ import "std/io";
 
 fun main() {
     let array_of_arrays: [[int64; 3]; 2] = [[1, 2, 3], [4, 5, 6]];
-    println("Array of arrays:");
+    std::println("Array of arrays:");
     let i = 0;
     while i < 2 {
         let j = 0;
         while j < 3 {
-            printf("%ld ", array_of_arrays[i][j]);
+            std::printf("%ld ", array_of_arrays[i][j]);
             j = j + 1;
         }
-        println("");
+        std::println("");
         i = i + 1;
     }
 }

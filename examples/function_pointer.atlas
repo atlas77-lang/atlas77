@@ -1,4 +1,4 @@
-extern fun printf<T>(format: *const uint8, data: T);
+import "std/io";
 
 struct Foo
 {
@@ -43,10 +43,10 @@ fun main()
 {
     let add_fn: fun(int32, int32) -> int32 = add;
     let result = add_fn(2, 3);
-    printf("Result: %d\n", result);
+    std::printf("Result: %d\n", result);
 
     let applied = apply_twice(add_fn, 4, 5);
-    printf("Apply twice: %d\n", applied);
+    std::printf("Apply twice: %d\n", applied);
 
     let foo = Foo {
         .my_amazing_fn_pointer = add_fn,
@@ -54,29 +54,29 @@ fun main()
         .mutable_add_pointer = Foo::add_mut,
     };
     let foo_result = foo.my_amazing_fn_pointer(5, 7);
-    printf("Foo Result: %d\n", foo_result);
+    std::printf("Foo Result: %d\n", foo_result);
 
     let const_result = foo.const_add_pointer(&foo, 11);
-    printf("Const method pointer Result: %d\n", const_result);
+    std::printf("Const method pointer Result: %d\n", const_result);
 
     let mut_result = foo.mutable_add_pointer(&foo, 13);
-    printf("Mutable method pointer Result: %d\n", mut_result);
+    std::printf("Mutable method pointer Result: %d\n", mut_result);
 
     let static_method_ptr: fun(int32, int32) -> int32 = Foo::add;
     let static_result = static_method_ptr(8, 9);
-    printf("Static method pointer Result: %d\n", static_result);
+    std::printf("Static method pointer Result: %d\n", static_result);
 
     let pick_i64: fun(int64, int64) -> int64 = pick_first<int64>;
     let pick_i64_result = pick_i64(111, 222);
-    printf("Generic fn ptr int64 Result: %d\n", pick_i64_result);
+    std::printf("Generic fn ptr int64 Result: %d\n", pick_i64_result);
 
     let pick_u8: fun(uint8, uint8) -> uint8 = pick_first<uint8>;
     let pick_u8_result = pick_u8(42, 99);
-    printf("Generic fn ptr uint8 Result: %u\n", pick_u8_result);
+    std::printf("Generic fn ptr uint8 Result: %u\n", pick_u8_result);
 
     let generic_add = GenericStruct<int64>::add;
     let generic_result = generic_add(10, 20);
-    printf("Generic struct Result: %d\n", generic_result);
+    std::printf("Generic struct Result: %d\n", generic_result);
 }
 
 fun add(a: int32, b: int32) -> int32

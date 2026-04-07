@@ -1,5 +1,4 @@
-extern fun printf<T>(fmt: string, n: T);
-
+import "std/io";
 // TODO: Move all that to std/time.atlas when I have it
 
 // I don't have typedef yet, so I just use int64 for the timer functions
@@ -21,9 +20,9 @@ fun fib(n: int64) -> int64 {
 
 fun main() {
     let start_time = clock();
-    printf("%ld\n", fib(40));
+    std::printf("%ld\n", fib(40));
     let end_time = clock();
     let cpu_time_used = ((end_time - start_time) as float64 / clocks_per_sec() as float64);
-    printf("Time: %fms\n", cpu_time_used * 1000.0);      // Milliseconds
-    printf("Time: %fµs\n", cpu_time_used * 1000000.0);   // Microseconds
+    std::printf("Time: %fms\n", cpu_time_used * 1000.0);      // Milliseconds
+    std::printf("Time: %fµs\n", cpu_time_used * 1000000.0);   // Microseconds
 }

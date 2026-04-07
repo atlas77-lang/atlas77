@@ -6,15 +6,15 @@ fun main()
 {
     let age_result = parse_age(-5);
     if age_result.is_unexpected() {
-        printf("Error: %s\n", age_result.unexpected_value());
+        std::printf("Error: %s\n", age_result.unexpected_value());
     } else {
-        printf("Age: %d\n", age_result.expected_value());
+        std::printf("Age: %d\n", age_result.expected_value());
     }
 }
 
-fun parse_age(v: int64) -> expected<int64, *uint8> {
+fun parse_age(v: int64) -> std::expected<int64, *uint8> {
     if v < 0 {
-        return expected<int64, *uint8>::unexpected("age cannot be negative");
+        return std::expected<int64, *uint8>::unexpected("age cannot be negative");
     }
-    return expected<int64, *uint8>::expect(v);
+    return std::expected<int64, *uint8>::expect(v);
 }

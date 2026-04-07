@@ -1,4 +1,4 @@
-extern fun printf<T>(format: *const uint8, value: T);
+import "std/io";
 
 fun get_ptr<T>(value: T) -> *const T
 {
@@ -45,7 +45,7 @@ fun main()
 {
     let x: int32 = 42;
     let ptr: *const int32 = get_ptr<int32>(x);
-    printf("Value: %d\n", *ptr);
+    std::printf("Value: %d\n", *ptr);
     let opt: Optional<int32> = Optional<int32> { .value = OptionalStorage<int32> { .value = 123 }, .has_value = true };
     let opt_ptr: Optional<*const int32> = opt.get();
     let opt_opt_ptr = opt_ptr.get();

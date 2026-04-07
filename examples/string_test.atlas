@@ -4,7 +4,7 @@ import "std/io";
 
 fun main() 
 {
-    let s: std::string = std::string::from_chars("Hello, Atlas!");
+    let s = std::string::from_chars("Hello, Atlas!");
     std::println(s.c_str());
 
     let with_capacity = std::string::with_capacity(100);
