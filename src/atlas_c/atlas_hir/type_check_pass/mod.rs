@@ -710,40 +710,48 @@ impl<'hir> TypeChecker<'hir> {
                 if c.ty != self.arena.types().get_uninitialized_ty() {
                     self.retag_integer_literal_for_expected_ty(c.ty, &mut c.value);
                 }
+
+                // Check if the const is being assigned a reference to a local variable
+                let ptrs_to_locals = self.get_local_ptr_targets(&c.value);
+
                 let expr_ty = self.check_expr(&mut c.value)?;
                 let const_ty = if c.ty == self.arena.types().get_uninitialized_ty() {
                     //Need inference
                     expr_ty
                 } else {
-                    self.is_equivalent_ty(
+                    match self.is_equivalent_ty(
                         c.ty,
                         c.ty_span.unwrap_or(c.name_span),
                         expr_ty,
                         c.value.span(),
-                    )?;
+                    ) {
+                        Ok(_) => {}
+                        Err(err) => {
+                            // We still store the variable before erroring out, so we can get better error reporting later on
+                            self.insert_new_variable(ContextVariable {
+                                name: c.name,
+                                name_span: c.name_span,
+                                ty: c.ty,
+                                _ty_span: c.ty_span.unwrap_or(c.name_span),
+                                _is_mut: true,
+                                is_param: false,
+                                ptrs_to_locals: ptrs_to_locals.clone(),
+                            })?;
+                            return Err(err);
+                        }
+                    }
                     c.ty
                 };
 
-                // Check if the const is being assigned a reference to a local variable
-                let ptrs_to_locals = self.get_local_ptr_targets(&c.value);
-
-                self.context_functions
-                    .last_mut()
-                    .unwrap()
-                    .get_mut(self.current_func_name.unwrap())
-                    .unwrap()
-                    .insert(
-                        c.name,
-                        ContextVariable {
-                            name: c.name,
-                            name_span: c.name_span,
-                            ty: const_ty,
-                            _ty_span: c.ty_span.unwrap_or(c.name_span),
-                            _is_mut: false,
-                            is_param: false,
-                            ptrs_to_locals,
-                        },
-                    );
+                self.insert_new_variable(ContextVariable {
+                    name: c.name,
+                    name_span: c.name_span,
+                    ty: const_ty,
+                    _ty_span: c.ty_span.unwrap_or(c.name_span),
+                    _is_mut: false,
+                    is_param: false,
+                    ptrs_to_locals,
+                })?;
 
                 self.is_equivalent_ty(
                     const_ty,
@@ -757,22 +765,38 @@ impl<'hir> TypeChecker<'hir> {
                     self.retag_integer_literal_for_expected_ty(l.ty, &mut l.value);
                 }
                 let expr_ty = self.check_expr(&mut l.value)?;
+
+                // Check if the let is being assigned a reference to a local variable
+                let ptrs_to_locals = self.get_local_ptr_targets(&l.value);
+
                 let var_ty = if l.ty == self.arena.types().get_uninitialized_ty() {
                     //Need inference
                     expr_ty
                 } else {
-                    self.is_equivalent_ty(
+                    match self.is_equivalent_ty(
                         l.ty,
                         l.ty_span.unwrap_or(l.name_span),
                         expr_ty,
                         l.value.span(),
-                    )?;
+                    ) {
+                        Ok(_) => {}
+                        Err(err) => {
+                            // We still store the variable before erroring out, so we can get better error reporting later on
+                            self.insert_new_variable(ContextVariable {
+                                name: l.name,
+                                name_span: l.name_span,
+                                ty: l.ty,
+                                _ty_span: l.ty_span.unwrap_or(l.name_span),
+                                _is_mut: true,
+                                is_param: false,
+                                ptrs_to_locals: ptrs_to_locals.clone(),
+                            })?;
+                            return Err(err);
+                        }
+                    }
                     l.ty
                 };
                 l.ty = var_ty;
-
-                // Check if the let is being assigned a reference to a local variable
-                let ptrs_to_locals = self.get_local_ptr_targets(&l.value);
 
                 self.insert_new_variable(ContextVariable {
                     name: l.name,
