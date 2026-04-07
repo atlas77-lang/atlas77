@@ -85,13 +85,14 @@ impl<'ast> Parser<'ast> {
         self.tokens.get(self.pos + offset).map(|t| t.kind())
     }
 
-    /// Check if the current `{` token is directly followed by field assignments like `.field = value`
+    /// Check if the current `{` token starts an object literal.
+    /// Supports both non-empty (`{ .field = value }`) and empty (`{}`) object literals.
     fn looks_like_obj_literal(&self) -> bool {
         if self.current().kind() != TokenKind::LBrace {
             return false;
         }
         if let Some(next_kind) = self.peek() {
-            return matches!(next_kind, TokenKind::Dot);
+            return matches!(next_kind, TokenKind::Dot | TokenKind::RBrace);
         }
         false
     }
