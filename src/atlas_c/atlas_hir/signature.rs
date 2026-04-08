@@ -278,6 +278,10 @@ pub struct HirStructMethodSignature<'hir> {
     /// Whether the method's where_clause constraints are satisfied by the concrete types.
     /// Set to false during monomorphization if constraints aren't met.
     pub is_constraint_satisfied: bool,
+    /// True when the method body has been materialized in the owning struct.
+    /// For instantiated generic structs, methods can be signature-only until
+    /// requested by the type checker.
+    pub is_instantiated: bool,
     pub docstring: Option<&'hir str>,
 }
 

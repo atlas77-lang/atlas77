@@ -19,7 +19,7 @@
 
 **Language:**
 - [ ] Operator overloading
-- [ ] Generic methods
+- [x] Generic methods
 - [ ] Const generics
 - [x] Attributes system (`#[stuff]`)
 > Somewhat, it's still fairly locked behind what the compiler allows

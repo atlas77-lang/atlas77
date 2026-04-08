@@ -122,6 +122,44 @@ impl<'hir> TypeChecker<'hir> {
             });
     }
 
+    /// Checks if the method exists and is instantiated. If not, enqueues a monomorphization request and returns true.
+    fn maybe_enqueue_deferred_method_materialization(
+        &mut self,
+        owner_name: &'hir str,
+        method_name: &'hir str,
+        generic_args: Vec<&'hir HirTy<'hir>>,
+        span: Span,
+    ) -> bool {
+        let owner_sig = match self.signature.structs.get(owner_name) {
+            Some(sig) => *sig,
+            None => return false,
+        };
+
+        let template_owner_name = owner_sig
+            .pre_mangled_ty
+            .map(|pre_mangled| pre_mangled.name)
+            .unwrap_or(owner_name);
+
+        let template_owner_sig = match self.signature.structs.get(template_owner_name) {
+            Some(sig) => *sig,
+            None => return false,
+        };
+
+        let template_method_sig = match template_owner_sig.methods.get(method_name) {
+            Some(sig) => sig,
+            None => return false,
+        };
+
+        match &template_method_sig.generics {
+            Some(method_generics) if method_generics.len() != generic_args.len() => return false,
+            None if !generic_args.is_empty() => return false,
+            _ => {}
+        }
+
+        self.enqueue_method_monomorphization_request(owner_name, method_name, generic_args, span);
+        true
+    }
+
     pub fn check(&mut self, hir: &mut HirModule<'hir>) -> HirResult<()> {
         self.errors.clear();
         self.signature = hir.signature.clone();
@@ -451,7 +489,7 @@ impl<'hir> TypeChecker<'hir> {
         }
 
         for method in &mut class.methods {
-            if method.signature.generics.is_some() {
+            if method.signature.generics.is_some() || !method.signature.is_instantiated {
                 continue;
             }
             self.current_class_name = Some(class.name);
@@ -1710,24 +1748,29 @@ impl<'hir> TypeChecker<'hir> {
                             )
                         };
 
-                        let method = class.methods.iter().find(|m| *m.0 == lookup_method_name);
+                        let method = class.methods.get(lookup_method_name);
 
-                        if method.is_none() && !func_expr.generics.is_empty() {
-                            if let Some((_, template_sig)) = class
-                                .methods
-                                .iter()
-                                .find(|m| *m.0 == field_access.field.name)
-                                && let Some(method_generics) = &template_sig.generics
-                                && method_generics.len() == func_expr.generics.len()
-                            {
-                                self.enqueue_method_monomorphization_request(
+                        if let Some(method_sig) = method {
+                            if !method_sig.is_instantiated {
+                                self.maybe_enqueue_deferred_method_materialization(
                                     name,
                                     field_access.field.name,
                                     func_expr.generics.clone(),
                                     func_expr.span,
                                 );
+                                return Err(Self::unknown_method_err(
+                                    lookup_method_name,
+                                    name,
+                                    &field_access.span,
+                                ));
                             }
-
+                        } else if !func_expr.generics.is_empty() {
+                            self.maybe_enqueue_deferred_method_materialization(
+                                name,
+                                field_access.field.name,
+                                func_expr.generics.clone(),
+                                func_expr.span,
+                            );
                             return Err(Self::unknown_method_err(
                                 lookup_method_name,
                                 name,
@@ -1735,7 +1778,7 @@ impl<'hir> TypeChecker<'hir> {
                             ));
                         }
 
-                        if let Some((_, method_signature)) = method {
+                        if let Some(method_signature) = method {
                             field_access.field.name = lookup_method_name;
                             if !func_expr.generics.is_empty() {
                                 func_expr.generics.clear();
@@ -2085,6 +2128,20 @@ impl<'hir> TypeChecker<'hir> {
                     static_access.ty = const_signature.ty;
                     Ok(const_signature.ty)
                 } else if let Some(method_signature) = class.methods.get(static_access.field.name) {
+                    if !method_signature.is_instantiated {
+                        self.maybe_enqueue_deferred_method_materialization(
+                            name,
+                            static_access.field.name,
+                            vec![],
+                            static_access.span,
+                        );
+                        return Err(Self::unknown_method_err(
+                            static_access.field.name,
+                            name,
+                            &static_access.span,
+                        ));
+                    }
+
                     if !self.is_accessing_from_same_class_family(name)
                         && method_signature.vis != HirVisibility::Public
                     {
@@ -2600,24 +2657,19 @@ impl<'hir> TypeChecker<'hir> {
             )
         };
 
-        let func = class.methods.iter().find(|m| *m.0 == lookup_method_name);
+        let func = class.methods.get(lookup_method_name);
 
-        if func.is_none() && !call_generics.is_empty() {
-            if let Some((_, template_sig)) = class
-                .methods
-                .iter()
-                .find(|m| *m.0 == static_access.field.name)
-                && let Some(method_generics) = &template_sig.generics
-                && method_generics.len() == call_generics.len()
-            {
-                self.enqueue_method_monomorphization_request(
-                    name,
-                    static_access.field.name,
-                    call_generics.clone(),
-                    call_span,
-                );
-            }
-
+        if func.is_none()
+            || !func
+                .map(|method_sig| method_sig.is_instantiated)
+                .unwrap_or(false)
+        {
+            self.maybe_enqueue_deferred_method_materialization(
+                name,
+                static_access.field.name,
+                call_generics.clone(),
+                call_span,
+            );
             return Err(Self::unknown_method_err(
                 lookup_method_name,
                 name,
@@ -2625,7 +2677,7 @@ impl<'hir> TypeChecker<'hir> {
             ));
         }
 
-        if let Some((_, method_signature)) = func {
+        if let Some(method_signature) = func {
             static_access.field.name = lookup_method_name;
             if !call_generics.is_empty() {
                 call_generics.clear();

@@ -146,76 +146,144 @@ impl<'hir> MonomorphizationPass<'hir> {
             None => return Ok(false),
         };
 
-        let template_sig = match owner.signature.methods.get(request.method_name) {
+        let (template_owner, struct_types_to_change): (
+            HirStruct<'hir>,
+            Vec<(&'hir str, &'hir HirTy<'hir>)>,
+        ) = if let Some(pre_mangled_ty) = owner.signature.pre_mangled_ty {
+            let template_owner = match module.body.structs.get(pre_mangled_ty.name) {
+                Some(s) => s.clone(),
+                None => return Ok(false),
+            };
+            let template_owner_sig = match module.signature.structs.get(pre_mangled_ty.name) {
+                Some(s) => *s,
+                None => return Ok(false),
+            };
+            if template_owner_sig.generics.len() != pre_mangled_ty.inner.len() {
+                return Ok(false);
+            }
+            let types_to_change = template_owner_sig
+                .generics
+                .iter()
+                .enumerate()
+                .map(|(i, generic_constraint)| {
+                    (
+                        generic_constraint.generic_name,
+                        self.arena.intern(pre_mangled_ty.inner[i].clone()) as &'hir HirTy<'hir>,
+                    )
+                })
+                .collect();
+            (template_owner, types_to_change)
+        } else {
+            (owner.clone(), vec![])
+        };
+
+        let template_sig = match template_owner.signature.methods.get(request.method_name) {
             Some(s) => s.clone(),
             None => return Ok(false),
         };
-        let template_method = match owner.methods.iter().find(|m| m.name == request.method_name) {
+        let template_method = match template_owner
+            .methods
+            .iter()
+            .find(|m| m.name == request.method_name)
+        {
             Some(m) => m.clone(),
             None => return Ok(false),
         };
 
-        let Some(method_generics) = template_sig.generics.clone() else {
-            return Ok(false);
-        };
+        let (materialized_method_name, method_types_to_change) =
+            if let Some(method_generics) = template_sig.generics.clone() {
+                if method_generics.len() != request.generic_args.len() {
+                    return Ok(false);
+                }
 
-        if method_generics.len() != request.generic_args.len() {
+                let mangled_method_name = Self::generate_mangled_name(
+                    self.arena,
+                    &HirGenericTy {
+                        name: request.method_name,
+                        inner: request.generic_args.iter().map(|g| (*g).clone()).collect(),
+                        span: request.span,
+                    },
+                    "method",
+                );
+
+                let types_to_change: Vec<(&'hir str, &'hir HirTy<'hir>)> = method_generics
+                    .iter()
+                    .enumerate()
+                    .map(|(i, generic_constraint)| {
+                        (generic_constraint.generic_name, request.generic_args[i])
+                    })
+                    .collect();
+                (mangled_method_name, types_to_change)
+            } else {
+                if !request.generic_args.is_empty() {
+                    return Ok(false);
+                }
+                (request.method_name, vec![])
+            };
+
+        let already_instantiated = owner
+            .signature
+            .methods
+            .get(materialized_method_name)
+            .map(|sig| sig.is_instantiated)
+            .unwrap_or(false)
+            || owner
+                .methods
+                .iter()
+                .any(|m| m.name == materialized_method_name);
+        if already_instantiated {
             return Ok(false);
         }
 
-        let mangled_method_name = Self::generate_mangled_name(
-            self.arena,
-            &HirGenericTy {
-                name: request.method_name,
-                inner: request.generic_args.iter().map(|g| (*g).clone()).collect(),
-                span: request.span,
-            },
-            "method",
-        );
-
-        if owner.signature.methods.contains_key(mangled_method_name)
-            || owner.methods.iter().any(|m| m.name == mangled_method_name)
-        {
-            return Ok(false);
-        }
-
-        let types_to_change: Vec<(&'hir str, &'hir HirTy<'hir>)> = method_generics
-            .iter()
-            .enumerate()
-            .map(|(i, generic_constraint)| {
-                (generic_constraint.generic_name, request.generic_args[i])
-            })
-            .collect();
+        let mut all_types_to_change = struct_types_to_change;
+        all_types_to_change.extend(method_types_to_change);
 
         let mut new_sig = template_sig.clone();
         for param in new_sig.params.iter_mut() {
-            for (generic_name, concrete_ty) in types_to_change.iter() {
-                param.ty =
-                    self.change_inner_type(param.ty, generic_name, (*concrete_ty).clone(), module);
-            }
+            param.ty = self.swap_generic_types_in_ty(param.ty, all_types_to_change.clone());
         }
-        let mut return_ty = self.arena.intern(new_sig.return_ty.clone()) as &'hir HirTy<'hir>;
-        for (generic_name, concrete_ty) in types_to_change.iter() {
-            return_ty =
-                self.change_inner_type(return_ty, generic_name, (*concrete_ty).clone(), module);
-        }
+        let return_ty = self.swap_generic_types_in_ty(
+            self.arena.intern(new_sig.return_ty.clone()),
+            all_types_to_change.clone(),
+        );
         new_sig.return_ty = return_ty.clone();
         new_sig.generics = None;
-        new_sig.is_constraint_satisfied = true;
 
-        let mut new_method = template_method.clone();
-        new_method.name = mangled_method_name;
-        new_method.signature = self.arena.intern(new_sig.clone());
-
-        for statement in new_method.body.statements.iter_mut() {
-            self.monomorphize_statement(statement, types_to_change.clone(), module)?;
-        }
+        let is_constraint_satisfied = if let (Some(where_clause), Some(pre_mangled_ty)) =
+            (&new_sig.where_clause, owner.signature.pre_mangled_ty)
+        {
+            if let Some(base_sig) = module.signature.structs.get(pre_mangled_ty.name) {
+                self.check_where_constraints_on_method(
+                    where_clause,
+                    &base_sig.generics,
+                    pre_mangled_ty,
+                    &module.signature,
+                )
+            } else {
+                true
+            }
+        } else {
+            true
+        };
+        new_sig.is_constraint_satisfied = is_constraint_satisfied;
+        new_sig.is_instantiated = is_constraint_satisfied;
 
         owner
             .signature
             .methods
-            .insert(mangled_method_name, new_sig.clone());
-        owner.methods.push(new_method);
+            .insert(materialized_method_name, new_sig.clone());
+
+        if is_constraint_satisfied {
+            let mut new_method = template_method.clone();
+            new_method.name = materialized_method_name;
+            new_method.signature = self.arena.intern(new_sig.clone());
+
+            for statement in new_method.body.statements.iter_mut() {
+                self.monomorphize_statement(statement, all_types_to_change.clone(), module)?;
+            }
+
+            owner.methods.push(new_method);
+        }
 
         module.signature.structs.insert(
             request.owner_name,
@@ -548,76 +616,26 @@ impl<'hir> MonomorphizationPass<'hir> {
         for (name, func) in new_struct.signature.methods.iter_mut() {
             if let Some(&is_satisfied) = methods_constraint_status.get(name) {
                 let mut new_func = func.clone();
+                for param in new_func.params.iter_mut() {
+                    param.ty = self.swap_generic_types_in_ty(param.ty, types_to_change.clone());
+                }
+                let return_ty = self.swap_generic_types_in_ty(
+                    self.arena.intern(new_func.return_ty.clone()),
+                    types_to_change.clone(),
+                );
+                new_func.return_ty = return_ty.clone();
                 new_func.is_constraint_satisfied = is_satisfied;
+                new_func.is_instantiated = false;
                 *func = new_func;
             }
         }
 
-        // Remove unsatisfied methods from body only (keep in signature for error reporting)
-        new_struct.methods.retain(|method| {
-            methods_constraint_status
-                .get(&method.name)
-                .copied()
-                .unwrap_or(true)
-        });
-
-        // Monomorphize remaining satisfied methods
-        for (name, func) in new_struct.signature.methods.iter_mut() {
-            if !methods_constraint_status.get(name).copied().unwrap_or(true) {
-                continue; // Skip unsatisfied methods
-            }
-
-            //args:
-            for param in func.params.iter_mut() {
-                for (i, generic_name) in generics.iter().enumerate() {
-                    param.ty = self.change_inner_type(
-                        param.ty,
-                        generic_name.generic_name,
-                        actual_type.inner[i].clone(),
-                        module,
-                    );
-                }
-            }
-
-            //ret_type:
-            for (i, generic_name) in generics.iter().enumerate() {
-                let type_to_change = self.arena.intern(func.return_ty.clone());
-                func.return_ty = self
-                    .change_inner_type(
-                        type_to_change,
-                        generic_name.generic_name,
-                        actual_type.inner[i].clone(),
-                        module,
-                    )
-                    .clone();
-            }
-
-            if func.generics.is_none() {
-                func.generics = None;
-            }
-        }
-
-        //At this point the signature is fully monomorphized, but the actual struct itself isn't.
-        //We still need to change the new_struct.fields/new_struct.methods
+        // Methods on concrete generic structs are materialized lazily on demand.
+        // Keep signatures for type checking/diagnostics, but defer body creation.
+        new_struct.methods.clear();
 
         for (i, field) in new_struct.fields.clone().iter().enumerate() {
             new_struct.fields[i] = new_struct.signature.fields.get(field.name).unwrap().clone();
-        }
-        for (i, method) in new_struct.methods.clone().iter().enumerate() {
-            new_struct.methods[i].signature = self.arena.intern(
-                new_struct
-                    .signature
-                    .methods
-                    .get(method.name)
-                    .unwrap()
-                    .clone(),
-            );
-        }
-
-        for method in new_struct.methods.iter_mut() {
-            for statement in method.body.statements.iter_mut() {
-                self.monomorphize_statement(statement, types_to_change.clone(), module)?;
-            }
         }
 
         //new_struct.signature.generics = vec![];
@@ -968,6 +986,16 @@ impl<'hir> MonomorphizationPass<'hir> {
             HirExpr::StaticAccess(static_access) => {
                 let monomorphized_ty =
                     self.swap_generic_types_in_ty(static_access.target, types_to_change.clone());
+
+                if let HirTy::Generic(generic_ty) = monomorphized_ty {
+                    if module.signature.structs.contains_key(generic_ty.name) {
+                        self.generic_pool
+                            .register_struct_instance(generic_ty.clone(), &module.signature);
+                    } else if module.signature.unions.contains_key(generic_ty.name) {
+                        self.generic_pool
+                            .register_union_instance(generic_ty, &module.signature);
+                    }
+                }
 
                 static_access.target = monomorphized_ty;
             }

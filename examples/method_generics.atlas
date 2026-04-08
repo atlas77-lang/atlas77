@@ -40,6 +40,14 @@ public:
             return Optional<U>::empty();
         }
     }
+
+    fun as_ptr(*const this) -> Optional<*const T> {
+        if (this->has_value) {
+            return Optional<*const T>::of(&this->data.value);
+        } else {
+            return Optional<*const T>::empty();
+        }
+    }
 }
 
 fun to_float(x: int64) -> float64 {

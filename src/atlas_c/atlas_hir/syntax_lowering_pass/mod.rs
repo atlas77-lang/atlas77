@@ -704,6 +704,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             where_clause,
             // Sets to true by default; monomorphization pass will update if needed
             is_constraint_satisfied: true,
+            is_instantiated: true,
             docstring: if let Some(docstring) = node.docstring {
                 Some(self.arena.names().get(docstring))
             } else {
