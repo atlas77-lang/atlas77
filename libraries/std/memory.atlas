@@ -19,9 +19,17 @@ namespace std {
     //! [!Note] This is a low-level primitive and should be used with care.
     public extern fun move<T>(from: T) -> T;
 
+    // Type that are `std::trivially_copyable` are always `std::copyable`,
+    // though it doesn't guarantee to have a `.copy()` method.
     public fun copy<T: std::copyable>(from: *const T) -> T
     {
         return from.copy();
+        // TODO: This should support std::trivially_copyable types, with something akin to:
+        // when typeof(T).is_trivially_copyable {
+        //     return *T;
+        // else {
+        //    return from.copy();
+        //}
     }
 
     namespace ptr {

@@ -1,3 +1,5 @@
+//WARNING: Outdated
+
 //! Filesystem helpers used by the standard library.
 //!
 //! Low-level file and directory operations. Higher-level convenience APIs are

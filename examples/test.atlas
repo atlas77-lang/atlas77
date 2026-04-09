@@ -10,6 +10,10 @@ fun main()
     } else {
         std::printf("Age: %d\n", age_result.expected_value());
     }
+    let var = 45;
+    let var_ptr = &var;
+    std::move(var);
+    std::printf("%d", *var_ptr);
 }
 
 fun parse_age(v: int64) -> std::expected<int64, *uint8> {

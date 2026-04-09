@@ -1,3 +1,5 @@
+//WARNING: Outdated
+
 //! Time utilities and `Time` struct.
 //!
 //! Provides `Time` values, formatting helpers and sleeping primitives.
