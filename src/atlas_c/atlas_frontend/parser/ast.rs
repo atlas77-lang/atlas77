@@ -65,6 +65,14 @@ impl AstItem<'_> {
 }
 
 impl<'ast> AstItem<'ast> {
+    pub fn set_nullable_marker(&mut self, span: Span) {
+        match self {
+            AstItem::Struct(v) => v.nullable_attribute_span = Some(span),
+            AstItem::ExternStruct(v) => v.nullable_attribute_span = Some(span),
+            _ => {}
+        }
+    }
+
     pub fn set_c_name(&mut self, c_name: &'ast str) {
         match self {
             AstItem::ExternFunction(v) => v.c_name = Some(c_name),
@@ -284,6 +292,8 @@ pub struct AstStruct<'ast> {
     pub flag: AstFlag,
     pub docstring: Option<&'ast str>,
     pub is_extern: bool,
+    /// Marker set by `#[std::nullable]` on the struct declaration.
+    pub nullable_attribute_span: Option<Span>,
     /// Optional C symbol/type name override, used for extern structs.
     pub c_name: Option<&'ast str>,
 }
@@ -305,6 +315,23 @@ pub enum AstMethodModifier {
     /// e.g.: `fun into_iter(this) -> Iter<T> { ... }`
     #[default]
     Consuming,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AstNullablePredicateSemantics {
+    Empty,
+    Present,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AstMethodAttribute {
+    Nullable(Span),
+    NullablePredicate {
+        span: Span,
+        semantics: AstNullablePredicateSemantics,
+    },
+    NullableGuarded(Span),
+    NullableInfallible(Span),
 }
 
 #[derive(Debug, Clone)]
@@ -355,6 +382,7 @@ pub struct AstMethod<'ast> {
     /// Optional where clause containing constraints on struct and method generics.
     /// During syntax lowering, method-level generic constraints are moved into the `generics` field as bounds.
     pub where_clause: Option<&'ast [&'ast AstGeneric<'ast>]>,
+    pub attributes: &'ast [&'ast AstMethodAttribute],
     pub docstring: Option<&'ast str>,
 }
 

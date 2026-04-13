@@ -9,8 +9,9 @@ use super::{
 use crate::atlas_c::atlas_hir::item::{HirStructDestructor, HirUnion};
 use crate::atlas_c::atlas_hir::pretty_print::HirPrettyPrinter;
 use crate::atlas_c::atlas_hir::signature::{
-    HirFunctionParameterSignature, HirFunctionSignature, HirStructDestructorSignature,
-    HirStructFieldSignature, HirStructMethodModifier, HirStructSignature, HirVisibility,
+    HirFunctionParameterSignature, HirFunctionSignature, HirMethodAttribute,
+    HirStructDestructorSignature, HirStructFieldSignature, HirStructMethodModifier,
+    HirStructSignature, HirVisibility,
 };
 use crate::atlas_c::atlas_hir::{
     error::{
@@ -19,9 +20,9 @@ use crate::atlas_c::atlas_hir::{
         AccessingPrivateObjectOrigin, AccessingPrivateStructError,
         CallingNonConstMethodOnConstReferenceError, CallingNonConstMethodOnConstReferenceOrigin,
         CanOnlyConstructStructsError, EmptyListLiteralError, FieldKind, HirError, HirResult,
-        IllegalOperationError, IllegalUnaryOperationError, MethodConstraintNotSatisfiedError,
-        NotEnoughArgumentsError, NotEnoughArgumentsOrigin, ReturningPointerToLocalVariableError,
-        TryingToAccessFieldOnNonObjectTypeError,
+        IllegalOperationError, IllegalUnaryOperationError, InvalidSpecialMethodSignatureError,
+        MethodConstraintNotSatisfiedError, NotEnoughArgumentsError, NotEnoughArgumentsOrigin,
+        ReturningPointerToLocalVariableError, TryingToAccessFieldOnNonObjectTypeError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin, TryingToIndexNonIndexableTypeError,
         TryingToMutateConstPointerError, TypeCheckFailedError, TypeMismatchActual,
@@ -495,7 +496,8 @@ impl<'hir> TypeChecker<'hir> {
             self.current_class_name = Some(class.name);
             self.current_func_name = Some(method.name);
             self.context_functions.push(HashMap::new());
-            let result = self.check_method(method);
+            let result =
+                self.check_method(method, class.signature.nullable_attribute_span.is_some());
             self.record_result(result);
         }
 
@@ -523,8 +525,13 @@ impl<'hir> TypeChecker<'hir> {
         Ok(())
     }
 
-    fn check_method(&mut self, method: &mut HirStructMethod<'hir>) -> HirResult<()> {
+    fn check_method(
+        &mut self,
+        method: &mut HirStructMethod<'hir>,
+        is_nullable_type: bool,
+    ) -> HirResult<()> {
         self.check_special_method_signature(method.name, method)?;
+        self.check_nullable_method_attributes(method, is_nullable_type)?;
         self.context_functions.push(HashMap::new());
         self.context_functions.last_mut().unwrap().insert(
             self.current_func_name.unwrap().to_string(),
@@ -555,6 +562,116 @@ impl<'hir> TypeChecker<'hir> {
         }
         //Because it is a method we don't keep it in the `context_functions`
         self.context_functions.pop();
+        Ok(())
+    }
+
+    fn check_nullable_method_attributes(
+        &mut self,
+        method: &HirStructMethod<'hir>,
+        is_nullable_type: bool,
+    ) -> HirResult<()> {
+        for attr in &method.signature.attributes {
+            match attr {
+                HirMethodAttribute::NullablePredicate { span, .. } => {
+                    if !is_nullable_type {
+                        let path = span.path;
+                        let src = utils::get_file_content(path).unwrap();
+                        return Err(HirError::InvalidSpecialMethodSignature(
+                            InvalidSpecialMethodSignatureError {
+                                span: *span,
+                                expected: "enclosing struct must be marked #[std::nullable]"
+                                    .to_string(),
+                                actual: "struct is not nullable".to_string(),
+                                src: NamedSource::new(path, src),
+                                method_name: method.name.to_string(),
+                            },
+                        ));
+                    }
+
+                    if !matches!(method.signature.return_ty, HirTy::Boolean(_)) {
+                        let path = span.path;
+                        let src = utils::get_file_content(path).unwrap();
+                        return Err(HirError::InvalidSpecialMethodSignature(
+                            InvalidSpecialMethodSignatureError {
+                                span: *span,
+                                expected: "nullable predicate methods must return bool".to_string(),
+                                actual: format!("returns {}", method.signature.return_ty),
+                                src: NamedSource::new(path, src),
+                                method_name: method.name.to_string(),
+                            },
+                        ));
+                    }
+
+                    if method.signature.modifier != HirStructMethodModifier::Const
+                        && method.signature.modifier != HirStructMethodModifier::Mutable
+                    {
+                        let path = span.path;
+                        let src = utils::get_file_content(path).unwrap();
+                        return Err(HirError::InvalidSpecialMethodSignature(
+                            InvalidSpecialMethodSignatureError {
+                                span: *span,
+                                expected: "nullable predicate methods must be non-consuming (&const this or &this)".to_string(),
+                                actual: format!(
+                                    "modifier {:?}",
+                                    method.signature.modifier
+                                ),
+                                src: NamedSource::new(path, src),
+                                method_name: method.name.to_string(),
+                            },
+                        ));
+                    }
+                }
+                HirMethodAttribute::Nullable(span) => {
+                    let path = span.path;
+                    let src = utils::get_file_content(path).unwrap();
+                    return Err(HirError::InvalidSpecialMethodSignature(
+                        InvalidSpecialMethodSignatureError {
+                            span: *span,
+                            expected:
+                                "use #[std::nullable] on the struct declaration instead of methods"
+                                    .to_string(),
+                            actual: "method-level #[std::nullable]".to_string(),
+                            src: NamedSource::new(path, src),
+                            method_name: method.name.to_string(),
+                        },
+                    ));
+                }
+                HirMethodAttribute::NullableGuarded(span)
+                | HirMethodAttribute::NullableInfallible(span) => {
+                    if !is_nullable_type {
+                        let path = span.path;
+                        let src = utils::get_file_content(path).unwrap();
+                        return Err(HirError::InvalidSpecialMethodSignature(
+                            InvalidSpecialMethodSignatureError {
+                                span: *span,
+                                expected: "enclosing struct must be marked #[std::nullable]"
+                                    .to_string(),
+                                actual: "struct is not nullable".to_string(),
+                                src: NamedSource::new(path, src),
+                                method_name: method.name.to_string(),
+                            },
+                        ));
+                    }
+
+                    if method.signature.modifier == HirStructMethodModifier::Static {
+                        let path = span.path;
+                        let src = utils::get_file_content(path).unwrap();
+                        return Err(HirError::InvalidSpecialMethodSignature(
+                            InvalidSpecialMethodSignatureError {
+                                span: *span,
+                                expected:
+                                    "nullable method attributes cannot be applied to static methods"
+                                        .to_string(),
+                                actual: "modifier Static".to_string(),
+                                src: NamedSource::new(path, src),
+                                method_name: method.name.to_string(),
+                            },
+                        ));
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 

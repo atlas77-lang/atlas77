@@ -1,5 +1,7 @@
 use super::ty::HirTy;
-use crate::atlas_c::atlas_frontend::parser::ast::{AstFlag, AstVisibility};
+use crate::atlas_c::atlas_frontend::parser::ast::{
+    AstFlag, AstMethodAttribute, AstNullablePredicateSemantics, AstVisibility,
+};
 use crate::atlas_c::atlas_hir::expr::HirUnaryOp;
 use crate::atlas_c::atlas_hir::expr::{HirBinaryOperator, HirExpr};
 use crate::atlas_c::atlas_hir::item::HirEnum;
@@ -53,6 +55,8 @@ pub struct HirStructSignature<'hir> {
     pub is_std_default: bool,
     /// True when this type is explicitly marked as trivially copyable.
     pub is_trivially_copyable: bool,
+    /// Marker set when the struct declaration includes `#[std::nullable]`.
+    pub nullable_attribute_span: Option<Span>,
     pub is_instantiated: bool,
     pub docstring: Option<&'hir str>,
     pub is_extern: bool,
@@ -278,6 +282,7 @@ pub struct HirStructMethodSignature<'hir> {
     /// Whether the method's where_clause constraints are satisfied by the concrete types.
     /// Set to false during monomorphization if constraints aren't met.
     pub is_constraint_satisfied: bool,
+    pub attributes: Vec<HirMethodAttribute>,
     /// True when the method body has been materialized in the owning struct.
     /// For instantiated generic structs, methods can be signature-only until
     /// requested by the type checker.
@@ -296,6 +301,50 @@ pub enum HirStructMethodModifier {
     /// Method that consumes ownership of `this` (this)
     #[default]
     Consuming,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HirNullablePredicateSemantics {
+    Empty,
+    Present,
+}
+
+impl From<AstNullablePredicateSemantics> for HirNullablePredicateSemantics {
+    fn from(value: AstNullablePredicateSemantics) -> Self {
+        match value {
+            AstNullablePredicateSemantics::Empty => HirNullablePredicateSemantics::Empty,
+            AstNullablePredicateSemantics::Present => HirNullablePredicateSemantics::Present,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HirMethodAttribute {
+    Nullable(Span),
+    NullablePredicate {
+        span: Span,
+        semantics: HirNullablePredicateSemantics,
+    },
+    NullableGuarded(Span),
+    NullableInfallible(Span),
+}
+
+impl From<AstMethodAttribute> for HirMethodAttribute {
+    fn from(value: AstMethodAttribute) -> Self {
+        match value {
+            AstMethodAttribute::Nullable(span) => HirMethodAttribute::Nullable(span),
+            AstMethodAttribute::NullablePredicate { span, semantics } => {
+                HirMethodAttribute::NullablePredicate {
+                    span,
+                    semantics: semantics.into(),
+                }
+            }
+            AstMethodAttribute::NullableGuarded(span) => HirMethodAttribute::NullableGuarded(span),
+            AstMethodAttribute::NullableInfallible(span) => {
+                HirMethodAttribute::NullableInfallible(span)
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

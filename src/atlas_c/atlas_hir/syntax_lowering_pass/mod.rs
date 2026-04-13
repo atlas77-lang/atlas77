@@ -43,7 +43,7 @@ use crate::atlas_c::{
         monomorphization_pass::generic_pool::HirGenericPool,
         signature::{
             ConstantValue, HirFunctionParameterSignature, HirFunctionSignature,
-            HirGenericConstraint, HirGenericConstraintKind, HirModuleSignature,
+            HirGenericConstraint, HirGenericConstraintKind, HirMethodAttribute, HirModuleSignature,
             HirStructConstantSignature, HirStructDestructorSignature, HirStructFieldSignature,
             HirStructMethodModifier, HirStructMethodSignature, HirStructSignature,
             HirTypeParameterItemSignature, HirUnionSignature, HirVisibility,
@@ -619,6 +619,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             is_std_copyable: has_copy_method || is_trivially_copyable,
             is_std_default: has_default_method,
             is_trivially_copyable,
+            nullable_attribute_span: node.nullable_attribute_span,
             docstring: if let Some(docstring) = node.docstring {
                 Some(self.arena.names().get(docstring))
             } else {
@@ -704,6 +705,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             where_clause,
             // Sets to true by default; monomorphization pass will update if needed
             is_constraint_satisfied: true,
+            attributes: node
+                .attributes
+                .iter()
+                .map(|attr| HirMethodAttribute::from(**attr))
+                .collect(),
             is_instantiated: true,
             docstring: if let Some(docstring) = node.docstring {
                 Some(self.arena.names().get(docstring))

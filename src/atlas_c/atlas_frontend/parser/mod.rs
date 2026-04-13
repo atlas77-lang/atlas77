@@ -37,8 +37,9 @@ use crate::atlas_c::atlas_frontend::lexer::{
 use crate::atlas_c::atlas_frontend::parser::ast::{
     AstCastingExpr, AstCharLiteral, AstCharType, AstDeleteObjExpr, AstDestructor, AstGeneric,
     AstGenericConstraint, AstGenericType, AstIndexingExpr, AstListLiteral, AstMethod,
-    AstMethodModifier, AstNullableType, AstOperatorOverload, AstSliceType, AstStaticAccessExpr,
-    AstStruct, AstThisLiteral, AstThisType, AstUnitLiteral, AstVisibility,
+    AstMethodAttribute, AstMethodModifier, AstNullablePredicateSemantics, AstNullableType,
+    AstOperatorOverload, AstSliceType, AstStaticAccessExpr, AstStruct, AstThisLiteral, AstThisType,
+    AstUnitLiteral, AstVisibility,
 };
 use crate::atlas_c::utils::{Span, get_file_content};
 use arena::AstArena;
@@ -307,6 +308,23 @@ impl<'ast> Parser<'ast> {
                     let mut item = self.parse_item()?;
                     item.set_c_name(c_name);
                     Ok(item)
+                } else if self.peek() == Some(TokenKind::LBracket)
+                    && self.peek_at(2) == Some(TokenKind::Identifier("std".to_string()))
+                    && self.peek_at(3) == Some(TokenKind::DoubleColon)
+                    && self.peek_at(4) == Some(TokenKind::Identifier("nullable".to_string()))
+                {
+                    let nullable_span = self.parse_nullable_type_attribute()?;
+                    let mut item = self.parse_item()?;
+                    match item {
+                        AstItem::Struct(_) | AstItem::ExternStruct(_) => {
+                            item.set_nullable_marker(nullable_span);
+                            Ok(item)
+                        }
+                        _ => Err(self.unexpected_token_error(
+                            TokenVec(vec![TokenKind::KwStruct]),
+                            &item.span(),
+                        )),
+                    }
                 } else {
                     let flag = self.parse_flag()?;
                     let mut item = self.parse_item()?;
@@ -401,6 +419,83 @@ impl<'ast> Parser<'ast> {
         };
         self.expect(TokenKind::RBracket)?;
         Ok(flag_token)
+    }
+
+    fn parse_method_attribute(&mut self) -> ParseResult<AstMethodAttribute> {
+        self.expect(TokenKind::Hash)?;
+        self.expect(TokenKind::LBracket)?;
+        let start_span = self.expect(TokenKind::Identifier("std".to_string()))?.span;
+        self.expect(TokenKind::DoubleColon)?;
+
+        let attribute = match self.current().kind() {
+            TokenKind::Identifier(ref s) if s == "nullable_guarded" => {
+                let end_span = self.advance().span;
+                AstMethodAttribute::NullableGuarded(Span::union_span(&start_span, &end_span))
+            }
+            TokenKind::Identifier(ref s) if s == "nullable_infallible" => {
+                let end_span = self.advance().span;
+                AstMethodAttribute::NullableInfallible(Span::union_span(&start_span, &end_span))
+            }
+            TokenKind::Identifier(ref s) if s == "nullable_predicate" => {
+                let mut end_span = self.advance().span;
+                let mut semantics = AstNullablePredicateSemantics::Empty;
+                if self.current().kind() == TokenKind::LParen {
+                    self.expect(TokenKind::LParen)?;
+                    semantics = match self.current().kind() {
+                        TokenKind::Identifier(ref s) if s == "empty" => {
+                            end_span = self.advance().span;
+                            AstNullablePredicateSemantics::Empty
+                        }
+                        TokenKind::Identifier(ref s) if s == "present" => {
+                            end_span = self.advance().span;
+                            AstNullablePredicateSemantics::Present
+                        }
+                        _ => {
+                            return Err(self.unexpected_token_error(
+                                TokenVec(vec![TokenKind::Identifier("empty|present".to_string())]),
+                                &self.current().span(),
+                            ));
+                        }
+                    };
+                    self.expect(TokenKind::RParen)?;
+                }
+                AstMethodAttribute::NullablePredicate {
+                    span: Span::union_span(&start_span, &end_span),
+                    semantics,
+                }
+            }
+            _ => {
+                return Err(self.unexpected_token_error(
+                    TokenVec(vec![TokenKind::Identifier(
+                        "std::nullable_predicate|std::nullable_guarded|std::nullable_infallible"
+                            .to_string(),
+                    )]),
+                    &self.current().span(),
+                ));
+            }
+        };
+
+        self.expect(TokenKind::RBracket)?;
+        Ok(attribute)
+    }
+
+    fn parse_nullable_type_attribute(&mut self) -> ParseResult<Span> {
+        self.expect(TokenKind::Hash)?;
+        self.expect(TokenKind::LBracket)?;
+        let start_span = self.expect(TokenKind::Identifier("std".to_string()))?.span;
+        self.expect(TokenKind::DoubleColon)?;
+
+        match self.current().kind() {
+            TokenKind::Identifier(ref s) if s == "nullable" => {
+                let end_span = self.advance().span;
+                self.expect(TokenKind::RBracket)?;
+                Ok(Span::union_span(&start_span, &end_span))
+            }
+            _ => Err(self.unexpected_token_error(
+                TokenVec(vec![TokenKind::Identifier("std::nullable".to_string())]),
+                &self.current().span(),
+            )),
+        }
     }
 
     fn parse_c_name_attribute(&mut self) -> ParseResult<&'ast str> {
@@ -595,23 +690,48 @@ impl<'ast> Parser<'ast> {
         let mut methods = vec![];
         let mut operators = vec![];
         let mut constants = vec![];
+        let mut pending_method_attributes: Vec<AstMethodAttribute> = vec![];
         let mut curr_vis = self.parse_current_vis(AstVisibility::Private)?;
         // Empty if there is none
         let mut docs = String::new();
         while self.current().kind() != TokenKind::RBrace {
             curr_vis = self.parse_current_vis(curr_vis)?;
+
+            if self.current().kind() == TokenKind::Hash
+                && self.peek() == Some(TokenKind::LBracket)
+                && self.peek_at(2) == Some(TokenKind::Identifier("std".to_string()))
+            {
+                let attr = self.parse_method_attribute()?;
+                pending_method_attributes.push(attr);
+                continue;
+            }
+
             match self.current().kind() {
                 TokenKind::KwConst => {
+                    if !pending_method_attributes.is_empty() {
+                        return Err(self.unexpected_token_error(
+                            TokenVec(vec![TokenKind::KwFunc]),
+                            &self.current().span(),
+                        ));
+                    }
                     //TODO: Add const functions (i.e. `const func foo() { ... }`)
                     constants.push(self.parse_const()?);
                     self.expect(TokenKind::Semicolon)?;
                 }
                 TokenKind::KwOperator => {
+                    if !pending_method_attributes.is_empty() {
+                        return Err(self.unexpected_token_error(
+                            TokenVec(vec![TokenKind::KwFunc]),
+                            &self.current().span(),
+                        ));
+                    }
                     operators.push(self.parse_operator()?);
                 }
                 TokenKind::KwFunc => {
                     let mut method = self.parse_method()?;
                     method.vis = curr_vis;
+                    method.attributes = self.arena.alloc_vec(pending_method_attributes.clone());
+                    pending_method_attributes.clear();
                     method.docstring = if !docs.is_empty() {
                         Some(self.arena.alloc(docs.clone()))
                     } else {
@@ -621,6 +741,12 @@ impl<'ast> Parser<'ast> {
                     methods.push(method);
                 }
                 TokenKind::Identifier(_) => {
+                    if !pending_method_attributes.is_empty() {
+                        return Err(self.unexpected_token_error(
+                            TokenVec(vec![TokenKind::KwFunc]),
+                            &self.current().span(),
+                        ));
+                    }
                     curr_vis = self.parse_current_vis(curr_vis)?;
 
                     let mut obj_field = self.parse_obj_field()?;
@@ -635,6 +761,12 @@ impl<'ast> Parser<'ast> {
                     self.expect(TokenKind::Semicolon)?;
                 }
                 TokenKind::Tilde => {
+                    if !pending_method_attributes.is_empty() {
+                        return Err(self.unexpected_token_error(
+                            TokenVec(vec![TokenKind::KwFunc]),
+                            &self.current().span(),
+                        ));
+                    }
                     curr_vis = self.parse_current_vis(curr_vis)?;
                     if destructor.is_none() {
                         let mut dtor =
@@ -701,6 +833,7 @@ impl<'ast> Parser<'ast> {
             flag: AstFlag::default(),
             docstring: None,
             is_extern: false,
+            nullable_attribute_span: None,
             c_name: None,
         };
         Ok(node)
@@ -793,6 +926,7 @@ impl<'ast> Parser<'ast> {
             body: self.arena.alloc(body),
             vis: AstVisibility::default(),
             where_clause,
+            attributes: self.arena.alloc_vec(vec![]),
             docstring: None,
         };
         Ok(node)

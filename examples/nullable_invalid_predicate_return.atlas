@@ -1,0 +1,21 @@
+import "std/io";
+
+// Expected: semantic error.
+// `#[std::nullable_predicate(...)]` methods must return bool.
+#[std::nullable]
+struct BadPredicate {
+public:
+    value: int64;
+
+    #[std::nullable_predicate(present)]
+    fun present_code(*const this) -> int64 {
+        return this->value;
+    }
+}
+
+fun main() {
+    let v = BadPredicate {
+        .value = 1
+    };
+    std::printf("%d\n", v.present_code());
+}

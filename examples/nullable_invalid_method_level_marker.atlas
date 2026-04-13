@@ -1,0 +1,16 @@
+import "std/io";
+
+// Expected: parse error.
+// #[std::nullable] is now only valid on struct declarations.
+struct BadMethodMarker {
+public:
+    #[std::nullable]
+    fun marker(*const this) -> bool {
+        return true;
+    }
+}
+
+fun main() {
+    let v = BadMethodMarker {};
+    std::printf("%d\n", v.marker());
+}

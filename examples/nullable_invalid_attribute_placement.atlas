@@ -1,0 +1,16 @@
+import "std/io";
+
+// Expected: parse error.
+// Nullable attributes are method-only and cannot decorate fields.
+struct BadPlacement {
+public:
+    #[std::nullable]
+    value: int64;
+}
+
+fun main() {
+    let v = BadPlacement {
+        .value = 42
+    };
+    std::printf("%d\n", v.value);
+}
