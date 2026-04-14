@@ -185,7 +185,10 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 let hir_func = self.visit_func(ast_function)?;
                 let qualified = self.qualified_name(ast_function.name.name);
                 let name = self.arena.names().get(&qualified);
-                if !name.is_snake_case() && !hir_func.signature.is_external {
+                if !name.is_snake_case()
+                    && !hir_func.signature.is_external
+                    && !name.starts_with("std::")
+                {
                     Self::name_should_be_in_different_case_warning(
                         &ast_function.name.span,
                         "snake_case",
@@ -277,7 +280,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     fn visit_union(&mut self, ast_union: &'ast AstUnion<'ast>) -> HirResult<HirUnion<'hir>> {
         let qualified = self.qualified_name(ast_union.name.name);
         let name = self.arena.names().get(&qualified);
-        if !name.is_pascal_case() {
+        if !name.is_pascal_case() && !name.starts_with("std::") {
             Self::name_should_be_in_different_case_warning(
                 &ast_union.name.span,
                 "PascalCase",
@@ -359,7 +362,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     fn visit_enum(&mut self, ast_enum: &'ast AstEnum<'ast>) -> HirResult<HirEnum<'hir>> {
         let qualified = self.qualified_name(ast_enum.name.name);
         let name = self.arena.names().get(&qualified);
-        if !name.is_pascal_case() {
+        if !name.is_pascal_case() && !name.starts_with("std::") {
             Self::name_should_be_in_different_case_warning(
                 &ast_enum.name.span,
                 "PascalCase",
@@ -471,7 +474,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     fn visit_struct(&mut self, node: &'ast AstStruct<'ast>) -> HirResult<HirStruct<'hir>> {
         let qualified = self.qualified_name(node.name.name);
         let name = self.arena.names().get(&qualified);
-        if !name.is_pascal_case() && !node.is_extern {
+        if !name.is_pascal_case() && !node.is_extern && !name.starts_with("std::") {
             Self::name_should_be_in_different_case_warning(
                 &node.name.span,
                 "PascalCase",
@@ -1003,7 +1006,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
             AstStatement::Const(ast_const) => {
                 let name = self.arena.names().get(ast_const.name.name);
-                if !name.is_snake_case() {
+                if !name.is_snake_case() && !name.starts_with("std::") {
                     Self::name_should_be_in_different_case_warning(
                         &ast_const.span,
                         "snake_case",
@@ -1047,7 +1050,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         span: ast_let.name.span,
                     }));
                 }
-                if !name.is_snake_case() {
+                if !name.is_snake_case() && !name.starts_with("std::") {
                     Self::name_should_be_in_different_case_warning(
                         &ast_let.span,
                         "snake_case",
