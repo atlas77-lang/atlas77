@@ -1,177 +1,359 @@
-//WARNING: Outdated
+//! Robin Hood open-addressing hash map.
+//!
+//! Current assumption for Atlas77 constraints:
+//! - `K` exposes a `hash()` method returning `uint64`.
+//! - `K` exposes `eq(*const K)` for key equality.
 
-import "std/vector";
-import "std/optional";
-import "std/iter";
-import "std/mem";
+import "std/io";
+import "std/memory";
 
-//There might be issues with ownership here...
-//get_first() & get_second() might only work if K and V are std::copyable
-//Maybe we should return references to K and V instead?
-// Note: Constraints removed temporarily due to constraint propagation issues
-// The _copy method requires K and V to be copyable anyway for dereferencing to work
-public struct Pair<K, V> {
-public:
-    key: K;
-    value: V;
-    Pair(key: K, value: V) {
-        this.key = key;
-        this.value = value;
-    }
-    ~Pair() {
-        delete this.key;
-        delete this.value;
-    }
-    Pair(from: &const Pair<K, V>) 
-        where K: std::copyable, V: std::copyable
-    {
-        this.key = *from.key;
-        this.value = *from.value;
-    }
-    fun get_first(&const this) -> K {
-        return *(this.key);
-    }
-    fun get_second(&const this) -> V {
-        return *(this.value);
-    }
-    //! Consumes this pair and returns a new pair with swapped key and value
-    fun swap(this) -> Pair<V, K> {
-        return new Pair<V, K>(this.value, this.key);
-    }
-}
-//! A simple map implementation using two parallel arrays.
-//! This will not make into production stdlib, I just wanted to see what could
-//! be done with the current language features.
-//NB: Only works for primitive K types that support equality comparison
-public struct Map<K, V> {
-private:
-    keys: Vector<K>;
-    values: Vector<V>;
-public:
-    Map() {
-        this.keys = new Vector<K>(new [K; 0]);
-        this.values = new Vector<V>(new [V; 0]);
-    }
-    ~Map() {
-        delete this.keys;
-        delete this.values;
-    }
-    //! Copy constructor - creates a deep copy of the map
-    Map(from: &const Map<K, V>)
-        where K: std::copyable, V: std::copyable
-    {
-        this.keys = *from.keys;
-        this.values = *from.values;
-    }
-    //! Retrieves the value associated with the given key.
-    //! Returns None if the key does not exist.
-    fun get(&const this, key: K) -> optional<&const V> {
-        let i: uint64 = 0u;
-        while i < *this.keys.length {
-            if this.keys.get(i) == &key {
-                let value = this.values.get(i);
-                return optional<&const V>::of(value);
-            }
-            i = i + 1u;
+namespace std {
+    private struct map_pair<K, V> {
+    public:
+        key: K;
+        value: V;
+
+        ~map_pair() {
+            delete this->key;
+            delete this->value;
         }
-        return optional<&const V>::empty();
     }
-    //! Retrieves a mutable reference to the value associated with the given key.
-    //! Returns None if the key does not exist.
-    fun get_mut(&this, key: K) -> optional<&V> {
-        let i: uint64 = 0u;
-        while i < this.keys.length {
-            if this.keys.get(i) == &key {
-                let value = this.values.get_mut(i);
-                return optional<&V>::of(value);
-            }
-            i = i + 1u;
+
+    #[std::trivially_copyable]
+    private struct map_bucket<K, V> {
+    public:
+        occupied: bool;
+        hash: uint64;
+        dib: uint64;
+        pair: *std::map_pair<K, V>;
+    }
+
+    public struct map<K, V> {
+    private:
+        buckets: *std::map_bucket<K, V>;
+        length: uint64;
+        capacity: uint64;
+
+    public:
+        fun new() -> std::map<K, V> {
+            return std::map<K, V>::with_capacity(16u);
         }
-        return optional<&V>::empty();
-    }
-    //! Inserts a key-value pair into the map.
-    //! If the key already exists, updates its value.
-    fun insert(&this, key: K, value: V) {
-        let i: uint64 = 0u;
-        while i < this.keys.length {
-            if this.keys.get(i) == &key {
-                // Key exists, update value
-                this.values.set(i, value);
+
+        fun with_capacity(cap: uint64) -> std::map<K, V> {
+            let out = std::map<K, V> {
+                .buckets = null,
+                .length = 0u,
+                .capacity = 0u,
+            };
+            out.init_buckets(cap);
+            return out;
+        }
+
+        ~map() {
+            this->destroy_all_pairs();
+            if this->buckets != null {
+                std::free(this->buckets);
+                this->buckets = null;
+            }
+            this->length = 0u;
+            this->capacity = 0u;
+        }
+
+        fun len(*const this) -> uint64 {
+            return this->length;
+        }
+
+        fun is_empty(*const this) -> bool {
+            return this->length == 0u;
+        }
+
+        fun cap(*const this) -> uint64 {
+            return this->capacity;
+        }
+
+        fun contains_key(*const this, key: *const K) -> bool {
+            if this->capacity == 0u {
+                return false;
+            }
+            return this->find_index(key, (*key).hash()) != this->capacity;
+        }
+
+        //! Return nullable pointer to value.
+        fun get_ptr(*const this, key: *const K) -> *const V {
+            if this->capacity == 0u {
+                return null;
+            }
+
+            let index = this->find_index(key, (*key).hash());
+            if index == this->capacity {
+                return null;
+            }
+
+            return &this->buckets[index].pair->value;
+        }
+
+        //! Return nullable mutable pointer to value.
+        fun get_mut_ptr(*this, key: *const K) -> *V {
+            if this->capacity == 0u {
+                return null;
+            }
+
+            let index = this->find_index(key, (*key).hash());
+            if index == this->capacity {
+                return null;
+            }
+
+            return &this->buckets[index].pair->value;
+        }
+
+        //! Insert key/value. If key exists, replaces value.
+        fun insert(*this, key: K, value: V) {
+            this->ensure_capacity_for_insert();
+
+            let hash = key.hash();
+            let existing = this->find_index(&key, hash);
+            if existing != this->capacity {
+                delete this->buckets[existing].pair->value;
+                this->buckets[existing].pair->value = std::move(value);
+                delete key;
                 return;
             }
-            i = i + 1u;
+
+            let pair_ptr = this->alloc_pair(std::move(key), std::move(value));
+            this->insert_existing_pair(pair_ptr, hash);
         }
-        // Key does not exist, add new key-value pair
-        this.keys.push(key);
-        this.values.push(value);
-    }
-    //! Removes a key-value pair from the map by key.
-    //! If the key does not exist, does nothing.
-    fun remove(&this, key: K) {
-        let i: uint64 = 0u;
-        while i < this.keys.length {
-            if this.keys.get(i) == &key {
-                // Key found, remove key and value by shifting elements
-                let j: uint64 = i;
-                while j + 1u < this.keys.length {
-                    this.keys.set(j, this.keys.take(j + 1u));
-                    this.values.set(j, this.values.take(j + 1u));
-                    j = j + 1u;
+
+        fun set(*this, key: K, value: V) {
+            this->insert(std::move(key), std::move(value));
+        }
+
+        //! Remove key if present.
+        fun remove(*this, key: *const K) -> bool {
+            if this->capacity == 0u {
+                return false;
+            }
+
+            let index = this->find_index(key, (*key).hash());
+            if index == this->capacity {
+                return false;
+            }
+
+            delete this->buckets[index].pair;
+
+            // Backward-shift deletion for Robin Hood hashing.
+            let curr = index;
+            let next = this->next_index(curr);
+
+            while this->buckets[next].occupied && this->buckets[next].dib > 0u {
+                this->buckets[curr] = this->buckets[next];
+                this->buckets[curr].dib = this->buckets[curr].dib - 1u;
+                curr = next;
+                next = this->next_index(next);
+            }
+
+            this->buckets[curr] = std::map_bucket<K, V> {
+                .occupied = false,
+                .hash = 0u,
+                .dib = 0u,
+                .pair = null,
+            };
+
+            this->length = this->length - 1u;
+            return true;
+        }
+
+        fun clear(*this) {
+            this->destroy_all_pairs();
+
+            let i: uint64 = 0u;
+            while i < this->capacity {
+                this->buckets[i] = std::map_bucket<K, V> {
+                    .occupied = false,
+                    .hash = 0u,
+                    .dib = 0u,
+                    .pair = null,
+                };
+                i = i + 1u;
+            }
+
+            this->length = 0u;
+        }
+
+    private:
+        fun min_capacity(*const this) -> uint64 {
+            return 8u;
+        }
+
+        fun next_index(*const this, index: uint64) -> uint64 {
+            return (index + 1u) % this->capacity;
+        }
+
+        fun grow_capacity(*const this) -> uint64 {
+            if this->capacity < this->min_capacity() {
+                return this->min_capacity();
+            }
+            return this->capacity * 2u;
+        }
+
+        fun init_buckets(*this, cap: uint64) {
+            let final_cap = cap;
+            if final_cap < this->min_capacity() {
+                final_cap = this->min_capacity();
+            }
+
+            this->buckets = std::malloc<std::map_bucket<K, V>>(
+                size_of<std::map_bucket<K, V>>() * final_cap
+            );
+            if this->buckets == null {
+                std::panic("std::map: failed to allocate bucket array");
+            }
+
+            this->capacity = final_cap;
+            this->length = 0u;
+
+            let i: uint64 = 0u;
+            while i < this->capacity {
+                this->buckets[i] = std::map_bucket<K, V> {
+                    .occupied = false,
+                    .hash = 0u,
+                    .dib = 0u,
+                    .pair = null,
+                };
+                i = i + 1u;
+            }
+        }
+
+        fun alloc_pair(*const this, key: K, value: V) -> *std::map_pair<K, V> {
+            let pair_ptr = std::malloc<std::map_pair<K, V>>(size_of<std::map_pair<K, V>>());
+            if pair_ptr == null {
+                std::panic("std::map: failed to allocate pair");
+            }
+
+            pair_ptr->key = std::move(key);
+            pair_ptr->value = std::move(value);
+            return pair_ptr;
+        }
+
+        fun ensure_capacity_for_insert(*this) {
+            if this->capacity == 0u {
+                this->init_buckets(this->min_capacity());
+                return;
+            }
+
+            let projected = this->length + 1u;
+            if (projected * 100u) >= (this->capacity * 80u) {
+                this->rehash(this->grow_capacity());
+            }
+        }
+
+        //! Insert an existing pair pointer using Robin Hood swapping.
+        fun insert_existing_pair(*this, pair_ptr: *std::map_pair<K, V>, hash: uint64) {
+            let index = hash % this->capacity;
+            let incoming_hash = hash;
+            let incoming_dib: uint64 = 0u;
+            let incoming_pair = pair_ptr;
+
+            while true {
+                let bucket = &this->buckets[index];
+
+                if !bucket->occupied {
+                    bucket->occupied = true;
+                    bucket->hash = incoming_hash;
+                    bucket->dib = incoming_dib;
+                    bucket->pair = incoming_pair;
+                    this->length = this->length + 1u;
+                    return;
                 }
-                // Decrease lengths
-                this.keys.length = this.keys.length - 1u;
-                this.values.length = this.values.length - 1u;
+
+                if bucket->dib < incoming_dib {
+                    let tmp_hash = bucket->hash;
+                    let tmp_dib = bucket->dib;
+                    let tmp_pair = bucket->pair;
+
+                    bucket->hash = incoming_hash;
+                    bucket->dib = incoming_dib;
+                    bucket->pair = incoming_pair;
+
+                    incoming_hash = tmp_hash;
+                    incoming_dib = tmp_dib;
+                    incoming_pair = tmp_pair;
+                }
+
+                index = this->next_index(index);
+                incoming_dib = incoming_dib + 1u;
+            }
+        }
+
+        fun rehash(*this, new_capacity: uint64) {
+            let old_buckets = this->buckets;
+            let old_capacity = this->capacity;
+
+            this->init_buckets(new_capacity);
+
+            if old_buckets == null || old_capacity == 0u {
                 return;
             }
-            i = i + 1u;
-        }
-        return;
-    }
-    //! Returns the number of key-value pairs in the map.
-    fun size(&this) -> uint64 {
-        return this.keys.length;
-    }
 
-    fun into_iter(this) -> Iter<Pair<K, V>> {
-        let size = this.keys.length;
-        let pairs = new [Pair<K, V>; size];
-        let i = 0u;
-        while i < size {
-            // Create pair directly from array access to avoid take() issues
-            let key_ref = this.keys.get(i);
-            let value_ref = this.values.get(i);
-            // Copy the values (which will properly deep-copy for object types)
-            let key = *key_ref;
-            let value = *value_ref;
-            let pair = new Pair<K, V>(key, value);
-            pairs[i] = pair;
-            i = i + 1u;
-        }
-        delete this;
-        return new Iter<Pair<K, V>>(pairs);
-    }
+            let i: uint64 = 0u;
+            while i < old_capacity {
+                if old_buckets[i].occupied {
+                    this->insert_existing_pair(old_buckets[i].pair, old_buckets[i].hash);
+                }
+                i = i + 1u;
+            }
 
-    fun keys(&const this) -> Iter<&const K> {
-        let size = *this.keys.length;
-        let keys_vec = new [&const K; size];
-        let i = 0u;
-        while i < size {
-            let key_ref = this.keys.get(i);
-            keys_vec[i] = key_ref;
-            i = i + 1u;
+            std::free(old_buckets);
         }
-        return new Iter<&const K>(keys_vec);
-    }
 
-    fun values(&const this) -> Iter<&const V> {
-        let size = *this.values.length;
-        let values_vec = Vector<&const V>::with_capacity(size);
-        let i = 0u;
-        while i < size {
-            let value_ref = this.values.get(i);
-            values_vec.push(value_ref);
-            i = i + 1u;
+        //! Returns index if found, otherwise `this.capacity` sentinel.
+        fun find_index(*const this, key: *const K, hash: uint64) -> uint64 {
+            if this->capacity == 0u {
+                return 0u;
+            }
+
+            let index = hash % this->capacity;
+            let dib: uint64 = 0u;
+
+            while dib < this->capacity {
+                let bucket = &this->buckets[index];
+
+                if !bucket->occupied {
+                    return this->capacity;
+                }
+
+                // Robin Hood early stop: if occupant probe distance is lower than ours,
+                // key cannot appear later in this cluster.
+                if bucket->dib < dib {
+                    return this->capacity;
+                }
+
+                if bucket->hash == hash && bucket->pair->key.eq(key) {
+                    return index;
+                }
+
+                index = this->next_index(index);
+                dib = dib + 1u;
+            }
+
+            return this->capacity;
         }
-        return new Iter<&const V>(values_vec);
+
+        fun destroy_all_pairs(*this) {
+            if this->buckets == null {
+                return;
+            }
+
+            let i: uint64 = 0u;
+            while i < this->capacity {
+                if this->buckets[i].occupied {
+                    delete this->buckets[i].pair;
+                    this->buckets[i].pair = null;
+                    this->buckets[i].occupied = false;
+                    this->buckets[i].hash = 0u;
+                    this->buckets[i].dib = 0u;
+                }
+                i = i + 1u;
+            }
+        }
     }
 }
