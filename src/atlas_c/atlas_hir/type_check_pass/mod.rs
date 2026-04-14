@@ -392,12 +392,17 @@ impl<'hir> TypeChecker<'hir> {
         for (struct_name, strct) in hir.body.structs.iter_mut() {
             let has_destructor = strct.destructor.is_some() || strct.signature.destructor.is_some();
 
-            let is_trivially_copyable = if strct.signature.flag.is_non_copyable() {
+            // Destructor-bearing types are never trivially copyable.
+            // This keeps ownership/drop semantics coherent even if users applied
+            // #[std::trivially_copyable] manually.
+            let is_trivially_copyable = if has_destructor {
+                false
+            } else if strct.signature.flag.is_non_copyable() {
                 false
             } else if strct.signature.flag.is_trivially_copyable() {
                 true
             } else {
-                !has_destructor
+                true
             };
 
             strct.signature.is_trivially_copyable = is_trivially_copyable;
@@ -473,6 +478,27 @@ impl<'hir> TypeChecker<'hir> {
                     },
                 ));
             }
+        }
+
+        let has_destructor = class.destructor.is_some() || class.signature.destructor.is_some();
+
+        // Explicitly reject trivially copyable structs that define a destructor.
+        // The combination is semantically contradictory and leads to dangerous
+        // ownership behavior (copy + drop).
+        if class.signature.flag.is_trivially_copyable() && has_destructor {
+            let path = class.span.path;
+            let src = utils::get_file_content(path).unwrap();
+            return Err(HirError::InvalidSpecialMethodSignature(
+                InvalidSpecialMethodSignatureError {
+                    span: class.name_span,
+                    expected: "types with a destructor cannot be #[std::trivially_copyable]"
+                        .to_string(),
+                    actual: "#[std::trivially_copyable] used on a struct defining a destructor"
+                        .to_string(),
+                    src: NamedSource::new(path, src),
+                    method_name: class.name.to_string(),
+                },
+            ));
         }
 
         // Warn when a struct owns raw pointers but is not trivially copyable and has no custom destructor.

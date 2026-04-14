@@ -428,11 +428,20 @@ impl<'hir> HirOwnershipPass<'hir> {
 
         let path = src.span.path;
         let src_text = utils::get_file_content(path).unwrap_or_default();
+        let name = if let Some(sig) = self.signature.structs.get(src_local.name) {
+            if let Some(pre) = sig.pre_mangled_ty {
+                format!("{}", HirTy::Generic(pre.clone()))
+            } else {
+                format!("{}", src_local.ty)
+            }
+        } else {
+            format!("{}", src_local.ty)
+        };
         Err(HirError::TypeIsNotTriviallyCopyable(
             TypeIsNotTriviallyCopyableError {
                 src: NamedSource::new(path, src_text),
                 span: src.span,
-                type_name: format!("{}", src_local.ty),
+                type_name: name,
             },
         ))
     }
