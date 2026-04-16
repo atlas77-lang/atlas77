@@ -2764,7 +2764,9 @@ impl<'hir> TypeChecker<'hir> {
         }
 
         let target_name_interned = self.arena.names().get(target_name);
-        if !self.signature.structs.contains_key(target_name_interned) {
+        if !self.signature.structs.contains_key(target_name_interned)
+            && !self.signature.enums.contains_key(target_name_interned)
+        {
             return None;
         }
 
