@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 
 use crate::atlas_c::atlas_hir::signature::ConstantValue;
 // TODO: Add Span info to Lir structures for better error reporting
@@ -120,7 +120,7 @@ pub struct LirExternFunction {
 /// e.g., union Value { a: int32, b: float32 }
 pub struct LirUnion {
     pub name: String,
-    pub variants: HashMap<String, LirTy>,
+    pub variants: BTreeMap<String, LirTy>,
 }
 
 #[derive(Debug, Clone)]
@@ -130,7 +130,7 @@ pub struct LirUnion {
 /// The methods of the struct are not included here; they are part of the functions in the program.
 pub struct LirStruct {
     pub name: String,
-    pub fields: HashMap<String, LirTy>,
+    pub fields: BTreeMap<String, LirTy>,
     pub is_extern: bool,
     pub c_name: Option<String>,
 }
@@ -409,7 +409,7 @@ pub enum LirInstr {
     ConstructObject {
         ty: LirTy,
         dst: LirOperand,
-        field_values: HashMap<String, LirOperand>,
+        field_values: BTreeMap<String, LirOperand>,
     },
     /// Delete semantics for a value of the given type.
     ///

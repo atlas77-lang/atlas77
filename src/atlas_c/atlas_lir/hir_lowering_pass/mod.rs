@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use miette::NamedSource;
 
@@ -184,19 +184,17 @@ impl<'hir> HirLoweringPass<'hir> {
     }
 
     fn lower_union(&mut self, union_body: &'hir HirUnion<'hir>) -> LirResult<LirUnion> {
+        let mut variants = BTreeMap::new();
+        for variant in union_body.variants.iter() {
+            variants.insert(
+                variant.name.to_string(),
+                self.hir_ty_to_lir_ty(variant.ty, variant.span),
+            );
+        }
+
         let lir_union = LirUnion {
             name: union_body.name.to_string(),
-            variants: union_body
-                .signature
-                .variants
-                .iter()
-                .map(|(variant_name, variant_sig)| {
-                    (
-                        variant_name.to_string(),
-                        self.hir_ty_to_lir_ty(variant_sig.ty, variant_sig.span),
-                    )
-                })
-                .collect(),
+            variants,
         };
 
         Ok(lir_union)
@@ -207,19 +205,17 @@ impl<'hir> HirLoweringPass<'hir> {
         struct_body: &'hir HirStruct<'hir>,
         functions: &mut Vec<LirFunction>,
     ) -> LirResult<LirStruct> {
+        let mut fields = BTreeMap::new();
+        for field in struct_body.fields.iter() {
+            fields.insert(
+                field.name.to_string(),
+                self.hir_ty_to_lir_ty(field.ty, field.span),
+            );
+        }
+
         let lir_struct = LirStruct {
             name: struct_body.name.to_string(),
-            fields: struct_body
-                .signature
-                .fields
-                .iter()
-                .map(|(field_name, field_sig)| {
-                    (
-                        field_name.to_string(),
-                        self.hir_ty_to_lir_ty(field_sig.ty, field_sig.span),
-                    )
-                })
-                .collect(),
+            fields,
             is_extern: struct_body.signature.is_extern,
             c_name: struct_body.signature.c_name.map(|s| s.to_string()),
         };

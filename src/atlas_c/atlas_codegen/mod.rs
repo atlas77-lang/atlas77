@@ -13,7 +13,7 @@ use crate::atlas_c::{
         LirUnion,
     },
 };
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub const HEADER_NAME: &str = "atlas77.h";
 pub const PORTABLE_ATLAS77_HEADER: &str = include_str!("../../.././libraries/std/atlas77.h");
@@ -31,6 +31,7 @@ pub struct CCodeGen {
     pub c_header: String,
     pub struct_names: Vec<String>,
     pub union_names: Vec<String>,
+    struct_field_tys: HashMap<String, BTreeMap<String, LirTy>>,
     indent_level: usize,
 }
 
@@ -91,11 +92,18 @@ impl CCodeGen {
             c_header: String::new(),
             struct_names: vec![],
             union_names: vec![],
+            struct_field_tys: HashMap::new(),
             indent_level: 0,
         }
     }
 
     pub fn emit_c(&mut self, program: &LirProgram, extra_headers: &[String]) -> Result<(), String> {
+        self.struct_field_tys.clear();
+        for strukt in program.structs.iter() {
+            self.struct_field_tys
+                .insert(strukt.name.clone(), strukt.fields.clone());
+        }
+
         self.emit_type_forward_declarations(program);
         self.codegen_type_definitions_dependency_order(program);
         for func in program.functions.iter() {
@@ -256,7 +264,9 @@ impl CCodeGen {
     fn codegen_union(&mut self, union: &LirUnion) {
         let union_name = Self::c_ident(&union.name);
         let mut union_def = format!("union {} {{\n", union_name);
-        for (variant_name, variant_type) in union.variants.iter() {
+        let mut variants: Vec<(&String, &LirTy)> = union.variants.iter().collect();
+        variants.sort_by(|(a, _), (b, _)| a.cmp(b));
+        for (variant_name, variant_type) in variants {
             let variant_type_str = self.codegen_type(variant_type);
             union_def.push_str(&format!("\t{} {};\n", variant_type_str, variant_name));
         }
@@ -272,7 +282,9 @@ impl CCodeGen {
             // C doesn't allow empty structs, so we add a dummy field if there are no fields
             struct_def.push_str("\tuint8_t _dummy;\n");
         }
-        for (field_name, field_type) in strukt.fields.iter() {
+        let mut fields: Vec<(&String, &LirTy)> = strukt.fields.iter().collect();
+        fields.sort_by(|(a, _), (b, _)| a.cmp(b));
+        for (field_name, field_type) in fields {
             let field_sig = match field_type {
                 LirTy::ArrayTy { .. } => {
                     format!("\t{};\n", self.codegen_array_decl(field_type, field_name))
@@ -907,21 +919,54 @@ impl CCodeGen {
                 let dest_str = self.codegen_operand(dst);
                 let type_str = self.codegen_type(ty);
                 let type_name_str = type_str.trim_end_matches('*').to_string();
-                let mut field_inits: Vec<String> = Vec::new();
+
+                // Use assignment-style construction so array fields can be copied safely.
+                // Compound literals with `.field = temp_array` are invalid C for array members.
+                let decl_line = format!("{} {} = ({}) {{0}};", type_name_str, dest_str, type_str);
+                Self::write_to_file(&mut self.c_file, &decl_line, self.indent_level);
+
                 if field_values.is_empty() {
-                    // C doesn't allow empty structs, so we add a dummy field if there are no fields
-                    field_inits.push("._dummy = 'A'".to_string());
+                    let dummy_line = format!("{}._dummy = 'A';", dest_str);
+                    Self::write_to_file(&mut self.c_file, &dummy_line, self.indent_level);
+                    return;
                 }
-                for (field_name, field_value) in field_values.iter() {
+
+                let mut fields: Vec<(&String, &LirOperand)> = field_values.iter().collect();
+                fields.sort_by(|(a, _), (b, _)| a.cmp(b));
+
+                let array_fields: HashSet<String> = if let LirTy::StructType(struct_name) = ty {
+                    self.struct_field_tys
+                        .get(struct_name)
+                        .map(|m| {
+                            m.iter()
+                                .filter_map(|(k, v)| {
+                                    if matches!(v, LirTy::ArrayTy { .. }) {
+                                        Some(k.clone())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default()
+                } else {
+                    HashSet::new()
+                };
+
+                for (field_name, field_value) in fields {
                     let value_str = self.codegen_operand(field_value);
-                    field_inits.push(format!(".{} = {}", field_name, value_str));
+                    let is_array_field = array_fields.contains(field_name);
+
+                    let line = if is_array_field {
+                        format!(
+                            "memcpy({0}.{1}, {2}, sizeof({0}.{1}));",
+                            dest_str, field_name, value_str
+                        )
+                    } else {
+                        format!("{}.{} = {};", dest_str, field_name, value_str)
+                    };
+                    Self::write_to_file(&mut self.c_file, &line, self.indent_level);
                 }
-                let field_inits_str = field_inits.join(", ");
-                let line = format!(
-                    "{} {} = {{ {} }};",
-                    type_name_str, dest_str, field_inits_str
-                );
-                Self::write_to_file(&mut self.c_file, &line, self.indent_level);
             }
             LirInstr::Cast { ty, from, dst, src } => {
                 if !(ty == from) {
