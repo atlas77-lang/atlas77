@@ -1819,7 +1819,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             AstBinaryOp::Gte => HirBinaryOperator::Gte,
             AstBinaryOp::And => HirBinaryOperator::And,
             AstBinaryOp::Or => HirBinaryOperator::Or,
-            //Other operators will soon come
+            AstBinaryOp::ShL => HirBinaryOperator::ShL,
+            AstBinaryOp::ShR => HirBinaryOperator::ShR,
+            AstBinaryOp::BinAnd => HirBinaryOperator::BinAnd,
+            AstBinaryOp::BinOr => HirBinaryOperator::BinOr,
+            AstBinaryOp::BinXor => HirBinaryOperator::BinXor,
         };
         Ok(op)
     }

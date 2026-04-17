@@ -296,6 +296,11 @@ pub enum HirBinaryOperator {
     Neq,
     Or,
     Sub,
+    ShL,
+    ShR,
+    BinAnd,
+    BinOr,
+    BinXor,
 }
 
 impl fmt::Display for HirBinaryOperator {
@@ -314,6 +319,11 @@ impl fmt::Display for HirBinaryOperator {
             HirBinaryOperator::Neq => "!=",
             HirBinaryOperator::Or => "||",
             HirBinaryOperator::Sub => "-",
+            HirBinaryOperator::ShL => "<<",
+            HirBinaryOperator::ShR => ">>",
+            HirBinaryOperator::BinAnd => "&",
+            HirBinaryOperator::BinOr => "|",
+            HirBinaryOperator::BinXor => "^",
         };
         write!(f, "{}", op_str)
     }

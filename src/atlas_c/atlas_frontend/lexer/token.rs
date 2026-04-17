@@ -228,6 +228,8 @@ pub enum TokenKind {
     OpOr,
     #[token("|")]
     Pipe,
+    #[token("^")]
+    Caret,
     #[token("=>")]
     RFatArrow,
     #[token("~")]

@@ -603,7 +603,6 @@ impl CCodeGen {
                 );
                 Self::write_to_file(&mut self.c_file, &line, self.indent_level);
             }
-
             LirInstr::Negate { ty, dest, src } => {
                 let dest_str = self.codegen_operand(dest);
                 let src_str = self.codegen_operand(src);
@@ -614,6 +613,67 @@ impl CCodeGen {
                 let dest_str = self.codegen_operand(dest);
                 let src_str = self.codegen_operand(src);
                 let line = self.codegen_decl_assign_line(ty, &dest_str, &format!("!{}", src_str));
+                Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+            }
+            LirInstr::BinaryNot { ty, dest, src } => {
+                let dest_str = self.codegen_operand(dest);
+                let src_str = self.codegen_operand(src);
+                let line = self.codegen_decl_assign_line(ty, &dest_str, &format!("~{}", src_str));
+                Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+            }
+            LirInstr::ShiftLeft { ty, dest, a, b } => {
+                let dest_str = self.codegen_operand(dest);
+                let a_str = self.codegen_operand(a);
+                let b_str = self.codegen_operand(b);
+                let line = self.codegen_decl_assign_line(
+                    ty,
+                    &dest_str,
+                    &format!("({} << {})", a_str, b_str),
+                );
+                Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+            }
+            LirInstr::ShiftRight { ty, dest, a, b } => {
+                let dest_str = self.codegen_operand(dest);
+                let a_str = self.codegen_operand(a);
+                let b_str = self.codegen_operand(b);
+                let line = self.codegen_decl_assign_line(
+                    ty,
+                    &dest_str,
+                    &format!("({} >> {})", a_str, b_str),
+                );
+                Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+            }
+            LirInstr::BinaryAnd { ty, dest, a, b } => {
+                let dest_str = self.codegen_operand(dest);
+                let a_str = self.codegen_operand(a);
+                let b_str = self.codegen_operand(b);
+                let line = self.codegen_decl_assign_line(
+                    ty,
+                    &dest_str,
+                    &format!("({} & {})", a_str, b_str),
+                );
+                Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+            }
+            LirInstr::BinaryOr { ty, dest, a, b } => {
+                let dest_str = self.codegen_operand(dest);
+                let a_str = self.codegen_operand(a);
+                let b_str = self.codegen_operand(b);
+                let line = self.codegen_decl_assign_line(
+                    ty,
+                    &dest_str,
+                    &format!("({} | {})", a_str, b_str),
+                );
+                Self::write_to_file(&mut self.c_file, &line, self.indent_level);
+            }
+            LirInstr::BinaryXor { ty, dest, a, b } => {
+                let dest_str = self.codegen_operand(dest);
+                let a_str = self.codegen_operand(a);
+                let b_str = self.codegen_operand(b);
+                let line = self.codegen_decl_assign_line(
+                    ty,
+                    &dest_str,
+                    &format!("({} ^ {})", a_str, b_str),
+                );
                 Self::write_to_file(&mut self.c_file, &line, self.indent_level);
             }
             LirInstr::LoadImm { ty, dst, value } => {

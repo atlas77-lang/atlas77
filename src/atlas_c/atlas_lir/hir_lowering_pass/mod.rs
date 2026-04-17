@@ -822,11 +822,19 @@ impl<'hir> HirLoweringPass<'hir> {
                     let expr_operand = self.lower_expr(&unary.expr)?;
                     let dest = self.new_temp();
                     let ty = self.hir_ty_to_lir_ty(unary.ty, unary.span);
-                    self.emit(LirInstr::Not {
-                        ty,
-                        dest: dest.clone(),
-                        src: expr_operand,
-                    })?;
+                    if ty == LirTy::Boolean {
+                        self.emit(LirInstr::Not {
+                            ty,
+                            dest: dest.clone(),
+                            src: expr_operand,
+                        })?;
+                    } else {
+                        self.emit(LirInstr::BinaryNot {
+                            ty,
+                            dest: dest.clone(),
+                            src: expr_operand,
+                        })?;
+                    }
                     Ok(dest)
                 }
                 _ => self.lower_expr(&unary.expr),
@@ -915,6 +923,36 @@ impl<'hir> HirLoweringPass<'hir> {
                     },
                     HirBinaryOperator::Or => LirInstr::LogicalOr {
                         ty: LirTy::Boolean,
+                        dest: dest.clone(),
+                        a: lhs,
+                        b: rhs,
+                    },
+                    HirBinaryOperator::ShL => LirInstr::ShiftLeft {
+                        ty,
+                        dest: dest.clone(),
+                        a: lhs,
+                        b: rhs,
+                    },
+                    HirBinaryOperator::ShR => LirInstr::ShiftRight {
+                        ty,
+                        dest: dest.clone(),
+                        a: lhs,
+                        b: rhs,
+                    },
+                    HirBinaryOperator::BinAnd => LirInstr::BinaryAnd {
+                        ty,
+                        dest: dest.clone(),
+                        a: lhs,
+                        b: rhs,
+                    },
+                    HirBinaryOperator::BinOr => LirInstr::BinaryOr {
+                        ty,
+                        dest: dest.clone(),
+                        a: lhs,
+                        b: rhs,
+                    },
+                    HirBinaryOperator::BinXor => LirInstr::BinaryXor {
+                        ty,
                         dest: dest.clone(),
                         a: lhs,
                         b: rhs,
@@ -1711,6 +1749,24 @@ impl std::fmt::Display for LirInstr {
             }
             LirInstr::Not { ty: _, dest, src } => {
                 write!(f, "{} = not {}", dest, src)
+            }
+            LirInstr::BinaryNot { ty: _, dest, src } => {
+                write!(f, "{} = bin_not {}", dest, src)
+            }
+            LirInstr::ShiftLeft { dest, a, b, ty } => {
+                write!(f, "{} = shl.{} {}, {}", dest, ty, a, b)
+            }
+            LirInstr::ShiftRight { dest, a, b, ty } => {
+                write!(f, "{} = shr.{} {}, {}", dest, ty, a, b)
+            }
+            LirInstr::BinaryAnd { dest, a, b, ty } => {
+                write!(f, "{} = bin_and.{} {}, {}", dest, ty, a, b)
+            }
+            LirInstr::BinaryOr { dest, a, b, ty } => {
+                write!(f, "{} = bin_or.{} {}, {}", dest, ty, a, b)
+            }
+            LirInstr::BinaryXor { dest, a, b, ty } => {
+                write!(f, "{} = bin_xor.{} {}, {}", dest, ty, a, b)
             }
             LirInstr::Index {
                 ty: _,

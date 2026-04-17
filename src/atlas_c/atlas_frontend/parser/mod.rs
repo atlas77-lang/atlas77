@@ -1038,16 +1038,33 @@ impl<'ast> Parser<'ast> {
     fn parse_operator(&mut self) -> ParseResult<AstOperatorOverload<'ast>> {
         self.expect(TokenKind::KwOperator)?;
         let tok_op = self.current().clone();
-        let op = match tok_op.kind().try_into() {
-            Ok(op) => op,
-            Err(_) => {
-                return Err(self.unexpected_token_error(
-                    TokenVec(vec![TokenKind::Identifier("Operator".to_string())]),
-                    &tok_op.span,
-                ));
+        let op = match tok_op.kind() {
+            TokenKind::LAngle if self.peek() == Some(TokenKind::LAngle) => {
+                let _ = self.advance();
+                let _ = self.advance();
+                AstBinaryOp::ShL
+            }
+            TokenKind::RAngle if self.peek() == Some(TokenKind::RAngle) => {
+                let _ = self.advance();
+                let _ = self.advance();
+                AstBinaryOp::ShR
+            }
+            _ => {
+                let op: Result<AstBinaryOp, _> = tok_op.kind().try_into();
+                match op {
+                    Ok(op) => {
+                        let _ = self.advance();
+                        op
+                    }
+                    Err(_) => {
+                        return Err(self.unexpected_token_error(
+                            TokenVec(vec![TokenKind::Identifier("Binary Operator".to_string())]),
+                            &tok_op.span,
+                        ));
+                    }
+                }
             }
         };
-        let _ = self.advance();
         self.expect(TokenKind::LParen)?;
         let mut params = vec![];
         while self.current().kind() != TokenKind::RParen {
@@ -1298,7 +1315,7 @@ impl<'ast> Parser<'ast> {
     }
 
     fn parse_logical_and(&mut self) -> ParseResult<AstExpr<'ast>> {
-        let left = self.parse_equality()?;
+        let left = self.parse_bitwise_or()?;
         match self.current().kind() {
             TokenKind::OpAnd => {
                 let _ = self.advance();
@@ -1306,6 +1323,60 @@ impl<'ast> Parser<'ast> {
                 let node = AstExpr::BinaryOp(AstBinaryOpExpr {
                     span: Span::union_span(&left.span(), &right.span()),
                     op: AstBinaryOp::And,
+                    lhs: self.arena.alloc(left),
+                    rhs: self.arena.alloc(right),
+                });
+                Ok(node)
+            }
+            _ => Ok(left),
+        }
+    }
+
+    fn parse_bitwise_or(&mut self) -> ParseResult<AstExpr<'ast>> {
+        let left = self.parse_bitwise_xor()?;
+        match self.current().kind() {
+            TokenKind::Pipe => {
+                let _ = self.advance();
+                let right = self.parse_bitwise_or()?;
+                let node = AstExpr::BinaryOp(AstBinaryOpExpr {
+                    span: Span::union_span(&left.span(), &right.span()),
+                    op: AstBinaryOp::BinOr,
+                    lhs: self.arena.alloc(left),
+                    rhs: self.arena.alloc(right),
+                });
+                Ok(node)
+            }
+            _ => Ok(left),
+        }
+    }
+
+    fn parse_bitwise_xor(&mut self) -> ParseResult<AstExpr<'ast>> {
+        let left = self.parse_bitwise_and()?;
+        match self.current().kind() {
+            TokenKind::Caret => {
+                let _ = self.advance();
+                let right = self.parse_bitwise_xor()?;
+                let node = AstExpr::BinaryOp(AstBinaryOpExpr {
+                    span: Span::union_span(&left.span(), &right.span()),
+                    op: AstBinaryOp::BinXor,
+                    lhs: self.arena.alloc(left),
+                    rhs: self.arena.alloc(right),
+                });
+                Ok(node)
+            }
+            _ => Ok(left),
+        }
+    }
+
+    fn parse_bitwise_and(&mut self) -> ParseResult<AstExpr<'ast>> {
+        let left = self.parse_equality()?;
+        match self.current().kind() {
+            TokenKind::Ampersand => {
+                let _ = self.advance();
+                let right = self.parse_bitwise_and()?;
+                let node = AstExpr::BinaryOp(AstBinaryOpExpr {
+                    span: Span::union_span(&left.span(), &right.span()),
+                    op: AstBinaryOp::BinAnd,
                     lhs: self.arena.alloc(left),
                     rhs: self.arena.alloc(right),
                 });
@@ -1339,7 +1410,7 @@ impl<'ast> Parser<'ast> {
     }
 
     fn parse_relational(&mut self) -> ParseResult<AstExpr<'ast>> {
-        let left = self.parse_additive()?;
+        let left = self.parse_shift()?;
         match self.current().kind() {
             TokenKind::RAngle
             | TokenKind::OpGreaterThanEq
@@ -1357,6 +1428,37 @@ impl<'ast> Parser<'ast> {
                 let node = AstExpr::BinaryOp(AstBinaryOpExpr {
                     span: Span::union_span(&left.span(), &right.span()),
                     op,
+                    lhs: self.arena.alloc(left),
+                    rhs: self.arena.alloc(right),
+                });
+                Ok(node)
+            }
+            _ => Ok(left),
+        }
+    }
+
+    fn parse_shift(&mut self) -> ParseResult<AstExpr<'ast>> {
+        let left = self.parse_additive()?;
+        match self.current().kind() {
+            TokenKind::LAngle if self.peek() == Some(TokenKind::LAngle) => {
+                let _ = self.advance();
+                let _ = self.advance();
+                let right = self.parse_shift()?;
+                let node = AstExpr::BinaryOp(AstBinaryOpExpr {
+                    span: Span::union_span(&left.span(), &right.span()),
+                    op: AstBinaryOp::ShL,
+                    lhs: self.arena.alloc(left),
+                    rhs: self.arena.alloc(right),
+                });
+                Ok(node)
+            }
+            TokenKind::RAngle if self.peek() == Some(TokenKind::RAngle) => {
+                let _ = self.advance();
+                let _ = self.advance();
+                let right = self.parse_shift()?;
+                let node = AstExpr::BinaryOp(AstBinaryOpExpr {
+                    span: Span::union_span(&left.span(), &right.span()),
+                    op: AstBinaryOp::ShR,
                     lhs: self.arena.alloc(left),
                     rhs: self.arena.alloc(right),
                 });
@@ -2566,6 +2668,51 @@ mod tests {
     use super::*;
     use crate::atlas_c::atlas_frontend::lexer::AtlasLexer;
 
+    enum ExprShape {
+        Binary(AstBinaryOp, Box<ExprShape>, Box<ExprShape>),
+        Other,
+    }
+
+    fn to_expr_shape(expr: &AstExpr<'_>) -> ExprShape {
+        match expr {
+            AstExpr::BinaryOp(bin) => ExprShape::Binary(
+                bin.op.clone(),
+                Box::new(to_expr_shape(bin.lhs)),
+                Box::new(to_expr_shape(bin.rhs)),
+            ),
+            _ => ExprShape::Other,
+        }
+    }
+
+    fn parse_first_let_value_shape(input: &str) -> ExprShape {
+        let mut lexer = AtlasLexer::new("tests/operators.atlas".into(), input.to_string());
+        let tokens = lexer.tokenize().unwrap_or_else(|e| panic!("{:?}", e));
+        let bump = Bump::new();
+        let arena = &AstArena::new(&bump);
+        let mut parser = Parser::new(arena, tokens, "tests/operators.atlas");
+        let program = parser
+            .parse()
+            .unwrap_or_else(|e| panic!("Failed to parse test input: {:?}", e));
+
+        let item = program.items.first().expect("Expected at least one item");
+        let fun = match **item {
+            AstItem::Function(ref f) => f,
+            _ => panic!("Expected first item to be a function"),
+        };
+
+        let stmt = fun
+            .body
+            .stmts
+            .first()
+            .expect("Expected first statement in function body");
+        let let_stmt = match **stmt {
+            AstStatement::Let(ref l) => l,
+            _ => panic!("Expected first statement to be a let statement"),
+        };
+
+        to_expr_shape(let_stmt.value)
+    }
+
     #[test]
     fn test_hello_world() -> Result<()> {
         let input = get_file_content("examples/hello.atlas").unwrap();
@@ -2588,6 +2735,34 @@ mod tests {
                 let report: ErrReport = (*e).into();
                 panic!("Parsing error: {:?}", report);
             }
+        }
+    }
+
+    #[test]
+    fn test_shift_has_lower_precedence_than_additive() {
+        let expr = parse_first_let_value_shape("fun main() { let x = 1 + 2 << 3; }");
+
+        match expr {
+            ExprShape::Binary(op, lhs, rhs) => {
+                assert!(matches!(op, AstBinaryOp::ShL));
+                assert!(matches!(*lhs, ExprShape::Binary(AstBinaryOp::Add, _, _)));
+                assert!(matches!(*rhs, ExprShape::Other));
+            }
+            ExprShape::Other => panic!("Expected binary expression root"),
+        }
+    }
+
+    #[test]
+    fn test_bitwise_precedence_between_logical_and_equality() {
+        let expr = parse_first_let_value_shape("fun main() { let x = 1 | 2 && 3; }");
+
+        match expr {
+            ExprShape::Binary(op, lhs, rhs) => {
+                assert!(matches!(op, AstBinaryOp::And));
+                assert!(matches!(*lhs, ExprShape::Binary(AstBinaryOp::BinOr, _, _)));
+                assert!(matches!(*rhs, ExprShape::Other));
+            }
+            ExprShape::Other => panic!("Expected binary expression root"),
         }
     }
 }

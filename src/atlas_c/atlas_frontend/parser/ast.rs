@@ -667,6 +667,11 @@ pub enum AstBinaryOp {
     Gte,
     And,
     Or,
+    ShL,
+    ShR,
+    BinAnd,
+    BinOr,
+    BinXor,
 }
 
 impl TryFrom<TokenKind> for AstBinaryOp {
@@ -686,6 +691,9 @@ impl TryFrom<TokenKind> for AstBinaryOp {
             TokenKind::OpGreaterThanEq => Ok(AstBinaryOp::Gte),
             TokenKind::OpAnd => Ok(AstBinaryOp::And),
             TokenKind::OpOr => Ok(AstBinaryOp::Or),
+            TokenKind::Ampersand => Ok(AstBinaryOp::BinAnd),
+            TokenKind::Pipe => Ok(AstBinaryOp::BinOr),
+            TokenKind::Caret => Ok(AstBinaryOp::BinXor),
             _ => Err(format!("{:?}", value)),
         }
     }

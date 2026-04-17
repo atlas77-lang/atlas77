@@ -395,15 +395,7 @@ impl<'hir> TypeChecker<'hir> {
             // Destructor-bearing types are never trivially copyable.
             // This keeps ownership/drop semantics coherent even if users applied
             // #[std::trivially_copyable] manually.
-            let is_trivially_copyable = if has_destructor {
-                false
-            } else if strct.signature.flag.is_non_copyable() {
-                false
-            } else if strct.signature.flag.is_trivially_copyable() {
-                true
-            } else {
-                true
-            };
+            let is_trivially_copyable = has_destructor || strct.signature.flag.is_non_copyable();
 
             strct.signature.is_trivially_copyable = is_trivially_copyable;
             if is_trivially_copyable {
@@ -1220,6 +1212,22 @@ impl<'hir> TypeChecker<'hir> {
                             "dereference operation",
                         )),
                     },
+                    Some(HirUnaryOp::Not) => {
+                        // If it's a boolean, we do logical not, otherwise we do bitwise not
+                        if HirTyId::from(ty) == HirTyId::compute_boolean_ty_id() {
+                            u.ty = ty;
+                            Ok(ty)
+                        } else if TypeChecker::is_binary_comparable_type(ty) {
+                            u.ty = ty;
+                            Ok(ty)
+                        } else {
+                            Err(Self::illegal_unary_operation_err(
+                                ty,
+                                u.expr.span(),
+                                "logical or bitwise not operation",
+                            ))
+                        }
+                    }
                     _ => {
                         u.ty = ty;
                         Ok(ty)
@@ -1438,6 +1446,30 @@ impl<'hir> TypeChecker<'hir> {
                             ));
                         }
                         Ok(self.arena.types().get_boolean_ty())
+                    }
+                    HirBinaryOperator::BinAnd
+                    | HirBinaryOperator::BinOr
+                    | HirBinaryOperator::BinXor => {
+                        if !TypeChecker::is_binary_comparable_type(lhs) {
+                            return Err(Self::illegal_operation_err(
+                                lhs,
+                                rhs,
+                                b.span,
+                                "binary comparison",
+                            ));
+                        }
+                        Ok(lhs)
+                    }
+                    HirBinaryOperator::ShL | HirBinaryOperator::ShR => {
+                        if !TypeChecker::is_shiftable_type(lhs) {
+                            return Err(Self::illegal_operation_err(
+                                lhs,
+                                rhs,
+                                b.span,
+                                "shift operation",
+                            ));
+                        }
+                        Ok(lhs)
                     }
                 }
             }
@@ -3805,6 +3837,30 @@ impl<'hir> TypeChecker<'hir> {
                 | HirTy::Float(_)
                 | HirTy::LiteralFloat(_)
                 | HirTy::Char(_)
+        )
+    }
+
+    /// Can perform shift left/right operation
+    fn is_shiftable_type(ty: &HirTy) -> bool {
+        matches!(
+            ty,
+            // Potentially add `HirTy::Char(_)`
+            HirTy::Integer(_)
+                | HirTy::LiteralInteger(_)
+                | HirTy::UnsignedInteger(_)
+                | HirTy::LiteralUnsignedInteger(_)
+        )
+    }
+    // Might be a good idea to collapse shiftable_type & this in one function
+    // Potentially is_binary_operable_type (needs a better name)
+    fn is_binary_comparable_type(ty: &HirTy) -> bool {
+        matches!(
+            ty,
+            // Potentially add `HirTy::Char(_)`
+            HirTy::Integer(_)
+                | HirTy::LiteralInteger(_)
+                | HirTy::UnsignedInteger(_)
+                | HirTy::LiteralUnsignedInteger(_)
         )
     }
 }

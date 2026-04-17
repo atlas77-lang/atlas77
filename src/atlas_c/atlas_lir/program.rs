@@ -325,6 +325,41 @@ pub enum LirInstr {
         dest: LirOperand,
         src: LirOperand,
     },
+    BinaryNot {
+        ty: LirTy,
+        dest: LirOperand,
+        src: LirOperand,
+    },
+    BinaryAnd {
+        ty: LirTy,
+        dest: LirOperand,
+        a: LirOperand,
+        b: LirOperand,
+    },
+    BinaryOr {
+        ty: LirTy,
+        dest: LirOperand,
+        a: LirOperand,
+        b: LirOperand,
+    },
+    BinaryXor {
+        ty: LirTy,
+        dest: LirOperand,
+        a: LirOperand,
+        b: LirOperand,
+    },
+    ShiftLeft {
+        ty: LirTy,
+        dest: LirOperand,
+        a: LirOperand,
+        b: LirOperand,
+    },
+    ShiftRight {
+        ty: LirTy,
+        dest: LirOperand,
+        a: LirOperand,
+        b: LirOperand,
+    },
     Index {
         ty: LirTy,
         dst: LirOperand,
