@@ -191,6 +191,8 @@ pub enum AstFlag {
     Copyable(Span),
     TriviallyCopyable(Span),
     NonCopyable(Span),
+    Default(Span),
+    Hashable(Span),
     Intrinsic(Span),
     #[default]
     None,

@@ -100,4 +100,38 @@ int64_t clocks_per_sec(void)
     return CLOCKS_PER_SEC;
 }
 
+static char *atlas77_strdup(const char *src)
+{
+    if (src == NULL)
+    {
+        return NULL;
+    }
+    size_t len = strlen(src) + 1;
+    char *dst = (char *)malloc(len);
+    if (dst == NULL)
+    {
+        fprintf(stderr, "atlas77: failed to allocate duplicated string\n");
+
+        exit(1);
+    }
+    strcpy(dst, src);
+    return dst;
+}
+
+static uint64_t atlas77_string_hash(const char *s)
+{
+    if (s == NULL)
+    {
+        return UINT64_C(0);
+    }
+    uint64_t hash = UINT64_C(1469598103934665603);
+    while (*s != '\0')
+    {
+        hash ^= (uint64_t)(unsigned char)(*s);
+        hash *= UINT64_C(1099511628211);
+        ++s;
+    }
+    return hash;
+}
+
 #endif /* ATLAS77_H */

@@ -131,6 +131,8 @@ pub enum HirFlag {
     Copyable(Span),
     TriviallyCopyable(Span),
     NonCopyable(Span),
+    Default(Span),
+    Hashable(Span),
     NonMoveable(Span),
     #[default]
     None,
@@ -142,6 +144,8 @@ impl From<AstFlag> for HirFlag {
             AstFlag::TriviallyCopyable(span) => HirFlag::TriviallyCopyable(span),
             AstFlag::Copyable(span) => HirFlag::Copyable(span),
             AstFlag::NonCopyable(span) => HirFlag::NonCopyable(span),
+            AstFlag::Default(span) => HirFlag::Default(span),
+            AstFlag::Hashable(span) => HirFlag::Hashable(span),
             AstFlag::Intrinsic(_) => HirFlag::None,
             AstFlag::None => HirFlag::None,
         }
@@ -154,6 +158,8 @@ impl HirFlag {
             HirFlag::Copyable(span) => Some(*span),
             HirFlag::NonCopyable(span) => Some(*span),
             HirFlag::NonMoveable(span) => Some(*span),
+            HirFlag::Default(span) => Some(*span),
+            HirFlag::Hashable(span) => Some(*span),
             HirFlag::TriviallyCopyable(span) => Some(*span),
             HirFlag::None => None,
         }
@@ -172,6 +178,12 @@ impl HirFlag {
     }
     pub fn is_no_flag(&self) -> bool {
         matches!(self, HirFlag::None)
+    }
+    pub fn is_std_default(&self) -> bool {
+        matches!(self, HirFlag::Default(_))
+    }
+    pub fn is_std_hashable(&self) -> bool {
+        matches!(self, HirFlag::Hashable(_))
     }
 }
 

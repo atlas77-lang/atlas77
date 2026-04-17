@@ -23,6 +23,7 @@ pub mod item;
 pub mod pretty_print;
 mod scope;
 pub mod signature;
+pub mod special_methods;
 pub mod stmt;
 pub mod ty;
 pub mod warning;

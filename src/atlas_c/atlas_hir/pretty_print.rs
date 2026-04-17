@@ -114,6 +114,12 @@ impl HirPrettyPrinter {
             HirFlag::Copyable(_) => {
                 self.writeln("#[std::copyable]");
             }
+            HirFlag::Default(_) => {
+                self.writeln("#[std::default]");
+            }
+            HirFlag::Hashable(_) => {
+                self.writeln("#[std::hashable]");
+            }
             _ => {}
         }
 

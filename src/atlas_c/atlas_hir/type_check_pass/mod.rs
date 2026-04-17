@@ -13,6 +13,10 @@ use crate::atlas_c::atlas_hir::signature::{
     HirStructDestructorSignature, HirStructFieldSignature, HirStructMethodModifier,
     HirStructSignature, HirVisibility,
 };
+use crate::atlas_c::atlas_hir::special_methods::{
+    INTRINSIC_PRIMITIVE_COPY, INTRINSIC_PRIMITIVE_DEFAULT, INTRINSIC_PRIMITIVE_HASH,
+    SpecialMethodKind, SpecialMethodReceiver, primitive_special_call_descriptor,
+};
 use crate::atlas_c::atlas_hir::{
     error::{
         AccessingClassFieldOutsideClassError, AccessingPrivateDestructorError,
@@ -1328,8 +1332,8 @@ impl<'hir> TypeChecker<'hir> {
                         Ok(arr.inner)
                     }
                     HirTy::String(_) => {
-                        indexing_expr.ty = self.arena.types().get_uint_ty(8);
-                        Ok(self.arena.types().get_uint_ty(8))
+                        indexing_expr.ty = self.arena.types().get_str_ty();
+                        Ok(self.arena.types().get_str_ty())
                     }
                     HirTy::PtrTy(ptr_ty) => {
                         indexing_expr.ty = ptr_ty.inner;
@@ -1725,6 +1729,11 @@ impl<'hir> TypeChecker<'hir> {
             HirExpr::Call(func_expr) => {
                 if func_expr.is_reference {
                     return self.check_generic_function_reference(func_expr);
+                }
+
+                if let Some(rewritten) = self.try_rewrite_primitive_special_call(func_expr)? {
+                    *expr = rewritten;
+                    return self.check_expr(expr);
                 }
 
                 let path = func_expr.span.path;
@@ -2406,6 +2415,52 @@ impl<'hir> TypeChecker<'hir> {
                 }
             }
             HirExpr::IntrinsicCall(intrinsic) => {
+                match intrinsic.name {
+                    INTRINSIC_PRIMITIVE_DEFAULT => {
+                        if intrinsic.args.len() != 0 || intrinsic.args_ty.len() != 1 {
+                            return Err(Self::type_mismatch_err(
+                                "primitive default intrinsic arguments",
+                                &intrinsic.span,
+                                "exactly one type argument and zero value arguments",
+                                &intrinsic.span,
+                            ));
+                        }
+                        intrinsic.ty = intrinsic.args_ty[0];
+                        return Ok(intrinsic.ty);
+                    }
+                    INTRINSIC_PRIMITIVE_COPY => {
+                        if intrinsic.args.len() != 1 {
+                            return Err(Self::not_enough_arguments_err(
+                                "primitive copy intrinsic".to_string(),
+                                1,
+                                &intrinsic.span,
+                                intrinsic.args.len(),
+                                &intrinsic.span,
+                            ));
+                        }
+                        let arg_ty = self.check_expr(&mut intrinsic.args[0])?;
+                        intrinsic.args_ty = vec![arg_ty];
+                        intrinsic.ty = arg_ty;
+                        return Ok(arg_ty);
+                    }
+                    INTRINSIC_PRIMITIVE_HASH => {
+                        if intrinsic.args.len() != 1 {
+                            return Err(Self::not_enough_arguments_err(
+                                "primitive hash intrinsic".to_string(),
+                                1,
+                                &intrinsic.span,
+                                intrinsic.args.len(),
+                                &intrinsic.span,
+                            ));
+                        }
+                        let arg_ty = self.check_expr(&mut intrinsic.args[0])?;
+                        intrinsic.args_ty = vec![arg_ty];
+                        intrinsic.ty = self.arena.types().get_uint_ty(64);
+                        return Ok(intrinsic.ty);
+                    }
+                    _ => {}
+                }
+
                 // Intrinsic functions are defined as external functions with special handling
                 //Let's just use the extern fn checker for now
                 let signature = match self.signature.functions.get(intrinsic.name) {
@@ -2428,6 +2483,106 @@ impl<'hir> TypeChecker<'hir> {
                 intrinsic.ty = ty;
                 Ok(ty)
             }
+        }
+    }
+
+    fn is_primitive_special_receiver_ty(&self, ty: &HirTy<'hir>) -> bool {
+        matches!(
+            ty,
+            HirTy::Boolean(_)
+                | HirTy::Integer(_)
+                | HirTy::Float(_)
+                | HirTy::Char(_)
+                | HirTy::String(_)
+                | HirTy::UnsignedInteger(_)
+                | HirTy::Unit(_)
+                | HirTy::LiteralInteger(_)
+                | HirTy::LiteralUnsignedInteger(_)
+                | HirTy::LiteralFloat(_)
+        )
+    }
+
+    fn primitive_special_call_supported_for_ty(
+        &self,
+        kind: SpecialMethodKind,
+        ty: &HirTy<'hir>,
+    ) -> bool {
+        if !self.is_primitive_special_receiver_ty(ty) {
+            return false;
+        }
+        match kind {
+            SpecialMethodKind::Copy => true,
+            SpecialMethodKind::Default => true,
+            SpecialMethodKind::Hash => true,
+        }
+    }
+
+    fn try_rewrite_primitive_special_call(
+        &mut self,
+        func_expr: &mut expr::HirFunctionCallExpr<'hir>,
+    ) -> HirResult<Option<HirExpr<'hir>>> {
+        if !func_expr.generics.is_empty() {
+            return Ok(None);
+        }
+
+        match func_expr.callee.as_mut() {
+            HirExpr::FieldAccess(field_access) => {
+                let Some(descriptor) = primitive_special_call_descriptor(
+                    field_access.field.name,
+                    SpecialMethodReceiver::Instance,
+                ) else {
+                    return Ok(None);
+                };
+
+                if !func_expr.args.is_empty() {
+                    return Ok(None);
+                }
+
+                let receiver_ty = self.check_expr(&mut field_access.target)?;
+                if !self.primitive_special_call_supported_for_ty(descriptor.kind, receiver_ty) {
+                    return Ok(None);
+                }
+
+                let return_ty = match descriptor.kind {
+                    SpecialMethodKind::Copy => receiver_ty,
+                    SpecialMethodKind::Hash => self.arena.types().get_uint_ty(64),
+                    SpecialMethodKind::Default => receiver_ty,
+                };
+
+                Ok(Some(HirExpr::IntrinsicCall(expr::HirIntrinsicCallExpr {
+                    span: func_expr.span,
+                    name: descriptor.intrinsic_name,
+                    args: vec![(*field_access.target).clone()],
+                    args_ty: vec![receiver_ty],
+                    ty: return_ty,
+                })))
+            }
+            HirExpr::StaticAccess(static_access) => {
+                let Some(descriptor) = primitive_special_call_descriptor(
+                    static_access.field.name,
+                    SpecialMethodReceiver::Static,
+                ) else {
+                    return Ok(None);
+                };
+
+                if !func_expr.args.is_empty() {
+                    return Ok(None);
+                }
+
+                let target_ty = static_access.target;
+                if !self.primitive_special_call_supported_for_ty(descriptor.kind, target_ty) {
+                    return Ok(None);
+                }
+
+                Ok(Some(HirExpr::IntrinsicCall(expr::HirIntrinsicCallExpr {
+                    span: func_expr.span,
+                    name: descriptor.intrinsic_name,
+                    args: vec![],
+                    args_ty: vec![target_ty],
+                    ty: target_ty,
+                })))
+            }
+            _ => Ok(None),
         }
     }
 
@@ -3218,6 +3373,49 @@ impl<'hir> TypeChecker<'hir> {
                     _ => self.is_equivalent_ty(p1.inner, expected_span, p2.inner, found_span),
                 }
             }
+            // You can assign a `string` to a `*const uint8` or `*uint8`, but not the other way around
+            (HirTy::String(_), HirTy::PtrTy(p)) => {
+                if let HirTy::UnsignedInteger(uint) = p.inner {
+                    if uint.size_in_bits == 8 {
+                        Ok(())
+                    } else {
+                        Err(Self::type_mismatch_err(
+                            &format!("{}", expected_ty),
+                            &expected_span,
+                            &format!("{}", found_ty),
+                            &found_span,
+                        ))
+                    }
+                } else {
+                    Err(Self::type_mismatch_err(
+                        &format!("{}", expected_ty),
+                        &expected_span,
+                        &format!("{}", found_ty),
+                        &found_span,
+                    ))
+                }
+            }
+            (HirTy::PtrTy(p), HirTy::String(_)) => {
+                if let HirTy::UnsignedInteger(uint) = p.inner {
+                    if uint.size_in_bits == 8 {
+                        Ok(())
+                    } else {
+                        Err(Self::type_mismatch_err(
+                            &format!("{}", expected_ty),
+                            &expected_span,
+                            &format!("{}", found_ty),
+                            &found_span,
+                        ))
+                    }
+                } else {
+                    Err(Self::type_mismatch_err(
+                        &format!("{}", expected_ty),
+                        &expected_span,
+                        &format!("{}", found_ty),
+                        &found_span,
+                    ))
+                }
+            }
             // If it expects a value type, but found a pointer, dereference should be explicit
             (expected, HirTy::PtrTy(p)) => {
                 self.is_equivalent_ty(expected, expected_span, p.inner, found_span)?;
@@ -3451,7 +3649,7 @@ impl<'hir> TypeChecker<'hir> {
             HirTy::Float(_) => "float64".to_string(),
             HirTy::Char(_) => "char".to_string(),
             HirTy::UnsignedInteger(_) => "uint64".to_string(),
-            HirTy::String(_) => "string".to_string(),
+            HirTy::String(_) => "str".to_string(),
             HirTy::Unit(_) => "unit".to_string(),
             HirTy::Slice(l) => format!("[{}]", Self::get_type_display_name(l.inner)),
             HirTy::PtrTy(p) => {

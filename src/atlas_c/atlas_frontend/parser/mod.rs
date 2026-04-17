@@ -388,6 +388,14 @@ impl<'ast> Parser<'ast> {
                 let span = self.advance().span;
                 AstFlag::Copyable(Span::union_span(&start_span, &span))
             }
+            TokenKind::Identifier(ref s) if s == "default" => {
+                let span = self.advance().span;
+                AstFlag::Default(Span::union_span(&start_span, &span))
+            }
+            TokenKind::Identifier(ref s) if s == "hashable" => {
+                let span = self.advance().span;
+                AstFlag::Hashable(Span::union_span(&start_span, &span))
+            }
             TokenKind::Identifier(ref s) if s == "non_copyable" => {
                 let span = self.advance().span;
                 AstFlag::NonCopyable(Span::union_span(&start_span, &span))
@@ -1575,6 +1583,17 @@ impl<'ast> Parser<'ast> {
 
     /// Parse a primary expression without postfix operations (for unary expressions)
     fn parse_primary_no_postfix(&mut self) -> ParseResult<AstExpr<'ast>> {
+        if self.current_token_starts_builtin_type() && self.peek() == Some(TokenKind::DoubleColon) {
+            let target = self.parse_type()?;
+            self.expect(TokenKind::DoubleColon)?;
+            let field = self.parse_identifier()?;
+            return Ok(AstExpr::StaticAccess(AstStaticAccessExpr {
+                span: Span::union_span(&target.span(), &field.span),
+                target: self.arena.alloc(target),
+                field: self.arena.alloc(field),
+            }));
+        }
+
         let tok = self.current().clone();
 
         let node = match tok.kind() {
@@ -1716,6 +1735,26 @@ impl<'ast> Parser<'ast> {
         };
         // Don't parse postfix operations here - let the caller handle them
         Ok(node)
+    }
+
+    fn current_token_starts_builtin_type(&self) -> bool {
+        matches!(
+            self.current().kind(),
+            TokenKind::Int64Ty
+                | TokenKind::Int32Ty
+                | TokenKind::Int16Ty
+                | TokenKind::Int8Ty
+                | TokenKind::Float64Ty
+                | TokenKind::Float32Ty
+                | TokenKind::UInt64Ty
+                | TokenKind::UInt32Ty
+                | TokenKind::UInt16Ty
+                | TokenKind::UInt8Ty
+                | TokenKind::CharTy
+                | TokenKind::BoolTy
+                | TokenKind::StrTy
+                | TokenKind::UnitTy
+        )
     }
 
     fn parse_primary(&mut self) -> ParseResult<AstExpr<'ast>> {

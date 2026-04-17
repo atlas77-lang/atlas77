@@ -49,6 +49,10 @@ use crate::atlas_c::{
             HirStructMethodModifier, HirStructMethodSignature, HirStructSignature,
             HirTypeParameterItemSignature, HirUnionSignature, HirVisibility,
         },
+        special_methods::{
+            SpecialMethodKind, expected_signature_for_struct, special_method_by_name,
+            special_method_enabled_by_flag,
+        },
         stmt::{
             HirAssignStmt, HirBlock, HirExprStmt, HirIfElseStmt, HirReturn, HirStatement,
             HirVariableStmt, HirWhileStmt,
@@ -142,6 +146,31 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             HirTy::Named(n) => n.name == struct_name,
             HirTy::Generic(g) => g.name == struct_name,
             _ => false,
+        }
+    }
+
+    fn special_method_matches_signature(
+        &self,
+        method: &HirStructMethod<'hir>,
+        kind: SpecialMethodKind,
+        struct_name: &'hir str,
+    ) -> bool {
+        match kind {
+            SpecialMethodKind::Copy => {
+                method.signature.modifier == HirStructMethodModifier::Const
+                    && method.signature.params.is_empty()
+                    && self.method_returns_self(method, struct_name)
+            }
+            SpecialMethodKind::Default => {
+                method.signature.modifier == HirStructMethodModifier::Static
+                    && method.signature.params.is_empty()
+                    && self.method_returns_self(method, struct_name)
+            }
+            SpecialMethodKind::Hash => {
+                method.signature.modifier == HirStructMethodModifier::Const
+                    && method.signature.params.is_empty()
+                    && &method.signature.return_ty == self.arena.types().get_uint_ty(64)
+            }
         }
     }
 
@@ -581,70 +610,23 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             None
         };
 
-        let has_copy_method = methods.iter().any(|method| {
-            if method.name == "copy" {
-                if method.signature.modifier == HirStructMethodModifier::Const
-                    && method.signature.params.is_empty()
-                    && self.method_returns_self(method, name)
-                {
-                    return true;
+        let mut has_copy_method = false;
+        let mut has_default_method = false;
+        let mut has_hash_method = false;
+        for method in methods.iter() {
+            if let Some(descriptor) = special_method_by_name(method.name) {
+                let kind = descriptor.kind;
+                if self.special_method_matches_signature(method, kind, name) {
+                    match kind {
+                        SpecialMethodKind::Copy => has_copy_method = true,
+                        SpecialMethodKind::Default => has_default_method = true,
+                        SpecialMethodKind::Hash => has_hash_method = true,
+                    }
+                    continue;
                 }
-                // We only warn because it's not really an error to have a copy method with a different signature, though it's most probably a mistake.
-                let path = method.span.path;
-                let src = utils::get_file_content(path).unwrap();
-                let mut pretty_printer = HirPrettyPrinter::new();
-                pretty_printer.print_method_signature(method.name, method.signature);
-                let signature = pretty_printer.get_output();
-                self.warnings
-                    .push(HirWarning::SpecialMethodMightHaveWrongSignature(
-                        SpecialMethodMightHaveWrongSignatureWarning {
-                            signature,
-                            expected_signature: format!("fun copy(*const this) -> {name}"),
-                            method_name: method.name.into(),
-                            src: NamedSource::new(path, src),
-                            span: method.span,
-                        },
-                    ));
-            }
-            false
-        });
-        let has_default_method = methods.iter().any(|method| {
-            if method.name == "default" {
-                if method.signature.modifier == HirStructMethodModifier::Static
-                    && method.signature.params.is_empty()
-                    && self.method_returns_self(method, name)
-                {
-                    return true;
-                }
-                // We only warn because it's not really an error to have a copy method with a different signature, though it's most probably a mistake.
-                let path = method.span.path;
-                let src = utils::get_file_content(path).unwrap();
-                let mut pretty_printer = HirPrettyPrinter::new();
-                pretty_printer.print_method_signature(method.name, method.signature);
-                let signature = pretty_printer.get_output();
-                self.warnings
-                    .push(HirWarning::SpecialMethodMightHaveWrongSignature(
-                        SpecialMethodMightHaveWrongSignatureWarning {
-                            signature,
-                            expected_signature: format!("fun default() -> {name}"),
-                            method_name: method.name.into(),
-                            src: NamedSource::new(path, src),
-                            span: method.span,
-                        },
-                    ));
-            }
-            false
-        });
 
-        let has_hash_method = methods.iter().any(|method| {
-            if method.name == "hash" {
-                if method.signature.modifier == HirStructMethodModifier::Const
-                    && method.signature.params.is_empty()
-                    && &method.signature.return_ty == self.arena.types().get_uint_ty(64)
-                {
-                    return true;
-                }
-                // We only warn because it's not really an error to have a copy method with a different signature, though it's most probably a mistake.
+                // We only warn because it's not really an error to have this method name
+                // with a different signature, though it's most probably a mistake.
                 let path = method.span.path;
                 let src = utils::get_file_content(path).unwrap();
                 let mut pretty_printer = HirPrettyPrinter::new();
@@ -654,17 +636,22 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     .push(HirWarning::SpecialMethodMightHaveWrongSignature(
                         SpecialMethodMightHaveWrongSignatureWarning {
                             signature,
-                            expected_signature: "fun hash(*const this) -> uint64".into(),
+                            expected_signature: expected_signature_for_struct(kind, name),
                             method_name: method.name.into(),
                             src: NamedSource::new(path, src),
                             span: method.span,
                         },
                     ));
             }
-            false
-        });
+        }
 
         let is_trivially_copyable = matches!(node.flag, AstFlag::TriviallyCopyable(_));
+        let has_copy_capability =
+            has_copy_method || special_method_enabled_by_flag(SpecialMethodKind::Copy, node.flag);
+        let has_default_capability = has_default_method
+            || special_method_enabled_by_flag(SpecialMethodKind::Default, node.flag);
+        let has_hash_capability =
+            has_hash_method || special_method_enabled_by_flag(SpecialMethodKind::Hash, node.flag);
 
         let signature = HirStructSignature {
             declaration_span: node.span,
@@ -694,9 +681,9 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             generics,
             destructor: destructor.as_ref().map(|d| d.signature.clone()),
             had_user_defined_destructor,
-            is_std_copyable: has_copy_method || is_trivially_copyable,
-            is_std_default: has_default_method,
-            is_std_hashable: has_hash_method,
+            is_std_copyable: has_copy_capability,
+            is_std_default: has_default_capability,
+            is_std_hashable: has_hash_capability,
             is_trivially_copyable,
             nullable_attribute_span: node.nullable_attribute_span,
             docstring: if let Some(docstring) = node.docstring {
@@ -1800,11 +1787,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         HirExpr::StringLiteral(HirStringLiteralExpr {
                             span: l.span(),
                             value: self.arena.intern(ast_string.value.to_owned()),
-                            ty: self.arena.types().get_ptr_ty(
-                                self.arena.types().get_uint_ty(8),
-                                false,
-                                l.span(),
-                            ),
+                            ty: self.arena.types().get_str_ty(),
                         })
                     }
                     AstLiteral::List(l) => {
