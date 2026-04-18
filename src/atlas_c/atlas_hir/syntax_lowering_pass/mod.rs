@@ -1,6 +1,3 @@
-pub mod case;
-
-use heck::{ToPascalCase, ToSnakeCase};
 use miette::{ErrReport, NamedSource};
 use std::{collections::BTreeMap, vec};
 
@@ -56,12 +53,8 @@ use crate::atlas_c::{
             HirAssignStmt, HirBlock, HirExprStmt, HirIfElseStmt, HirReturn, HirStatement,
             HirVariableStmt, HirWhileStmt,
         },
-        syntax_lowering_pass::case::Case,
-        ty::{HirGenericTy, HirNamedTy, HirTy},
-        warning::{
-            HirWarning, NameShouldBeInDifferentCaseWarning,
-            SpecialMethodMightHaveWrongSignatureWarning,
-        },
+                ty::{HirGenericTy, HirNamedTy, HirTy},
+        warning::{HirWarning, SpecialMethodMightHaveWrongSignatureWarning},
     },
     utils::{self, Span},
 };
@@ -217,18 +210,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 let hir_func = self.visit_func(ast_function)?;
                 let qualified = self.qualified_name(ast_function.name.name);
                 let name = self.arena.names().get(&qualified);
-                if !name.is_snake_case()
-                    && !hir_func.signature.is_external
-                    && !name.starts_with("std::")
-                {
-                    Self::name_should_be_in_different_case_warning(
-                        &ast_function.name.span,
-                        "snake_case",
-                        "function",
-                        name,
-                        &name.to_snake_case(),
-                    );
-                }
+                
                 self.module_signature
                     .functions
                     .insert(name, hir_func.signature);
@@ -312,15 +294,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     fn visit_union(&mut self, ast_union: &'ast AstUnion<'ast>) -> HirResult<HirUnion<'hir>> {
         let qualified = self.qualified_name(ast_union.name.name);
         let name = self.arena.names().get(&qualified);
-        if !name.is_pascal_case() && !name.starts_with("std::") {
-            Self::name_should_be_in_different_case_warning(
-                &ast_union.name.span,
-                "PascalCase",
-                "union",
-                name,
-                &name.to_pascal_case(),
-            );
-        }
+        
         if name.len() == 1 {
             return Err(Self::name_single_character_error(&ast_union.name.span));
         }
@@ -394,15 +368,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     fn visit_enum(&mut self, ast_enum: &'ast AstEnum<'ast>) -> HirResult<HirEnum<'hir>> {
         let qualified = self.qualified_name(ast_enum.name.name);
         let name = self.arena.names().get(&qualified);
-        if !name.is_pascal_case() && !name.starts_with("std::") {
-            Self::name_should_be_in_different_case_warning(
-                &ast_enum.name.span,
-                "PascalCase",
-                "enum",
-                name,
-                &name.to_pascal_case(),
-            );
-        }
+        
         if name.len() == 1 {
             return Err(Self::name_single_character_error(&ast_enum.name.span));
         }
@@ -506,15 +472,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     fn visit_struct(&mut self, node: &'ast AstStruct<'ast>) -> HirResult<HirStruct<'hir>> {
         let qualified = self.qualified_name(node.name.name);
         let name = self.arena.names().get(&qualified);
-        if !name.is_pascal_case() && !node.is_extern && !name.starts_with("std::") {
-            Self::name_should_be_in_different_case_warning(
-                &node.name.span,
-                "PascalCase",
-                "struct",
-                name,
-                &name.to_pascal_case(),
-            );
-        }
+        
         if name.len() == 1 {
             return Err(Self::name_single_character_error(&node.name.span));
         }
@@ -1068,15 +1026,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
             AstStatement::Const(ast_const) => {
                 let name = self.arena.names().get(ast_const.name.name);
-                if !name.is_snake_case() && !name.starts_with("std::") {
-                    Self::name_should_be_in_different_case_warning(
-                        &ast_const.span,
-                        "snake_case",
-                        "constant",
-                        name,
-                        &name.to_snake_case(),
-                    );
-                }
+                
                 if name.starts_with("__tmp") {
                     let path = ast_const.span.path;
                     let src = crate::atlas_c::utils::get_file_content(path).unwrap();
@@ -1112,15 +1062,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         span: ast_let.name.span,
                     }));
                 }
-                if !name.is_snake_case() && !name.starts_with("std::") {
-                    Self::name_should_be_in_different_case_warning(
-                        &ast_let.span,
-                        "snake_case",
-                        "variable",
-                        name,
-                        &name.to_snake_case(),
-                    );
-                }
+                
                 let ty = ast_let.ty.map(|ty| self.visit_ty(ty)).transpose()?;
 
                 let value = self.visit_expr(ast_let.value)?;
@@ -2069,31 +2011,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
         };
         Ok(ty)
-    }
-
-    fn name_should_be_in_different_case_warning(
-        span: &Span,
-        case_kind: &str,
-        item_kind: &str,
-        name: &str,
-        expected_name: &str,
-    ) {
-        let path = span.path;
-        //The standard library can do whatever it wants
-        if !path.starts_with("std") {
-            let src = crate::atlas_c::utils::get_file_content(path).unwrap();
-            let report: ErrReport =
-                HirWarning::NameShouldBeInDifferentCase(NameShouldBeInDifferentCaseWarning {
-                    src: NamedSource::new(path, src),
-                    span: *span,
-                    case_kind: case_kind.to_string(),
-                    item_kind: item_kind.to_string(),
-                    name: name.to_string(),
-                    expected_name: expected_name.to_string(),
-                })
-                .into();
-            eprintln!("{:?}", report);
-        }
     }
 
     fn name_single_character_error(span: &Span) -> HirError {

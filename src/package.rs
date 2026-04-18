@@ -122,6 +122,18 @@ pub fn package_c_header(
     cfg.cpp_options.push("-Dbool=_Bool".to_owned());
     cfg.cpp_options.push("-Dtrue=1".to_owned());
     cfg.cpp_options.push("-Dfalse=0".to_owned());
+    // Normalize compiler-specific attributes/calling conventions so lang-c can
+    // parse system headers (notably MinGW/UCRT headers pulled by vendor APIs).
+    cfg.cpp_options.push("-D__cdecl=".to_owned());
+    cfg.cpp_options.push("-D__stdcall=".to_owned());
+    cfg.cpp_options.push("-D__fastcall=".to_owned());
+    cfg.cpp_options.push("-D__thiscall=".to_owned());
+    cfg.cpp_options.push("-D__vectorcall=".to_owned());
+    cfg.cpp_options.push("-D__declspec(...)= ".to_owned());
+    cfg.cpp_options.push("-D__attribute__(...)= ".to_owned());
+    cfg.cpp_options
+        .push("-D__MINGW_ATTRIB_NORETURN=".to_owned());
+    cfg.cpp_options.push("-D__MINGW_EXTENSION=".to_owned());
     cfg.cpp_options.push(format!(
         "-I{}",
         header_path.parent().unwrap_or(Path::new(".")).display()

@@ -9,7 +9,6 @@ declare_warning_type!(
     #[warning("semantic warning: {0}")]
     pub enum HirWarning {
         ThisTypeIsStillUnstable(ThisTypeIsStillUnstableWarning),
-        NameShouldBeInDifferentCase(NameShouldBeInDifferentCaseWarning),
         TryingToCastToTheSameType(TryingToCastToTheSameTypeWarning),
         ConsumingMethodMayLeakThis(ConsumingMethodMayLeakThisWarning),
         UnnecessaryCopyDueToLaterBorrows(UnnecessaryCopyDueToLaterBorrowsWarning),
@@ -70,28 +69,6 @@ pub struct TryingToCastToTheSameTypeWarning {
     #[label = "Casting to the same type is redundant"]
     pub span: Span,
     pub ty: String,
-}
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
-    code(sema::name_should_be_in_a_different_case),
-    severity(warning),
-    help("Consider renaming the {item_kind} to follow the {case_kind} case convention")
-)]
-#[error("{item_kind} should be in {case_kind} case")]
-pub struct NameShouldBeInDifferentCaseWarning {
-    #[source_code]
-    pub src: NamedSource<String>,
-    #[label = "Name `{name}` should be in {case_kind} case: `{expected_name}`"]
-    pub span: Span,
-    //The kind of case that is expected
-    pub case_kind: String,
-    //The kind of item (function, struct, variable, etc.)
-    pub item_kind: String,
-    //The name that triggered the warning
-    pub name: String,
-    //The expected name in the correct case
-    pub expected_name: String,
 }
 
 #[derive(Error, Diagnostic, Debug)]
