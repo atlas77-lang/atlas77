@@ -1017,7 +1017,10 @@ impl<'hir> HirLoweringPass<'hir> {
                         let lowered = self.lower_expr(arg)?;
                         let adjusted = if let Some(expected_ty) = call.args_ty.get(idx) {
                             if matches!(expected_ty, HirTy::PtrTy(_))
-                                && !matches!(arg.ty(), HirTy::PtrTy(_))
+                                && !matches!(
+                                    arg.ty(),
+                                    HirTy::PtrTy(_) | HirTy::Slice(_) | HirTy::String(_)
+                                )
                             {
                                 LirOperand::AsRef(Box::new(lowered))
                             } else {
@@ -1146,7 +1149,10 @@ impl<'hir> HirLoweringPass<'hir> {
                             let lowered = self.lower_expr(arg)?;
                             let adjusted = if let Some(expected_ty) = call.args_ty.get(idx) {
                                 if matches!(expected_ty, HirTy::PtrTy(_))
-                                    && !matches!(arg.ty(), HirTy::PtrTy(_))
+                                    && !matches!(
+                                        arg.ty(),
+                                        HirTy::PtrTy(_) | HirTy::Slice(_) | HirTy::String(_)
+                                    )
                                 {
                                     LirOperand::AsRef(Box::new(lowered))
                                 } else {
@@ -1176,7 +1182,10 @@ impl<'hir> HirLoweringPass<'hir> {
                     let lowered = self.lower_expr(arg)?;
                     let adjusted = if let Some(expected_ty) = call.args_ty.get(idx) {
                         if matches!(expected_ty, HirTy::PtrTy(_))
-                            && !matches!(arg.ty(), HirTy::PtrTy(_))
+                            && !matches!(
+                                arg.ty(),
+                                HirTy::PtrTy(_) | HirTy::Slice(_) | HirTy::String(_)
+                            )
                         {
                             LirOperand::AsRef(Box::new(lowered))
                         } else {
@@ -1429,19 +1438,7 @@ impl<'hir> HirLoweringPass<'hir> {
                 // This purely exists to allow for constraints and use of `primitive.copy()`
                 INTRINSIC_PRIMITIVE_COPY => {
                     let arg = self.lower_expr(&intrinsic.args[0])?;
-                    let arg_ty = self.hir_ty_to_lir_ty(intrinsic.args[0].ty(), intrinsic.span);
-                    if arg_ty == LirTy::Str {
-                        let dest = self.new_temp();
-                        self.emit(LirInstr::Call {
-                            ty: arg_ty,
-                            dst: Some(dest.clone()),
-                            func_name: "atlas77_strdup".into(),
-                            args: vec![arg],
-                        })?;
-                        Ok(dest)
-                    } else {
-                        Ok(arg)
-                    }
+                    Ok(arg)
                 }
                 INTRINSIC_PRIMITIVE_HASH => {
                     let arg = self.lower_expr(&intrinsic.args[0])?;

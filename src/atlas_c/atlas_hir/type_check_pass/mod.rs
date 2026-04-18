@@ -2417,7 +2417,7 @@ impl<'hir> TypeChecker<'hir> {
             HirExpr::IntrinsicCall(intrinsic) => {
                 match intrinsic.name {
                     INTRINSIC_PRIMITIVE_DEFAULT => {
-                        if intrinsic.args.len() != 0 || intrinsic.args_ty.len() != 1 {
+                        if !intrinsic.args.is_empty() || intrinsic.args_ty.len() != 1 {
                             return Err(Self::type_mismatch_err(
                                 "primitive default intrinsic arguments",
                                 &intrinsic.span,
@@ -2499,6 +2499,8 @@ impl<'hir> TypeChecker<'hir> {
                 | HirTy::LiteralInteger(_)
                 | HirTy::LiteralUnsignedInteger(_)
                 | HirTy::LiteralFloat(_)
+                // Slices are just pointers under the hood, so we can support special methods on them as well
+                | HirTy::Slice(_)
         )
     }
 
@@ -2696,6 +2698,16 @@ impl<'hir> TypeChecker<'hir> {
         call_expr_span: Span,
         signature: &'hir HirFunctionSignature<'hir>,
     ) -> HirResult<&'hir HirTy<'hir>> {
+        if signature.params.len() != call_expr_args.len() {
+            return Err(Self::not_enough_arguments_err(
+                "external function".to_string(),
+                signature.params.len(),
+                &signature.span,
+                call_expr_args.len(),
+                &call_expr_span,
+            ));
+        }
+
         let args_ty = call_expr_args
             .iter_mut()
             .map(|a| self.check_expr(a))
@@ -2835,6 +2847,17 @@ impl<'hir> TypeChecker<'hir> {
         };
 
         monomorphized.generics = vec![];
+
+        // Generic extern calls still need full argument validation after substitution.
+        for ((param, arg), arg_ty) in monomorphized
+            .params
+            .iter()
+            .zip(call_expr_args.iter())
+            .zip(args_ty.iter())
+        {
+            self.is_equivalent_ty(param.ty, param.span, arg_ty, arg.span())?;
+        }
+
         let signature = self.arena.intern(monomorphized);
         self.extern_monomorphized
             .insert((name, args_ty, explicit_generics), signature);
@@ -3285,6 +3308,9 @@ impl<'hir> TypeChecker<'hir> {
                 }
                 self.is_equivalent_ty(list1.inner, expected_span, list2.inner, found_span)
             }
+            (HirTy::Slice(slice), HirTy::InlineArray(array)) => {
+                self.is_equivalent_ty(slice.inner, expected_span, array.inner, found_span)
+            }
             (HirTy::Integer(i), HirTy::Integer(j)) => {
                 if i.size_in_bits >= j.size_in_bits {
                     Ok(())
@@ -3357,6 +3383,18 @@ impl<'hir> TypeChecker<'hir> {
                     ))
                 }
             }
+            (HirTy::PtrTy(p), HirTy::String(_)) => {
+                if p.inner == self.arena.types().get_uint_ty(8) {
+                    Ok(())
+                } else {
+                    Err(Self::type_mismatch_err(
+                        &format!("{}", expected_ty),
+                        &expected_span,
+                        &format!("{}", found_ty),
+                        &found_span,
+                    ))
+                }
+            }
             (HirTy::PtrTy(p1), HirTy::PtrTy(p2)) => {
                 // Pointer compatibility rules:
                 // - *T (mutable) can become *const T
@@ -3371,49 +3409,6 @@ impl<'hir> TypeChecker<'hir> {
                     )),
                     // Both same constness, or *const T expected and *T found (mutable to const is OK)
                     _ => self.is_equivalent_ty(p1.inner, expected_span, p2.inner, found_span),
-                }
-            }
-            // You can assign a `string` to a `*const uint8` or `*uint8`, but not the other way around
-            (HirTy::String(_), HirTy::PtrTy(p)) => {
-                if let HirTy::UnsignedInteger(uint) = p.inner {
-                    if uint.size_in_bits == 8 {
-                        Ok(())
-                    } else {
-                        Err(Self::type_mismatch_err(
-                            &format!("{}", expected_ty),
-                            &expected_span,
-                            &format!("{}", found_ty),
-                            &found_span,
-                        ))
-                    }
-                } else {
-                    Err(Self::type_mismatch_err(
-                        &format!("{}", expected_ty),
-                        &expected_span,
-                        &format!("{}", found_ty),
-                        &found_span,
-                    ))
-                }
-            }
-            (HirTy::PtrTy(p), HirTy::String(_)) => {
-                if let HirTy::UnsignedInteger(uint) = p.inner {
-                    if uint.size_in_bits == 8 {
-                        Ok(())
-                    } else {
-                        Err(Self::type_mismatch_err(
-                            &format!("{}", expected_ty),
-                            &expected_span,
-                            &format!("{}", found_ty),
-                            &found_span,
-                        ))
-                    }
-                } else {
-                    Err(Self::type_mismatch_err(
-                        &format!("{}", expected_ty),
-                        &expected_span,
-                        &format!("{}", found_ty),
-                        &found_span,
-                    ))
                 }
             }
             // If it expects a value type, but found a pointer, dereference should be explicit

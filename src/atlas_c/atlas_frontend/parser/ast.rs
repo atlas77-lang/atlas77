@@ -891,7 +891,7 @@ impl AstType<'_> {
             AstType::UnsignedInteger(u) => format!("uint{}", u.size_in_bits),
             AstType::Char(_) => "char".to_owned(),
             AstType::ThisTy(_) => "This".to_owned(),
-            AstType::String(_) => "string".to_owned(),
+            AstType::String(_) => "str".to_owned(),
             AstType::Named(t) => t.name.name.to_owned(),
             AstType::Nullable(t) => format!("{}?", t.inner.name()),
             AstType::Slice(t) => format!("[{}]", t.inner.name()),

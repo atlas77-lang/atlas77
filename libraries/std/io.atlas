@@ -26,12 +26,6 @@ namespace std {
         handle: uint64;
     }
 
-    //! Print a value followed by a newline
-    //! Example: println("Hello, World!")
-    public fun println(s: *const uint8) {
-        std::printf("%s\n", s);
-    }
-
     //! Read a line from standard input
     //! Example: let input = input()
     public fun input() -> std::string {
@@ -55,15 +49,21 @@ namespace std {
     //! Panic the program with a value
     //! Example: panic("Something went wrong!")
     #[c_name("panic")]
-    public extern fun panic<T>(s: T);
+    public extern fun panic(s: *const uint8);
 
     //! Well, still needs to be worked on...
     #[c_name("printf")]
-    public extern fun printf<T>(fmt: *uint8, s: T);
+    public extern fun printf<T>(fmt: *const uint8, s: T);
     //! Print a value without a newline
     //! Example: print("Hello, ")
     //! print("World!")
-    public fun print(s: *const uint8) {
-        std::printf("%s", s);
+    public fun print(s: str) {
+        std::printf("%s" as *const uint8, s);
+    }
+
+    //! Print a value followed by a newline
+    //! Example: println("Hello, World!")
+    public fun println(s: str) {
+        std::printf("%s\n" as *const uint8, s);
     }
 }

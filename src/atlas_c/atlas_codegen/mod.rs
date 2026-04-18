@@ -726,12 +726,43 @@ impl CCodeGen {
                 let line = format!("{} = {};", self.codegen_declaration(ty, &dest_str), value);
                 Self::write_to_file(&mut self.c_file, &line, self.indent_level);
             }
-            LirInstr::LoadConst { dst, value } => {
-                let value = self.codegen_operand(value);
-                // We assume the type is always `string` so `char*` in C for now
-                // THIS OBVIOUSLY NEEDS TO BE FIXED LATER
+            LirInstr::LoadConst { dst, value: src } => {
+                let value = self.codegen_operand(src);
                 let dest_str = self.codegen_operand(dst);
-                let line = format!("char* {} = {};", dest_str, value);
+                let line = match src {
+                    LirOperand::Const(ConstantValue::String(_)) => format!(
+                        "{} = {};",
+                        self.codegen_declaration(&LirTy::Str, &dest_str),
+                        value,
+                    ),
+                    LirOperand::Const(ConstantValue::Unit) => format!(
+                        "{} = {};",
+                        self.codegen_declaration(
+                            &LirTy::Ptr {
+                                is_const: true,
+                                inner: Box::new(LirTy::Unit)
+                            },
+                            &dest_str
+                        ),
+                        value,
+                    ),
+                    LirOperand::ImmUnit => format!(
+                        "{} = {};",
+                        self.codegen_declaration(
+                            &LirTy::Ptr {
+                                is_const: true,
+                                inner: Box::new(LirTy::Unit)
+                            },
+                            &dest_str
+                        ),
+                        value,
+                    ),
+                    _ => unimplemented!(
+                        "Type inference for LoadConst not implemented for value: {:?}",
+                        src
+                    ),
+                };
+
                 Self::write_to_file(&mut self.c_file, &line, self.indent_level);
             }
             LirInstr::Call {

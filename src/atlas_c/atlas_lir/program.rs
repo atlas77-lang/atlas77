@@ -30,6 +30,7 @@ impl LirProgram {
             LirTy::Int32 | LirTy::UInt32 | LirTy::Float32 => (4, 4),
             LirTy::Int64 | LirTy::UInt64 | LirTy::Float64 => (8, 8),
             LirTy::Char => (4, 4),
+            // TODO: Ensure unit are actually 8 bytes in the codegen
             LirTy::Str | LirTy::Ptr { .. } | LirTy::FnPtr { .. } | LirTy::Unit => (8, 8),
             LirTy::ArrayTy { inner, size } => {
                 let (inner_size, inner_align) = self.layout_of_ty(inner, visiting);

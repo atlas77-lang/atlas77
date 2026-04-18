@@ -640,7 +640,7 @@ impl HirPrettyPrinter {
             }
             HirTy::Boolean(_) => "bool".to_string(),
             HirTy::Char(_) => "char".to_string(),
-            HirTy::String(_) => "string".to_string(),
+            HirTy::String(_) => "str".to_string(),
             HirTy::Unit(_) => "unit".to_string(),
             HirTy::Named(n) => n.name.to_string(),
             HirTy::Slice(l) => format!("[{}]", Self::type_str(l.inner)),
