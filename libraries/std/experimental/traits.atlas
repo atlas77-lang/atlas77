@@ -1,5 +1,0 @@
-// Very experimental, not sure about that
-
-concept copyable {
-    copy(*const this) -> Self;
-}
