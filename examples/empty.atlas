@@ -1,0 +1,13 @@
+extern fun printf<T>(format: *const uint8, data: T);
+
+struct empty {
+public:
+    fun hello(*this) {
+        printf("%s", "Hello, Atlas!");
+    }
+}
+
+fun main() {
+    let empty = empty {};
+    empty.hello();
+}

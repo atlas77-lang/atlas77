@@ -3,131 +3,131 @@ import "std/io";
 import "std/memory";
 import "std/optional";
 
-public struct Vector<T> {
-private:    
-    data: *T;
-public:
-    length: uint64;
-    capacity: uint64;
+namespace std {
+    public struct vector<T> {
+    private:    
+        data: *T;
+    public:
+        length: uint64;
+        capacity: uint64;
 
-    fun new(ptr_: *T, len: uint64) -> Vector<T> {
-        let data = malloc<T>(sizeof<T>() * len);
-        memcpy(data, ptr_, sizeof<T>() * len);
-        return Vector<T> {
-            .data = data,
-            .length = len,
-            .capacity = len, // We assume the capacity is equal to the initial length
-        };
-    }
-    ~Vector() {
-        // We shouldn't delete anything outside of data[0..length]
-        let i: uint64 = 0u;
-        while i < this->length {
-            delete this->data[i];
-            i = i + 1u;
+        fun new(ptr: *T, len: uint64) -> std::vector<T> {
+            let data = std::malloc<T>(sizeof<T>() * len);
+            std::memcpy(data, ptr, sizeof<T>() * len);
+            return std::vector<T> {
+                .data = data,
+                .length = len,
+                .capacity = len, // We assume the capacity is equal to the initial length
+            };
         }
-    }
-    //! Creates a new Vector with the specified capacity.
-    fun with_capacity(capacity: uint64) -> Vector<T> {
-        let data = malloc<T>(size_of<T>() * capacity);
-        return Vector<T> {
-            .data = data,
-            .length = 0u,
-            .capacity = capacity,
-        };
-    }
-    //! Returns the number of elements in the vector.
-    fun len(*const this) -> uint64 {
-        return this->length;
-    }
-    //! Returns a const reference to the element at `index`.
-    //! Panics on out-of-bounds access.
-    fun get(*const this, index: uint64) -> *const T {
-        if index >= this->length {
-            panic("Index out of bounds");
-        }
-        return &this->data[index];
-    }
-    //! Returns a mutable reference to the element at `index`.
-    //! Panics on out-of-bounds access.
-    fun get_mut(*this, index: uint64) -> *T {
-        if index >= this->length {
-            panic("Index out of bounds");
-        }
-        return &(this->data[index]);
-    }
-    //! Sets the element at `index` to `val`.
-    //! Panics on out-of-bounds access.
-    fun set(*this, index: uint64, val: T) {
-        if index >= this->length {
-            panic("Index out of bounds");
-        }
-        this->data[index] = val;
-    }
-
-    //! Appends `val` to the end of the vector, resizing if necessary.
-    fun push(*this, val: T) {
-        if this->length >= this->capacity {
-            // Resize
-            let new_capacity: uint64 = 0u;
-            if this->capacity == 0u {
-                new_capacity = 1u;
-            } else {
-                new_capacity = this->capacity * 2u;
-            }
-            let new_data = malloc<T>(sizeof<T>() * new_capacity);
+        ~vector() {
+            // We shouldn't delete anything outside of data[0..length]
             let i: uint64 = 0u;
             while i < this->length {
-                new_data[i] = this->data[i];
+                delete this->data[i];
                 i = i + 1u;
             }
-            free(this->data);
-            this->data = new_data;
-            this->capacity = new_capacity;
         }
-        this->data[this->length] = val;
-        this->length = this->length + 1u;
-    }
-    
-    //! Removes and returns the last element of the vector.
-    //! Panics when the vector is empty.
-    fun pop(*this) -> T {
-        if this->length == 0u {
-            panic("Cannot pop from an empty vector");
+        //! Creates a new std::vector with the specified capacity.
+        fun with_capacity(capacity: uint64) -> std::vector<T> {
+            let data = std::malloc<T>(size_of<T>() * capacity);
+            return std::vector<T> {
+                .data = data,
+                .length = 0u,
+                .capacity = capacity,
+            };
         }
-        let popped: T = move<T>(this->get(this->length - 1u));
-        this->length = this->length - 1u;
-        return popped;
-    }
+        //! Returns the number of elements in the vector.
+        fun len(*const this) -> uint64 {
+            return this->length;
+        }
+        fun capacity(*const this) -> uint64 {
+            return this->capacity;
+        }
+        //! Returns a const reference to the element at `index`.
+        //! Panics on out-of-bounds access.
+        fun get(*const this, index: uint64) -> *const T {
+            if index >= this->length {
+                std::panic("Index out of bounds");
+            }
+            return &this->data[index];
+        }
+        //! Returns a mutable reference to the element at `index`.
+        //! Panics on out-of-bounds access.
+        fun get_mut(*this, index: uint64) -> *T {
+            if index >= this->length {
+                std::panic("Index out of bounds");
+            }
+            return &(this->data[index]);
+        }
+        //! Sets the element at `index` to `val`.
+        //! Panics on out-of-bounds access.
+        fun set(*this, index: uint64, val: T) {
+            if index >= this->length {
+                std::panic("Index out of bounds");
+            }
+            this->data[index] = val;
+        }
 
-    //! Takes an element out of the vector at the specified index,
-    //! shifting subsequent elements to the left.
-    fun take(*this, index: uint64) -> T {
-        // Public method to take an element out of the vector
-        let result: optional<T> = this->try_take(index);
-        if result.is_empty() {
-            panic("Index out of bounds");
+        //! Appends `val` to the end of the vector, resizing if necessary.
+        fun push(*this, val: T) {
+            if this->length >= this->capacity {
+                // Let's use `std::realloc` to resize the data buffer
+                // We double the capacity to amortize the cost of resizing
+                let new_capacity = this->capacity;
+                if new_capacity == 0u {
+                    new_capacity = 1u;
+                } else {
+                    new_capacity = new_capacity * 2u;
+                }
+                let new_data = std::realloc<T>(this->data, size_of<T>() * new_capacity);
+                if new_data == null {
+                    std::panic("Failed to allocate memory for vector resizing");
+                }
+                this->data = new_data;
+                this->capacity = new_capacity;
+            }
+            std::ptr::write(&this->data[this->length], val);
+            this->length = this->length + 1u;
         }
-        return result.value();
-    }
+        
+        //! Removes and returns the last element of the vector.
+        //! Panics when the vector is empty.
+        fun pop(*this) -> T {
+            if this->length == 0u {
+                std::panic("Cannot pop from an empty vector");
+            }
+            let popped = std::ptr::read(&this->data[this->length - 1u]);
+            this->length = this->length - 1u;
+            return popped;
+        }
 
-private:
-    //! Internal: tries to take an element at `index`, returning an optional.
-    fun try_take(*this, index: uint64) -> optional<T> {
-        if index >= this->length {
-            return optional<T>::empty();
+        //! Takes an element out of the vector at the specified index,
+        //! shifting subsequent elements to the left.
+        fun take(*this, index: uint64) -> T {
+            // Public method to take an element out of the vector
+            let result: std::optional<T> = this->try_take(index);
+            if result.is_empty() {
+                std::panic("Index out of bounds");
+            }
+            return result.value();
         }
-        // We do memcpy and not a call to a copy constructor, because we only
-        // need a shallow copy here to move the value out of the container.
-        // The underlying data of T doesn't need to itself be copied.
-        let item: T = move<T>(this->get(index));
-        // Shift elements to fill the gap
-        let i: uint64 = index;
-        while i + 1u < this->length {
-            this->data[i] = this->data[i + 1u];
-            i = i + 1u;
+
+    private:
+        //! Internal: tries to take an element at `index`, returning an optional.
+        fun try_take(*this, index: uint64) -> std::optional<T> {
+            if index >= this->length {
+                return std::optional<T>::empty();
+            }
+            let item: T = std::ptr::read(&this->data[index]);
+            // Shift elements to fill the gap
+            let i: uint64 = index;
+            while i + 1u < this->length {
+                this->data[i] = this->data[i + 1u];
+                i = i + 1u;
+            }
+            this->length = this->length - 1u;
+            return std::optional<T>::of(item);
         }
-        this->length = this->length - 1u;
-        return optional<T>::of(item);
     }
 }

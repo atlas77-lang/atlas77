@@ -1,0 +1,6 @@
+import "std/string";
+
+fun main() {
+    let s = std::string::from_chars("Les élèves à la fenêtre");
+    std::printf("String: %d\n", s.len());
+}

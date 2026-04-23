@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 
 use crate::atlas_c::atlas_hir::signature::ConstantValue;
 // TODO: Add Span info to Lir structures for better error reporting
@@ -30,7 +30,8 @@ impl LirProgram {
             LirTy::Int32 | LirTy::UInt32 | LirTy::Float32 => (4, 4),
             LirTy::Int64 | LirTy::UInt64 | LirTy::Float64 => (8, 8),
             LirTy::Char => (4, 4),
-            LirTy::Str | LirTy::Ptr { .. } | LirTy::Unit => (8, 8),
+            // TODO: Ensure unit are actually 8 bytes in the codegen
+            LirTy::Str | LirTy::Ptr { .. } | LirTy::FnPtr { .. } | LirTy::Unit => (8, 8),
             LirTy::ArrayTy { inner, size } => {
                 let (inner_size, inner_align) = self.layout_of_ty(inner, visiting);
                 (inner_size.saturating_mul(*size), inner_align)
@@ -44,7 +45,13 @@ impl LirProgram {
                 let mut max_align = 1usize;
 
                 if let Some(strukt) = self.structs.iter().find(|s| s.name == *name) {
-                    let mut fields: Vec<(&String, &LirTy)> = strukt.fields.iter().collect();
+                    let dummy_key = "_dummy".to_string();
+                    let mut fields: Vec<(&String, &LirTy)> = if strukt.fields.is_empty() {
+                        vec![(&dummy_key, &LirTy::UInt8)]
+                    } else {
+                        strukt.fields.iter().collect()
+                    };
+
                     fields.sort_by(|a, b| a.0.cmp(b.0));
 
                     for (_, field_ty) in fields {
@@ -104,6 +111,7 @@ impl LirProgram {
 #[derive(Debug, Clone)]
 pub struct LirExternFunction {
     pub name: String,
+    pub c_name: Option<String>,
     pub args: Vec<LirTy>,
     pub return_type: Option<LirTy>,
 }
@@ -113,7 +121,8 @@ pub struct LirExternFunction {
 /// e.g., union Value { a: int32, b: float32 }
 pub struct LirUnion {
     pub name: String,
-    pub variants: HashMap<String, LirTy>,
+    pub c_name: Option<String>,
+    pub variants: BTreeMap<String, LirTy>,
 }
 
 #[derive(Debug, Clone)]
@@ -123,8 +132,9 @@ pub struct LirUnion {
 /// The methods of the struct are not included here; they are part of the functions in the program.
 pub struct LirStruct {
     pub name: String,
-    pub fields: HashMap<String, LirTy>,
+    pub fields: BTreeMap<String, LirTy>,
     pub is_extern: bool,
+    pub c_name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -208,6 +218,7 @@ pub enum LirTy {
     // Unicode Character
     Char,
     Unit,
+    FnPtr { ret: Box<LirTy>, args: Vec<LirTy> },
     Ptr { is_const: bool, inner: Box<LirTy> },
     StructType(String),
     UnionType(String),
@@ -316,6 +327,41 @@ pub enum LirInstr {
         dest: LirOperand,
         src: LirOperand,
     },
+    BinaryNot {
+        ty: LirTy,
+        dest: LirOperand,
+        src: LirOperand,
+    },
+    BinaryAnd {
+        ty: LirTy,
+        dest: LirOperand,
+        a: LirOperand,
+        b: LirOperand,
+    },
+    BinaryOr {
+        ty: LirTy,
+        dest: LirOperand,
+        a: LirOperand,
+        b: LirOperand,
+    },
+    BinaryXor {
+        ty: LirTy,
+        dest: LirOperand,
+        a: LirOperand,
+        b: LirOperand,
+    },
+    ShiftLeft {
+        ty: LirTy,
+        dest: LirOperand,
+        a: LirOperand,
+        b: LirOperand,
+    },
+    ShiftRight {
+        ty: LirTy,
+        dest: LirOperand,
+        a: LirOperand,
+        b: LirOperand,
+    },
     Index {
         ty: LirTy,
         dst: LirOperand,
@@ -345,6 +391,13 @@ pub enum LirInstr {
         func_name: String,
         args: Vec<LirOperand>,
     },
+    CallPtr {
+        ty: LirTy,
+        dst: Option<LirOperand>,
+        callee: LirOperand,
+        args: Vec<LirOperand>,
+        param_tys: Vec<LirTy>,
+    },
     HeapAllocCopy {
         ty: LirTy,
         dst: LirOperand,
@@ -358,7 +411,7 @@ pub enum LirInstr {
     ConstructObject {
         ty: LirTy,
         dst: LirOperand,
-        field_values: HashMap<String, LirOperand>,
+        field_values: BTreeMap<String, LirOperand>,
     },
     /// Delete semantics for a value of the given type.
     ///
@@ -380,11 +433,6 @@ pub enum LirInstr {
         dst: LirOperand,
         src: LirOperand,
     },
-    AggregateCopy {
-        ty: LirTy,
-        dst: LirOperand,
-        src: LirOperand,
-    },
     Cast {
         ty: LirTy,
         from: LirTy,
@@ -400,6 +448,7 @@ pub enum LirOperand {
     /// e.g., t1, t2, etc.
     Temp(u32),
     Arg(u8),
+    GlobalFn(String),
     Const(ConstantValue),
     // Should those two be operands or instructions?
     Deref(Box<LirOperand>),
@@ -415,9 +464,18 @@ pub enum LirOperand {
         index: Box<LirOperand>,
     },
     /// Immediate values
-    ImmInt(i64),
-    ImmUInt(u64),
-    ImmFloat(f64),
+    ImmInt {
+        val: i64,
+        size: u8,
+    },
+    ImmUInt {
+        val: u64,
+        size: u8,
+    },
+    ImmFloat {
+        val: f64,
+        size: u8,
+    },
     ImmBool(bool),
     ImmChar(char),
     ImmUnit,

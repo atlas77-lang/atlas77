@@ -16,6 +16,7 @@
 pub mod atlas_c;
 pub mod atlas_docs;
 pub mod atlas_lib;
+pub mod package;
 #[cfg(all(feature = "embedded-tinycc", not(tinycc_unavailable)))]
 pub mod tcc;
 
@@ -37,7 +38,13 @@ use atlas_c::{
     },
 };
 use bumpalo::Bump;
-use std::{io::Write, path::PathBuf, str::FromStr, time::Instant};
+use std::{
+    io::Write,
+    path::{Path, PathBuf},
+    process::Command,
+    str::FromStr,
+    time::Instant,
+};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum CompilationFlag {
@@ -61,13 +68,19 @@ pub mod with_tcc {
     use std::{ffi::CString, path::PathBuf, time::Instant};
 
     use crate::tcc::{
-        self, OutputType, tcc_add_include_path, tcc_add_library_path, tcc_compile_string, tcc_new,
-        tcc_output_file, tcc_set_output_type,
+        self, OutputType, tcc_add_include_path, tcc_add_library, tcc_add_library_path,
+        tcc_compile_string, tcc_new, tcc_output_file, tcc_set_output_type,
     };
     // output_dir only tells where to put the output binary
     // The input C file is always ./build/output.atlas_c.c
     // The input C header is always ./build/__atlas77_header.h
-    pub fn emit_binary(output_dir: String) -> miette::Result<()> {
+    pub fn emit_binary(
+        output_dir: String,
+        extra_include_dirs: &[String],
+        extra_library_dirs: &[String],
+        extra_libraries: &[String],
+        extra_c_sources: &[String],
+    ) -> miette::Result<()> {
         let start = Instant::now();
 
         unsafe {
@@ -87,16 +100,78 @@ pub mod with_tcc {
             );
             tcc_add_include_path(tcc, header_c.as_ptr());
 
+            for include_dir in extra_include_dirs {
+                let include_c = CString::new(include_dir.as_str()).unwrap();
+                eprintln!("Adding atlas.toml include path: {}", include_dir);
+                tcc_add_include_path(tcc, include_c.as_ptr());
+            }
+
             // library path (keep CString)
             let path_to_tcc_lib = get_prebuilt_path()
                 .expect("Failed to find prebuilt TinyCC binaries for current platform");
             let lib_c = CString::new(path_to_tcc_lib.to_string_lossy().as_ref()).unwrap();
             tcc_add_library_path(tcc, lib_c.as_ptr());
 
+            for library_dir in extra_library_dirs {
+                let library_dir_c = CString::new(library_dir.as_str()).unwrap();
+                eprintln!("Adding atlas.toml library path: {}", library_dir);
+                tcc_add_library_path(tcc, library_dir_c.as_ptr());
+            }
+
+            for library in extra_libraries {
+                let library_name = library
+                    .strip_prefix("-l")
+                    .unwrap_or(library)
+                    .trim_end_matches(".lib")
+                    .trim_end_matches(".a")
+                    .trim_end_matches(".so")
+                    .trim_end_matches(".dylib")
+                    .to_owned();
+                let library_c = CString::new(library_name.as_str()).unwrap();
+                eprintln!("Linking atlas.toml library with TinyCC: {}", library_name);
+                tcc_add_library(tcc, library_c.as_ptr());
+            }
+
             // read C file and pass as C string
             let code = std::fs::read_to_string("./build/output.atlas_c.c").unwrap();
             let code_c = CString::new(code).unwrap();
-            let res = tcc_compile_string(tcc, code_c.as_ptr());
+            let mut res = tcc_compile_string(tcc, code_c.as_ptr());
+
+            // Compile user-provided C source units (e.g. shim wrappers) into the same TCC state.
+            if res == 0 {
+                for c_source in extra_c_sources {
+                    match std::fs::read_to_string(c_source) {
+                        Ok(source) => {
+                            eprintln!("Compiling extra C source with TinyCC: {}", c_source);
+                            let source_c = match CString::new(source) {
+                                Ok(value) => value,
+                                Err(_) => {
+                                    eprintln!(
+                                        "TinyCC: skipped C source containing embedded NUL byte: {}",
+                                        c_source
+                                    );
+                                    res = -1;
+                                    break;
+                                }
+                            };
+                            let source_res = tcc_compile_string(tcc, source_c.as_ptr());
+                            if source_res != 0 {
+                                eprintln!("TinyCC: failed to compile extra C source: {}", c_source);
+                                res = source_res;
+                                break;
+                            }
+                        }
+                        Err(err) => {
+                            eprintln!(
+                                "TinyCC: failed to read extra C source {}: {}",
+                                c_source, err
+                            );
+                            res = -1;
+                            break;
+                        }
+                    }
+                }
+            }
 
             // out name already uses CString; keep it around until after tcc_output_file
             let target = get_current_platform();
@@ -181,6 +256,14 @@ pub mod with_tcc {
         // vendor/tinycc/win32/include/sys/ + vendor/tinycc/win32/include/tcc/ + vendor/tinycc/win32/include/sec_api +
         // vendor/tinycc/win32/include/sec_api/sys/
         if target.contains("windows") {
+            let portable_include = manifest_dir.join("vendor/tinycc/include");
+            let portable_include_c =
+                CString::new(portable_include.to_string_lossy().as_ref()).unwrap();
+            eprintln!("Adding TinyCC include path: {}", portable_include.display());
+            unsafe {
+                tcc_add_include_path(tcc, portable_include_c.as_ptr());
+            }
+
             let base_include = manifest_dir.join("vendor/tinycc/win32/include");
             let include_c = CString::new(base_include.to_string_lossy().as_ref()).unwrap();
             eprintln!("Adding TinyCC include path: {}", base_include.display());
@@ -244,11 +327,532 @@ pub mod with_tcc {
 pub use with_tcc::emit_binary;
 
 #[cfg(any(not(feature = "embedded-tinycc"), tinycc_unavailable))]
-pub fn emit_binary(path: String) -> miette::Result<()> {
+pub fn emit_binary(
+    _path: String,
+    _extra_include_dirs: &[String],
+    _extra_library_dirs: &[String],
+    _extra_libraries: &[String],
+    _extra_c_sources: &[String],
+) -> miette::Result<()> {
     eprintln!(
         "Embedded TinyCC feature is not enabled or TinyCC is unavailable on this platform. Cannot run compiled programs."
     );
     std::process::exit(1);
+}
+
+#[derive(Debug, Default, Clone)]
+struct AtlasBuildConfig {
+    preferred_compiler: Option<SupportedCompiler>,
+    headers: Vec<String>,
+    include_dirs: Vec<String>,
+    library_dirs: Vec<String>,
+    libraries: Vec<String>,
+    c_sources: Vec<String>,
+    source_dirs: Vec<String>,
+    compiler_args: Vec<String>,
+}
+
+fn parse_supported_compiler(name: &str) -> Option<SupportedCompiler> {
+    match name.to_lowercase().as_str() {
+        "tinycc" | "tcc" => Some(SupportedCompiler::TinyCC),
+        "gcc" => Some(SupportedCompiler::GCC),
+        "msvc" | "cl" => Some(SupportedCompiler::MSVC),
+        "clang" => Some(SupportedCompiler::Clang),
+        "intel" | "icc" => Some(SupportedCompiler::Intel),
+        "none" => Some(SupportedCompiler::None),
+        _ => None,
+    }
+}
+
+fn normalize_dir_path(project_dir: &Path, value: &str) -> String {
+    let candidate = PathBuf::from(value);
+    let absolute = if candidate.is_absolute() {
+        candidate
+    } else {
+        project_dir.join(candidate)
+    };
+
+    normalize_path_string(&absolute)
+}
+
+fn normalize_path_string(path: &Path) -> String {
+    let normalized = path
+        .canonicalize()
+        .unwrap_or_else(|_| path.to_path_buf())
+        .to_string_lossy()
+        .to_string();
+
+    #[cfg(target_os = "windows")]
+    {
+        let mut cleaned = normalized.replace('/', "\\");
+        if let Some(stripped) = cleaned.strip_prefix(r"\\?\") {
+            cleaned = stripped.to_string();
+        }
+        cleaned.to_ascii_lowercase()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        normalized
+    }
+}
+
+fn collect_c_sources_from_dir(dir: &Path, out: &mut Vec<String>) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_c_sources_from_dir(&path, out);
+            continue;
+        }
+        if path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("c"))
+        {
+            out.push(path.to_string_lossy().to_string());
+        }
+    }
+}
+
+fn find_project_dir_for_source(source_path: &Path, fallback: &Path) -> PathBuf {
+    let mut current = if source_path.is_dir() {
+        source_path.to_path_buf()
+    } else {
+        source_path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| fallback.to_path_buf())
+    };
+
+    loop {
+        if current.join("atlas.toml").exists() {
+            return current;
+        }
+        if !current.pop() {
+            break;
+        }
+    }
+
+    fallback.to_path_buf()
+}
+
+fn dedup_preserve_order(values: &mut Vec<String>) {
+    let mut seen = std::collections::HashSet::new();
+    values.retain(|item| seen.insert(item.clone()));
+}
+
+fn collect_string_array(table: &toml::value::Table, key: &str) -> Vec<String> {
+    table
+        .get(key)
+        .and_then(|value| value.as_array())
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|entry| entry.as_str().map(ToOwned::to_owned))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn merge_link_table_into_config(config: &mut AtlasBuildConfig, table: &toml::value::Table) {
+    config
+        .compiler_args
+        .extend(collect_string_array(table, "args"));
+    config
+        .compiler_args
+        .extend(collect_string_array(table, "c_args"));
+    config
+        .library_dirs
+        .extend(collect_string_array(table, "lib_dirs"));
+    config
+        .library_dirs
+        .extend(collect_string_array(table, "library_dirs"));
+    config
+        .include_dirs
+        .extend(collect_string_array(table, "include_dirs"));
+
+    for key in ["libs", "shared", "static"] {
+        config.libraries.extend(collect_string_array(table, key));
+    }
+}
+
+fn current_platform_config_key() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "unknown"
+    }
+}
+
+fn normalize_link_arg(compiler: SupportedCompiler, lib: &str) -> String {
+    if lib.is_empty()
+        || lib.starts_with('-')
+        || lib.ends_with(".lib")
+        || lib.ends_with(".a")
+        || lib.ends_with(".so")
+        || lib.ends_with(".dylib")
+        || lib.contains('/')
+        || lib.contains('\\')
+    {
+        return lib.to_owned();
+    }
+
+    match compiler {
+        SupportedCompiler::MSVC => format!("{}.lib", lib),
+        _ => format!("-l{}", lib),
+    }
+}
+
+fn render_include_arg(compiler: SupportedCompiler, include_dir: &str) -> String {
+    match compiler {
+        SupportedCompiler::MSVC => format!("/I{}", include_dir),
+        _ => format!("-I{}", include_dir),
+    }
+}
+
+fn render_library_dir_arg(compiler: SupportedCompiler, library_dir: &str) -> String {
+    match compiler {
+        SupportedCompiler::MSVC => format!("/LIBPATH:{}", library_dir),
+        _ => format!("-L{}", library_dir),
+    }
+}
+
+fn load_build_config(project_dir: &Path) -> miette::Result<AtlasBuildConfig> {
+    let config_path = project_dir.join("atlas.toml");
+    if !config_path.exists() {
+        return Ok(AtlasBuildConfig::default());
+    }
+
+    let content = std::fs::read_to_string(&config_path)
+        .map_err(|err| miette::miette!("Failed to read {}: {}", config_path.display(), err))?;
+    let root: toml::value::Table = toml::from_str(&content)
+        .map_err(|err| miette::miette!("Failed to parse {}: {}", config_path.display(), err))?;
+
+    let mut config = AtlasBuildConfig::default();
+
+    if let Some(dependencies) = root.get("dependencies").and_then(|v| v.as_table()) {
+        config
+            .headers
+            .extend(collect_string_array(dependencies, "headers"));
+        config
+            .include_dirs
+            .extend(collect_string_array(dependencies, "include_dirs"));
+    }
+
+    if let Some(build_table) = root.get("build").and_then(|v| v.as_table()) {
+        config.preferred_compiler = build_table
+            .get("compiler")
+            .and_then(|v| v.as_str())
+            .and_then(parse_supported_compiler);
+        config
+            .compiler_args
+            .extend(collect_string_array(build_table, "c_args"));
+        config
+            .compiler_args
+            .extend(collect_string_array(build_table, "args"));
+    }
+
+    if let Some(c_table) = root.get("c").and_then(|v| v.as_table()) {
+        if config.preferred_compiler.is_none() {
+            config.preferred_compiler = c_table
+                .get("compiler")
+                .and_then(|v| v.as_str())
+                .and_then(parse_supported_compiler);
+        }
+        config
+            .compiler_args
+            .extend(collect_string_array(c_table, "args"));
+        config
+            .compiler_args
+            .extend(collect_string_array(c_table, "c_args"));
+        config
+            .include_dirs
+            .extend(collect_string_array(c_table, "include_dirs"));
+        config
+            .library_dirs
+            .extend(collect_string_array(c_table, "lib_dirs"));
+        config
+            .library_dirs
+            .extend(collect_string_array(c_table, "library_dirs"));
+        config
+            .c_sources
+            .extend(collect_string_array(c_table, "sources"));
+        config
+            .c_sources
+            .extend(collect_string_array(c_table, "source_files"));
+        config
+            .c_sources
+            .extend(collect_string_array(c_table, "c_sources"));
+        config
+            .source_dirs
+            .extend(collect_string_array(c_table, "source_dirs"));
+    }
+
+    if let Some(link_table) = root.get("link").and_then(|v| v.as_table()) {
+        merge_link_table_into_config(&mut config, link_table);
+        if let Some(platform_table) = link_table
+            .get(current_platform_config_key())
+            .and_then(|v| v.as_table())
+        {
+            merge_link_table_into_config(&mut config, platform_table);
+        }
+    }
+
+    for include_dir in &mut config.include_dirs {
+        *include_dir = normalize_dir_path(project_dir, include_dir);
+    }
+    for library_dir in &mut config.library_dirs {
+        *library_dir = normalize_dir_path(project_dir, library_dir);
+    }
+    for c_source in &mut config.c_sources {
+        *c_source = normalize_dir_path(project_dir, c_source);
+    }
+    for source_dir in &mut config.source_dirs {
+        *source_dir = normalize_dir_path(project_dir, source_dir);
+    }
+
+    let mut discovered_sources = Vec::new();
+    for source_dir in &config.source_dirs {
+        collect_c_sources_from_dir(Path::new(source_dir), &mut discovered_sources);
+    }
+    config.c_sources.extend(discovered_sources);
+
+    dedup_preserve_order(&mut config.headers);
+    dedup_preserve_order(&mut config.include_dirs);
+    dedup_preserve_order(&mut config.library_dirs);
+    dedup_preserve_order(&mut config.libraries);
+    dedup_preserve_order(&mut config.c_sources);
+    dedup_preserve_order(&mut config.source_dirs);
+    dedup_preserve_order(&mut config.compiler_args);
+
+    Ok(config)
+}
+
+fn apply_default_native_layout(
+    config: &mut AtlasBuildConfig,
+    project_dir: &Path,
+    compiler: SupportedCompiler,
+) {
+    // Keep this lenient: we only add defaults if folders exist.
+    if compiler != SupportedCompiler::TinyCC {
+        return;
+    }
+
+    let include_dir = project_dir.join("include");
+    if include_dir.is_dir() {
+        let include_dir_norm = normalize_path_string(&include_dir);
+        config.include_dirs.push(include_dir_norm.clone());
+        config.source_dirs.push(include_dir_norm);
+    }
+
+    let library_dir = project_dir.join("lib");
+    if library_dir.is_dir() {
+        config
+            .library_dirs
+            .push(normalize_path_string(&library_dir));
+    }
+
+    dedup_preserve_order(&mut config.include_dirs);
+    dedup_preserve_order(&mut config.library_dirs);
+    dedup_preserve_order(&mut config.source_dirs);
+
+    let mut discovered_sources = Vec::new();
+    for source_dir in &config.source_dirs {
+        collect_c_sources_from_dir(Path::new(source_dir), &mut discovered_sources);
+    }
+    config.c_sources.extend(discovered_sources);
+    dedup_preserve_order(&mut config.c_sources);
+}
+
+fn build_compiler_args(config: &AtlasBuildConfig, compiler: SupportedCompiler) -> Vec<String> {
+    let mut compiler_args = Vec::new();
+    for include_dir in &config.include_dirs {
+        compiler_args.push(render_include_arg(compiler, include_dir));
+    }
+    for library_dir in &config.library_dirs {
+        compiler_args.push(render_library_dir_arg(compiler, library_dir));
+    }
+    for lib in &config.libraries {
+        compiler_args.push(normalize_link_arg(compiler, lib));
+    }
+    compiler_args.extend(config.compiler_args.clone());
+    compiler_args
+}
+
+#[cfg(target_os = "windows")]
+fn normalize_library_name_for_runtime(lib: &str) -> String {
+    lib.strip_prefix("-l")
+        .unwrap_or(lib)
+        .trim_end_matches(".lib")
+        .trim_end_matches(".a")
+        .trim_end_matches(".so")
+        .trim_end_matches(".dylib")
+        .to_lowercase()
+}
+
+#[cfg(target_os = "windows")]
+fn stage_runtime_dlls(output_dir: &str, config: &AtlasBuildConfig) {
+    let output_path = PathBuf::from(output_dir);
+    if let Err(err) = std::fs::create_dir_all(&output_path) {
+        eprintln!(
+            "Warning: failed to ensure output directory exists for runtime DLL staging: {}",
+            err
+        );
+        return;
+    }
+
+    let requested_libs = config
+        .libraries
+        .iter()
+        .map(|lib| normalize_library_name_for_runtime(lib))
+        .collect::<std::collections::HashSet<_>>();
+
+    for library_dir in &config.library_dirs {
+        let library_path = Path::new(library_dir);
+        let entries = match std::fs::read_dir(library_path) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+
+        for entry in entries.flatten() {
+            let dll_path = entry.path();
+            let Some(ext) = dll_path.extension().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            if !ext.eq_ignore_ascii_case("dll") {
+                continue;
+            }
+
+            let stem = dll_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_lowercase())
+                .unwrap_or_default();
+
+            // Only stage DLLs that likely match linked libraries.
+            let should_stage = requested_libs.contains(&stem)
+                || requested_libs.contains(stem.strip_prefix("lib").unwrap_or(&stem));
+            if !should_stage {
+                continue;
+            }
+
+            let target_path =
+                output_path.join(dll_path.file_name().expect("DLL path without a file name"));
+            if let Err(err) = std::fs::copy(&dll_path, &target_path) {
+                eprintln!(
+                    "Warning: failed to copy runtime DLL {} to {}: {}",
+                    dll_path.display(),
+                    target_path.display(),
+                    err
+                );
+            } else {
+                eprintln!(
+                    "Staged runtime DLL: {} -> {}",
+                    dll_path.display(),
+                    target_path.display()
+                );
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn stage_runtime_dlls(_output_dir: &str, _config: &AtlasBuildConfig) {}
+
+fn create_probe_source(headers: &[String]) -> String {
+    let mut source = String::new();
+    for header in headers {
+        let include_line = if header.starts_with('<') || header.starts_with('"') {
+            format!("#include {}\n", header)
+        } else {
+            format!("#include <{}>\n", header)
+        };
+        source.push_str(&include_line);
+    }
+    source.push_str("int main(void) { return 0; }\n");
+    source
+}
+
+fn preflight_external_compile(
+    compiler: SupportedCompiler,
+    headers: &[String],
+    compiler_args: &[String],
+) -> miette::Result<()> {
+    if headers.is_empty() && compiler_args.is_empty() {
+        return Ok(());
+    }
+
+    let (cmd_name, output_arg_mode) = match compiler {
+        SupportedCompiler::GCC => ("gcc", "gnu"),
+        SupportedCompiler::Clang => ("clang", "gnu"),
+        SupportedCompiler::Intel => ("icc", "gnu"),
+        SupportedCompiler::MSVC => ("cl", "msvc"),
+        SupportedCompiler::TinyCC => ("tcc", "gnu"),
+        SupportedCompiler::None => return Ok(()),
+    };
+
+    std::fs::create_dir_all("./build")
+        .map_err(|err| miette::miette!("Failed to create build directory: {}", err))?;
+
+    let probe_source = "./build/.atlas77_probe.c";
+    let probe_binary = if cfg!(target_os = "windows") {
+        "./build/.atlas77_probe.exe"
+    } else {
+        "./build/.atlas77_probe.out"
+    };
+
+    std::fs::write(probe_source, create_probe_source(headers)).map_err(|err| {
+        miette::miette!(
+            "Failed to write Atlas C probe source file {}: {}",
+            probe_source,
+            err
+        )
+    })?;
+
+    let mut command = Command::new(cmd_name);
+    command.arg(probe_source);
+    if output_arg_mode == "msvc" {
+        command.arg(format!("/Fe:{}", probe_binary));
+        command.arg("/nologo");
+    } else {
+        command.arg("-o");
+        command.arg(probe_binary);
+    }
+    command.args(compiler_args);
+
+    let output = command.output().map_err(|err| {
+        miette::miette!(
+            "Failed to execute compiler preflight command {:?}: {}",
+            command,
+            err
+        )
+    })?;
+
+    let _ = std::fs::remove_file(probe_source);
+    let _ = std::fs::remove_file(probe_binary);
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Err(miette::miette!(
+        "Atlas preflight failed before final C compilation.\nCompiler: {}\nArgs: {:?}\nstdout:\n{}\nstderr:\n{}",
+        cmd_name,
+        compiler_args,
+        stdout,
+        stderr
+    ))
 }
 
 pub const DEFAULT_INIT_CODE: &str = r#"import "std/io";
@@ -324,7 +928,7 @@ pub fn build(
     _flag: CompilationFlag,
     //TODO: `using_std` is currently unused
     _using_std: bool,
-    compiler: SupportedCompiler,
+    compiler: Option<SupportedCompiler>,
     output_dir: String,
     extra_c_args: Vec<String>,
 ) -> miette::Result<()> {
@@ -332,6 +936,18 @@ pub fn build(
     let start = Instant::now();
     println!("Building project at path: {}", path);
     let path_buf = get_path(&path);
+    let cwd = std::env::current_dir()
+        .map_err(|err| miette::miette!("Failed to get current directory: {}", err))?;
+    let project_dir = find_project_dir_for_source(&path_buf, &cwd);
+    let mut atlas_build_config = load_build_config(&project_dir)?;
+    let compiler = compiler
+        .or(atlas_build_config.preferred_compiler)
+        .unwrap_or(SupportedCompiler::TinyCC);
+
+    apply_default_native_layout(&mut atlas_build_config, &project_dir, compiler);
+
+    let mut merged_c_args = build_compiler_args(&atlas_build_config, compiler);
+    merged_c_args.extend(extra_c_args);
 
     let source = std::fs::read_to_string(&path).unwrap_or_else(|_| {
         eprintln!("Failed to read source file at path: {}", path);
@@ -371,12 +987,29 @@ pub fn build(
         )
         .unwrap();
 
-    //type-check (collect errors and continue when gravity allows it)
+    // type-check with on-demand method monomorphization requests.
     let mut hir = hir;
     let mut semantic_errors: Vec<HirError> = Vec::new();
+    let mut typecheck_result: Result<(), HirError> = Ok(());
+    // Kinda high, but we want to be 100% sure to converge on monomorphization before giving up and reporting errors. If this becomes a problem we can always add a more specific heuristic here.
+    const MAX_ON_DEMAND_MONO_ROUNDS: usize = 128;
 
-    let mut type_checker = TypeChecker::new(&hir_arena);
-    if let Err(err) = type_checker.check(&mut *hir) {
+    for _round in 0..MAX_ON_DEMAND_MONO_ROUNDS {
+        let mut type_checker = TypeChecker::new(&hir_arena);
+        typecheck_result = type_checker.check(&mut *hir);
+
+        let requests = type_checker.take_method_monomorphization_requests();
+        if requests.is_empty() {
+            break;
+        }
+
+        let changed = monomorphizer.monomorphize_requested_methods(&mut *hir, requests)?;
+        if !changed {
+            break;
+        }
+    }
+
+    if let Err(err) = typecheck_result {
         let can_continue_to_ownership = match err.gravity() {
             HirErrorGravity::CanGoUpTo(pass) => (pass as u8) >= (HirPass::OwnershipPass as u8),
             HirErrorGravity::CanFinishCurrentPassButNotContinue => false,
@@ -400,6 +1033,9 @@ pub fn build(
             );
         }
     }
+
+    // Generic templates are no longer needed after on-demand monomorphization converges.
+    monomorphizer.clear_generic(&mut *hir);
 
     //ownership analysis + RAII delete insertion (run even after recoverable type-check errors)
     let mut ownership_pass = HirOwnershipPass::new(&hir_arena, &hir.signature);
@@ -447,25 +1083,33 @@ pub fn build(
     };
     // codegen
     let mut c_codegen = CCodeGen::new();
-    c_codegen.emit_c(&lir).unwrap();
+    c_codegen.emit_c(&lir, &atlas_build_config.headers).unwrap();
 
     let mut c_file = std::fs::File::create("./build/output.atlas_c.c").unwrap();
     c_file.write_all(c_codegen.c_file.as_bytes()).unwrap();
     let mut c_header = std::fs::File::create(format!("./build/{}", HEADER_NAME)).unwrap();
     c_header.write_all(c_codegen.c_header.as_bytes()).unwrap();
 
+    let has_embedded_tinycc = cfg!(all(feature = "embedded-tinycc", not(tinycc_unavailable)));
+    let should_preflight = compiler != SupportedCompiler::None
+        && !(compiler == SupportedCompiler::TinyCC && has_embedded_tinycc);
+    if should_preflight {
+        preflight_external_compile(compiler, &atlas_build_config.headers, &merged_c_args)?;
+    }
+
     // TODO: put that in its own function, e.g.: "emit_binary(output_dir, compiler)"
     match compiler {
         SupportedCompiler::TinyCC => {
             #[cfg(all(feature = "embedded-tinycc", not(tinycc_unavailable)))]
             {
-                if !extra_c_args.is_empty() {
-                    eprintln!(
-                        "Warning: --c-arg is currently ignored for embedded TinyCC backend: {:?}",
-                        extra_c_args
-                    );
-                }
-                emit_binary(output_dir)?;
+                emit_binary(
+                    output_dir.clone(),
+                    &atlas_build_config.include_dirs,
+                    &atlas_build_config.library_dirs,
+                    &atlas_build_config.libraries,
+                    &atlas_build_config.c_sources,
+                )?;
+                stage_runtime_dlls(&output_dir, &atlas_build_config);
             }
             #[cfg(all(not(feature = "embedded-tinycc"), tinycc_unavailable))]
             {
@@ -475,6 +1119,7 @@ pub fn build(
                 );
                 let mut command = std::process::Command::new("tcc");
                 command.arg("./build/output.atlas_c.c");
+                command.args(&atlas_build_config.c_sources);
                 command.arg("-o");
                 let target = if cfg!(target_os = "windows") {
                     format!("{}/a.exe", output_dir)
@@ -482,11 +1127,12 @@ pub fn build(
                     format!("{}/a.out", output_dir)
                 };
                 command.arg(target);
-                command.args(&extra_c_args);
+                command.args(&merged_c_args);
                 eprintln!("Invoking TCC with command: {:?}", command);
                 let status = command.status().expect("Failed to invoke TCC");
                 if status.success() {
                     println!("Program compiled successfully with TCC.");
+                    stage_runtime_dlls(&output_dir, &atlas_build_config);
                 } else {
                     eprintln!("TCC compilation failed.");
                 }
@@ -496,6 +1142,7 @@ pub fn build(
             // Let's invoke it with `gcc ./build/output.atlas_c.c -o {output_dir}` (and `-O2` for release)
             let mut command = std::process::Command::new("gcc");
             command.arg("./build/output.atlas_c.c");
+            command.args(&atlas_build_config.c_sources);
             command.arg("-o");
             let target = if cfg!(target_os = "windows") {
                 format!("{}/a.exe", output_dir)
@@ -506,12 +1153,13 @@ pub fn build(
             if _flag == CompilationFlag::Release {
                 command.arg("-O2");
             }
-            command.args(&extra_c_args);
+            command.args(&merged_c_args);
             // TODO: Make it pretty print
             eprintln!("Invoking GCC with command: {:?}", command);
             let status = command.status().expect("Failed to invoke GCC");
             if status.success() {
                 println!("Program compiled successfully with GCC.");
+                stage_runtime_dlls(&output_dir, &atlas_build_config);
             } else {
                 eprintln!("GCC compilation failed.");
             }
@@ -520,6 +1168,7 @@ pub fn build(
             // Let's invoke it with `cl ./build/output.atlas_c.c /Fe:{output_dir}` (and `/O2` for release)
             let mut command = std::process::Command::new("cl");
             command.arg("./build/output.atlas_c.c");
+            command.args(&atlas_build_config.c_sources);
             let target = if cfg!(target_os = "windows") {
                 format!("{}/a.exe", output_dir)
             } else {
@@ -529,12 +1178,13 @@ pub fn build(
             if _flag == CompilationFlag::Release {
                 command.arg("/O2");
             }
-            command.args(&extra_c_args);
+            command.args(&merged_c_args);
             // TODO: Make it pretty print
             eprintln!("Invoking MSVC with command: {:?}", command);
             let status = command.status().expect("Failed to invoke MSVC cl.exe");
             if status.success() {
                 println!("Program compiled successfully with MSVC.");
+                stage_runtime_dlls(&output_dir, &atlas_build_config);
             } else {
                 eprintln!("MSVC compilation failed.");
             }
@@ -543,6 +1193,7 @@ pub fn build(
             // Let's invoke it with `clang ./build/output.atlas_c.c -o {output_dir}` (and `-O2` for release)
             let mut command = std::process::Command::new("clang");
             command.arg("./build/output.atlas_c.c");
+            command.args(&atlas_build_config.c_sources);
             command.arg("-o");
             let target = if cfg!(target_os = "windows") {
                 format!("{}/a.exe", output_dir)
@@ -553,12 +1204,13 @@ pub fn build(
             if _flag == CompilationFlag::Release {
                 command.arg("-O2");
             }
-            command.args(&extra_c_args);
+            command.args(&merged_c_args);
             // TODO: Make it pretty print
             eprintln!("Invoking Clang with command: {:?}", command);
             let status = command.status().expect("Failed to invoke Clang");
             if status.success() {
                 println!("Program compiled successfully with Clang.");
+                stage_runtime_dlls(&output_dir, &atlas_build_config);
             } else {
                 eprintln!("Clang compilation failed.");
             }
@@ -567,6 +1219,7 @@ pub fn build(
             // Let's invoke it with `icc ./build/output.atlas_c.c -o {output_dir}` (and `-O2` for release)
             let mut command = std::process::Command::new("icc");
             command.arg("./build/output.atlas_c.c");
+            command.args(&atlas_build_config.c_sources);
             command.arg("-o");
             let target = if cfg!(target_os = "windows") {
                 format!("{}/a.exe", output_dir)
@@ -577,12 +1230,13 @@ pub fn build(
             if _flag == CompilationFlag::Release {
                 command.arg("-O2");
             }
-            command.args(&extra_c_args);
+            command.args(&merged_c_args);
             // TODO: Make it pretty print
             eprintln!("Invoking Intel ICC with command: {:?}", command);
             let status = command.status().expect("Failed to invoke Intel ICC");
             if status.success() {
                 println!("Program compiled successfully with Intel ICC.");
+                stage_runtime_dlls(&output_dir, &atlas_build_config);
             } else {
                 eprintln!("Intel ICC compilation failed.");
             }
@@ -610,14 +1264,6 @@ pub enum SupportedCompiler {
 impl FromStr for SupportedCompiler {
     type Err = ();
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "tinycc" | "tcc" => Ok(SupportedCompiler::TinyCC),
-            "gcc" => Ok(SupportedCompiler::GCC),
-            "msvc" | "cl" => Ok(SupportedCompiler::MSVC),
-            "clang" => Ok(SupportedCompiler::Clang),
-            "intel" | "icc" => Ok(SupportedCompiler::Intel),
-            "none" => Ok(SupportedCompiler::None),
-            _ => Ok(SupportedCompiler::TinyCC), // default to TinyCC
-        }
+        parse_supported_compiler(s).ok_or(())
     }
 }

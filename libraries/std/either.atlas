@@ -1,0 +1,115 @@
+import "std/memory";
+
+namespace std {
+    private union __either_storage<L, R> {
+    public:
+        left: L;
+        right: R;
+        // sentinel for when it's not set, but we should still return something. e.g. => invert
+        empty: std::empty;
+    }
+
+    public struct either<L, R> {
+    public:
+        data: std::__either_storage<L, R>;
+        is_left: bool;
+        is_set: bool;
+        ~either() {
+            if this->is_set {
+                if this->is_left {
+                    delete this->data.left;
+                } else {
+                    delete this->data.right;
+                }
+            }
+        }
+        fun left(l: L) -> std::either<L, R> {
+            return std::either<L, R> {
+                .data = std::__either_storage<L, R> {
+                    .left = l,
+                },
+                .is_left = true,
+                .is_set = true,
+            };
+        }
+        fun right(r: R) -> std::either<L, R> {
+            return std::either<L, R> {
+                .data = std::__either_storage<L, R> {
+                    .right = r,
+                },
+                .is_left = false,
+                .is_set = true,
+            };
+        }
+
+        fun is_left(*const this) -> bool {
+            return this->is_set && this->is_left;
+        }
+        fun is_set(*const this) -> bool {
+            return this->is_set;
+        }
+        fun is_right(*const this) -> bool {
+            return this->is_set && !this->is_left;
+        }
+        //! TODO: This should become a consuming method
+        fun invert(*this) -> std::either<R, L> {
+            // Avoid running the destructor on the previous type
+            if this->is_left() {
+                this->is_set = false;
+                return std::either<R, L> {
+                    .data = std::__either_storage<R, L> {
+                        .right = this->data.left,
+                    }
+                    .is_set = true,
+                    .is_left = false,
+                };
+            } else if this->is_right() {
+                this->is_set = false;
+                return std::either<R, L> {
+                    .data = std::__either_storage<R, L> {
+                        .left = this->data.right,
+                    }
+                    .is_set = true,
+                    .is_left = true,
+                };
+            }
+            this->is_set = false;
+            return std::either<R, L> {
+                .data = std::__either_storage<R, L> {
+                    .empty = std::empty {},
+                }
+                .is_set = false,
+                .is_left = true,
+            };
+        }
+        fun map<A, B>(*this, f_left: fun(L) -> A, f_right: fun(R) -> B) -> std::either<A, B> {
+            if this->is_left() {
+                return std::either<A, B>::left(f_left(this->data.left));
+            } else if this->is_right() {
+                return std::either<A, B>::right(f_right(this->data.right));
+            }
+            return std::either<A, B> {
+                .data = std::__either_storage<A, B> {
+                    .empty = std::empty {},
+                }
+                .is_set = false,
+                .is_left = true,
+            };
+        }
+
+        fun left(*this) -> L {
+            if this->is_left() {
+                this->is_set = false;
+                return this->data.left;
+            }
+            panic("Called left() on an either that is not a left");
+        }
+        fun right(*this) -> R {
+            if this->is_right() {
+                this->is_set = false;
+                return this->data.right;
+            }
+            panic("Called right() on an either that is not a right");
+        }
+    }
+}

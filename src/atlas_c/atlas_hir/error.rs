@@ -38,7 +38,6 @@ declare_error_type! {
         CanOnlyConstructStructs(CanOnlyConstructStructsError),
         TryingToIndexNonIndexableType(TryingToIndexNonIndexableTypeError),
         UselessError(UselessError),
-        InvalidReadOnlyType(InvalidReadOnlyTypeError),
         CannotDeletePrimitiveType(CannotDeletePrimitiveTypeError),
         StructNameCannotBeOneLetter(StructNameCannotBeOneLetterError),
         NoReturnInFunction(NoReturnInFunctionError),
@@ -49,7 +48,6 @@ declare_error_type! {
         AccessingPrivateFunction(AccessingPrivateFunctionError),
         UnsupportedItem(UnsupportedItemError),
         TryingToAccessFieldOnNonObjectType(TryingToAccessFieldOnNonObjectTypeError),
-        NullableTypeRequiresStdLibrary(NullableTypeRequiresStdLibraryError),
         TryingToAccessAMovedValue(TryingToAccessAMovedValueError),
         TryingToAccessAConsumedValue(TryingToAccessAConsumedValueError),
         TryingToAccessAPotentiallyMovedValue(TryingToAccessAPotentiallyMovedValueError),
@@ -76,7 +74,6 @@ declare_error_type! {
         LifetimeDependencyViolation(LifetimeDependencyViolationError),
         ReturningValueWithLocalLifetimeDependency(ReturningValueWithLocalLifetimeDependencyError),
         MethodConstraintNotSatisfied(MethodConstraintNotSatisfiedError),
-        TooManyReferenceLevels(TooManyReferenceLevelsError),
         AssignmentCannotBeAnExpression(AssignmentCannotBeAnExpressionError),
         CannotGenerateADestructorForThisType(CannotGenerateADestructorForThisTypeError),
         CannotMoveFromRvalue(CannotMoveFromRvalueError),
@@ -179,19 +176,6 @@ pub struct ListIndexOutOfBoundsError {
     pub span: Span,
     pub index: usize,
     pub size: usize,
-    #[source_code]
-    pub src: NamedSource<String>,
-}
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
-    code(sema::too_many_reference_levels),
-    help("reduce the number of reference levels")
-)]
-#[error("type has too many reference levels")]
-pub struct TooManyReferenceLevelsError {
-    #[label = "type has too many reference levels"]
-    pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }
@@ -312,7 +296,7 @@ pub struct TryingToMutateConstPointerError {
 #[diagnostic(
     code(sema::calling_consuming_method_on_mutable_reference),
     help(
-        "consider using an owned value instead (You can use the DeRef operator `*` to get an owned value from a mutable reference)"
+        "consider using an owned value instead (You can use the DeRef operator `*` to get an owned value from a mutable reference, though that might create a copy)"
     )
 )]
 #[error("calling a consuming method on a mutable reference")]
@@ -339,7 +323,7 @@ pub struct CallingConsumingMethodOnMutableReferenceOrigin {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
     code(sema::calling_non_const_method_on_const_reference),
-    help("consider making the method const, or using a mutable reference")
+    help("Try using a non-const reference or mark the method as const")
 )]
 #[error("calling a non-const method on a const reference")]
 pub struct CallingNonConstMethodOnConstReferenceError {
@@ -365,7 +349,7 @@ pub struct CallingNonConstMethodOnConstReferenceOrigin {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
     code(sema::trying_to_access_a_deleted_value),
-    help("consider cloning the value before deleting it, or using a reference")
+    help("consider copying the value before deleting it, or using a reference")
 )]
 #[error("trying to access a deleted value")]
 pub struct TryingToAccessADeletedValueError {
@@ -380,7 +364,7 @@ pub struct TryingToAccessADeletedValueError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
     code(sema::trying_to_access_a_moved_value),
-    help("consider cloning the value before moving it, or using a reference")
+    help("consider copying the value before moving it, or using a reference")
 )]
 #[error("trying to access a moved value")]
 pub struct TryingToAccessAMovedValueError {
@@ -410,7 +394,7 @@ pub struct TryingToAccessAConsumedValueError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
     code(sema::trying_to_access_a_potentially_moved_value),
-    help("consider cloning the value before moving it, or using a reference")
+    help("consider copying the value before moving it, or using a reference")
 )]
 #[error("trying to access a potentially moved value")]
 pub struct TryingToAccessAPotentiallyMovedValueError {
@@ -441,7 +425,7 @@ pub struct TryingToAccessAPotentiallyDeletedValueError {
 #[diagnostic(
     code(sema::trying_to_access_a_potentially_consumed_value),
     help(
-        "the value is consumed across control-flow branches (moved in one branch and deleted in another)"
+        "the value is consumed across control-flow branches (moved in one branch and/or deleted in another)"
     )
 )]
 #[error("trying to access a potentially consumed value")]
@@ -450,16 +434,6 @@ pub struct TryingToAccessAPotentiallyConsumedValueError {
     pub consume_spans: Vec<Span>,
     #[label(primary, "trying to access potentially consumed value here")]
     pub access_span: Span,
-    #[source_code]
-    pub src: NamedSource<String>,
-}
-
-#[derive(Error, Diagnostic, Debug)]
-#[diagnostic(code(sema::nullable_type_requires_std_library))]
-#[error("nullable types require the standard library")]
-pub struct NullableTypeRequiresStdLibraryError {
-    #[label = "nullable types require the standard library"]
-    pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
 }
@@ -504,6 +478,7 @@ pub struct NotEnoughArgumentsError {
     #[diagnostic_source]
     pub origin: NotEnoughArgumentsOrigin,
 }
+
 #[derive(Error, Diagnostic, Debug)]
 #[error("")]
 pub struct NotEnoughArgumentsOrigin {
@@ -530,6 +505,7 @@ pub struct AccessingPrivateFunctionError {
     #[diagnostic_source]
     pub origin: AccessingPrivateFunctionOrigin,
 }
+
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic()]
 #[error("")]
@@ -661,21 +637,6 @@ pub struct AccessingPrivateDestructorError {
 }
 
 #[derive(Error, Diagnostic, Debug)]
-#[diagnostic(
-    code(sema::invalid_read_only_type),
-    help("Try using this instead `const &{ty}`")
-)]
-#[error("only reference types can be const")]
-//A const type can only hold a reference. It doesn't make sense to have a `const T` where T is not a reference.
-pub struct InvalidReadOnlyTypeError {
-    #[label = "only reference types can be const"]
-    pub span: Span,
-    #[source_code]
-    pub src: NamedSource<String>,
-    pub ty: String,
-}
-
-#[derive(Error, Diagnostic, Debug)]
 #[diagnostic(code(sema::this_should_not_appear))]
 #[error("This is just a useless error that should not appear")]
 pub struct UselessError {
@@ -733,6 +694,7 @@ pub struct NotEnoughGenericsError {
     #[diagnostic_source]
     pub origin: NotEnoughGenericsOrigin,
 }
+
 #[derive(Error, Diagnostic, Debug)]
 #[error("")]
 pub struct NotEnoughGenericsOrigin {
@@ -796,10 +758,10 @@ impl fmt::Display for FieldKind {
 }
 
 #[derive(Error, Diagnostic, Debug)]
-#[diagnostic(code(sema::self_access_outside_class))]
-#[error("Can't access fields of self outside of a class")]
+#[diagnostic(code(sema::this_access_outside_class))]
+#[error("Can't access fields of this outside of a class")]
 pub struct AccessingClassFieldOutsideClassError {
-    #[label("Trying to access a class field from `self` while outside of a class")]
+    #[label("Trying to access a class field from `this` while outside of a class")]
     pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
@@ -1073,7 +1035,7 @@ pub struct StructCannotHaveAFieldOfItsOwnTypeError {
 #[diagnostic(
     code(sema::union_must_have_at_least_two_variant),
     help(
-        "A union must have at least two variants to be valid, add a `unit` variant if you need a nullable state."
+        "A union must have at least two variants to be valid, add a `std::empty` variant if you need a nullable state."
     )
 )]
 #[error("{union_name} must have at least two variants")]

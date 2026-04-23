@@ -1,0 +1,17 @@
+import "std/io";
+
+// Expected: semantic error.
+// Nullable role attributes cannot be attached to static methods.
+#[std::nullable]
+struct BadStaticNullable {
+public:
+    #[std::nullable_guarded]
+    fun build() -> BadStaticNullable {
+        return BadStaticNullable {};
+    }
+}
+
+fun main() {
+    let _x = BadStaticNullable::build();
+    std::printf("built\n", std::empty {});
+}

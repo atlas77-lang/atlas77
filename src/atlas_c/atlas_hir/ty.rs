@@ -5,7 +5,7 @@ use std::fmt::Formatter;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
-pub struct HirTyId(u64);
+pub struct HirTyId(pub u64);
 
 const INTEGER_TY_ID: u8 = 0x01;
 const FLOAT_TY_ID: u8 = 0x03;
@@ -338,7 +338,7 @@ impl HirTy<'_> {
             HirTy::Char(_) => "char".to_string(),
             HirTy::Unit(_) => "unit".to_string(),
             HirTy::Boolean(_) => "bool".to_string(),
-            HirTy::String(_) => "string".to_string(),
+            HirTy::String(_) => "str".to_string(),
             HirTy::Slice(ty) => format!("list_{}", ty.inner.get_valid_c_string()),
             HirTy::InlineArray(ty) => {
                 format!("inlinearr_{}_{}", ty.inner.get_valid_c_string(), ty.size)
@@ -408,7 +408,7 @@ impl fmt::Display for HirTy<'_> {
             HirTy::Char(_) => write!(f, "char"),
             HirTy::Unit(_) => write!(f, "unit"),
             HirTy::Boolean(_) => write!(f, "bool"),
-            HirTy::String(_) => write!(f, "string"),
+            HirTy::String(_) => write!(f, "str"),
             HirTy::Slice(ty) => write!(f, "[{}]", ty.inner),
             HirTy::InlineArray(ty) => write!(f, "[{}; {}]", ty.inner, ty.size),
             HirTy::Named(ty) => write!(f, "{}", ty.name),
@@ -584,7 +584,9 @@ pub struct HirStringTy {}
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct HirFunctionTy<'hir> {
     pub ret_ty: &'hir HirTy<'hir>,
+    pub ret_ty_span: Span,
     pub params: Vec<HirTy<'hir>>,
+    pub param_spans: Vec<Span>,
     pub span: Span,
 }
 

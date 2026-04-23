@@ -1,0 +1,66 @@
+import "std/memory";
+import "std/io";
+
+union MyUnion<T> {
+public:
+    value: T;
+    empty: std::empty;
+}
+
+struct Optional<T> {
+public:
+    data: MyUnion<T>;
+    has_value: bool;
+    fun of(data: T) -> Optional<T> {
+        return Optional<T> {
+            .data = MyUnion<T> { 
+                .value = data 
+            }, 
+            .has_value = true
+        };
+    }
+
+    fun empty() -> Optional<T> {
+        return Optional<T> {
+            .data = MyUnion<T> { 
+                .empty = std::empty {}
+            }, 
+            .has_value = false
+        };
+    }
+
+    fun is_empty(*const this) -> bool {
+        return !this->has_value;
+    }
+
+    fun map<U>(*this, f: fun(T) -> U) -> Optional<U> {
+        if (this->has_value) {
+            return Optional<U>::of(f(this->data.value));
+        } else {
+            return Optional<U>::empty();
+        }
+    }
+
+    fun as_ptr(*const this) -> Optional<*const T> {
+        if (this->has_value) {
+            return Optional<*const T>::of(&this->data.value);
+        } else {
+            return Optional<*const T>::empty();
+        }
+    }
+}
+
+fun to_float(x: int64) -> float64 {
+    return x as float64;
+}
+
+fun main() {
+    let opt_int = Optional<int64>::of(42);
+    let opt_float = opt_int.map<float64>(to_float);
+    if (!opt_float.is_empty()) {
+        std::printf("Mapped value: %f\n", opt_float.data.value);
+    } else {
+        std::printf("No value present\n", std::empty {});
+    }
+}
+

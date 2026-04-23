@@ -1,6 +1,3 @@
-pub mod case;
-
-use heck::{ToPascalCase, ToSnakeCase};
 use miette::{ErrReport, NamedSource};
 use std::{collections::BTreeMap, vec};
 
@@ -12,8 +9,8 @@ use crate::atlas_c::{
             ast::{
                 AstArg, AstBinaryOp, AstBlock, AstDestructor, AstEnum, AstExpr, AstExternFunction,
                 AstFlag, AstFunction, AstGeneric, AstGenericConstraint, AstIdentifier, AstImport,
-                AstItem, AstLiteral, AstMethod, AstMethodModifier, AstProgram, AstStatement,
-                AstStruct, AstType, AstUnaryOp, AstUnion,
+                AstItem, AstLiteral, AstMethod, AstMethodModifier, AstNamespace, AstProgram,
+                AstStatement, AstStruct, AstType, AstUnaryOp, AstUnion,
             },
         },
     },
@@ -22,8 +19,7 @@ use crate::atlas_c::{
         arena::HirArena,
         error::{
             AssignmentCannotBeAnExpressionError, HirError, HirResult,
-            IncorrectIntrinsicCallArgumentsError, NonConstantValueError,
-            NullableTypeRequiresStdLibraryError, ReservedVariableNameError,
+            IncorrectIntrinsicCallArgumentsError, NonConstantValueError, ReservedVariableNameError,
             StructNameCannotBeOneLetterError, UnknownFileImportError, UnknownTypeError,
             UnsupportedExpr, UnsupportedItemError, UselessError,
         },
@@ -41,20 +37,25 @@ use crate::atlas_c::{
             HirUnion,
         },
         monomorphization_pass::generic_pool::HirGenericPool,
+        pretty_print::HirPrettyPrinter,
         signature::{
             ConstantValue, HirFunctionParameterSignature, HirFunctionSignature,
-            HirGenericConstraint, HirGenericConstraintKind, HirModuleSignature,
+            HirGenericConstraint, HirGenericConstraintKind, HirMethodAttribute, HirModuleSignature,
             HirStructConstantSignature, HirStructDestructorSignature, HirStructFieldSignature,
             HirStructMethodModifier, HirStructMethodSignature, HirStructSignature,
             HirTypeParameterItemSignature, HirUnionSignature, HirVisibility,
+        },
+        special_methods::{
+            INTRINSIC_ALIGNOF, INTRINSIC_SIZEOF, INTRINSIC_TYPE_ID, INTRINSIC_TYPE_OF,
+            SpecialMethodKind, expected_signature_for_struct, special_method_by_name,
+            special_method_enabled_by_flag,
         },
         stmt::{
             HirAssignStmt, HirBlock, HirExprStmt, HirIfElseStmt, HirReturn, HirStatement,
             HirVariableStmt, HirWhileStmt,
         },
-        syntax_lowering_pass::case::Case,
         ty::{HirGenericTy, HirNamedTy, HirTy},
-        warning::{HirWarning, NameShouldBeInDifferentCaseWarning, ThisTypeIsStillUnstableWarning},
+        warning::{HirWarning, SpecialMethodMightHaveWrongSignatureWarning},
     },
     utils::{self, Span},
 };
@@ -72,6 +73,7 @@ pub struct AstSyntaxLoweringPass<'ast, 'hir> {
     pub already_imported: BTreeMap<&'hir str, ()>,
     pub using_std: bool,
     temp_counter: usize,
+    namespace_stack: Vec<&'hir str>,
 }
 
 impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
@@ -92,16 +94,76 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             already_imported: BTreeMap::new(),
             using_std,
             temp_counter: 0,
+            namespace_stack: Vec::new(),
         }
     }
 }
 
 impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
+    fn qualified_name(&self, name: &str) -> String {
+        if self.namespace_stack.is_empty() || name.contains("::") {
+            return name.to_string();
+        }
+        let mut parts = self.namespace_stack.join("::");
+        parts.push_str("::");
+        parts.push_str(name);
+        parts
+    }
+
+    fn qualified_type_name(&self, name: &str) -> String {
+        // Type references are always explicit.
+        // If callers want namespaced types, they must write `ns::Type` directly.
+        name.to_string()
+    }
+
+    fn enter_namespace(&mut self, ns: &'hir str) {
+        self.namespace_stack.push(ns);
+    }
+
+    fn leave_namespace(&mut self) {
+        let _ = self.namespace_stack.pop();
+    }
+
+    fn visit_namespace(&mut self, node: &'ast AstNamespace<'ast>) -> HirResult<()> {
+        let ns_name = self.arena.names().get(node.name.name);
+        self.enter_namespace(ns_name);
+        for item in node.items {
+            self.visit_item(item)?;
+        }
+        self.leave_namespace();
+        Ok(())
+    }
+
     fn method_returns_self(&self, method: &HirStructMethod<'hir>, struct_name: &'hir str) -> bool {
         match &method.signature.return_ty {
             HirTy::Named(n) => n.name == struct_name,
             HirTy::Generic(g) => g.name == struct_name,
             _ => false,
+        }
+    }
+
+    fn special_method_matches_signature(
+        &self,
+        method: &HirStructMethod<'hir>,
+        kind: SpecialMethodKind,
+        struct_name: &'hir str,
+    ) -> bool {
+        match kind {
+            SpecialMethodKind::Copy => {
+                method.signature.modifier == HirStructMethodModifier::Const
+                    && method.signature.params.is_empty()
+                    && self.method_returns_self(method, struct_name)
+            }
+            SpecialMethodKind::Default => {
+                method.signature.modifier == HirStructMethodModifier::Static
+                    && method.signature.params.is_empty()
+                    && self.method_returns_self(method, struct_name)
+            }
+            SpecialMethodKind::Hash => {
+                method.signature.modifier == HirStructMethodModifier::Const
+                    && method.signature.params.is_empty()
+                    && &method.signature.return_ty == self.arena.types().get_uint_ty(64)
+            }
         }
     }
 
@@ -123,6 +185,9 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     }
     pub fn visit_item(&mut self, ast_item: &'ast AstItem<'ast>) -> HirResult<()> {
         match ast_item {
+            AstItem::Namespace(ns) => {
+                self.visit_namespace(ns)?;
+            }
             AstItem::Constant(c) => {
                 let path = ast_item.span().path;
                 let src = utils::get_file_content(path).unwrap();
@@ -144,16 +209,9 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
             AstItem::Function(ast_function) => {
                 let hir_func = self.visit_func(ast_function)?;
-                let name = self.arena.names().get(ast_function.name.name);
-                if !name.is_snake_case() {
-                    Self::name_should_be_in_different_case_warning(
-                        &ast_function.name.span,
-                        "snake_case",
-                        "function",
-                        name,
-                        &name.to_snake_case(),
-                    );
-                }
+                let qualified = self.qualified_name(ast_function.name.name);
+                let name = self.arena.names().get(&qualified);
+
                 self.module_signature
                     .functions
                     .insert(name, hir_func.signature);
@@ -210,42 +268,54 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             AstItem::ExternFunction(ast_extern_func) => {
                 self.visit_extern_func(ast_extern_func)?;
             }
+            AstItem::ExternUnion(ast_union) => {
+                let hir_union = self.visit_union(ast_union)?;
+                let qualified = self.qualified_name(ast_union.name.name);
+                let union_name = self.arena.names().get(&qualified);
+                self.module_body
+                    .unions
+                    .insert(union_name, hir_union.clone());
+                self.module_signature
+                    .unions
+                    .insert(union_name, self.arena.intern(hir_union.signature.clone()));
+            }
             AstItem::Enum(e) => {
                 let hir_enum = self.visit_enum(e)?;
-                self.module_body
+                let qualified = self.qualified_name(e.name.name);
+                let enum_name = self.arena.names().get(&qualified);
+                self.module_body.enums.insert(enum_name, hir_enum.clone());
+                self.module_signature
                     .enums
-                    .insert(self.arena.names().get(e.name.name), hir_enum.clone());
-                self.module_signature.enums.insert(
-                    self.arena.names().get(e.name.name),
-                    self.arena.intern(hir_enum),
-                );
+                    .insert(enum_name, self.arena.intern(hir_enum));
             }
             AstItem::Union(ast_union) => {
                 let hir_union = self.visit_union(ast_union)?;
-                self.module_body.unions.insert(
-                    self.arena.names().get(ast_union.name.name),
-                    hir_union.clone(),
-                );
-                self.module_signature.unions.insert(
-                    self.arena.names().get(ast_union.name.name),
-                    self.arena.intern(hir_union.signature.clone()),
-                );
+                let qualified = self.qualified_name(ast_union.name.name);
+                let union_name = self.arena.names().get(&qualified);
+                self.module_body
+                    .unions
+                    .insert(union_name, hir_union.clone());
+                self.module_signature
+                    .unions
+                    .insert(union_name, self.arena.intern(hir_union.signature.clone()));
+            }
+            _ => {
+                let path = ast_item.span().path;
+                let src = utils::get_file_content(path).unwrap();
+                return Err(HirError::UnsupportedItem(UnsupportedItemError {
+                    span: ast_item.span(),
+                    item: format!("{:?}", ast_item),
+                    src: NamedSource::new(path, src),
+                }));
             }
         }
         Ok(())
     }
 
     fn visit_union(&mut self, ast_union: &'ast AstUnion<'ast>) -> HirResult<HirUnion<'hir>> {
-        let name = self.arena.names().get(ast_union.name.name);
-        if !name.is_pascal_case() {
-            Self::name_should_be_in_different_case_warning(
-                &ast_union.name.span,
-                "PascalCase",
-                "union",
-                name,
-                &name.to_pascal_case(),
-            );
-        }
+        let qualified = self.qualified_name(ast_union.name.name);
+        let name = self.arena.names().get(&qualified);
+
         if name.len() == 1 {
             return Err(Self::name_single_character_error(&ast_union.name.span));
         }
@@ -303,6 +373,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             } else {
                 None
             },
+            is_extern: ast_union.is_extern,
+            c_name: ast_union.c_name.map(|name| self.arena.names().get(name)),
         };
         let hir = HirUnion {
             span: ast_union.span,
@@ -317,16 +389,9 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     }
 
     fn visit_enum(&mut self, ast_enum: &'ast AstEnum<'ast>) -> HirResult<HirEnum<'hir>> {
-        let name = self.arena.names().get(ast_enum.name.name);
-        if !name.is_pascal_case() {
-            Self::name_should_be_in_different_case_warning(
-                &ast_enum.name.span,
-                "PascalCase",
-                "enum",
-                name,
-                &name.to_pascal_case(),
-            );
-        }
+        let qualified = self.qualified_name(ast_enum.name.name);
+        let name = self.arena.names().get(&qualified);
+
         if name.len() == 1 {
             return Err(Self::name_single_character_error(&ast_enum.name.span));
         }
@@ -356,16 +421,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     }
 
     fn visit_extern_func(&mut self, ast_extern_func: &AstExternFunction<'ast>) -> HirResult<()> {
-        let name = self.arena.names().get(ast_extern_func.name.name);
-        if !name.is_snake_case() {
-            Self::name_should_be_in_different_case_warning(
-                &ast_extern_func.name.span,
-                "snake_case",
-                "extern function",
-                name,
-                &name.to_snake_case(),
-            );
-        }
+        let qualified = self.qualified_name(ast_extern_func.name.name);
+        let name = self.arena.names().get(&qualified);
         let ty = self.visit_ty(ast_extern_func.ret_ty)?.clone();
 
         let mut params: Vec<HirFunctionParameterSignature<'hir>> = Vec::new();
@@ -427,22 +484,18 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 None
             },
             is_intrinsic: matches!(ast_extern_func.flag, AstFlag::Intrinsic(_)),
+            c_name: ast_extern_func
+                .c_name
+                .map(|name| self.arena.names().get(name)),
         });
         self.module_signature.functions.insert(name, hir);
         Ok(())
     }
 
     fn visit_struct(&mut self, node: &'ast AstStruct<'ast>) -> HirResult<HirStruct<'hir>> {
-        let name = self.arena.names().get(node.name.name);
-        if !name.is_pascal_case() {
-            Self::name_should_be_in_different_case_warning(
-                &node.name.span,
-                "PascalCase",
-                "struct",
-                name,
-                &name.to_pascal_case(),
-            );
-        }
+        let qualified = self.qualified_name(node.name.name);
+        let name = self.arena.names().get(&qualified);
+
         if name.len() == 1 {
             return Err(Self::name_single_character_error(&node.name.span));
         }
@@ -537,19 +590,48 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             None
         };
 
-        let has_copy_method = methods.iter().any(|method| {
-            method.name == "copy"
-                && method.signature.modifier == HirStructMethodModifier::Const
-                && method.signature.params.len() == 1
-                && self.method_returns_self(method, name)
-        });
-        let has_default_method = methods.iter().any(|method| {
-            method.name == "default"
-                && method.signature.modifier == HirStructMethodModifier::Static
-                && method.signature.params.is_empty()
-                && self.method_returns_self(method, name)
-        });
+        let mut has_copy_method = false;
+        let mut has_default_method = false;
+        let mut has_hash_method = false;
+        for method in methods.iter() {
+            if let Some(descriptor) = special_method_by_name(method.name) {
+                let kind = descriptor.kind;
+                if self.special_method_matches_signature(method, kind, name) {
+                    match kind {
+                        SpecialMethodKind::Copy => has_copy_method = true,
+                        SpecialMethodKind::Default => has_default_method = true,
+                        SpecialMethodKind::Hash => has_hash_method = true,
+                    }
+                    continue;
+                }
+
+                // We only warn because it's not really an error to have this method name
+                // with a different signature, though it's most probably a mistake.
+                let path = method.span.path;
+                let src = utils::get_file_content(path).unwrap();
+                let mut pretty_printer = HirPrettyPrinter::new();
+                pretty_printer.print_method_signature(method.name, method.signature);
+                let signature = pretty_printer.get_output();
+                self.warnings
+                    .push(HirWarning::SpecialMethodMightHaveWrongSignature(
+                        SpecialMethodMightHaveWrongSignatureWarning {
+                            signature,
+                            expected_signature: expected_signature_for_struct(kind, name),
+                            method_name: method.name.into(),
+                            src: NamedSource::new(path, src),
+                            span: method.span,
+                        },
+                    ));
+            }
+        }
+
         let is_trivially_copyable = matches!(node.flag, AstFlag::TriviallyCopyable(_));
+        let has_copy_capability =
+            has_copy_method || special_method_enabled_by_flag(SpecialMethodKind::Copy, node.flag);
+        let has_default_capability = has_default_method
+            || special_method_enabled_by_flag(SpecialMethodKind::Default, node.flag);
+        let has_hash_capability =
+            has_hash_method || special_method_enabled_by_flag(SpecialMethodKind::Hash, node.flag);
 
         let signature = HirStructSignature {
             declaration_span: node.span,
@@ -579,15 +661,18 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             generics,
             destructor: destructor.as_ref().map(|d| d.signature.clone()),
             had_user_defined_destructor,
-            is_std_copyable: has_copy_method || is_trivially_copyable,
-            is_std_default: has_default_method,
+            is_std_copyable: has_copy_capability,
+            is_std_default: has_default_capability,
+            is_std_hashable: has_hash_capability,
             is_trivially_copyable,
+            nullable_attribute_span: node.nullable_attribute_span,
             docstring: if let Some(docstring) = node.docstring {
                 Some(self.arena.names().get(docstring))
             } else {
                 None
             },
             is_extern: node.is_extern,
+            c_name: node.c_name.map(|name| self.arena.names().get(name)),
         };
 
         Ok(HirStruct {
@@ -666,6 +751,12 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             where_clause,
             // Sets to true by default; monomorphization pass will update if needed
             is_constraint_satisfied: true,
+            attributes: node
+                .attributes
+                .iter()
+                .map(|attr| HirMethodAttribute::from(**attr))
+                .collect(),
+            is_instantiated: true,
             docstring: if let Some(docstring) = node.docstring {
                 Some(self.arena.names().get(docstring))
             } else {
@@ -958,15 +1049,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
             AstStatement::Const(ast_const) => {
                 let name = self.arena.names().get(ast_const.name.name);
-                if !name.is_snake_case() {
-                    Self::name_should_be_in_different_case_warning(
-                        &ast_const.span,
-                        "snake_case",
-                        "constant",
-                        name,
-                        &name.to_snake_case(),
-                    );
-                }
+
                 if name.starts_with("__tmp") {
                     let path = ast_const.span.path;
                     let src = crate::atlas_c::utils::get_file_content(path).unwrap();
@@ -1002,15 +1085,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         span: ast_let.name.span,
                     }));
                 }
-                if !name.is_snake_case() {
-                    Self::name_should_be_in_different_case_warning(
-                        &ast_let.span,
-                        "snake_case",
-                        "variable",
-                        name,
-                        &name.to_snake_case(),
-                    );
-                }
+
                 let ty = ast_let.ty.map(|ty| self.visit_ty(ty)).transpose()?;
 
                 let value = self.visit_expr(ast_let.value)?;
@@ -1371,7 +1446,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 match &callee {
                     HirExpr::Ident(ident) => {
                         match ident.name {
-                            "size_of" => {
+                            INTRINSIC_TYPE_ID => {
                                 if c.generics.len() != 1 {
                                     let path = node.span().path;
                                     let src =
@@ -1379,7 +1454,99 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                                     return Err(HirError::IncorrectIntrinsicCallArguments(
                                         IncorrectIntrinsicCallArgumentsError {
                                             span: node.span(),
-                                            name: "size_of".to_string(),
+                                            name: INTRINSIC_TYPE_ID.to_string(),
+                                            expected: 1,
+                                            found: c.generics.len(),
+                                            src: NamedSource::new(path, src),
+                                        },
+                                    ));
+                                }
+                                let ty = self.arena.types().get_uint_ty(64);
+                                let hir = HirExpr::IntrinsicCall(HirIntrinsicCallExpr {
+                                    name: INTRINSIC_TYPE_ID,
+                                    args: vec![],
+                                    args_ty: vec![self.visit_ty(c.generics[0])?],
+                                    span: node.span(),
+                                    ty,
+                                });
+                                return Ok(hir);
+                            }
+                            INTRINSIC_TYPE_OF => {
+                                if c.generics.len() != 1 {
+                                    let path = node.span().path;
+                                    let src =
+                                        crate::atlas_c::utils::get_file_content(path).unwrap();
+                                    return Err(HirError::IncorrectIntrinsicCallArguments(
+                                        IncorrectIntrinsicCallArgumentsError {
+                                            span: node.span(),
+                                            name: INTRINSIC_TYPE_OF.to_string(),
+                                            expected: 1,
+                                            found: c.generics.len(),
+                                            src: NamedSource::new(path, src),
+                                        },
+                                    ));
+                                }
+                                let type_info_span = self
+                                    .ast
+                                    .items
+                                    .iter()
+                                    .find_map(|item| {
+                                        if let AstItem::Struct(s) = item
+                                            && s.name.name == "core::type_info"
+                                        {
+                                            return Some(s.name_span);
+                                        }
+                                        None
+                                    })
+                                    .unwrap_or(node.span());
+                                let ty = self
+                                    .arena
+                                    .types()
+                                    .get_named_ty("core::type_info", type_info_span);
+                                let target_ty = self.visit_ty(c.generics[0])?;
+                                let hir = HirExpr::IntrinsicCall(HirIntrinsicCallExpr {
+                                    name: INTRINSIC_TYPE_OF,
+                                    args: vec![],
+                                    args_ty: vec![target_ty],
+                                    span: node.span(),
+                                    ty,
+                                });
+                                return Ok(hir);
+                            }
+                            INTRINSIC_SIZEOF => {
+                                if c.generics.len() != 1 {
+                                    let path = node.span().path;
+                                    let src =
+                                        crate::atlas_c::utils::get_file_content(path).unwrap();
+                                    return Err(HirError::IncorrectIntrinsicCallArguments(
+                                        IncorrectIntrinsicCallArgumentsError {
+                                            span: node.span(),
+                                            name: INTRINSIC_SIZEOF.to_string(),
+                                            expected: 1,
+                                            found: c.generics.len(),
+                                            src: NamedSource::new(path, src),
+                                        },
+                                    ));
+                                }
+                                let ty = self.arena.types().get_uint_ty(64);
+                                let hir = HirExpr::IntrinsicCall(HirIntrinsicCallExpr {
+                                    name: INTRINSIC_SIZEOF,
+                                    args: vec![],
+                                    args_ty: vec![ty],
+                                    span: node.span(),
+                                    ty,
+                                });
+                                return Ok(hir);
+                            }
+                            INTRINSIC_ALIGNOF => {
+                                if c.generics.len() != 1 {
+                                    let path = node.span().path;
+                                    let src =
+                                        crate::atlas_c::utils::get_file_content(path).unwrap();
+                                    return Err(HirError::IncorrectIntrinsicCallArguments(
+                                        IncorrectIntrinsicCallArgumentsError {
+                                            span: node.span(),
+                                            name: INTRINSIC_ALIGNOF.to_string(),
                                             expected: 1,
                                             found: c.generics.len(),
                                             src: NamedSource::new(path, src),
@@ -1388,7 +1555,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                                 }
                                 let ty = self.visit_ty(c.generics[0])?;
                                 let hir = HirExpr::IntrinsicCall(HirIntrinsicCallExpr {
-                                    name: "size_of",
+                                    name: INTRINSIC_ALIGNOF,
                                     args: vec![],
                                     args_ty: vec![ty],
                                     span: node.span(),
@@ -1396,43 +1563,77 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                                 });
                                 return Ok(hir);
                             }
-                            "align_of" => {
-                                if c.generics.len() != 1 {
+                            "std::ptr::write" => {
+                                // std::ptr::write<T>(*T, T);
+                                if c.args.len() != 2 {
                                     let path = node.span().path;
                                     let src =
                                         crate::atlas_c::utils::get_file_content(path).unwrap();
                                     return Err(HirError::IncorrectIntrinsicCallArguments(
                                         IncorrectIntrinsicCallArgumentsError {
                                             span: node.span(),
-                                            name: "align_of".to_string(),
-                                            expected: 1,
-                                            found: c.generics.len(),
+                                            name: "std::ptr::write".to_string(),
+                                            expected: 2,
+                                            found: c.args.len(),
                                             src: NamedSource::new(path, src),
                                         },
                                     ));
                                 }
-                                let ty = self.visit_ty(c.generics[0])?;
+                                let ptr_expr = self.visit_expr(c.args[0])?;
+                                let val_expr = self.visit_expr(c.args[1])?;
                                 let hir = HirExpr::IntrinsicCall(HirIntrinsicCallExpr {
-                                    name: "align_of",
-                                    args: vec![],
-                                    args_ty: vec![ty],
+                                    name: "std::ptr::write",
+                                    ty: self.arena.types().get_unit_ty(),
+                                    args: vec![ptr_expr, val_expr],
+                                    // Don't prefill `args_ty` with `uninitialized` here —
+                                    // leave it empty so the type checker infers parameter
+                                    // types from the actual argument expressions.
+                                    args_ty: vec![],
                                     span: node.span(),
-                                    ty,
                                 });
                                 return Ok(hir);
                             }
-                            "move" => {
-                                // move<T>(T) -> T
-                                if c.generics.len() != 1 && c.args.len() != 1 {
+                            "std::ptr::read" => {
+                                // std::ptr::read<T>(*T) -> T;
+                                if c.args.len() != 1 {
                                     let path = node.span().path;
                                     let src =
                                         crate::atlas_c::utils::get_file_content(path).unwrap();
                                     return Err(HirError::IncorrectIntrinsicCallArguments(
                                         IncorrectIntrinsicCallArgumentsError {
                                             span: node.span(),
-                                            name: "move".to_string(),
+                                            name: "std::ptr::read".to_string(),
                                             expected: 1,
-                                            found: c.generics.len(),
+                                            found: c.args.len(),
+                                            src: NamedSource::new(path, src),
+                                        },
+                                    ));
+                                }
+                                let ptr_expr = self.visit_expr(c.args[0])?;
+                                let hir = HirExpr::IntrinsicCall(HirIntrinsicCallExpr {
+                                    name: "std::ptr::read",
+                                    ty: self.arena.types().get_uninitialized_ty(),
+                                    args: vec![ptr_expr],
+                                    // Don't prefill `args_ty` with `uninitialized` here —
+                                    // leave it empty so the type checker infers parameter
+                                    // types from the actual argument expressions.
+                                    args_ty: vec![],
+                                    span: node.span(),
+                                });
+                                return Ok(hir);
+                            }
+                            "std::move" => {
+                                // std::move<T>(T) -> T
+                                if c.args.len() != 1 {
+                                    let path = node.span().path;
+                                    let src =
+                                        crate::atlas_c::utils::get_file_content(path).unwrap();
+                                    return Err(HirError::IncorrectIntrinsicCallArguments(
+                                        IncorrectIntrinsicCallArgumentsError {
+                                            span: node.span(),
+                                            name: "std::move".to_string(),
+                                            expected: 1,
+                                            found: c.args.len(),
                                             src: NamedSource::new(path, src),
                                         },
                                     ));
@@ -1440,7 +1641,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                                 //let ty = self.visit_ty(c.generics[0])?;
                                 let src_expr = self.visit_expr(c.args[0])?;
                                 let hir = HirExpr::IntrinsicCall(HirIntrinsicCallExpr {
-                                    name: "move",
+                                    name: "std::move",
                                     ty: src_expr.ty(),
                                     args: vec![src_expr],
                                     // Don't prefill `args_ty` with `uninitialized` here —
@@ -1475,6 +1676,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     callee_span: callee.span(),
                     args,
                     generics,
+                    is_reference: c.is_reference,
                     args_ty: Vec::new(),
                     ty: self.arena.types().get_uninitialized_ty(),
                     kind: HirFunctionKind::Function,
@@ -1616,11 +1818,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         HirExpr::StringLiteral(HirStringLiteralExpr {
                             span: l.span(),
                             value: self.arena.intern(ast_string.value.to_owned()),
-                            ty: self.arena.types().get_ptr_ty(
-                                self.arena.types().get_uint_ty(8),
-                                false,
-                                l.span(),
-                            ),
+                            ty: self.arena.types().get_str_ty(),
                         })
                     }
                     AstLiteral::List(l) => {
@@ -1711,7 +1909,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             AstBinaryOp::Gte => HirBinaryOperator::Gte,
             AstBinaryOp::And => HirBinaryOperator::And,
             AstBinaryOp::Or => HirBinaryOperator::Or,
-            //Other operators will soon come
+            AstBinaryOp::ShL => HirBinaryOperator::ShL,
+            AstBinaryOp::ShR => HirBinaryOperator::ShR,
+            AstBinaryOp::BinAnd => HirBinaryOperator::BinAnd,
+            AstBinaryOp::BinOr => HirBinaryOperator::BinOr,
+            AstBinaryOp::BinXor => HirBinaryOperator::BinXor,
         };
         Ok(op)
     }
@@ -1766,10 +1968,14 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             } else {
                 None
             },
+            c_name: None,
         });
         let fun = HirFunction {
             span: node.span,
-            name: self.arena.names().get(node.name.name),
+            name: {
+                let qualified = self.qualified_name(node.name.name);
+                self.arena.names().get(&qualified)
+            },
             name_span: node.name.span,
             signature,
             body,
@@ -1819,7 +2025,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             AstType::Unit(_) => self.arena.types().get_unit_ty(),
             AstType::String(_) => self.arena.types().get_str_ty(),
             AstType::Named(n) => {
-                let name = self.arena.names().get(n.name.name);
+                let qualified = self.qualified_type_name(n.name.name);
+                let name = self.arena.names().get(&qualified);
                 self.arena.types().get_named_ty(name, n.span)
             }
             AstType::Slice(l) => {
@@ -1830,23 +2037,15 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 let ty = self.visit_ty(arr.inner)?;
                 self.arena.types().get_inline_arr_ty(ty, arr.size)
             }
-            AstType::Nullable(n) => {
-                if !self.using_std {
-                    let path = node.span().path;
-                    let src = crate::atlas_c::utils::get_file_content(path).unwrap();
-                    return Err(HirError::NullableTypeRequiresStdLibrary(
-                        NullableTypeRequiresStdLibraryError {
-                            span: node.span(),
-                            src: NamedSource::new(path, src),
-                        },
-                    ));
-                }
-                //They should not be unstable, but who knows
-                Self::nullable_types_are_unstable_warning(&node.span());
-                let ty = self.visit_ty(n.inner)?;
-                self.arena
-                    .types()
-                    .get_generic_ty("Option", vec![ty], n.span)
+            AstType::Nullable(_) => {
+                let path = node.span().path;
+                let src = utils::get_file_content(path)
+                    .unwrap_or_else(|_| panic!("Failed to open file {path}"));
+                return Err(HirError::UnknownType(UnknownTypeError {
+                    name: node.name(),
+                    span: node.span(),
+                    src: NamedSource::new(path, src),
+                }));
             }
             AstType::Generic(g) => {
                 let inner_types = g
@@ -1854,7 +2053,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     .iter()
                     .map(|inner_ast_ty| self.visit_ty(inner_ast_ty))
                     .collect::<HirResult<Vec<_>>>()?;
-                let name = self.arena.names().get(g.name.name);
+                let qualified = self.qualified_type_name(g.name.name);
+                let name = self.arena.names().get(&qualified);
                 let ty = self
                     .arena
                     .types()
@@ -1863,6 +2063,16 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     self.register_generic_type(g);
                 }
                 ty
+            }
+            AstType::Variadic(_) => {
+                let path = node.span().path;
+                let src = utils::get_file_content(path)
+                    .unwrap_or_else(|_| panic!("Failed to open file {path}"));
+                return Err(HirError::UnknownType(UnknownTypeError {
+                    name: node.name(),
+                    span: node.span(),
+                    src: NamedSource::new(path, src),
+                }));
             }
             //The "this" ty is replaced during the type checking phase
             AstType::ThisTy(_) => self.arena.types().get_uninitialized_ty(),
@@ -1874,15 +2084,20 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
             AstType::Function(func_ty) => {
                 let span = func_ty.span;
+                let param_spans = func_ty.args.iter().map(|arg| arg.span()).collect();
                 let parameters = func_ty
                     .args
                     .iter()
                     .map(|arg| self.visit_ty(arg))
                     .collect::<HirResult<Vec<_>>>()?;
                 let return_ty = self.visit_ty(func_ty.ret)?;
-                self.arena
-                    .types()
-                    .get_function_ty(parameters, return_ty, span)
+                self.arena.types().get_function_ty_with_spans(
+                    parameters,
+                    param_spans,
+                    return_ty,
+                    func_ty.ret.span(),
+                    span,
+                )
             }
             AstType::Const(_) => {
                 let path = node.span().path;
@@ -1896,45 +2111,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
         };
         Ok(ty)
-    }
-
-    fn nullable_types_are_unstable_warning(span: &Span) {
-        let path = span.path;
-        let src = crate::atlas_c::utils::get_file_content(path).unwrap();
-        let report: ErrReport =
-            HirWarning::ThisTypeIsStillUnstable(ThisTypeIsStillUnstableWarning {
-                src: NamedSource::new(path, src),
-                span: *span,
-                type_name: "The nullable type".to_string(),
-                info: "Nullable types haven't been properly stabilized yet. Also they are just syntactic sugar for `optional<T>`".to_string(),
-            })
-            .into();
-        eprintln!("{:?}", report);
-    }
-
-    fn name_should_be_in_different_case_warning(
-        span: &Span,
-        case_kind: &str,
-        item_kind: &str,
-        name: &str,
-        expected_name: &str,
-    ) {
-        let path = span.path;
-        //The standard library can do whatever it wants
-        if !path.starts_with("std") {
-            let src = crate::atlas_c::utils::get_file_content(path).unwrap();
-            let report: ErrReport =
-                HirWarning::NameShouldBeInDifferentCase(NameShouldBeInDifferentCaseWarning {
-                    src: NamedSource::new(path, src),
-                    span: *span,
-                    case_kind: case_kind.to_string(),
-                    item_kind: item_kind.to_string(),
-                    name: name.to_string(),
-                    expected_name: expected_name.to_string(),
-                })
-                .into();
-            eprintln!("{:?}", report);
-        }
     }
 
     fn name_single_character_error(span: &Span) -> HirError {

@@ -16,9 +16,12 @@ pub struct AstProgram<'ast> {
 //todo: Add classes and a trait-ish stuff
 pub enum AstItem<'ast> {
     Import(AstImport<'ast>),
+    Namespace(AstNamespace<'ast>),
     Struct(AstStruct<'ast>),
     ExternFunction(AstExternFunction<'ast>),
     ExternStruct(AstStruct<'ast>),
+    ExternUnion(AstUnion<'ast>),
+    ExternConstant(AstGlobalConst<'ast>),
     Function(AstFunction<'ast>),
     Enum(AstEnum<'ast>),
     Union(AstUnion<'ast>),
@@ -29,41 +32,75 @@ impl AstItem<'_> {
     pub fn set_vis(&mut self, vis: AstVisibility) {
         match self {
             AstItem::Import(_) => {}
+            AstItem::Namespace(v) => v.vis = vis,
             AstItem::Struct(v) => v.vis = vis,
             AstItem::ExternFunction(v) => v.vis = vis,
             AstItem::ExternStruct(v) => v.vis = vis,
             AstItem::Function(v) => v.vis = vis,
             AstItem::Enum(v) => v.vis = vis,
             AstItem::Union(v) => v.vis = vis,
+            AstItem::ExternUnion(v) => v.vis = vis,
             AstItem::Constant(v) => v.vis = vis,
+            AstItem::ExternConstant(v) => v.vis = vis,
         }
     }
     pub fn set_flag(&mut self, flag: AstFlag) {
         match self {
             AstItem::Struct(v) => v.flag = flag,
             AstItem::ExternFunction(f) => f.flag = flag,
+            AstItem::Namespace(_) => {}
             _ => {}
         }
     }
+
     pub fn span(&self) -> Span {
         match self {
             AstItem::Import(v) => v.span,
+            AstItem::Namespace(v) => v.span,
             AstItem::Struct(v) => v.span,
             AstItem::ExternFunction(v) => v.span,
             AstItem::ExternStruct(v) => v.span,
             AstItem::Function(v) => v.span,
             AstItem::Enum(v) => v.span,
             AstItem::Union(v) => v.span,
+            AstItem::ExternUnion(v) => v.span,
             AstItem::Constant(v) => v.span,
+            AstItem::ExternConstant(v) => v.span,
         }
     }
 }
 
 impl<'ast> AstItem<'ast> {
+    pub fn set_nullable_marker(&mut self, span: Span) {
+        match self {
+            AstItem::Struct(v) => v.nullable_attribute_span = Some(span),
+            AstItem::ExternStruct(v) => v.nullable_attribute_span = Some(span),
+            _ => {}
+        }
+    }
+
+    pub fn set_c_name(&mut self, c_name: &'ast str) {
+        match self {
+            AstItem::ExternFunction(v) => v.c_name = Some(c_name),
+            AstItem::ExternStruct(v) => v.c_name = Some(c_name),
+            AstItem::ExternUnion(u) => u.c_name = Some(c_name),
+            _ => {}
+        }
+    }
+
     // If there is already a docstring, we need to push the new one before it
     pub fn set_docstring(&mut self, docstring: &'ast str, arena: &'ast AstArena<'ast>) {
         match self {
             AstItem::Struct(v) => match v.docstring {
+                Some(existing) => {
+                    let combined = format!("{}\n{}", docstring, existing);
+                    v.docstring = Some(arena.alloc(combined));
+                }
+                None => {
+                    v.docstring = Some(docstring);
+                }
+            },
+            AstItem::Namespace(v) => match v.docstring {
                 Some(existing) => {
                     let combined = format!("{}\n{}", docstring, existing);
                     v.docstring = Some(arena.alloc(combined));
@@ -131,6 +168,15 @@ impl<'ast> AstItem<'ast> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct AstNamespace<'ast> {
+    pub span: Span,
+    pub name: &'ast AstIdentifier<'ast>,
+    pub items: &'ast [&'ast AstItem<'ast>],
+    pub vis: AstVisibility,
+    pub docstring: Option<&'ast str>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 /// Flags that can be applied to AST nodes
 /// Currently used for marking structs as copyable or non-copyable
@@ -152,6 +198,8 @@ pub enum AstFlag {
     Copyable(Span),
     TriviallyCopyable(Span),
     NonCopyable(Span),
+    Default(Span),
+    Hashable(Span),
     Intrinsic(Span),
     #[default]
     None,
@@ -165,6 +213,7 @@ pub struct AstGlobalConst<'ast> {
     pub value: &'ast AstExpr<'ast>,
     pub vis: AstVisibility,
     pub docstring: Option<&'ast str>,
+    pub is_extern: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -176,6 +225,9 @@ pub struct AstUnion<'ast> {
     pub vis: AstVisibility,
     pub variants: &'ast [&'ast AstObjField<'ast>],
     pub docstring: Option<&'ast str>,
+    pub is_extern: bool,
+    /// Optional C symbol/type name override, used for extern structs.
+    pub c_name: Option<&'ast str>,
 }
 
 #[derive(Debug, Clone)]
@@ -186,6 +238,7 @@ pub struct AstEnum<'ast> {
     pub vis: AstVisibility,
     pub variants: &'ast [&'ast AstEnumVariant<'ast>],
     pub docstring: Option<&'ast str>,
+    pub is_extern: bool,
 }
 #[derive(Debug, Clone)]
 pub struct AstEnumVariant<'ast> {
@@ -253,6 +306,10 @@ pub struct AstStruct<'ast> {
     pub flag: AstFlag,
     pub docstring: Option<&'ast str>,
     pub is_extern: bool,
+    /// Marker set by `#[std::nullable]` on the struct declaration.
+    pub nullable_attribute_span: Option<Span>,
+    /// Optional C symbol/type name override, used for extern structs.
+    pub c_name: Option<&'ast str>,
 }
 
 #[derive(Debug, Clone, Default, Copy)]
@@ -272,6 +329,23 @@ pub enum AstMethodModifier {
     /// e.g.: `fun into_iter(this) -> Iter<T> { ... }`
     #[default]
     Consuming,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AstNullablePredicateSemantics {
+    Empty,
+    Present,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AstMethodAttribute {
+    Nullable(Span),
+    NullablePredicate {
+        span: Span,
+        semantics: AstNullablePredicateSemantics,
+    },
+    NullableGuarded(Span),
+    NullableInfallible(Span),
 }
 
 #[derive(Debug, Clone)]
@@ -322,6 +396,7 @@ pub struct AstMethod<'ast> {
     /// Optional where clause containing constraints on struct and method generics.
     /// During syntax lowering, method-level generic constraints are moved into the `generics` field as bounds.
     pub where_clause: Option<&'ast [&'ast AstGeneric<'ast>]>,
+    pub attributes: &'ast [&'ast AstMethodAttribute],
     pub docstring: Option<&'ast str>,
 }
 
@@ -369,6 +444,8 @@ pub struct AstExternFunction<'ast> {
     pub vis: AstVisibility,
     pub flag: AstFlag,
     pub docstring: Option<&'ast str>,
+    /// Optional C symbol name override used during codegen.
+    pub c_name: Option<&'ast str>,
 }
 
 #[derive(Debug, Clone)]
@@ -561,6 +638,9 @@ pub struct AstCallExpr<'ast> {
     pub callee: &'ast AstExpr<'ast>,
     pub args: &'ast [&'ast AstExpr<'ast>],
     pub generics: &'ast [&'ast AstType<'ast>],
+    /// True when this expression denotes a generic function value reference
+    /// (e.g. `add<int64>`) rather than an invocation.
+    pub is_reference: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -601,6 +681,11 @@ pub enum AstBinaryOp {
     Gte,
     And,
     Or,
+    ShL,
+    ShR,
+    BinAnd,
+    BinOr,
+    BinXor,
 }
 
 impl TryFrom<TokenKind> for AstBinaryOp {
@@ -620,6 +705,9 @@ impl TryFrom<TokenKind> for AstBinaryOp {
             TokenKind::OpGreaterThanEq => Ok(AstBinaryOp::Gte),
             TokenKind::OpAnd => Ok(AstBinaryOp::And),
             TokenKind::OpOr => Ok(AstBinaryOp::Or),
+            TokenKind::Ampersand => Ok(AstBinaryOp::BinAnd),
+            TokenKind::Pipe => Ok(AstBinaryOp::BinOr),
+            TokenKind::Caret => Ok(AstBinaryOp::BinXor),
             _ => Err(format!("{:?}", value)),
         }
     }
@@ -774,6 +862,7 @@ pub enum AstType<'ast> {
     Slice(AstSliceType<'ast>),
     InlineArray(AstInlineArrayType<'ast>),
     Generic(AstGenericType<'ast>),
+    Variadic(AstVariadicType<'ast>),
     PtrTy(AstPtrTy<'ast>),
     Const(&'ast AstType<'ast>),
 }
@@ -801,6 +890,7 @@ impl AstType<'_> {
             AstType::Slice(t) => t.span,
             AstType::InlineArray(t) => t.span,
             AstType::Generic(t) => t.span,
+            AstType::Variadic(t) => t.span,
             AstType::PtrTy(t) => t.span,
             AstType::Const(c) => c.span(),
         }
@@ -815,7 +905,7 @@ impl AstType<'_> {
             AstType::UnsignedInteger(u) => format!("uint{}", u.size_in_bits),
             AstType::Char(_) => "char".to_owned(),
             AstType::ThisTy(_) => "This".to_owned(),
-            AstType::String(_) => "string".to_owned(),
+            AstType::String(_) => "str".to_owned(),
             AstType::Named(t) => t.name.name.to_owned(),
             AstType::Nullable(t) => format!("{}?", t.inner.name()),
             AstType::Slice(t) => format!("[{}]", t.inner.name()),
@@ -833,12 +923,18 @@ impl AstType<'_> {
                     format!("{}<{}>", t.name.name, params)
                 }
             }
-            //AstType::Function(_) => "fn".to_owned(),
+            AstType::Variadic(v) => format!("{}...", v.inner),
+            AstType::Function(f) => {
+                let args = f
+                    .args
+                    .iter()
+                    .map(|a| a.name())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("fn({}) -> {}", args, f.ret.name())
+            }
             AstType::PtrTy(ptr_ty) => format!("*{}", ptr_ty.inner.name()),
             AstType::Const(c) => c.name(),
-            _ => {
-                panic!("Type does not have a name yet")
-            }
         }
     }
 }
@@ -873,6 +969,13 @@ pub struct AstGenericType<'ast> {
     pub span: Span,
     pub name: &'ast AstIdentifier<'ast>,
     pub inner_types: &'ast [AstType<'ast>],
+}
+
+#[derive(Debug, Clone)]
+/// A variadic type in atlas has the form of `T...`, used for variadic functions and operators
+pub struct AstVariadicType<'ast> {
+    pub span: Span,
+    pub inner: &'ast AstType<'ast>,
 }
 
 #[derive(Debug, Clone)]

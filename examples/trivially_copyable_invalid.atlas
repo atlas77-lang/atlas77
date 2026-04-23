@@ -1,0 +1,13 @@
+#[std::trivially_copyable]
+struct Foo {
+    x: int64;
+    ~Foo() {
+        printf("%s\n", "Foo constructor called!");
+    }
+}
+
+fun main() {
+    let foo = Foo { .x = 42 };
+    let foo2 = foo;
+    let foo3 = foo2;
+}

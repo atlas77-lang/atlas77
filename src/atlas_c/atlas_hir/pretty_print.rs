@@ -114,6 +114,12 @@ impl HirPrettyPrinter {
             HirFlag::Copyable(_) => {
                 self.writeln("#[std::copyable]");
             }
+            HirFlag::Default(_) => {
+                self.writeln("#[std::default]");
+            }
+            HirFlag::Hashable(_) => {
+                self.writeln("#[std::hashable]");
+            }
             _ => {}
         }
 
@@ -244,8 +250,8 @@ impl HirPrettyPrinter {
     pub fn print_method_signature(&mut self, name: &str, method_sig: &HirStructMethodSignature) {
         self.write(&format!("fun {}(", name));
         match &method_sig.modifier {
-            HirStructMethodModifier::Const => self.write("&const this"),
-            HirStructMethodModifier::Mutable => self.write("&this"),
+            HirStructMethodModifier::Const => self.write("*const this"),
+            HirStructMethodModifier::Mutable => self.write("*this"),
             HirStructMethodModifier::Consuming => self.write("this"),
             HirStructMethodModifier::Static => {}
         }
@@ -634,7 +640,7 @@ impl HirPrettyPrinter {
             }
             HirTy::Boolean(_) => "bool".to_string(),
             HirTy::Char(_) => "char".to_string(),
-            HirTy::String(_) => "string".to_string(),
+            HirTy::String(_) => "str".to_string(),
             HirTy::Unit(_) => "unit".to_string(),
             HirTy::Named(n) => n.name.to_string(),
             HirTy::Slice(l) => format!("[{}]", Self::type_str(l.inner)),
