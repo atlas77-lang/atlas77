@@ -10,7 +10,7 @@ use crate::atlas_c::{
         ast::{
             AstArg, AstEnum, AstEnumVariant, AstFlag, AstGlobalConst, AstInlineArrayType,
             AstListLiteralWithSize, AstNullLiteral, AstObjLiteralExpr, AstObjLiteralField,
-            AstPtrTy, AstStdGenericConstraint, AstUnion,
+            AstPtrTy, AstStdGenericConstraint, AstUnion, AstVariadicType,
         },
         error::{
             ConstTypeNotSupportedYetError, DestructorWithParametersError, FlagDoesntExistError,
@@ -2555,7 +2555,7 @@ impl<'ast> Parser<'ast> {
                 let name = self.parse_identifier()?;
 
                 if self.current().kind == TokenKind::LAngle {
-                    //Manage generics i.e. `Foo[T, E, Array[B, T], ...]`
+                    //Manage generics i.e. `Foo<T, E, Array[B, T], ...>`
                     self.expect(TokenKind::LAngle)?;
                     let mut inner_types = vec![];
                     while self.current().kind() != TokenKind::RAngle {
@@ -2657,7 +2657,7 @@ impl<'ast> Parser<'ast> {
                     src: NamedSource::new(path, src),
                 };
                 eprintln!("{:?}", Into::<miette::Report>::into(warning));
-                return Ok(non_const_ty);
+                non_const_ty
             }
             _ => {
                 return Err(self.unexpected_token_error(
@@ -2675,6 +2675,12 @@ impl<'ast> Parser<'ast> {
         let node = if self.current().kind == TokenKind::Interrogation {
             let _ = self.advance();
             AstType::Nullable(AstNullableType {
+                span: Span::union_span(&start, &self.current().span()),
+                inner: self.arena.alloc(ty),
+            })
+        } else if self.current().kind == TokenKind::Ellipsis {
+            let _ = self.advance();
+            AstType::Variadic(AstVariadicType {
                 span: Span::union_span(&start, &self.current().span()),
                 inner: self.arena.alloc(ty),
             })

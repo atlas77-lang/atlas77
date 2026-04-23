@@ -202,6 +202,8 @@ pub enum TokenKind {
     DoubleDot,
     #[token(".")]
     Dot,
+    #[token("...")]
+    Ellipsis,
     #[token("#")]
     Hash,
     #[token("::")]

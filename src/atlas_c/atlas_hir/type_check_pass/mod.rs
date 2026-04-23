@@ -3460,6 +3460,10 @@ impl<'hir> TypeChecker<'hir> {
             }
             // TODO: Replace Unit type with a proper nullptr_t type
             (HirTy::PtrTy(_), HirTy::Unit(_)) => Ok(()),
+            // We silently ignore those errors, because they arise from earlier issues. e.g. if a variable
+            // is uninitialized, it will have type `!uninitialized` and any operation on it will be invalid,
+            // but we don't want to flood the user with type mismatch errors in that case.
+            (HirTy::Uninitialized(_), _) | (_, HirTy::Uninitialized(_)) => Ok(()),
             _ => {
                 if HirTyId::from(expected_ty) == HirTyId::from(found_ty) {
                     Ok(())
