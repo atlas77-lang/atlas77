@@ -2064,6 +2064,16 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 }
                 ty
             }
+            AstType::Variadic(_) => {
+                let path = node.span().path;
+                let src = utils::get_file_content(path)
+                    .unwrap_or_else(|_| panic!("Failed to open file {path}"));
+                return Err(HirError::UnknownType(UnknownTypeError {
+                    name: node.name(),
+                    span: node.span(),
+                    src: NamedSource::new(path, src),
+                }));
+            }
             //The "this" ty is replaced during the type checking phase
             AstType::ThisTy(_) => self.arena.types().get_uninitialized_ty(),
             AstType::PtrTy(ptr_ty) => {

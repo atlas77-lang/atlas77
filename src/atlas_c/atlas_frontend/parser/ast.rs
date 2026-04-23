@@ -862,6 +862,7 @@ pub enum AstType<'ast> {
     Slice(AstSliceType<'ast>),
     InlineArray(AstInlineArrayType<'ast>),
     Generic(AstGenericType<'ast>),
+    Variadic(AstVariadicType<'ast>),
     PtrTy(AstPtrTy<'ast>),
     Const(&'ast AstType<'ast>),
 }
@@ -889,6 +890,7 @@ impl AstType<'_> {
             AstType::Slice(t) => t.span,
             AstType::InlineArray(t) => t.span,
             AstType::Generic(t) => t.span,
+            AstType::Variadic(t) => t.span,
             AstType::PtrTy(t) => t.span,
             AstType::Const(c) => c.span(),
         }
@@ -921,12 +923,18 @@ impl AstType<'_> {
                     format!("{}<{}>", t.name.name, params)
                 }
             }
-            //AstType::Function(_) => "fn".to_owned(),
+            AstType::Variadic(v) => format!("{}...", v.inner),
+            AstType::Function(f) => {
+                let args = f
+                    .args
+                    .iter()
+                    .map(|a| a.name())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("fn({}) -> {}", args, f.ret.name())
+            }
             AstType::PtrTy(ptr_ty) => format!("*{}", ptr_ty.inner.name()),
             AstType::Const(c) => c.name(),
-            _ => {
-                panic!("Type does not have a name yet")
-            }
         }
     }
 }
@@ -961,6 +969,13 @@ pub struct AstGenericType<'ast> {
     pub span: Span,
     pub name: &'ast AstIdentifier<'ast>,
     pub inner_types: &'ast [AstType<'ast>],
+}
+
+#[derive(Debug, Clone)]
+/// A variadic type in atlas has the form of `T...`, used for variadic functions and operators
+pub struct AstVariadicType<'ast> {
+    pub span: Span,
+    pub inner: &'ast AstType<'ast>,
 }
 
 #[derive(Debug, Clone)]

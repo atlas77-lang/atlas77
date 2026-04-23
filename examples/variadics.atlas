@@ -1,0 +1,16 @@
+fun count<T>(t: T...) -> uint64 {
+    return 0;
+}
+
+extern fun panic(msg: str);
+
+fun assert(condition: bool) {
+    if !condition {
+        panic("Assertion failed");
+    }
+}
+
+fun main() {
+    let a = count<int8>(1, 2, 3);
+    assert(a == 3);
+}
