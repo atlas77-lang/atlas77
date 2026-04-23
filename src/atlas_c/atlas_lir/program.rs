@@ -464,9 +464,18 @@ pub enum LirOperand {
         index: Box<LirOperand>,
     },
     /// Immediate values
-    ImmInt(i64),
-    ImmUInt(u64),
-    ImmFloat(f64),
+    ImmInt {
+        val: i64,
+        size: u8,
+    },
+    ImmUInt {
+        val: u64,
+        size: u8,
+    },
+    ImmFloat {
+        val: f64,
+        size: u8,
+    },
     ImmBool(bool),
     ImmChar(char),
     ImmUnit,

@@ -644,13 +644,46 @@ impl<'hir> HirLoweringPass<'hir> {
     fn lower_expr(&mut self, expr: &'hir HirExpr<'hir>) -> LirResult<LirOperand> {
         match expr {
             // === Literals ===
-            HirExpr::IntegerLiteral(lit) => Ok(LirOperand::ImmInt(lit.value)),
+            HirExpr::IntegerLiteral(lit) => {
+                let size = match lit.ty {
+                    HirTy::Integer(i) => i.size_in_bits,
+                    _ => {
+                        return Err(unsupported_expr(lit.span, format!("{:?}", expr)));
+                    }
+                };
+                Ok(LirOperand::ImmInt {
+                    val: lit.value,
+                    size,
+                })
+            }
 
-            HirExpr::UnsignedIntegerLiteral(lit) => Ok(LirOperand::ImmUInt(lit.value)),
+            HirExpr::UnsignedIntegerLiteral(lit) => {
+                let size = match lit.ty {
+                    HirTy::UnsignedInteger(u) => u.size_in_bits,
+                    _ => {
+                        return Err(unsupported_expr(lit.span, format!("{:?}", expr)));
+                    }
+                };
+                Ok(LirOperand::ImmUInt {
+                    val: lit.value,
+                    size,
+                })
+            }
 
             HirExpr::BooleanLiteral(lit) => Ok(LirOperand::ImmBool(lit.value)),
 
-            HirExpr::FloatLiteral(lit) => Ok(LirOperand::ImmFloat(lit.value)),
+            HirExpr::FloatLiteral(lit) => {
+                let size = match lit.ty {
+                    HirTy::Float(f) => f.size_in_bits,
+                    _ => {
+                        return Err(unsupported_expr(lit.span, format!("{:?}", expr)));
+                    }
+                };
+                Ok(LirOperand::ImmFloat {
+                    val: lit.value,
+                    size,
+                })
+            }
 
             HirExpr::CharLiteral(lit) => Ok(LirOperand::ImmChar(lit.value)),
 
@@ -694,7 +727,10 @@ impl<'hir> HirLoweringPass<'hir> {
                     let src = self.lower_expr(item)?;
                     let index_operand = LirOperand::Index {
                         src: Box::new(dst.clone()),
-                        index: Box::new(LirOperand::ImmUInt(idx as u64)),
+                        index: Box::new(LirOperand::ImmUInt {
+                            val: idx as u64,
+                            size: 64,
+                        }),
                     };
                     self.emit(LirInstr::Assign {
                         ty: elem_lir_ty.clone(),
@@ -745,7 +781,10 @@ impl<'hir> HirLoweringPass<'hir> {
                 for idx in 0..size {
                     let index_operand = LirOperand::Index {
                         src: Box::new(dst.clone()),
-                        index: Box::new(LirOperand::ImmUInt(idx as u64)),
+                        index: Box::new(LirOperand::ImmUInt {
+                            val: idx as u64,
+                            size: 64,
+                        }),
                     };
                     self.emit(LirInstr::Assign {
                         ty: elem_lir_ty.clone(),
@@ -1051,7 +1090,7 @@ impl<'hir> HirLoweringPass<'hir> {
                             .collect(),
                     })?;
 
-                    return Ok(dest.unwrap_or(LirOperand::ImmInt(0)));
+                    return Ok(dest.unwrap_or(LirOperand::ImmInt { val: 0, size: 64 }));
                 }
 
                 // Get function name from callee
@@ -1234,7 +1273,7 @@ impl<'hir> HirLoweringPass<'hir> {
                 };
 
                 self.emit(instr)?;
-                Ok(dest.unwrap_or(LirOperand::ImmInt(0))) // unit value
+                Ok(dest.unwrap_or(LirOperand::ImmInt { val: 0, size: 64 })) // unit value
             }
 
             HirExpr::StaticAccess(_) => {
@@ -1339,7 +1378,10 @@ impl<'hir> HirLoweringPass<'hir> {
                     self.emit(LirInstr::LoadImm {
                         ty: LirTy::UInt64,
                         dst: dest.clone(),
-                        value: LirOperand::ImmUInt(size as u64),
+                        value: LirOperand::ImmUInt {
+                            val: size as u64,
+                            size: 64,
+                        },
                     })?;
                     Ok(dest)
                 }
@@ -1351,7 +1393,10 @@ impl<'hir> HirLoweringPass<'hir> {
                     self.emit(LirInstr::LoadImm {
                         ty: LirTy::UInt64,
                         dst: dest.clone(),
-                        value: LirOperand::ImmUInt(align as u64),
+                        value: LirOperand::ImmUInt {
+                            val: align as u64,
+                            size: 64,
+                        },
                     })?;
                     Ok(dest)
                 }
@@ -1364,21 +1409,21 @@ impl<'hir> HirLoweringPass<'hir> {
                             self.emit(LirInstr::LoadImm {
                                 ty: lir_target_ty,
                                 dst: dest.clone(),
-                                value: LirOperand::ImmInt(0),
+                                value: LirOperand::ImmInt { val: 0, size: 64 },
                             })?;
                         }
                         LirTy::UInt8 | LirTy::UInt16 | LirTy::UInt32 | LirTy::UInt64 => {
                             self.emit(LirInstr::LoadImm {
                                 ty: lir_target_ty,
                                 dst: dest.clone(),
-                                value: LirOperand::ImmUInt(0),
+                                value: LirOperand::ImmUInt { val: 0, size: 64 },
                             })?;
                         }
                         LirTy::Float32 | LirTy::Float64 => {
                             self.emit(LirInstr::LoadImm {
                                 ty: lir_target_ty,
                                 dst: dest.clone(),
-                                value: LirOperand::ImmFloat(0.0),
+                                value: LirOperand::ImmFloat { val: 0.0, size: 64 },
                             })?;
                         }
                         LirTy::Boolean => {
@@ -1413,7 +1458,7 @@ impl<'hir> HirLoweringPass<'hir> {
                             self.emit(LirInstr::LoadImm {
                                 ty: LirTy::UInt64,
                                 dst: zero.clone(),
-                                value: LirOperand::ImmUInt(0),
+                                value: LirOperand::ImmUInt { val: 0, size: 64 },
                             })?;
                             self.emit(LirInstr::Cast {
                                 ty: lir_target_ty,
@@ -1428,7 +1473,7 @@ impl<'hir> HirLoweringPass<'hir> {
                             self.emit(LirInstr::LoadImm {
                                 ty: LirTy::UInt64,
                                 dst: zero.clone(),
-                                value: LirOperand::ImmUInt(0),
+                                value: LirOperand::ImmUInt { val: 0, size: 64 },
                             })?;
                             self.emit(LirInstr::Cast {
                                 ty: lir_target_ty,
@@ -1456,7 +1501,7 @@ impl<'hir> HirLoweringPass<'hir> {
                             self.emit(LirInstr::LoadImm {
                                 ty: LirTy::UInt64,
                                 dst: dest.clone(),
-                                value: LirOperand::ImmUInt(0),
+                                value: LirOperand::ImmUInt { val: 0, size: 64 },
                             })?;
                             Ok(dest)
                         }
@@ -1512,7 +1557,7 @@ impl<'hir> HirLoweringPass<'hir> {
                         func_name: intrinsic.name.to_string(),
                         args,
                     })?;
-                    Ok(dest.unwrap_or(LirOperand::ImmInt(0)))
+                    Ok(dest.unwrap_or(LirOperand::ImmInt { val: 0, size: 64 }))
                 }
             },
         }
@@ -1899,8 +1944,20 @@ impl<'hir> HirLoweringPass<'hir> {
             "mangled_name".to_string(),
             LirOperand::Const(ConstantValue::String(mangled_name)),
         );
-        field_values.insert("size".to_string(), LirOperand::ImmUInt(size as u64));
-        field_values.insert("align".to_string(), LirOperand::ImmUInt(align as u64));
+        field_values.insert(
+            "size".to_string(),
+            LirOperand::ImmUInt {
+                val: size as u64,
+                size: 64,
+            },
+        );
+        field_values.insert(
+            "align".to_string(),
+            LirOperand::ImmUInt {
+                val: align as u64,
+                size: 64,
+            },
+        );
         let method_names_array = if method_names.is_empty() {
             LirOperand::ImmUnit
         } else {
@@ -1925,7 +1982,10 @@ impl<'hir> HirLoweringPass<'hir> {
                 let src = LirOperand::Const(ConstantValue::String(item.to_string()));
                 let index_operand = LirOperand::Index {
                     src: Box::new(dst.clone()),
-                    index: Box::new(LirOperand::ImmUInt(idx as u64)),
+                    index: Box::new(LirOperand::ImmUInt {
+                        val: idx as u64,
+                        size: 64,
+                    }),
                 };
                 self.emit(LirInstr::Assign {
                     ty: LirTy::Ptr {
@@ -1941,7 +2001,10 @@ impl<'hir> HirLoweringPass<'hir> {
         field_values.insert("method_names".to_string(), method_names_array);
         field_values.insert(
             "method_count".to_string(),
-            LirOperand::ImmUInt(method_count),
+            LirOperand::ImmUInt {
+                val: method_count,
+                size: 64,
+            },
         );
         let field_names_array = if field_names.is_empty() {
             LirOperand::ImmUnit
@@ -1967,7 +2030,10 @@ impl<'hir> HirLoweringPass<'hir> {
                 let src = LirOperand::Const(ConstantValue::String(item.to_string()));
                 let index_operand = LirOperand::Index {
                     src: Box::new(dst.clone()),
-                    index: Box::new(LirOperand::ImmUInt(idx as u64)),
+                    index: Box::new(LirOperand::ImmUInt {
+                        val: idx as u64,
+                        size: 64,
+                    }),
                 };
                 self.emit(LirInstr::Assign {
                     ty: LirTy::Ptr {
@@ -1981,7 +2047,13 @@ impl<'hir> HirLoweringPass<'hir> {
             dst
         };
         field_values.insert("field_names".to_string(), field_names_array);
-        field_values.insert("field_count".to_string(), LirOperand::ImmUInt(field_count));
+        field_values.insert(
+            "field_count".to_string(),
+            LirOperand::ImmUInt {
+                val: field_count,
+                size: 64,
+            },
+        );
         field_values.insert(
             "is_trivially_copyable".to_string(),
             LirOperand::ImmBool(is_trivially_copyable),
@@ -2285,9 +2357,9 @@ impl std::fmt::Display for LirOperand {
             LirOperand::Arg(idx) => write!(f, "%arg{}", idx),
             LirOperand::GlobalFn(name) => write!(f, "@{}", name),
             LirOperand::Const(val) => write!(f, "#{}", val),
-            LirOperand::ImmInt(i) => write!(f, "%imm{}", i),
-            LirOperand::ImmUInt(u) => write!(f, "%imm{}", u),
-            LirOperand::ImmFloat(fl) => write!(f, "%imm{}", fl),
+            LirOperand::ImmInt { val: i, size: _ } => write!(f, "%imm{}", i),
+            LirOperand::ImmUInt { val: u, size: _ } => write!(f, "%imm{}", u),
+            LirOperand::ImmFloat { val: fl, size: _ } => write!(f, "%imm{}", fl),
             LirOperand::ImmBool(b) => write!(f, "%imm{}", b),
             LirOperand::ImmChar(c) => write!(f, "%imm{}", c),
             LirOperand::ImmUnit => write!(f, "%imm()"),
