@@ -1,0 +1,149 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "Atlas77",
+	"patterns": [
+		{
+			"include": "#keywords"
+		},
+		{
+			"include": "#strings"
+		},
+		{
+			"include": "#comments"
+		},
+		{
+			"include": "#functions"
+		},
+		{
+			"include": "#punctuation"
+		},
+		{
+			"include": "#numbers"
+		}
+	],
+	"repository": {
+		"keywords": {
+			"patterns": [
+				{
+					"name": "keyword.control.atlas",
+					"match": "\\b(?:u?int(?:8|16|32|64)|import|let|while|fun|struct|public|extern|const|if|as|return|this|else|bool|true|false|union|null|delete|this|namespace|private|where|concept|operator|when|then|comptime|str|char|unit)\\b"
+				}
+			]
+		},
+		"strings": {
+			"name": "string.quoted.double.atlas",
+			"begin": "\"",
+			"end": "\"",
+			"patterns": [
+				{
+					"name": "constant.character.escape.atlas",
+					"match": "\\\\."
+				}
+			]
+		},
+		"comments": {
+			"patterns": [
+				{
+					"name": "comment.line.atlas",
+					"match": "//.*"
+				},
+				{
+					"name": "comment.block.atlas",
+					"match": "/\\*.*\\*/"
+				}
+			]
+		},
+		"punctuation": {
+			"patterns": [
+				{
+					"name": "punctuation.separator.double-colon.atlas",
+					"match": "::"
+				},
+				{
+					"name": "punctuation.separator.colon.atlas",
+					"match": ":"
+				},
+				{
+					"name": "punctuation.separator.comma.atlas",
+					"match": ","
+				},
+				{
+					"name": "punctuation.access.dot.atlas",
+					"match": "\\."
+				},
+				{
+					"name": "punctuation.terminator.semicolon.atlas",
+					"match": ";"
+				}
+			]
+		},
+		"numbers": {
+			"patterns": [
+				{
+					"name": "constant.numeric.float.atlas",
+					"match": "\\b(\\d+(?:_\\d+)*\\.\\d+(?:_\\d+)*(?:[eE][+-]?\\d+(?:_\\d+)*)?)([uUlL]+)?\\b",
+					"captures": {
+						"1": {
+							"name": "constant.numeric.float.atlas"
+						},
+						"2": {
+							"name": "storage.type.numeric-suffix.atlas"
+						}
+					}
+				},
+				{
+					"name": "constant.numeric.float.leading-dot.atlas",
+					"match": "\\b\\.\\d+(?:_\\d+)*(?:[eE][+-]?\\d+(?:_\\d+)*)?[fF]?\\b"
+				},
+				{
+					"name": "constant.numeric.hex.atlas",
+					"match": "\\b0x[0-9A-Fa-f]+(?:_[0-9A-Fa-f]+)*\\b"
+				},
+				{
+					"name": "constant.numeric.binary.atlas",
+					"match": "\\b0b[01]+(?:_[01]+)*\\b"
+				},
+				{
+					"name": "constant.numeric.octal.atlas",
+					"match": "\\b0o[0-7]+(?:_[0-7]+)*\\b"
+				},
+				{
+					"name": "constant.numeric.integer.atlas",
+					"match": "\\b(\\d+(?:_\\d+)*)([uUlL]+)?\\b",
+					"captures": {
+						"1": {
+							"name": "constant.numeric.integer.atlas"
+						},
+						"2": {
+							"name": "storage.type.numeric-suffix.atlas"
+						}
+					}
+				}
+			]
+		},
+		"functions": {
+			"patterns": [
+				{
+					"name": "meta.function-call.atlas",
+					"begin": "(?=[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*\\s*\\()",
+					"end": "(?=\\()",
+					"patterns": [
+						{
+							"match": "[A-Za-z_][A-Za-z0-9_]*(?=::)",
+							"name": "entity.name.namespace.atlas"
+						},
+						{
+							"match": "::",
+							"name": "punctuation.separator.double-colon.atlas"
+						},
+						{
+							"match": "[A-Za-z_][A-Za-z0-9_]*",
+							"name": "entity.name.function.atlas"
+						}
+					]
+				}
+			]
+		}
+	},
+	"scopeName": "source.atlas"
+}

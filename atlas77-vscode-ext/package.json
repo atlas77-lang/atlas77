@@ -1,0 +1,25 @@
+{
+  "name": "atlas77-vscode-ext",
+  "displayName": "atlas77-vscode-ext",
+  "description": "Syntax highlighting for the Atlas77 programming language",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.116.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [{
+      "id": "atlas",
+      "aliases": ["Atlas77", "atlas"],
+      "extensions": [".atlas"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "atlas",
+      "scopeName": "source.atlas",
+      "path": "./syntaxes/atlas.tmLanguage.json"
+    }]
+  }
+}
