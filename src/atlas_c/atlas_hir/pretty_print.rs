@@ -657,6 +657,7 @@ impl HirPrettyPrinter {
                     .join(", ")
             ),
             HirTy::Uninitialized(_) => "<uninit>".to_string(),
+            HirTy::Error(_) => "<error>".to_string(),
             HirTy::PtrTy(ptr_ty) => format!(
                 "*{}{}",
                 if ptr_ty.is_const { "const " } else { "" },

@@ -6,8 +6,8 @@ use std::{
 };
 
 use super::ty::{
-    HirBooleanTy, HirCharTy, HirFloatTy, HirGenericTy, HirIntegerTy, HirNamedTy, HirSliceTy,
-    HirStringTy, HirTy, HirTyId, HirUninitializedTy, HirUnitTy, HirUnsignedIntTy,
+    HirBooleanTy, HirCharTy, HirErrorTy, HirFloatTy, HirGenericTy, HirIntegerTy, HirNamedTy,
+    HirSliceTy, HirStringTy, HirTy, HirTyId, HirUninitializedTy, HirUnitTy, HirUnsignedIntTy,
 };
 use crate::atlas_c::{
     atlas_hir::ty::{
@@ -186,6 +186,14 @@ impl<'arena> TypeArena<'arena> {
             self.allocator
                 .alloc(HirTy::Uninitialized(HirUninitializedTy {}))
         })
+    }
+
+    pub fn get_error_ty(&'arena self) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_error_ty_id();
+        self.intern
+            .borrow_mut()
+            .entry(id)
+            .or_insert_with(|| self.allocator.alloc(HirTy::Error(HirErrorTy {})))
     }
 
     pub fn get_slice_ty(&'arena self, ty: &'arena HirTy<'arena>) -> &'arena HirTy<'arena> {

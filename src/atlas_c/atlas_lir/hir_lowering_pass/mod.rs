@@ -1647,6 +1647,11 @@ impl<'hir> HirLoweringPass<'hir> {
                 eprintln!("{:?}", report);
                 std::process::exit(1);
             }
+            HirTy::Error(_) => {
+                let report: miette::Report = (*unknown_type_err(&format!("{}", ty), span)).into();
+                eprintln!("{:?}", report);
+                std::process::exit(1);
+            }
             HirTy::Slice(l) => LirTy::Ptr {
                 is_const: false,
                 inner: Box::new(self.hir_ty_to_lir_ty(l.inner, span)),

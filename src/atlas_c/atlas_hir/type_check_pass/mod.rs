@@ -256,7 +256,8 @@ impl<'hir> TypeChecker<'hir> {
             | HirTy::LiteralInteger(_)
             | HirTy::LiteralFloat(_)
             | HirTy::LiteralUnsignedInteger(_)
-            | HirTy::Uninitialized(_) => false,
+            | HirTy::Uninitialized(_)
+            | HirTy::Error(_) => false,
             HirTy::InlineArray(arr) => {
                 self.type_requires_drop(field_span, arr.inner, requires_drop)
             }
@@ -591,9 +592,9 @@ impl<'hir> TypeChecker<'hir> {
             | HirTy::LiteralInteger(_)
             | HirTy::LiteralFloat(_)
             | HirTy::LiteralUnsignedInteger(_)
-            | HirTy::Uninitialized(_)
             | HirTy::Function(_) => true,
             HirTy::InlineArray(arr) => self.type_exists(arr.inner),
+            HirTy::Uninitialized(_) | HirTy::Error(_) => false,
         }
     }
 
@@ -973,14 +974,44 @@ impl<'hir> TypeChecker<'hir> {
                 Ok(())
             }
             HirStatement::Const(c) => {
+                // Phase 1: Register the variable early with a fallback type to prevent cascading errors
+                // If a declared type is available, use it; otherwise use an error type
+                let fallback_ty = if self.type_exists(c.ty) {
+                    c.ty
+                } else {
+                    self.arena.types().get_error_ty()
+                };
+
+                // Register the variable with fallback type immediately
+                self.insert_new_variable(ContextVariable {
+                    name: c.name,
+                    name_span: c.name_span,
+                    ty: fallback_ty,
+                    _ty_span: c.ty_span.unwrap_or(c.name_span),
+                    _is_mut: false,
+                    is_param: false,
+                    ptrs_to_locals: vec![], // Will be updated below if expr check succeeds
+                })?;
+
+                // Phase 2: Check the initializer expression
                 if c.ty != self.arena.types().get_uninitialized_ty() {
                     self.retag_integer_literal_for_expected_ty(c.ty, &mut c.value);
                 }
 
+                // Try to check the expression; if it fails, record the error but continue
+                let expr_ty = match self.check_expr(&mut c.value) {
+                    Ok(ty) => ty,
+                    Err(err) => {
+                        self.errors.push(err);
+                        // Fall back to the declared type or error type
+                        fallback_ty
+                    }
+                };
+
                 // Check if the const is being assigned a reference to a local variable
                 let ptrs_to_locals = self.get_local_ptr_targets(&c.value);
 
-                let expr_ty = self.check_expr(&mut c.value)?;
+                // Phase 3: Determine the actual variable type
                 let const_ty = if c.ty == self.arena.types().get_uninitialized_ty() {
                     //Need inference
                     expr_ty
@@ -993,48 +1024,73 @@ impl<'hir> TypeChecker<'hir> {
                     ) {
                         Ok(_) => {}
                         Err(err) => {
-                            // We still store the variable before erroring out, so we can get better error reporting later on
-                            self.insert_new_variable(ContextVariable {
-                                name: c.name,
-                                name_span: c.name_span,
-                                ty: c.ty,
-                                _ty_span: c.ty_span.unwrap_or(c.name_span),
-                                _is_mut: true,
-                                is_param: false,
-                                ptrs_to_locals: ptrs_to_locals.clone(),
-                            })?;
-                            return Err(err);
+                            // Variable is already registered with fallback type above
+                            self.errors.push(err);
                         }
                     }
                     c.ty
                 };
 
-                self.insert_new_variable(ContextVariable {
-                    name: c.name,
-                    name_span: c.name_span,
-                    ty: const_ty,
-                    _ty_span: c.ty_span.unwrap_or(c.name_span),
-                    _is_mut: false,
-                    is_param: false,
-                    ptrs_to_locals,
-                })?;
+                // Phase 4: Update the registered variable with correct type and ptr_to_locals info
+                // We need to update the variable in the context to have the correct type and pointers
+                if let Some(context_map) = self.context_functions.last_mut()
+                    && let Some(context_func) = context_map.get_mut(self.current_func_name.unwrap())
+                {
+                    context_func.insert(
+                        c.name,
+                        ContextVariable {
+                            name: c.name,
+                            name_span: c.name_span,
+                            ty: const_ty,
+                            _ty_span: c.ty_span.unwrap_or(c.name_span),
+                            _is_mut: false,
+                            is_param: false,
+                            ptrs_to_locals,
+                        },
+                    );
+                }
 
-                self.is_equivalent_ty(
-                    const_ty,
-                    c.ty_span.unwrap_or(c.name_span),
-                    expr_ty,
-                    c.value.span(),
-                )
+                Ok(())
             }
             HirStatement::Let(l) => {
+                // Phase 1: Register the variable early with a fallback type to prevent cascading errors
+                // If a declared type is available, use it; otherwise use an error type
+                let fallback_ty = if self.type_exists(l.ty) {
+                    l.ty
+                } else {
+                    self.arena.types().get_error_ty()
+                };
+
+                // Register the variable with fallback type immediately
+                self.insert_new_variable(ContextVariable {
+                    name: l.name,
+                    name_span: l.name_span,
+                    ty: fallback_ty,
+                    _ty_span: l.ty_span.unwrap_or(l.name_span),
+                    _is_mut: true,
+                    is_param: false,
+                    ptrs_to_locals: vec![], // Will be updated below if expr check succeeds
+                })?;
+
+                // Phase 2: Check the initializer expression
                 if l.ty != self.arena.types().get_uninitialized_ty() {
                     self.retag_integer_literal_for_expected_ty(l.ty, &mut l.value);
                 }
-                let expr_ty = self.check_expr(&mut l.value)?;
+
+                // Try to check the expression; if it fails, record the error but continue
+                let expr_ty = match self.check_expr(&mut l.value) {
+                    Ok(ty) => ty,
+                    Err(err) => {
+                        self.errors.push(err);
+                        // Fall back to the declared type or error type
+                        fallback_ty
+                    }
+                };
 
                 // Check if the let is being assigned a reference to a local variable
                 let ptrs_to_locals = self.get_local_ptr_targets(&l.value);
 
+                // Phase 3: Determine the actual variable type
                 let var_ty = if l.ty == self.arena.types().get_uninitialized_ty() {
                     //Need inference
                     expr_ty
@@ -1047,39 +1103,34 @@ impl<'hir> TypeChecker<'hir> {
                     ) {
                         Ok(_) => {}
                         Err(err) => {
-                            // We still store the variable before erroring out, so we can get better error reporting later on
-                            self.insert_new_variable(ContextVariable {
-                                name: l.name,
-                                name_span: l.name_span,
-                                ty: l.ty,
-                                _ty_span: l.ty_span.unwrap_or(l.name_span),
-                                _is_mut: true,
-                                is_param: false,
-                                ptrs_to_locals: ptrs_to_locals.clone(),
-                            })?;
-                            return Err(err);
+                            // Variable is already registered with fallback type above
+                            self.errors.push(err);
                         }
                     }
                     l.ty
                 };
                 l.ty = var_ty;
 
-                self.insert_new_variable(ContextVariable {
-                    name: l.name,
-                    name_span: l.name_span,
-                    ty: var_ty,
-                    _ty_span: l.ty_span.unwrap_or(l.name_span),
-                    _is_mut: true,
-                    is_param: false,
-                    ptrs_to_locals,
-                })?;
+                // Phase 4: Update the registered variable with correct type and ptr_to_locals info
+                // We need to update the variable in the context to have the correct type and pointers
+                if let Some(context_map) = self.context_functions.last_mut()
+                    && let Some(context_func) = context_map.get_mut(self.current_func_name.unwrap())
+                {
+                    context_func.insert(
+                        l.name,
+                        ContextVariable {
+                            name: l.name,
+                            name_span: l.name_span,
+                            ty: var_ty,
+                            _ty_span: l.ty_span.unwrap_or(l.name_span),
+                            _is_mut: true,
+                            is_param: false,
+                            ptrs_to_locals,
+                        },
+                    );
+                }
 
-                self.is_equivalent_ty(
-                    var_ty,
-                    l.ty_span.unwrap_or(l.name_span),
-                    expr_ty,
-                    l.value.span(),
-                )
+                Ok(())
             }
             HirStatement::Assign(assign) => {
                 let dst_ty = self.check_expr(&mut assign.dst)?;
@@ -3533,7 +3584,9 @@ impl<'hir> TypeChecker<'hir> {
             // We silently ignore those errors, because they arise from earlier issues. e.g. if a variable
             // is uninitialized, it will have type `!uninitialized` and any operation on it will be invalid,
             // but we don't want to flood the user with type mismatch errors in that case.
+            // Similarly, if a variable failed type-checking, it will have type `!error`, and we suppress cascades.
             (HirTy::Uninitialized(_), _) | (_, HirTy::Uninitialized(_)) => Ok(()),
+            (HirTy::Error(_), _) | (_, HirTy::Error(_)) => Ok(()),
             _ => {
                 if HirTyId::from(expected_ty) == HirTyId::from(found_ty) {
                     Ok(())
