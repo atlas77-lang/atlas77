@@ -1058,8 +1058,8 @@ impl CCodeGen {
                 _ => panic!("Invalid unsigned integer size: {}", size),
             },
             LirOperand::ImmFloat { val: f, size } => match size {
-                32 => format!("{}f", f),
-                64 => format!("{}", f),
+                32 => format!("{:?}f", f),
+                64 => format!("{:?}", f),
                 _ => panic!("Invalid float size: {}", size),
             },
             LirOperand::ImmChar(c) => Self::escape_c_char(*c),
