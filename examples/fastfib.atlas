@@ -1,0 +1,160 @@
+import "std/io";
+
+extern fun time(tloc: *int64) -> int64;
+extern fun clock() -> int64;
+extern fun clocks_per_sec() -> int64;
+extern fun pow(x: float64, y: float64) -> float64;
+
+fun mul64_to_u128(x: uint64, y: uint64, hi: *uint64, lo: *uint64) {
+    let MASK32 = 4294967295;
+    let x_lo = x & MASK32;
+    let x_hi = x >> 32;
+    let y_lo = y & MASK32;
+    let y_hi = y >> 32;
+
+    let p0 = x_lo * y_lo;
+    let p1 = x_lo * y_hi;
+    let p2 = x_hi * y_lo;
+    let p3 = x_hi * y_hi;
+
+    let mid = (p0 >> 32) + (p1 & MASK32) + (p2 & MASK32);
+    let mid_hi = (mid >> 32) + (p1 >> 32) + (p2 >> 32) + (p3 & MASK32);
+
+    *lo = (p0 & MASK32) | (mid << 32);
+    *hi = (p3 >> 32) + mid_hi;
+}
+
+fun add_u128(a_hi: uint64, a_lo: uint64, b_hi: uint64, b_lo: uint64, out_hi:*uint64, out_lo:*uint64) {
+    let lo = a_lo + b_lo;
+    let carry: uint64 = 0;
+    if (lo < a_lo) { carry = 1; }
+    *out_lo = lo;
+    *out_hi = a_hi + b_hi + carry;
+}
+
+fun sub_u128(a_hi: uint64, a_lo: uint64, b_hi: uint64, b_lo: uint64, out_hi:*uint64, out_lo:*uint64) {
+    let borrow: uint64 = 0;
+    let lo = a_lo - b_lo;
+    if (a_lo < b_lo) { borrow = 1; }
+    *out_lo = lo;
+    *out_hi = a_hi - b_hi - borrow;
+}
+
+fun u128_to_u64_checked(hi: uint64, lo: uint64, ok: *bool, val: *uint64) {
+    if (hi != 0) {
+        *ok = false;
+        *val = 0;
+    } else {
+        *ok = true;
+        *val = lo;
+    }
+}
+
+fun compute_c_128(a: uint64, b: uint64, out_hi:*uint64, out_lo:*uint64) {
+    let ab_hi: uint64 = 0;
+    let ab_lo: uint64 = 0;
+    mul64_to_u128(a, b, &ab_hi, &ab_lo);
+
+    let aa_hi: uint64 = 0;
+    let aa_lo: uint64 = 0;
+    mul64_to_u128(a, a, &aa_hi, &aa_lo);
+
+    let ab2_hi: uint64 = 0;
+    let ab2_lo: uint64 = 0;
+    add_u128(ab_hi, ab_lo, ab_hi, ab_lo, &ab2_hi, &ab2_lo);
+
+    sub_u128(ab2_hi, ab2_lo, aa_hi, aa_lo, out_hi, out_lo);
+}
+
+fun compute_d_128(a: uint64, b: uint64, out_hi:*uint64, out_lo:*uint64) {
+    let aa_hi: uint64 = 0;
+    let aa_lo: uint64 = 0;
+    mul64_to_u128(a, a, &aa_hi, &aa_lo);
+
+    let bb_hi: uint64 = 0;
+    let bb_lo: uint64 = 0;
+    mul64_to_u128(b, b, &bb_hi, &bb_lo);
+
+    add_u128(aa_hi, aa_lo, bb_hi, bb_lo, out_hi, out_lo);
+}
+
+fun fib(n: int64) -> int64 {
+    if (n < 0) {
+        return -1;
+    }
+    
+    if (n > 92) {
+        return -1;
+    }
+
+    let a: uint64 = 0; // F(0)
+    let b: uint64 = 1; // F(1)
+
+    let start_bit: int64 = -1;
+    let i: int64 = 63;
+    while (i >= 0 && start_bit == -1) {
+        if ((((n) >> i) & 1) == 1) {
+            start_bit = i;
+        }
+        i = i - 1;
+    }
+    if (start_bit == -1) {
+        return 0;
+    }
+
+    i = start_bit;
+    while (i >= 0) {
+        let c_hi: uint64 = 0;
+        let c_lo: uint64 = 0;
+        let d_hi: uint64 = 0;
+        let d_lo: uint64 = 0;
+
+        compute_c_128(a, b, &c_hi, &c_lo);
+        compute_d_128(a, b, &d_hi, &d_lo);
+
+        if ((((n) >> i) & 1) == 0) {
+            let ok_c: bool = false;
+            let new_a: uint64 = 0;
+            u128_to_u64_checked(c_hi, c_lo, &ok_c, &new_a);
+            if (!ok_c) { return -1; }
+
+            let ok_d: bool = false;
+            let new_b: uint64 = 0;
+            u128_to_u64_checked(d_hi, d_lo, &ok_d, &new_b);
+            if (!ok_d) { return -1; }
+
+            a = new_a;
+            b = new_b;
+        } else {
+            let ok_d: bool = false;
+            let new_a: uint64 = 0;
+            u128_to_u64_checked(d_hi, d_lo, &ok_d, &new_a);
+            if (!ok_d) { return -1; }
+
+            let sum_hi: uint64 = 0;
+            let sum_lo: uint64 = 0;
+            add_u128(c_hi, c_lo, d_hi, d_lo, &sum_hi, &sum_lo);
+
+            let ok_sum: bool = false;
+            let new_b: uint64 = 0;
+            u128_to_u64_checked(sum_hi, sum_lo, &ok_sum, &new_b);
+            if (!ok_sum) { return -1; }
+
+            a = new_a;
+            b = new_b;
+        }
+
+        i = i - 1;
+    }
+
+    return a as int64;
+}
+
+fun main() {
+    let start_time = clock();
+    std::printf("%ld\n", fib(40));
+    let end_time = clock();
+    let cpu_time_used = ((end_time - start_time) as float64 / clocks_per_sec() as float64);
+    std::printf("Time: %fms\n", cpu_time_used * 1000.0);      // Milliseconds
+    std::printf("Time: %fµs\n", cpu_time_used * 1000000.0);   // Microseconds
+}
