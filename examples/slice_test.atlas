@@ -1,0 +1,21 @@
+extern fun printf<T>(format: *const uint8, value: T) -> int32;
+
+fun main() {
+    let hehe: [uint64; 3] = [1u, 2u, 3u];
+    printf("hehe: %s\n", hehe);
+    let slice: [uint64] = hehe;
+    hehe[0] = 42u;
+    print_a_slice(slice);
+    let hoho: [[uint64; 2]; 2] = [[1u, 2u], [3u, 4u]];
+    let slice_of_arrays: [[uint64]] = hoho;
+    print_a_slice_of(slice_of_arrays);
+    slice_of_arrays.copy();
+}
+
+fun print_a_slice(s: [uint64]) {
+    printf("slice: %s\n", s);
+}
+
+fun print_a_slice_of(s: [[uint64]]) {
+    printf("slice of arrays: %s\n", s);
+}

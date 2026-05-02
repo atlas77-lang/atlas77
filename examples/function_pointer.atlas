@@ -1,0 +1,90 @@
+import "std/io";
+
+struct Foo
+{
+public:
+    my_amazing_fn_pointer: fun(int32, int32) -> int32;
+    const_add_pointer: fun(*const Foo, int32) -> int32;
+    mutable_add_pointer: fun(*Foo, int32) -> int32;
+
+    fun add(a: int32, b: int32) -> int32
+    {
+        return a + b;
+    }
+
+    fun add_const(*const this, value: int32) -> int32
+    {
+        return value + 100;
+    }
+
+    fun add_mut(*this, value: int32) -> int32
+    {
+        return value + 200;
+    }
+}
+
+struct GenericStruct<T>
+{
+public:
+    value: T;
+    fun add(a: T, b: T) -> T
+    {
+        // This is just a placeholder implementation. In a real scenario, you'd have some logic here.
+        return a + b;
+    }
+}
+
+fun apply_twice(fn: fun(int32, int32) -> int32, a: int32, b: int32) -> int32
+{
+    return fn(a, b) + fn(b, a);
+}
+
+fun main()
+{
+    let add_fn: fun(int32, int32) -> int32 = add;
+    let result = add_fn(2, 3);
+    std::printf("Result: %d\n", result);
+
+    let applied = apply_twice(add_fn, 4, 5);
+    std::printf("Apply twice: %d\n", applied);
+
+    let foo = Foo {
+        .my_amazing_fn_pointer = add_fn,
+        .const_add_pointer = Foo::add_const,
+        .mutable_add_pointer = Foo::add_mut,
+    };
+    let foo_result = foo.my_amazing_fn_pointer(5, 7);
+    std::printf("Foo Result: %d\n", foo_result);
+
+    let const_result = foo.const_add_pointer(&foo, 11);
+    std::printf("Const method pointer Result: %d\n", const_result);
+
+    let mut_result = foo.mutable_add_pointer(&foo, 13);
+    std::printf("Mutable method pointer Result: %d\n", mut_result);
+
+    let static_method_ptr: fun(int32, int32) -> int32 = Foo::add;
+    let static_result = static_method_ptr(8, 9);
+    std::printf("Static method pointer Result: %d\n", static_result);
+
+    let pick_i64: fun(int64, int64) -> int64 = pick_first<int64>;
+    let pick_i64_result = pick_i64(111, 222);
+    std::printf("Generic fn ptr int64 Result: %d\n", pick_i64_result);
+
+    let pick_u8: fun(uint8, uint8) -> uint8 = pick_first<uint8>;
+    let pick_u8_result = pick_u8(42, 99);
+    std::printf("Generic fn ptr uint8 Result: %u\n", pick_u8_result);
+
+    let generic_add = GenericStruct<int64>::add;
+    let generic_result = generic_add(10, 20);
+    std::printf("Generic struct Result: %d\n", generic_result);
+}
+
+fun add(a: int32, b: int32) -> int32
+{
+    return a + b;
+}
+
+fun pick_first<T>(a: T, _b: T) -> T
+{
+    return a;
+}

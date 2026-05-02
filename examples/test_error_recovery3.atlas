@@ -1,0 +1,9 @@
+fun main() {
+    // Expression check fails: accessing undefined variable
+    let x: int64 = undefined_var + 5;
+    
+    // These should work WITHOUT cascading "unknown identifier x" errors
+    let y: int64 = x;
+    let z: int64 = x + 10;
+    let result = x * 2;
+}

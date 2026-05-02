@@ -202,6 +202,8 @@ pub enum TokenKind {
     DoubleDot,
     #[token(".")]
     Dot,
+    #[token("...")]
+    Ellipsis,
     #[token("#")]
     Hash,
     #[token("::")]
@@ -228,6 +230,8 @@ pub enum TokenKind {
     OpOr,
     #[token("|")]
     Pipe,
+    #[token("^")]
+    Caret,
     #[token("=>")]
     RFatArrow,
     #[token("~")]
@@ -257,6 +261,8 @@ pub enum TokenKind {
     KwEnum,
     #[token("union")]
     KwUnion,
+    #[token("namespace")]
+    KwNamespace,
     #[token("import")]
     KwImport,
     //Visibility
@@ -320,7 +326,7 @@ pub enum TokenKind {
     BoolTy,
     #[token("This")]
     ThisTy,
-    #[token("string")]
+    #[token("str")]
     StrTy,
     // === Keywords for compile-time ===
     #[token("comptime")]

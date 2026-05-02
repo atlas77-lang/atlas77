@@ -1,40 +1,58 @@
-//! Time utilities and `Time` struct.
-//!
-//! Provides `Time` values, formatting helpers and sleeping primitives.
-//! Use `Time::now()` to obtain the current time and `Time::format()` / `to_iso_string()` to format it.
-// Private runtime hooks, scoped to this module's public Time API.
+namespace std {
+    #[c_name("atlas77_instant_now")]
+    extern fun atlas77_instant_now() -> int64;
 
-public extern struct Time {
-public:
-    sec: int64;
-    nsec: int64;
-public:
-    //! Get the current time as a `Time` struct.
-    public extern fun now() -> Time {
-
+    public struct instant {
+      public:
+        ns: int64;
+        // Return the amount of nanoseconds since the Unix epoch (January 1, 1970).
+        fun now() -> std::instant {
+            let ns = std::atlas77_instant_now();
+            return std::instant { .ns = ns };
+        }
+        //! Compares two instants and returns true if this instant is before the other.
+        fun is_before(*const this, other: std::instant) -> bool {
+            return this->ns < other.ns;
+        }
+        //! Compares two instants and returns true if this instant is after the other.
+        fun is_after(*const this, other: std::instant) -> bool {
+            return this->ns > other.ns;
+        }
+        //! Returns the difference between this instant and another instant as a duration.
+        fun difference(*const this, other: std::instant) -> std::duration {
+            let elapsed_ns = this->ns - other.ns;
+            return std::duration { .ns = elapsed_ns };
+        }
+        fun elapsed(*const this) -> std::duration {
+            let now = std::instant::now();
+            let elapsed_ns = now.ns - this->ns;
+            return std::duration { .ns = elapsed_ns };
+        }
     }
 
-    //! Format the time using a custom format string.
-    //!
-    //! The format string supports the following specifiers:
-    //! - `%Y`: Year (e.g. 2024)
-    //! - `%m`: Month (01-12)
-    //! - `%d`: Day of the month (01-31)
-    //! - `%H`: Hour (00-23)
-    //! - `%M`: Minute (00-59)
-    //! - `%S`: Second (00-60, allowing for leap seconds)
-    //!
-    //! Example usage:
-    //!     let t = Time::now();
-    //!     println(t.format("%Y-%m-%d %H:%M:%S"));
-    public extern fun format(*this, fmt: *const uint8) -> String;
-
-    //! Format the time as an ISO 8601 string in UTC.
-    //!
-    //! Example usage:
-    //!     let t = Time::now();
-    //!     println(t.to_iso_string());
-    public extern fun to_iso_string(*this) -> String {
-        
+    public struct duration {
+      public:
+        ns: int64;
+        fun since(instant: std::instant) -> std::duration {
+            let now = std::instant::now();
+            let elapsed_ns = now.ns - instant.ns;
+            return std::duration { .ns = elapsed_ns };
+        }
     }
+}
+
+extern fun printf<T>(fmt: *const uint8, s: T);
+
+fun main() {
+    let start = std::instant::now();
+    // Simulate some work with a busy loop
+    let sum: uint64 = 0;
+    let i: uint64 = 0;
+    while i < 100000000 {
+        sum = sum + i;
+        i = i + 1;
+    }
+    let end = std::instant::now();
+    let elapsed = end.difference(start);
+    printf("Elapsed time: %ld nanoseconds\n", elapsed.ns);
 }

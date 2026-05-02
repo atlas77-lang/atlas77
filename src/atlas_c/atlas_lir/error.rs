@@ -13,10 +13,28 @@ declare_error_type! {
         CurrentFunctionDoesntExist(CurrentFunctionDoesntExistError),
         NoReturnInFunction(NoReturnInFunctionError),
         UnknownType(UnknownTypeError),
+        IntrinsicCallShouldHaveBeenHandledEarlier(IntrinsicCallShouldHaveBeenHandledEarlierError),
     }
 }
 
 pub type LirResult<T> = Result<T, Box<LirLoweringError>>;
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(lir_lowering::intrinsic_call_should_have_been_handled_earlier),
+    help(
+        "This intrinsic call should have been handled earlier in the compiler passes. If you see this error, \
+        it likely means there's a bug in the compiler itself where an intrinsic call is not being handled correctly."
+    )
+)]
+#[error("Intrinsic call `{name}` should have been handled earlier in the compiler pipeline")]
+pub struct IntrinsicCallShouldHaveBeenHandledEarlierError {
+    pub name: String,
+    #[label = "intrinsic call should have been handled earlier"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
@@ -55,8 +73,9 @@ pub struct NoReturnInFunctionError {
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
     code(lir_lowering::unknown_type),
-    help("Ensure that the type is defined before using it"),
-    severity(warning)
+    help(
+        "The type may exist but was not materialized from inference yet. Try an explicit type annotation, e.g. `let x: MyType = expr;` (or assign to a typed temporary first)."
+    )
 )]
 // It doesn't really mean the type is unknown, but that it's not managed by the LIR lowering pass yet
 #[error("Unknown type: `{ty_name}`")]

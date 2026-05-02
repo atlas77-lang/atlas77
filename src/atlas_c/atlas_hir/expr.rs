@@ -250,6 +250,9 @@ pub struct HirFunctionCallExpr<'hir> {
     pub args: Vec<HirExpr<'hir>>,
     pub args_ty: Vec<&'hir HirTy<'hir>>,
     pub generics: Vec<&'hir HirTy<'hir>>,
+    /// True when this expression denotes a generic function value reference
+    /// (e.g. `add<int64>`) rather than an invocation.
+    pub is_reference: bool,
     /// Result type of the call
     pub ty: &'hir HirTy<'hir>,
     pub kind: HirFunctionKind,
@@ -293,6 +296,11 @@ pub enum HirBinaryOperator {
     Neq,
     Or,
     Sub,
+    ShL,
+    ShR,
+    BinAnd,
+    BinOr,
+    BinXor,
 }
 
 impl fmt::Display for HirBinaryOperator {
@@ -311,6 +319,11 @@ impl fmt::Display for HirBinaryOperator {
             HirBinaryOperator::Neq => "!=",
             HirBinaryOperator::Or => "||",
             HirBinaryOperator::Sub => "-",
+            HirBinaryOperator::ShL => "<<",
+            HirBinaryOperator::ShR => ">>",
+            HirBinaryOperator::BinAnd => "&",
+            HirBinaryOperator::BinOr => "|",
+            HirBinaryOperator::BinXor => "^",
         };
         write!(f, "{}", op_str)
     }

@@ -7,14 +7,14 @@ use crate::atlas_c::{
         HirModule,
         arena::HirArena,
         error::{
-            HirError, HirResult, OwnershipAnalysisFailedError, TryingToAccessAConsumedValueError,
-            TryingToAccessADeletedValueError, TryingToAccessAMovedValueError,
-            TryingToAccessAPotentiallyConsumedValueError,
+            CannotMoveFromRvalueError, HirError, HirResult, OwnershipAnalysisFailedError,
+            TryingToAccessAConsumedValueError, TryingToAccessADeletedValueError,
+            TryingToAccessAMovedValueError, TryingToAccessAPotentiallyConsumedValueError,
             TryingToAccessAPotentiallyDeletedValueError, TryingToAccessAPotentiallyMovedValueError,
             TypeIsNotTriviallyCopyableError,
         },
         expr::{HirDeleteExpr, HirExpr, HirIdentExpr, HirUnaryOp},
-        signature::HirModuleSignature,
+        signature::{HirFunctionParameterSignature, HirModuleSignature},
         stmt::{HirAssignStmt, HirBlock, HirExprStmt, HirStatement},
         ty::HirTy,
     },
@@ -64,19 +64,17 @@ impl<'hir> HirOwnershipPass<'hir> {
         self.errors.clear();
 
         for function in hir_module.body.functions.values_mut() {
-            let mut scope_stack = vec![ScopeFrame::default()];
-            for param in &function.signature.params {
-                self.register_local(
-                    &mut scope_stack,
-                    LocalVar {
-                        name: param.name,
-                        ty: param.ty,
-                        is_compiler_temp: self.is_compiler_temp_name(param.name),
-                    },
-                );
+            self.run_ownership_for_body(&mut function.body, &function.signature.params);
+        }
+
+        for strukt in hir_module.body.structs.values_mut() {
+            for method in &mut strukt.methods {
+                self.run_ownership_for_body(&mut method.body, &method.signature.params);
             }
 
-            function.body = self.transform_block(function.body.clone(), &mut scope_stack);
+            if let Some(destructor) = &mut strukt.destructor {
+                self.run_ownership_for_body(&mut destructor.body, &[]);
+            }
         }
 
         if !self.errors.is_empty() {
@@ -90,6 +88,26 @@ impl<'hir> HirOwnershipPass<'hir> {
         }
 
         Ok(())
+    }
+
+    fn run_ownership_for_body(
+        &mut self,
+        body: &mut HirBlock<'hir>,
+        params: &[HirFunctionParameterSignature<'hir>],
+    ) {
+        let mut scope_stack = vec![ScopeFrame::default()];
+        for param in params {
+            self.register_local(
+                &mut scope_stack,
+                LocalVar {
+                    name: param.name,
+                    ty: param.ty,
+                    is_compiler_temp: self.is_compiler_temp_name(param.name),
+                },
+            );
+        }
+
+        *body = self.transform_block(body.clone(), &mut scope_stack);
     }
 
     fn transform_block(
@@ -203,23 +221,35 @@ impl<'hir> HirOwnershipPass<'hir> {
                     let mut then_stack = scope_stack.clone();
                     if_else.then_branch =
                         self.transform_block(if_else.then_branch, &mut then_stack);
+                    let then_terminates =
+                        self.statements_guaranteed_return(&if_else.then_branch.statements);
 
                     let mut else_stack: Option<Vec<ScopeFrame<'hir>>> = None;
+                    let mut else_terminates = false;
                     if let Some(else_branch) = if_else.else_branch.take() {
                         let mut local_else_stack = scope_stack.clone();
-                        if_else.else_branch =
-                            Some(self.transform_block(else_branch, &mut local_else_stack));
+                        let transformed_else =
+                            self.transform_block(else_branch, &mut local_else_stack);
+                        else_terminates =
+                            self.statements_guaranteed_return(&transformed_else.statements);
+                        if_else.else_branch = Some(transformed_else);
                         else_stack = Some(local_else_stack);
                     }
 
-                    self.merge_control_flow_states(scope_stack, &then_stack, else_stack.as_deref());
+                    self.merge_control_flow_states(
+                        scope_stack,
+                        &then_stack,
+                        else_stack.as_deref(),
+                        then_terminates,
+                        else_terminates,
+                    );
                     statements.push(HirStatement::IfElse(if_else));
                 }
                 HirStatement::While(mut while_stmt) => {
                     self.validate_expr(&while_stmt.condition, scope_stack);
                     let mut loop_stack = scope_stack.clone();
                     while_stmt.body = self.transform_block(while_stmt.body, &mut loop_stack);
-                    self.merge_control_flow_states(scope_stack, &loop_stack, None);
+                    self.merge_control_flow_states(scope_stack, &loop_stack, None, false, false);
                     statements.push(HirStatement::While(while_stmt));
                 }
                 HirStatement::Break(span) => statements.push(HirStatement::Break(span)),
@@ -228,9 +258,10 @@ impl<'hir> HirOwnershipPass<'hir> {
         }
 
         // Block exit RAII: destroy surviving locals declared in this scope in reverse order.
-        // When the block ends with an explicit return, return handling already emits
-        // the required scope drops and preserves returned ownership transfer.
-        if !matches!(statements.last(), Some(HirStatement::Return(_)))
+        // When the block has a guaranteed return path at its tail (direct return or
+        // if/else where both branches return), return handling already emits required
+        // drops and preserves returned ownership transfer.
+        if !self.statements_guaranteed_return(&statements)
             && let Some(frame) = scope_stack.last()
         {
             let mut tail_drops = Vec::new();
@@ -249,6 +280,29 @@ impl<'hir> HirOwnershipPass<'hir> {
         HirBlock {
             span: block.span,
             statements,
+        }
+    }
+
+    fn statements_guaranteed_return(&self, statements: &[HirStatement<'hir>]) -> bool {
+        match statements.last() {
+            Some(stmt) => self.statement_guaranteed_return(stmt),
+            None => false,
+        }
+    }
+
+    fn statement_guaranteed_return(&self, stmt: &HirStatement<'hir>) -> bool {
+        match stmt {
+            HirStatement::Return(_) => true,
+            HirStatement::Block(block) => self.statements_guaranteed_return(&block.statements),
+            HirStatement::IfElse(if_else) => {
+                let then_returns =
+                    self.statements_guaranteed_return(&if_else.then_branch.statements);
+                let else_returns = if_else.else_branch.as_ref().is_some_and(|else_block| {
+                    self.statements_guaranteed_return(&else_block.statements)
+                });
+                then_returns && else_returns
+            }
+            _ => false,
         }
     }
 
@@ -374,11 +428,20 @@ impl<'hir> HirOwnershipPass<'hir> {
 
         let path = src.span.path;
         let src_text = utils::get_file_content(path).unwrap_or_default();
+        let name = if let Some(sig) = self.signature.structs.get(src_local.name) {
+            if let Some(pre) = sig.pre_mangled_ty {
+                format!("{}", HirTy::Generic(pre.clone()))
+            } else {
+                format!("{}", src_local.ty)
+            }
+        } else {
+            format!("{}", src_local.ty)
+        };
         Err(HirError::TypeIsNotTriviallyCopyable(
             TypeIsNotTriviallyCopyableError {
                 src: NamedSource::new(path, src_text),
                 span: src.span,
-                type_name: format!("{}", src_local.ty),
+                type_name: name,
             },
         ))
     }
@@ -539,11 +602,11 @@ impl<'hir> HirOwnershipPass<'hir> {
                 for arg in &intrinsic.args {
                     self.validate_expr(arg, scope_stack);
                 }
-                if intrinsic.name == "move"
+                if intrinsic.name == "std::move"
                     && let Some(first_arg) = intrinsic.args.first()
-                    && let HirExpr::Ident(id) = self.strip_noop_unary(first_arg)
                 {
-                    self.mark_moved(scope_stack, id.name, id.span);
+                    let res = self.validate_move_argument(scope_stack, first_arg);
+                    self.record_result(res);
                 }
             }
             HirExpr::ThisLiteral(_)
@@ -630,11 +693,53 @@ impl<'hir> HirOwnershipPass<'hir> {
         Ok(())
     }
 
+    fn validate_move_argument(
+        &mut self,
+        scope_stack: &mut [ScopeFrame<'hir>],
+        arg: &HirExpr<'hir>,
+    ) -> HirResult<()> {
+        let stripped = self.strip_noop_unary(arg);
+        let HirExpr::Ident(id) = stripped else {
+            let path = arg.span().path;
+            let src = utils::get_file_content(path).unwrap_or_default();
+            return Err(HirError::CannotMoveFromRvalue(CannotMoveFromRvalueError {
+                src: NamedSource::new(path, src),
+                span: arg.span(),
+                hint: "`std::move` only accepts local variables; assign the expression to a local first".to_string(),
+            }));
+        };
+
+        if self.find_local(scope_stack, id.name).is_none() {
+            let path = id.span.path;
+            let src = utils::get_file_content(path).unwrap_or_default();
+            return Err(HirError::CannotMoveFromRvalue(CannotMoveFromRvalueError {
+                src: NamedSource::new(path, src),
+                span: id.span,
+                hint: "`std::move` only accepts local variables".to_string(),
+            }));
+        }
+
+        if self.is_compiler_temp_name(id.name) {
+            let path = id.span.path;
+            let src = utils::get_file_content(path).unwrap_or_default();
+            return Err(HirError::CannotMoveFromRvalue(CannotMoveFromRvalueError {
+                src: NamedSource::new(path, src),
+                span: id.span,
+                hint: "`std::move` cannot be used with compiler temporaries (`__tmpN`); move from a named local variable".to_string(),
+            }));
+        }
+
+        self.mark_moved(scope_stack, id.name, id.span);
+        Ok(())
+    }
+
     fn merge_control_flow_states(
         &self,
         base_stack: &mut [ScopeFrame<'hir>],
         then_stack: &[ScopeFrame<'hir>],
         else_stack: Option<&[ScopeFrame<'hir>]>,
+        then_terminates: bool,
+        else_terminates: bool,
     ) {
         for (i, base_frame) in base_stack.iter_mut().enumerate() {
             let Some(then_frame) = then_stack.get(i) else {
@@ -658,7 +763,17 @@ impl<'hir> HirOwnershipPass<'hir> {
                     .and_then(|frame| frame.states.get(name).cloned())
                     .unwrap_or_else(|| base_state.clone());
 
-                let merged = self.merge_join_state(base_state, then_state, else_state);
+                let merged = if then_terminates && !else_terminates {
+                    else_state
+                } else if !then_terminates && else_terminates {
+                    then_state
+                } else if then_terminates && else_terminates {
+                    // No path reaches the join point; keep base state unchanged to avoid
+                    // introducing conditional moved/deleted noise into unreachable code.
+                    base_state
+                } else {
+                    self.merge_join_state(base_state, then_state, else_state)
+                };
                 base_frame.states.insert(name, merged);
             }
         }

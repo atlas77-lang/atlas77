@@ -5,35 +5,38 @@
 ## v0.8.0
 
 **First thing to do:**
-- [ ] Copy-by-default, explicit move
-- [ ] Remove references
-- [ ] Finalize syntax
+- [x] Bitwise copy-by-default, explicit move, explicit copy for types with a destructor
+- [x] Remove references
+- [x] Finalize syntax
 
 **Compiler:**
 - [ ] Type check before monomorphization
-- [ ] Ownership pass rewrite (warn on move, error on delete)
-- [ ] C backend separation
-- [ ] Intrinsics system
-- [ ] Core C bridge (libc bindings)
+> Will probably never happens, but now monomorphization can be requested by the type checker in certain scenarios
+- [x] Ownership pass rewrite (warn on move, error on delete)
+- [x] C backend separation
+- [x] Intrinsics system
+- [x] Core C bridge (libc bindings)
+> Well, it's so vague that I guess, we can consider it done thanks to the build configuration file
 - [ ] Never type (`!`)
 
 **Language:**
 - [ ] Operator overloading
-- [ ] Generic methods
+- [x] Generic methods
 - [ ] Const generics
-- [ ] Attributes system (`#[stuff]`)
+- [x] Attributes system (`#[stuff]`)
+> Somewhat, it's still fairly locked behind what the compiler allows
 
 **Stdlib:**
-- [ ] Core utilities (``move``, ``copy``, ``swap``, ``panic``, ``assert``)
-- [ ] ``std::optional<T>``
-- [ ] ``std::expected<T, E>``
-- [ ] ``std::string``
-- [ ] ``std::vector<T>``
+- [x] Core utilities (``move``, ``copy``, ``swap``, ``panic``, ``assert``)
+> NB: Missing "std::assert"
+- [x] ``std::optional<T>``
+- [x] ``std::expected<T, E>``
+- [x] ``std::string``
+- [x] ``std::vector<T>``
 - [ ] ``std::array<T, N>``
-- [ ] ``std::ptr<T>``
 
 **Tooling:**
-- [ ] Basic build system
+- [x] Basic build system
 
 ---
 

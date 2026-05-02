@@ -1,23 +1,38 @@
-//! Math utilities for common numeric operations.
-//!
-//! Provides a small set of helpers and wrappers around platform math functions.
-//! Example: `let r = math::round(3.7)`
-public extern fun round(x: float64) -> int64;
-public extern fun random(min: int64, max: int64) -> int64;
-public extern fun sinf(x: float64) -> float64;
-public extern fun cosf(x: float64) -> float64;
-public extern fun expf(x: float32) -> float32;
-public extern fun logf(x: float32) -> float32;
+namespace std {
+    //! Math utilities for common numeric operations.
+    //!
+    //! Provides a small set of helpers and wrappers around platform math functions.
+    //! Example: `let r = math::round(3.7)`
+    #[c_name("round")]
+    public extern "C" fun round(x: float64) -> int64;
+    #[c_name("random")]
+    public extern "C" fun random(min: int64, max: int64) -> int64;
+    #[c_name("sinf")]
+    public extern "C" fun sinf(x: float64) -> float64;
+    #[c_name("cosf")]
+    public extern "C" fun cosf(x: float64) -> float64;
+    #[c_name("expf")]
+    public extern "C" fun expf(x: float32) -> float32;
+    #[c_name("logf")]
+    public extern "C" fun logf(x: float32) -> float32;
 
+    #[c_name("abs")]
+    public extern "C" fun abs(x: int64) -> int64;
+    #[c_name("fabs")]
+    public extern "C" fun absf(x: float64) -> float64;
 
-public extern fun abs(x: int64) -> int64;
-public extern fun absf(x: float64) -> float64;
+    #[c_name("fmin")]
+    public extern "C" fun min(x: int64, y: int64) -> int64;
+    #[c_name("fminf")]
+    public extern "C" fun minf(x: float64, y: float64) -> float64;
 
-public extern fun min(x: int64, y: int64) -> int64;
-public extern fun minf(x: float64, y: float64) -> float64;
+    #[c_name("fmax")]
+    public extern "C" fun max(x: int64, y: int64) -> int64;
+    #[c_name("fmaxf")]
+    public extern "C" fun maxf(x: float64, y: float64) -> float64;
 
-public extern fun max(x: int64, y: int64) -> int64;
-public extern fun maxf(x: float64, y: float64) -> float64;
-
-public extern fun pow(x: int64, y: int64) -> int64;
-public extern fun powf(x: float64, y: int64) -> float64;
+    #[c_name("pow")]
+    public extern "C" fun pow(x: int64, y: int64) -> int64;
+    #[c_name("powf")]
+    public extern "C" fun powf(x: float64, y: int64) -> float64;
+}

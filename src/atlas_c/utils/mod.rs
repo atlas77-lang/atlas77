@@ -1,4 +1,4 @@
-use crate::atlas_lib::{RAYLIB_LIB_DIR, STD_LIB_DIR};
+use crate::atlas_lib::{CORE_LIB_DIR, STD_LIB_DIR};
 use miette::SourceSpan;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -36,6 +36,7 @@ pub fn get_file_content(path: &str) -> Result<String, std::io::Error> {
     } else {
         format!("{}.atlas", path)
     };
+
     if path.starts_with("std/") {
         let file_name = path.trim_start_matches("std/");
         return match STD_LIB_DIR.get_file(file_name) {
@@ -52,23 +53,33 @@ pub fn get_file_content(path: &str) -> Result<String, std::io::Error> {
             )),
         };
     }
-    if path.starts_with("raylib/") {
-        let file_name = path.trim_start_matches("raylib/");
-        return match RAYLIB_LIB_DIR.get_file(file_name) {
+    if path.starts_with("core/") {
+        let file_name = path.trim_start_matches("core/");
+        return match CORE_LIB_DIR.get_file(file_name) {
             Some(file) => match file.contents_utf8() {
                 Some(content) => Ok(content.to_string()),
                 None => Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
-                    format!("Raylib library file '{}' is not valid UTF-8", file_name),
+                    format!("Core library file '{}' is not valid UTF-8", file_name),
                 )),
             },
             None => Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                format!("Raylib library file '{}' not found", file_name),
+                format!("Core library file '{}' not found", file_name),
             )),
         };
     }
-    std::fs::read_to_string(path)
+    match std::fs::read_to_string(&path) {
+        Ok(s) => Ok(s),
+        Err(err) => {
+            // Try workspace-style `src/` fallback when the direct path didn't resolve.
+            let fallback = format!("src/{}", &path);
+            match std::fs::read_to_string(&fallback) {
+                Ok(s) => Ok(s),
+                Err(_) => Err(err),
+            }
+        }
+    }
 }
 
 /// Yeah, we shouldn't be doing this but oh well

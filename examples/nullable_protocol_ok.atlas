@@ -1,0 +1,65 @@
+import "std/io";
+import "std/memory";
+
+union NullableStorage<T> {
+public:
+    value: T;
+    empty: std::empty;
+}
+
+#[std::nullable]
+struct NullableBox<T> {
+public:
+    storage: NullableStorage<T>;
+    has_value: bool;
+
+    fun of(value: T) -> NullableBox<T> {
+        return NullableBox<T> {
+            .storage = NullableStorage<T> { .value = value },
+            .has_value = true
+        };
+    }
+
+    fun none() -> NullableBox<T> {
+        return NullableBox<T> {
+            .storage = NullableStorage<T> { .empty = std::empty {} },
+            .has_value = false
+        };
+    }
+
+    #[std::nullable_predicate(present)]
+    fun is_present(*const this) -> bool {
+        return this->has_value;
+    }
+
+    #[std::nullable_predicate(empty)]
+    fun is_empty(*const this) -> bool {
+        return !this->has_value;
+    }
+
+    #[std::nullable_guarded]
+    fun unwrap_ref(*const this) -> *const T {
+        return &this->storage.value;
+    }
+
+    #[std::nullable_infallible]
+    fun unwrap_or(*const this, fallback: T) -> T {
+        if (this->has_value) {
+            return this->storage.value;
+        }
+        return fallback;
+    }
+}
+
+fun main() {
+    let some_value = NullableBox<int64>::of(77);
+    let none_value = NullableBox<int64>::none();
+
+    if (some_value.is_present()) {
+        std::printf("some=%d\n", *some_value.unwrap_ref());
+    }
+
+    if (none_value.is_empty()) {
+        std::printf("none=%d\n", none_value.unwrap_or(10));
+    }
+}

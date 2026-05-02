@@ -1,0 +1,58 @@
+import "std/io";
+import "std/map";
+
+public struct Key {
+public:
+    value: uint64;
+
+    fun hash(*const this) -> uint64 {
+        // Tiny deterministic mixer for test purposes.
+        return (this->value * 11400714819323198485u) + 1469598103934665603u;
+    }
+
+    fun copy(*const this) -> Key {
+        return Key { .value = this->value };
+    }
+
+    fun default() -> Key {
+        return Key { .value = 0u };
+    }
+
+    fun eq(*const this, other: *const Key) -> bool {
+        return this->value == other->value;
+    }
+}
+
+fun assert_true(cond: bool, message: *const uint8) {
+    if !cond {
+        std::panic(message);
+    }
+}
+
+fun main() {
+    let m = std::map<Key, int64>::new();
+
+    m.insert(Key { .value = 1u }, 10);
+    m.insert(Key { .value = 2u }, 20);
+    m.insert(Key { .value = 3u }, 30);
+
+    assert_true(m.len() == 3u, "len should be 3 after inserts");
+
+    let k2 = Key { .value = 2u };
+    let p2 = m.get_ptr(&k2);
+    assert_true(p2 != null, "key 2 should exist");
+    assert_true(*p2 == 20, "key 2 value should be 20");
+
+    // Update existing key.
+    m.insert(Key { .value = 2u }, 200);
+    let p2_updated = m.get_ptr(&k2);
+    assert_true(p2_updated != null, "key 2 should still exist after update");
+    assert_true(*p2_updated == 200, "key 2 value should be updated to 200");
+
+    let removed = m.remove(&k2);
+    assert_true(removed, "remove should return true for existing key");
+    assert_true(m.get_ptr(&k2) == null, "key 2 should be absent after remove");
+    assert_true(m.len() == 2u, "len should be 2 after remove");
+
+    std::println("map_robin_hood_test: ok");
+}

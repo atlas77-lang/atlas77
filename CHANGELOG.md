@@ -2,6 +2,109 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.1] - 2026-05-02
+
+### Bug Fixes
+
+- Float precision during codegen for integer float value ([6d8ade4](https://github.com/atlas77-lang/Atlas77/commit/6d8ade484a37f8bd5c2dcaf4417f6c44444d3ba2))
+- Literal number types weren't properly lowered in the LIR ([16145b6](https://github.com/atlas77-lang/Atlas77/commit/16145b678b18befc7693f8b29ba45ab81ad2248b))
+- Parameters are now actually check to know if the type exists ([c3d2b7a](https://github.com/atlas77-lang/Atlas77/commit/c3d2b7ae4710c03d67364434819804deffccb06f))
+- Unions signature and declaration order were malformed in the codegen ([87e3789](https://github.com/atlas77-lang/Atlas77/commit/87e378929176de0e91dfd12f903303d575491590))
+- Fields positions are now deterministic and stable across builds ([110d75e](https://github.com/atlas77-lang/Atlas77/commit/110d75e9b6c2fdbba8e7811013dfb46eccf117ec))
+- Strings now properly represent special characters + unicode values ([3ea369d](https://github.com/atlas77-lang/Atlas77/commit/3ea369d76268a0cfc93bb847889bec65e38d2d13))
+- Allow for `namespace::enum::variant` ([d204f99](https://github.com/atlas77-lang/Atlas77/commit/d204f99879695e5cd83cefebe1d05186794de155))
+- Allow function pointer casting ([fc39cfe](https://github.com/atlas77-lang/Atlas77/commit/fc39cfe2067a750337902ade470303a33436a5d1))
+- You can now get function pointers from namespaces' functions ([ed34e91](https://github.com/atlas77-lang/Atlas77/commit/ed34e9156c4112e8bc097c2dd4d56f1e1f236187))
+- `atlas77 package` wouldn't add namespace names on object types where it was used ([43ae639](https://github.com/atlas77-lang/Atlas77/commit/43ae639d27a5858b10ddf83ef5356387aedeb61d))
+- Different case warnings are now ignored for std types and functions ([87a9738](https://github.com/atlas77-lang/Atlas77/commit/87a97382c9b4f860b8b070c49de8f0aa34b05602))
+- Trivially_copyable structs with a destructor are now rejected ([8134969](https://github.com/atlas77-lang/Atlas77/commit/81349694c218bc0e17c12e2a13b6b85486e6ff88))
+- Return statement did not reset variable state in ownership pass ([307f681](https://github.com/atlas77-lang/Atlas77/commit/307f6815668538826b4f703d5317fdff088ff80b))
+- Std c99 & clang warnings for the codegen ([a8fae44](https://github.com/atlas77-lang/Atlas77/commit/a8fae44fa5e70eefc8a9e23354f35c37ab86edf9))
+- Method in generic structs are now lazily instantiated ([8e85794](https://github.com/atlas77-lang/Atlas77/commit/8e85794c9e76b253a8ac23558efcefdb35cf4d04))
+- Variables weren't getting registered if their value type and declared type wasn't the same. Causing a lot of annoying cascading errors ([5fef9ea](https://github.com/atlas77-lang/Atlas77/commit/5fef9ea6ac136fabe2e77409b1c8c1544e7a6f18))
+- Std::expected wasn't well formed ([915a010](https://github.com/atlas77-lang/Atlas77/commit/915a010ebe098b963c76b1ac075569551ff58ded))
+- Most examples should now be working ([1b421e5](https://github.com/atlas77-lang/Atlas77/commit/1b421e51eb5565618aaa0b4a0d2709330ba27396))
+- Removed all faulty "std::move" to replace them with "std::ptr::read". ([a67a048](https://github.com/atlas77-lang/Atlas77/commit/a67a048ee1afb64f64ef9aed19fb2ab9d87844d7))
+- Allow empty object literal (e.g. `Foo {}`) ([577eba5](https://github.com/atlas77-lang/Atlas77/commit/577eba5f8d6e0da5bed58c71fbd9a38fff65e2a1))
+- The ownership pass now also runs for methods and dtor ([c4906f9](https://github.com/atlas77-lang/Atlas77/commit/c4906f926561736105bfa1f42359051e7ddf92bf))
+- Can only move from local variables now ([730029f](https://github.com/atlas77-lang/Atlas77/commit/730029f2418c287bd985aaed51ab14f3288c7513))
+- Add back language for external items (e.g. `extern "C"`) ([e6ace4d](https://github.com/atlas77-lang/Atlas77/commit/e6ace4d3321eccf8253472f449b3446e2c572b65))
+- Update the hello world example to use the std namespace ([67c89e1](https://github.com/atlas77-lang/Atlas77/commit/67c89e118fb7992be514badcf6984c682c9424dc))
+- Recursive pointers to generics now error out ([7088b22](https://github.com/atlas77-lang/Atlas77/commit/7088b22b94c74ff44b1d15174b34db2f5656a4cb))
+- Static access for classes in namespaces ([9307ddb](https://github.com/atlas77-lang/Atlas77/commit/9307ddb2a4a57695ee89405d13fbc416854b7711))
+- Removed "name_should_be_in_different_case" warning for extern declaration ([346964a](https://github.com/atlas77-lang/Atlas77/commit/346964a8cdf41c96d5da2d3b289b031f35b4c6c7))
+- Removed "`NoFieldInStruct`" error ([2cba551](https://github.com/atlas77-lang/Atlas77/commit/2cba5510e99098b61a856686a7e8f3bd5ba1c8d4))
+- Issue with .dll-s not being included in output directory ([bf4ca9e](https://github.com/atlas77-lang/Atlas77/commit/bf4ca9e2a1f550a74860131bd104aa1c2bb2a808))
+- Add `vendor/tinycc/include` path even on windows target for TCC ([9718402](https://github.com/atlas77-lang/Atlas77/commit/971840203160afe8ef62957beda05deba18eb1ed))
+- Potential fix for GNU toolchain users ([34a4877](https://github.com/atlas77-lang/Atlas77/commit/34a48770fd41898ca9d445b45e2810ccacc50266))
+- Skip block-exit RAII drops when block ends with return ([6e091a6](https://github.com/atlas77-lang/Atlas77/commit/6e091a6393f382dcece114e9e9031d137b3dd21c))
+
+### Documentation
+
+- Updated ROADMAP.md and README.md ([e9aaa3c](https://github.com/atlas77-lang/Atlas77/commit/e9aaa3c3ec616fc2e8fe01395f73f1be42621be1))
+- Updated the roadmap ([af26a79](https://github.com/atlas77-lang/Atlas77/commit/af26a79110e8add91c0a459e967d81abfedfb5bd))
+- Updated the README.md file ([c1810e7](https://github.com/atlas77-lang/Atlas77/commit/c1810e75304ea6390594ee9c69c8a4b577d2f78e))
+
+### Features
+
+- Ignore invalid variables to avoid cascades of errors ([33f2e1b](https://github.com/atlas77-lang/Atlas77/commit/33f2e1b0d22f8d39b59a99ec882eb30cd849e891))
+- Add variadic type support in parser and lexer ([9767712](https://github.com/atlas77-lang/Atlas77/commit/9767712325923508062d9f3d7b0cd20b703ba73c))
+- Implement intrinsic type_id ([13204cb](https://github.com/atlas77-lang/Atlas77/commit/13204cb8754c33e6086a9867ab649e660a7b743b))
+- Add very basic reflections to the language ([47fc828](https://github.com/atlas77-lang/Atlas77/commit/47fc8282021a6ae62591b9c1ec73e34022678895))
+- Add external unions to the laguage ([824ae73](https://github.com/atlas77-lang/Atlas77/commit/824ae73258fa87887ae014e4c072e7313237a7d6))
+- Added back a very simple instant/duration API ([a71a217](https://github.com/atlas77-lang/Atlas77/commit/a71a217b1ee7c6ea1e27959b7ef0d701b29b3ece))
+- Add string type instead of raw '*uint8' ([166760b](https://github.com/atlas77-lang/Atlas77/commit/166760b38afb14653b494e11286cd6950fe7e58c))
+- Add support for special methods ([b85eba7](https://github.com/atlas77-lang/Atlas77/commit/b85eba764f9b9d8c2ad30c125b58dfce87210966))
+- Add `std::hashable` constraint + warnings for badly formed special methods ([e2bef49](https://github.com/atlas77-lang/Atlas77/commit/e2bef49c92f7a368ff58a44799801e2c013b7de0))
+- Added support for bitwise operators (`<<, >>, !, &, |, ^`) ([6708593](https://github.com/atlas77-lang/Atlas77/commit/6708593c2761414cc4141f2339380296723d8908))
+- Added `std::alloc<T>() -> *T` as a safer wrapper over malloc(uint64) ([40facba](https://github.com/atlas77-lang/Atlas77/commit/40facbad6ff5f4649c53374e1c3f7ba667d98faf))
+- Add `std::take<T>(*T) -> T` ([4f55120](https://github.com/atlas77-lang/Atlas77/commit/4f551206aee214b52a95953cce9841d76c5cf0bc))
+- Add `std::map<K, V>` ([447a7f6](https://github.com/atlas77-lang/Atlas77/commit/447a7f69d41de1d5439687421971dd8aad0a38d0))
+- Add nullable structs/methods modifiers ([9853b2c](https://github.com/atlas77-lang/Atlas77/commit/9853b2c3868b942bc4af087d8e7a22c98393e404))
+- Add `std::either<L, R>` to the language ([b4cea81](https://github.com/atlas77-lang/Atlas77/commit/b4cea81b3599dd8fff73bc7f9adbe16d2958c544))
+- Add method generics (FINALLY) to the language ([15c7a6a](https://github.com/atlas77-lang/Atlas77/commit/15c7a6a59324780cecd839ed8cece9879b73e39c))
+- Add `std::ptr::read/write/swap` ([e34cbda](https://github.com/atlas77-lang/Atlas77/commit/e34cbda07bf22516d3c180bf57e85be4e467a682))
+- Added String::push_str() + one string example ([bba261a](https://github.com/atlas77-lang/Atlas77/commit/bba261ad4104e146c04ee6f070426344debe671b))
+- Add std::realloc/zero_alloc/calloc to std/memory ([bf7c321](https://github.com/atlas77-lang/Atlas77/commit/bf7c3216616044d76c43a534858d472b52f6991f))
+- Added `#[c_name("name_in_c")` flag for external items ([3ac0d8f](https://github.com/atlas77-lang/Atlas77/commit/3ac0d8f53a0ee30ee36d8a0b913eee2d31ab81d0))
+- Added std namespace for... std thingies ([2f7f17a](https://github.com/atlas77-lang/Atlas77/commit/2f7f17a7fb160da779defab738c85ff67d537b9d))
+- Added automatic library generation from C header file into `atlas77-my_header.h`, `atlas77-my_header.c` & `my_header.atlas` ([320600a](https://github.com/atlas77-lang/Atlas77/commit/320600a734cfe13645cc7a370571487202f481d2))
+- Add `source_dirs` for all sources directory like I did for lib_dirs or include_dirs ([e6aa6fb](https://github.com/atlas77-lang/Atlas77/commit/e6aa6fb9a2587b97a0d011ba46eb644d44f3a673))
+- Implement very simple, stupid but working namespaces ([a3595b1](https://github.com/atlas77-lang/Atlas77/commit/a3595b1a56981513ca529f182090e52523af9c46))
+- Add `atlas.toml` build configuration file ([6dbd347](https://github.com/atlas77-lang/Atlas77/commit/6dbd347eeb94c9628abfb9f1f057ed073024bbd6))
+- Add generic function pointers `add<int64>` ([bf9f00e](https://github.com/atlas77-lang/Atlas77/commit/bf9f00e6014e383323ff7970ef00c75ae48a49b3))
+- Implementation of function pointers ([98a2960](https://github.com/atlas77-lang/Atlas77/commit/98a29605dac39f600f2b676221a80b1dfe096427))
+
+### Refactor
+
+- Update LirOperand to include size information for immediate values ([ac860df](https://github.com/atlas77-lang/Atlas77/commit/ac860dffc4de79626aa28f50653ff236965272d6))
+- Unify the attributes parsing a bit ([65540e3](https://github.com/atlas77-lang/Atlas77/commit/65540e39653a964960ccb2b665e775d89bbc9dfd))
+
+### Misc
+
+- Removed useless core/experimental/reflection file ([f477962](https://github.com/atlas77-lang/Atlas77/commit/f477962c0533cde01bb13e4830bec52798a5b642))
+- Remove unused test.clif (should have been done earlier) ([2a39ee1](https://github.com/atlas77-lang/Atlas77/commit/2a39ee1b0820efc8d083a667b04c18c0ac4d0f6f))
+- Removed NameShouldBeInDifferentCase warning ([ddddeb0](https://github.com/atlas77-lang/Atlas77/commit/ddddeb0577a8ae41e08aab7c5614b9b4a6e304d6))
+- Removed all unused experimental libraries ([89962d4](https://github.com/atlas77-lang/Atlas77/commit/89962d4149d683d3154c07f3bf16b0aa9c718631))
+- Removed raylib & blue-engine bindings ([a022c71](https://github.com/atlas77-lang/Atlas77/commit/a022c711b13abe9a3fc1714e10c6253e7098d90d))
+- Small clean up of the compiler + enable of require drop union field warning ([7cb9019](https://github.com/atlas77-lang/Atlas77/commit/7cb9019364838f9965917e19d7018f7c1fbc8299))
+- Precise if a stdlib is outdated or not ([f090124](https://github.com/atlas77-lang/Atlas77/commit/f09012442c3e08f358766b0381139ac084bb55e0))
+- Trimmed down the atlas77 header and renamed it ([e240f7d](https://github.com/atlas77-lang/Atlas77/commit/e240f7dc4ea81c32d0cf03eafa07ae5e48325bd7))
+- Remove raylib directory ([52960ff](https://github.com/atlas77-lang/Atlas77/commit/52960ff57022a500b266242311da785c8d860269))
+- Made `normalize_library_name_for_runtime` only available on windows ([d955ca0](https://github.com/atlas77-lang/Atlas77/commit/d955ca068f4264deaae61b98b3a9f0e8ce1276b3))
+- Move expected into the std namespace ([c672d1e](https://github.com/atlas77-lang/Atlas77/commit/c672d1e45987422fcc80de74127e986abd562eda))
+- Move std/math into the std namespace ([25d5df3](https://github.com/atlas77-lang/Atlas77/commit/25d5df3aaafccb355cac298fbb4947eac98dd5d7))
+- Trimmed down test.atlas ([377d173](https://github.com/atlas77-lang/Atlas77/commit/377d173865be76a8ba8bb590cf004afc92729332))
+- Removed `self/` directory, this will be moved into its own repo one ([96ab999](https://github.com/atlas77-lang/Atlas77/commit/96ab99988f0d1d5102f9580f0ca9ff2b7465b74c))
+- Cleaned up raylib library so every symbols are public ([c272ecd](https://github.com/atlas77-lang/Atlas77/commit/c272ecd1c116364a1e689e231be261542ae5325a))
+- Bump all packages version to latest ([12e5bf0](https://github.com/atlas77-lang/Atlas77/commit/12e5bf07d3d64809590137b7ddbb73434b9e8cff))
+- Remove `LirInstr::AggregateCopy` + fix `raylib/` import ([82ba69e](https://github.com/atlas77-lang/Atlas77/commit/82ba69e097cea9a2b953237754e98f080e22df4e))
+- Clean up examples and stdlib ([1d50e0f](https://github.com/atlas77-lang/Atlas77/commit/1d50e0f21702d24ed5ab9add64f716cfdc70cb48))
+
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
 ## [0.8.0] - 2026-04-02
 
 ### Bug Fixes

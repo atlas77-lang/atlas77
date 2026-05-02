@@ -198,12 +198,14 @@ This version was another rewrite, though partial in this case. It introduced and
 - **References**: they have been fully removed from the language, as they were badly designed and hard to implement correctly as the rest of the language wasn't stabled nor mature enough to support them.
 - **Pointers**: well, they have replaced references and are just C pointers. The compiler will only forbid returning pointers to local variables, but other than that, they are just C pointers, and you can do whatever you want with them.
 - **Constructors**: They have also been removed in favour of factory method (e.g.: `new()`, `default()`, `with_capacity()`, etc...). 
-- **C codegen**: The language will now fully compile down to C code, an embedded C compiler (TinyCC) is available for convenience, but you can also use your own C compiler (GCC/Clang/MSVC/...) to compile the generated C code.
+- **C codegen**: The language will now fully compile down to C code, an embedded C compiler (TinyCC) is available for convenience, but you can also use your own C compiler (GCC/Clang/MSVC/...) to compile the generated C code. The `#[c_name("foo")]` attributes has been added to the compiler to let you have extern function/struct/union names properly generated in the C output despite being in a namespace or having been renamed in atlas77 for convenience or clarity.
 > NB: TinyCC isn't stable yet on all platforms, so for now, I recommend you to use your own C compiler, but in the future, I'll try to make it work on all platforms.
+- **Build configuration**: A little `atlas.toml` configuration file has been added. It lets you tell the compiler which object files to link against, which header to find and build against. A small, somewhat working `package` command has also been added to let you generate a `.atlas` file from a C header so you can quickly setup a wrapper. It also isolates the header and mangle the names with a custom namespace (It also generates a `atlas77-your_header.h` & `atlas77-your_header.c` to properly separate them). e.g.: for raylib, every C function/types will start with `raylib_` and they will be generated into the `raylib` namespace in atlas77.
 - **Ownership**: The ownership design has been reworked to be simpler and make more sense in the idea of "tiny core, everything else userland". The language uses RAII as its base, and copy/move are explicit. All types are considered to be `std::trivially_copyable` by default, meaning they will get bitwise copied upon assignment or when passed to a function. Types with a custom destructor are not considered `std::trivially_copyable`, meaning they can't be passed to another variable/function/struct by value, unless you `take()`, `.copy()` or `move()` them.
 > NB: There are still issues with auto clean up of scopes in some edge cases, but for the most part, it works as intended.
 - **Stack allocation**: Objects or arrays can now be allocated on the stack instead of just being heap allocated. It's done as you would in C: `let x = MyStruct { ... };` or `let arr = [1, 2, 3];`. The language will automatically call the destructor of the object/array when it goes out of scope, so you don't have to worry about memory leaks in this case.
 - **Intrinsics**: There are now a few set of intrinsics available for you to be able to "ask" something to the compiler. e.g.: `sizeof<T>()`, `alignof<T>()`, `move(T)`. A lot more to come.
+- **Reflections**: This expands on the **intrinsics** to add `type_of<T>()` and `type_id<T>()`. It's relatively crude and most probably innefficient as of writing this, but at least it exists. A small `core::type_info` type has been added so you can manipulate and checks a bit the information of a type.
 
 #### Stability and Refinement
 
@@ -225,7 +227,7 @@ I'll try to make it easy to use, but still a bit "cringey". I hope I can at leas
 
 - Bootstrapping the compiler in Atlas77 itself
 - Building a minimal ECS in pure Atlas77
-- Building a simple game engine with OpenGL bindings
+- Building a simple game engine with raylib bindings
 - Providing a package manager written in Atlas77
 - LSP support for editors
 
@@ -267,13 +269,13 @@ Here is a list of repositories that helped me a lot while making Atlas77:
 
 ## License
 
-Distributed under the MIT License. See `LICENSE.txt` for more information.
+Distributed under the MIT License. See `LICENSE-MIT.md` for more information.
 
 <!-- CONTACT -->
 
 ## Contact
 
-Your Name - [@Gipson62_8015](https://twitter.com/Gipson62_8015) - J.H.Gipson62@gmail.com
+Your Name - [@Gipson62_](https://twitter.com/Gipson62_) - J.H.Gipson62@gmail.com
 
 Project Link: [https://github.com/atlas77-lang/Atlas77](https://github.com/atlas77-lang/Atlas77)
 

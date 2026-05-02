@@ -5,7 +5,7 @@ use std::fmt::Formatter;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
-pub struct HirTyId(u64);
+pub struct HirTyId(pub u64);
 
 const INTEGER_TY_ID: u8 = 0x01;
 const FLOAT_TY_ID: u8 = 0x03;
@@ -19,6 +19,7 @@ const SLICE_TY_ID: u8 = 0x35;
 const INLINE_ARRAY_TY_ID: u8 = 0x36;
 const NULLABLE_TY_ID: u8 = 0x40;
 const UNINITIALIZED_TY_ID: u8 = 0x50;
+const ERROR_TY_ID: u8 = 0x51;
 const NAMED_TY_ID: u8 = 0x60;
 const GENERIC_TY_ID: u8 = 0x70;
 const POINTER_TY_ID: u8 = 0x90;
@@ -124,6 +125,12 @@ impl HirTyId {
         Self(hasher.finish())
     }
 
+    pub fn compute_error_ty_id() -> Self {
+        let mut hasher = DefaultHasher::new();
+        ERROR_TY_ID.hash(&mut hasher);
+        Self(hasher.finish())
+    }
+
     pub fn compute_name_ty_id(name: &str) -> Self {
         let mut hasher = DefaultHasher::new();
         (NAMED_TY_ID, name).hash(&mut hasher);
@@ -166,6 +173,7 @@ impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
             }
             HirTy::Named(ty) => HirTyId::compute_name_ty_id(ty.name),
             HirTy::Uninitialized(_) => Self::compute_uninitialized_ty_id(),
+            HirTy::Error(_) => Self::compute_error_ty_id(),
             HirTy::Generic(g) => {
                 let params = g.inner.iter().map(HirTyId::from).collect::<Vec<_>>();
                 HirTyId::compute_generic_ty_id(g.name, &params)
@@ -198,6 +206,7 @@ pub enum HirTy<'hir> {
     InlineArray(HirInlineArrayTy<'hir>),
     Named(HirNamedTy<'hir>),
     Uninitialized(HirUninitializedTy),
+    Error(HirErrorTy),
     Generic(HirGenericTy<'hir>),
     Function(HirFunctionTy<'hir>),
     PtrTy(HirPtrTy<'hir>),
@@ -338,13 +347,14 @@ impl HirTy<'_> {
             HirTy::Char(_) => "char".to_string(),
             HirTy::Unit(_) => "unit".to_string(),
             HirTy::Boolean(_) => "bool".to_string(),
-            HirTy::String(_) => "string".to_string(),
+            HirTy::String(_) => "str".to_string(),
             HirTy::Slice(ty) => format!("list_{}", ty.inner.get_valid_c_string()),
             HirTy::InlineArray(ty) => {
                 format!("inlinearr_{}_{}", ty.inner.get_valid_c_string(), ty.size)
             }
             HirTy::Named(ty) => ty.name.to_string(),
             HirTy::Uninitialized(_) => "uninitialized".to_string(),
+            HirTy::Error(_) => "error".to_string(),
             HirTy::Generic(ty) => {
                 if ty.inner.is_empty() {
                     ty.name.to_string()
@@ -408,11 +418,12 @@ impl fmt::Display for HirTy<'_> {
             HirTy::Char(_) => write!(f, "char"),
             HirTy::Unit(_) => write!(f, "unit"),
             HirTy::Boolean(_) => write!(f, "bool"),
-            HirTy::String(_) => write!(f, "string"),
+            HirTy::String(_) => write!(f, "str"),
             HirTy::Slice(ty) => write!(f, "[{}]", ty.inner),
             HirTy::InlineArray(ty) => write!(f, "[{}; {}]", ty.inner, ty.size),
             HirTy::Named(ty) => write!(f, "{}", ty.name),
             HirTy::Uninitialized(_) => write!(f, "uninitialized"),
+            HirTy::Error(_) => write!(f, "error"),
             HirTy::Generic(ty) => {
                 if ty.inner.is_empty() {
                     write!(f, "{}", ty.name)
@@ -493,6 +504,9 @@ impl fmt::Display for HirInlineArrayTy<'_> {
 // all the types should hold a span
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct HirUninitializedTy {}
+
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
+pub struct HirErrorTy {}
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct HirIntegerTy {
@@ -584,7 +598,9 @@ pub struct HirStringTy {}
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct HirFunctionTy<'hir> {
     pub ret_ty: &'hir HirTy<'hir>,
+    pub ret_ty_span: Span,
     pub params: Vec<HirTy<'hir>>,
+    pub param_spans: Vec<Span>,
     pub span: Span,
 }
 

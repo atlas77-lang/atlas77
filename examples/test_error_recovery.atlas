@@ -1,0 +1,10 @@
+fun main() {
+    // This should fail: unknown type
+    let x: UnknownType = 42;
+    
+    // This should NOT cascade error anymore - x is registered with fallback type
+    let y: int64 = x;
+    
+    // This too should not cascade
+    let z: int64 = x + 10;
+}

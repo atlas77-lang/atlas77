@@ -13,6 +13,14 @@ use crate::atlas_c::utils::{self, Span};
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StdCapability {
+    Copyable,
+    Default,
+    Hashable,
+    TriviallyCopyable,
+}
+
 //TODO: Add generic methods
 #[derive(Clone)]
 pub struct HirGenericPool<'hir> {
@@ -43,9 +51,111 @@ pub struct HirGenericInstance<'hir> {
     pub args: Vec<HirTy<'hir>>,
     pub span: Span,
     pub is_done: bool,
+    /// When false, instantiate fields/signature only and skip method expansion.
+    pub monomorphize_methods: bool,
 }
 
 impl<'hir> HirGenericPool<'hir> {
+    fn std_capability_from_name(name: &str) -> Option<StdCapability> {
+        match name {
+            "copyable" => Some(StdCapability::Copyable),
+            "default" => Some(StdCapability::Default),
+            "hashable" => Some(StdCapability::Hashable),
+            "trivially_copyable" => Some(StdCapability::TriviallyCopyable),
+            _ => None,
+        }
+    }
+
+    fn type_is_primitive_capability(ty: &HirTy<'hir>, capability: StdCapability) -> bool {
+        match capability {
+            StdCapability::Copyable => matches!(
+                ty,
+                HirTy::Boolean(_)
+                    | HirTy::Integer(_)
+                    | HirTy::Float(_)
+                    | HirTy::Char(_)
+                    | HirTy::String(_)
+                    | HirTy::UnsignedInteger(_)
+                    | HirTy::PtrTy(_)
+                    | HirTy::Function(_)
+                    | HirTy::Slice(_)
+                    | HirTy::Unit(_)
+                    | HirTy::LiteralInteger(_)
+                    | HirTy::LiteralUnsignedInteger(_)
+                    | HirTy::LiteralFloat(_)
+            ),
+            StdCapability::Default | StdCapability::Hashable | StdCapability::TriviallyCopyable => {
+                matches!(
+                    ty,
+                    HirTy::Boolean(_)
+                        | HirTy::Integer(_)
+                        | HirTy::Float(_)
+                        | HirTy::Char(_)
+                        | HirTy::String(_)
+                        | HirTy::UnsignedInteger(_)
+                        | HirTy::PtrTy(_)
+                        | HirTy::Function(_)
+                        | HirTy::Slice(_)
+                        | HirTy::Unit(_)
+                        | HirTy::LiteralInteger(_)
+                        | HirTy::LiteralUnsignedInteger(_)
+                        | HirTy::LiteralFloat(_)
+                )
+            }
+        }
+    }
+
+    fn struct_implements_capability(
+        module: &HirModuleSignature<'hir>,
+        ty: &HirTy<'hir>,
+        capability: StdCapability,
+    ) -> bool {
+        let get_signature_capability = |name: &str| {
+            module
+                .structs
+                .get(name)
+                .is_some_and(|sig| match capability {
+                    StdCapability::Copyable => sig.is_std_copyable,
+                    StdCapability::Default => sig.is_std_default,
+                    StdCapability::Hashable => sig.is_std_hashable,
+                    StdCapability::TriviallyCopyable => sig.is_trivially_copyable,
+                })
+        };
+
+        match ty {
+            HirTy::Named(n) => get_signature_capability(n.name),
+            HirTy::Generic(g) => get_signature_capability(g.name),
+            _ => false,
+        }
+    }
+
+    fn implements_std_capability(
+        &self,
+        module: &HirModuleSignature<'hir>,
+        ty: &HirTy<'hir>,
+        capability: StdCapability,
+    ) -> bool {
+        if matches!(capability, StdCapability::Copyable) {
+            // Keep copyability semantics centralized in HirTy for ownership rules.
+            return ty.is_copyable(module);
+        }
+
+        if Self::type_is_primitive_capability(ty, capability) {
+            return true;
+        }
+
+        if Self::struct_implements_capability(module, ty, capability) {
+            return true;
+        }
+
+        match ty {
+            HirTy::InlineArray(arr) => {
+                self.implements_std_capability(module, arr.inner, capability)
+            }
+            _ => false,
+        }
+    }
+
     pub fn new(arena: &'hir HirArena<'hir>) -> Self {
         Self {
             structs: BTreeMap::new(),
@@ -60,6 +170,15 @@ impl<'hir> HirGenericPool<'hir> {
         generic: HirGenericTy<'hir>,
         module: &HirModuleSignature<'hir>,
     ) {
+        self.register_struct_instance_with_policy(generic, module, true);
+    }
+
+    pub fn register_struct_instance_with_policy(
+        &mut self,
+        generic: HirGenericTy<'hir>,
+        module: &HirModuleSignature<'hir>,
+        monomorphize_methods: bool,
+    ) {
         //We need to check if it's an instantiated generics or a generic definition e.g.: Vector<T> or Vector<uint64>
         if !self.is_generic_instantiated(&generic, module) {
             return;
@@ -67,12 +186,26 @@ impl<'hir> HirGenericPool<'hir> {
 
         //TODO: Differentiate between struct and union here
         let name = MonomorphizationPass::generate_mangled_name(self.arena, &generic, "struct");
-        self.structs.entry(name).or_insert(HirGenericInstance {
-            name: generic.name,
-            args: generic.inner,
-            is_done: false,
-            span: generic.span,
-        });
+        if let Some(existing) = self.structs.get_mut(name) {
+            existing.monomorphize_methods = existing.monomorphize_methods || monomorphize_methods;
+            // Keep the earliest source span so errors point closer to the generic type
+            // declaration/use site rather than nested field expressions discovered later.
+            if generic.span.path == existing.span.path && generic.span.start < existing.span.start {
+                existing.span = generic.span;
+            }
+            return;
+        }
+
+        self.structs.insert(
+            name,
+            HirGenericInstance {
+                name: generic.name,
+                args: generic.inner,
+                is_done: false,
+                span: generic.span,
+                monomorphize_methods,
+            },
+        );
     }
 
     pub fn register_union_instance(
@@ -85,12 +218,22 @@ impl<'hir> HirGenericPool<'hir> {
             return;
         }
         let name = MonomorphizationPass::generate_mangled_name(self.arena, generic, "union");
-        self.unions.entry(name).or_insert(HirGenericInstance {
-            name: generic.name,
-            args: generic.inner.clone(),
-            is_done: false,
-            span: generic.span,
-        });
+        if let Some(existing) = self.unions.get_mut(name) {
+            if generic.span.path == existing.span.path && generic.span.start < existing.span.start {
+                existing.span = generic.span;
+            }
+            return;
+        }
+        self.unions.insert(
+            name,
+            HirGenericInstance {
+                name: generic.name,
+                args: generic.inner.clone(),
+                is_done: false,
+                span: generic.span,
+                monomorphize_methods: false,
+            },
+        );
     }
 
     pub fn register_function_instance(
@@ -124,14 +267,22 @@ impl<'hir> HirGenericPool<'hir> {
 
         let mangled_name =
             MonomorphizationPass::generate_mangled_name(self.arena, &generic, "function");
-        self.functions
-            .entry(mangled_name)
-            .or_insert(HirGenericInstance {
+        if let Some(existing) = self.functions.get_mut(mangled_name) {
+            if generic.span.path == existing.span.path && generic.span.start < existing.span.start {
+                existing.span = generic.span;
+            }
+            return;
+        }
+        self.functions.insert(
+            mangled_name,
+            HirGenericInstance {
                 name: generic.name,
                 args: generic.inner,
                 is_done: false,
                 span: generic.span,
-            });
+                monomorphize_methods: false,
+            },
+        );
     }
 
     fn is_generic_instantiated(
@@ -201,11 +352,9 @@ impl<'hir> HirGenericPool<'hir> {
         {
             for kind in constraint.kind.iter() {
                 match kind {
-                    HirGenericConstraintKind::Std {
-                        name: "copyable",
-                        span,
-                    } => {
-                        if !self.implements_std_copyable(module, instantiated_ty) {
+                    HirGenericConstraintKind::Std { name, span } => {
+                        let Some(std_constraint) = Self::std_capability_from_name(name) else {
+                            //Other std constraints not implemented yet
                             let origin_path = declaration_span.path;
                             let origin_src = utils::get_file_content(origin_path).unwrap();
                             let origin = TypeDoesNotImplementRequiredConstraintOrigin {
@@ -223,81 +372,31 @@ impl<'hir> HirGenericPool<'hir> {
                             };
                             eprintln!("{:?}", Into::<miette::Report>::into(err));
                             are_constraints_satisfied = false;
-                        } else {
                             continue;
-                        }
-                    }
-                    HirGenericConstraintKind::Std {
-                        name: "default",
-                        span,
-                    } => {
-                        if !self.implements_std_default(module, instantiated_ty) {
-                            let origin_path = declaration_span.path;
-                            let origin_src = utils::get_file_content(origin_path).unwrap();
-                            let origin = TypeDoesNotImplementRequiredConstraintOrigin {
-                                span: *span,
-                                src: NamedSource::new(origin_path, origin_src),
-                            };
-                            let err_path = instantiated_generic.span.path;
-                            let err_src = utils::get_file_content(err_path).unwrap();
-                            let err = TypeDoesNotImplementRequiredConstraintError {
-                                ty: format!("{}", instantiated_ty),
-                                span: instantiated_generic.span,
-                                constraint: format!("{}", kind),
-                                src: NamedSource::new(err_path, err_src),
-                                origin,
-                            };
-                            eprintln!("{:?}", Into::<miette::Report>::into(err));
-                            are_constraints_satisfied = false;
-                        } else {
-                            continue;
-                        }
-                    }
-                    HirGenericConstraintKind::Std {
-                        name: "trivially_copyable",
-                        span,
-                    } => {
-                        if !self.implements_std_trivially_copyable(module, instantiated_ty) {
-                            let origin_path = declaration_span.path;
-                            let origin_src = utils::get_file_content(origin_path).unwrap();
-                            let origin = TypeDoesNotImplementRequiredConstraintOrigin {
-                                span: *span,
-                                src: NamedSource::new(origin_path, origin_src),
-                            };
-                            let err_path = instantiated_generic.span.path;
-                            let err_src = utils::get_file_content(err_path).unwrap();
-                            let err = TypeDoesNotImplementRequiredConstraintError {
-                                ty: format!("{}", instantiated_ty),
-                                span: instantiated_generic.span,
-                                constraint: format!("{}", kind),
-                                src: NamedSource::new(err_path, err_src),
-                                origin,
-                            };
-                            eprintln!("{:?}", Into::<miette::Report>::into(err));
-                            are_constraints_satisfied = false;
-                        } else {
-                            continue;
-                        }
-                    }
-                    HirGenericConstraintKind::Std { name: _, span } => {
-                        //Other std constraints not implemented yet
-                        let origin_path = declaration_span.path;
-                        let origin_src = utils::get_file_content(origin_path).unwrap();
-                        let origin = TypeDoesNotImplementRequiredConstraintOrigin {
-                            span: *span,
-                            src: NamedSource::new(origin_path, origin_src),
                         };
-                        let err_path = instantiated_generic.span.path;
-                        let err_src = utils::get_file_content(err_path).unwrap();
-                        let err = TypeDoesNotImplementRequiredConstraintError {
-                            ty: format!("{}", instantiated_ty),
-                            span: instantiated_generic.span,
-                            constraint: format!("{}", kind),
-                            src: NamedSource::new(err_path, err_src),
-                            origin,
-                        };
-                        eprintln!("{:?}", Into::<miette::Report>::into(err));
-                        are_constraints_satisfied = false;
+
+                        if !self.implements_std_capability(module, instantiated_ty, std_constraint)
+                        {
+                            let origin_path = declaration_span.path;
+                            let origin_src = utils::get_file_content(origin_path).unwrap();
+                            let origin = TypeDoesNotImplementRequiredConstraintOrigin {
+                                span: *span,
+                                src: NamedSource::new(origin_path, origin_src),
+                            };
+                            let err_path = instantiated_generic.span.path;
+                            let err_src = utils::get_file_content(err_path).unwrap();
+                            let err = TypeDoesNotImplementRequiredConstraintError {
+                                ty: format!("{}", instantiated_ty),
+                                span: instantiated_generic.span,
+                                constraint: format!("{}", kind),
+                                src: NamedSource::new(err_path, err_src),
+                                origin,
+                            };
+                            eprintln!("{:?}", Into::<miette::Report>::into(err));
+                            are_constraints_satisfied = false;
+                        } else {
+                            continue;
+                        }
                     }
                     _ => {
                         //Other constraints not implemented yet
@@ -316,7 +415,15 @@ impl<'hir> HirGenericPool<'hir> {
         module: &HirModuleSignature<'hir>,
         ty: &HirTy<'hir>,
     ) -> bool {
-        ty.is_copyable(module)
+        self.implements_std_capability(module, ty, StdCapability::Copyable)
+    }
+
+    pub fn implements_std_hashable(
+        &self,
+        module: &HirModuleSignature<'hir>,
+        ty: &HirTy<'hir>,
+    ) -> bool {
+        self.implements_std_capability(module, ty, StdCapability::Hashable)
     }
 
     pub fn implements_std_default(
@@ -324,31 +431,7 @@ impl<'hir> HirGenericPool<'hir> {
         module: &HirModuleSignature<'hir>,
         ty: &HirTy<'hir>,
     ) -> bool {
-        match ty {
-            HirTy::Boolean(_)
-            | HirTy::Integer(_)
-            | HirTy::Float(_)
-            | HirTy::Char(_)
-            | HirTy::String(_)
-            | HirTy::UnsignedInteger(_)
-            | HirTy::PtrTy(_)
-            | HirTy::Function(_)
-            | HirTy::Slice(_)
-            | HirTy::Unit(_)
-            | HirTy::LiteralInteger(_)
-            | HirTy::LiteralUnsignedInteger(_)
-            | HirTy::LiteralFloat(_) => true,
-            HirTy::Named(n) => module
-                .structs
-                .get(n.name)
-                .is_some_and(|sig| sig.is_std_default),
-            HirTy::Generic(g) => module
-                .structs
-                .get(g.name)
-                .is_some_and(|sig| sig.is_std_default),
-            HirTy::InlineArray(arr) => self.implements_std_default(module, arr.inner),
-            _ => false,
-        }
+        self.implements_std_capability(module, ty, StdCapability::Default)
     }
 
     pub fn implements_std_trivially_copyable(
@@ -356,30 +439,6 @@ impl<'hir> HirGenericPool<'hir> {
         module: &HirModuleSignature<'hir>,
         ty: &HirTy<'hir>,
     ) -> bool {
-        match ty {
-            HirTy::Boolean(_)
-            | HirTy::Integer(_)
-            | HirTy::Float(_)
-            | HirTy::Char(_)
-            | HirTy::String(_)
-            | HirTy::UnsignedInteger(_)
-            | HirTy::PtrTy(_)
-            | HirTy::Function(_)
-            | HirTy::Slice(_)
-            | HirTy::Unit(_)
-            | HirTy::LiteralInteger(_)
-            | HirTy::LiteralUnsignedInteger(_)
-            | HirTy::LiteralFloat(_) => true,
-            HirTy::Named(n) => module
-                .structs
-                .get(n.name)
-                .is_some_and(|sig| sig.is_trivially_copyable),
-            HirTy::Generic(g) => module
-                .structs
-                .get(g.name)
-                .is_some_and(|sig| sig.is_trivially_copyable),
-            HirTy::InlineArray(arr) => self.implements_std_trivially_copyable(module, arr.inner),
-            _ => false,
-        }
+        self.implements_std_capability(module, ty, StdCapability::TriviallyCopyable)
     }
 }

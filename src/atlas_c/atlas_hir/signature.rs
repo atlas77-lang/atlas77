@@ -1,5 +1,7 @@
 use super::ty::HirTy;
-use crate::atlas_c::atlas_frontend::parser::ast::{AstFlag, AstVisibility};
+use crate::atlas_c::atlas_frontend::parser::ast::{
+    AstFlag, AstMethodAttribute, AstNullablePredicateSemantics, AstVisibility,
+};
 use crate::atlas_c::atlas_hir::expr::HirUnaryOp;
 use crate::atlas_c::atlas_hir::expr::{HirBinaryOperator, HirExpr};
 use crate::atlas_c::atlas_hir::item::HirEnum;
@@ -46,16 +48,22 @@ pub struct HirStructSignature<'hir> {
     /// It's only optional, because at the beginning of the pass, the destructor might not exist yet
     pub destructor: Option<HirStructDestructorSignature<'hir>>,
     pub had_user_defined_destructor: bool,
-    /// True when the struct provides a userland `copy(*const this) -> Self`-style API
+    /// True when the struct provides a userland `copy(*const this) -> This`-style API
     /// (or legacy copyable flag during transition).
     pub is_std_copyable: bool,
-    /// True when the struct provides a userland `default() -> Self` static API.
+    /// True when the struct provides a userland `default() -> This` static API.
     pub is_std_default: bool,
+    /// True when the struct provides a userland `hash(*const this) -> uint64`-style API.
+    pub is_std_hashable: bool,
     /// True when this type is explicitly marked as trivially copyable.
     pub is_trivially_copyable: bool,
+    /// Marker set when the struct declaration includes `#[std::nullable]`.
+    pub nullable_attribute_span: Option<Span>,
     pub is_instantiated: bool,
     pub docstring: Option<&'hir str>,
     pub is_extern: bool,
+    /// Optional C type name override for extern structs.
+    pub c_name: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone)]
@@ -101,6 +109,9 @@ pub struct HirUnionSignature<'hir> {
     pub pre_mangled_ty: Option<&'hir HirGenericTy<'hir>>,
     pub docstring: Option<&'hir str>,
     pub is_instantiated: bool,
+    pub is_extern: bool,
+    /// Optional C type name override for extern unions.
+    pub c_name: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy, Default)]
@@ -123,6 +134,8 @@ pub enum HirFlag {
     Copyable(Span),
     TriviallyCopyable(Span),
     NonCopyable(Span),
+    Default(Span),
+    Hashable(Span),
     NonMoveable(Span),
     #[default]
     None,
@@ -134,6 +147,8 @@ impl From<AstFlag> for HirFlag {
             AstFlag::TriviallyCopyable(span) => HirFlag::TriviallyCopyable(span),
             AstFlag::Copyable(span) => HirFlag::Copyable(span),
             AstFlag::NonCopyable(span) => HirFlag::NonCopyable(span),
+            AstFlag::Default(span) => HirFlag::Default(span),
+            AstFlag::Hashable(span) => HirFlag::Hashable(span),
             AstFlag::Intrinsic(_) => HirFlag::None,
             AstFlag::None => HirFlag::None,
         }
@@ -146,6 +161,8 @@ impl HirFlag {
             HirFlag::Copyable(span) => Some(*span),
             HirFlag::NonCopyable(span) => Some(*span),
             HirFlag::NonMoveable(span) => Some(*span),
+            HirFlag::Default(span) => Some(*span),
+            HirFlag::Hashable(span) => Some(*span),
             HirFlag::TriviallyCopyable(span) => Some(*span),
             HirFlag::None => None,
         }
@@ -164,6 +181,12 @@ impl HirFlag {
     }
     pub fn is_no_flag(&self) -> bool {
         matches!(self, HirFlag::None)
+    }
+    pub fn is_std_default(&self) -> bool {
+        matches!(self, HirFlag::Default(_))
+    }
+    pub fn is_std_hashable(&self) -> bool {
+        matches!(self, HirFlag::Hashable(_))
     }
 }
 
@@ -276,6 +299,11 @@ pub struct HirStructMethodSignature<'hir> {
     /// Whether the method's where_clause constraints are satisfied by the concrete types.
     /// Set to false during monomorphization if constraints aren't met.
     pub is_constraint_satisfied: bool,
+    pub attributes: Vec<HirMethodAttribute>,
+    /// True when the method body has been materialized in the owning struct.
+    /// For instantiated generic structs, methods can be signature-only until
+    /// requested by the type checker.
+    pub is_instantiated: bool,
     pub docstring: Option<&'hir str>,
 }
 
@@ -290,6 +318,50 @@ pub enum HirStructMethodModifier {
     /// Method that consumes ownership of `this` (this)
     #[default]
     Consuming,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HirNullablePredicateSemantics {
+    Empty,
+    Present,
+}
+
+impl From<AstNullablePredicateSemantics> for HirNullablePredicateSemantics {
+    fn from(value: AstNullablePredicateSemantics) -> Self {
+        match value {
+            AstNullablePredicateSemantics::Empty => HirNullablePredicateSemantics::Empty,
+            AstNullablePredicateSemantics::Present => HirNullablePredicateSemantics::Present,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HirMethodAttribute {
+    Nullable(Span),
+    NullablePredicate {
+        span: Span,
+        semantics: HirNullablePredicateSemantics,
+    },
+    NullableGuarded(Span),
+    NullableInfallible(Span),
+}
+
+impl From<AstMethodAttribute> for HirMethodAttribute {
+    fn from(value: AstMethodAttribute) -> Self {
+        match value {
+            AstMethodAttribute::Nullable(span) => HirMethodAttribute::Nullable(span),
+            AstMethodAttribute::NullablePredicate { span, semantics } => {
+                HirMethodAttribute::NullablePredicate {
+                    span,
+                    semantics: semantics.into(),
+                }
+            }
+            AstMethodAttribute::NullableGuarded(span) => HirMethodAttribute::NullableGuarded(span),
+            AstMethodAttribute::NullableInfallible(span) => {
+                HirMethodAttribute::NullableInfallible(span)
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -309,6 +381,8 @@ pub struct HirFunctionSignature<'hir> {
     pub pre_mangled_ty: Option<&'hir HirGenericTy<'hir>>,
     pub docstring: Option<&'hir str>,
     pub is_instantiated: bool,
+    /// Optional C symbol name override for extern functions.
+    pub c_name: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone)]

@@ -1,0 +1,9 @@
+fun main() {
+    // This should fail: unknown function call
+    let x: int64 = unknown_function();
+    
+    // Before fix: would get "unknown identifier x" error
+    // After fix: x is registered, so no cascade
+    let y: int64 = x;
+    let z: int64 = x + 10;
+}

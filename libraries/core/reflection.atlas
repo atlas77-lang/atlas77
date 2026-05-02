@@ -1,0 +1,24 @@
+#[core::intrinsic]
+public extern fun type_of<T>() -> core::type_info;
+
+#[core::intrinsic]
+public extern fun type_id<T>() -> uint64;
+
+namespace core {
+    #[std::trivially_copyable]
+    public struct type_info {
+      public:
+        id: uint64;
+        name: str;
+        mangled_name: str;
+        size: uint64;
+        align: uint64;
+        method_names: [str];
+        method_count: uint64;
+        field_names: [str];
+        field_count: uint64;
+        is_trivially_copyable: bool;
+        is_default: bool;
+        is_copyable: bool;
+    }
+}

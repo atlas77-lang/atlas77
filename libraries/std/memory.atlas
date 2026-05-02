@@ -1,19 +1,70 @@
-public extern fun free<T>(val: *T);
+namespace std {
+    #[c_name("free")]
+    public extern fun free<T>(val: *T);
+    #[c_name("malloc")]
+    public extern fun malloc<T>(size: uint64) -> *T;
+    public fun alloc<T>() -> *T
+    {
+        return std::malloc<T>(size_of<T>());
+    }
+    #[c_name("realloc")]
+    public extern fun realloc<T>(ptr: *T, size: uint64) -> *T;
+    #[c_name("calloc")]
+    public extern fun calloc<T>(nelem: uint64, elsize: uint64) -> *T;
+    public fun zero_alloc<T>(nelem: uint64) -> *T
+    {
+        return std::calloc<T>(nelem, size_of<T>());
+    }
+    #[c_name("memcpy")]
+    public extern fun memcpy<T>(dest: *T, src: *const T, size: uint64) -> *T;
 
-public extern fun malloc<T>(size: uint64) -> *T;
+    #[core::intrinsic]
+    //! Moves a value, invalidating the source. 
+    //! [!Note] This is a low-level primitive and should be used with care.
+    public extern fun move<T>(from: T) -> T;
 
-public extern fun memcpy<T>(dest: *T, src: *T, size: uint64) -> *T;
+    public fun take<T: std::default>(from: *T) -> T
+    {
+        let val = std::ptr::read(from);
+        std::ptr::write(from, T::default());
+        // We move it to ensure no issues, but tbf, it should work without `std::move`
+        return std::move(val);
+    }
 
-#[std::intrinsic]
-//! Moves a value, invalidating the source. 
-//! [!Note] This is a low-level primitive and should be used with care.
-public extern fun move<T>(from: T) -> T;
+    // Type that are `std::trivially_copyable` are always `std::copyable`,
+    // though it doesn't guarantee to have a `.copy()` method.
+    public fun copy<T: std::copyable>(from: *const T) -> T
+    {
+        return from.copy();
+        // TODO: This should support std::trivially_copyable types, with something akin to:
+        // when typeof(T).is_trivially_copyable {
+        //     return *T;
+        // else {
+        //    return from.copy();
+        //}
+    }
 
-public fun copy<T: std::copyable>(from: *const T) -> T
-{
-    return from.copy();
+    namespace ptr {
+        #[core::intrinsic]
+        public extern fun read<T>(ptr: *T) -> T;
+        #[core::intrinsic]
+        public extern fun write<T>(ptr: *T, val: T);
+
+        public fun swap<T>(a: *T, b: *T) {
+            let temp = std::ptr::read(a);
+            std::ptr::write(a, std::ptr::read(b));
+            std::ptr::write(b, temp);
+        }
+    }
+
+    //! A zero-sized type used as a sentinel for empty states in unions.
+    public struct empty {}
 }
 
+#[core::intrinsic]
+public extern fun size_of<T>() -> uint64;
+#[core::intrinsic]
+public extern fun align_of<T>() -> uint64;
 //! For the people who can't add a little underscore...
 public fun sizeof<T>() -> uint64
 {
@@ -25,8 +76,3 @@ public fun alignof<T>() -> uint64
 {
     return align_of<T>();
 }
-
-#[std::intrinsic]
-public extern fun size_of<T>() -> uint64;
-#[std::intrinsic]
-public extern fun align_of<T>() -> uint64;
