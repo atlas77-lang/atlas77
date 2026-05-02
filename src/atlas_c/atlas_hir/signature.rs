@@ -2,6 +2,7 @@ use super::ty::HirTy;
 use crate::atlas_c::atlas_frontend::parser::ast::{
     AstFlag, AstMethodAttribute, AstNullablePredicateSemantics, AstVisibility,
 };
+use crate::atlas_c::atlas_hir::error::HirError;
 use crate::atlas_c::atlas_hir::expr::HirUnaryOp;
 use crate::atlas_c::atlas_hir::expr::{HirBinaryOperator, HirExpr};
 use crate::atlas_c::atlas_hir::item::HirEnum;
@@ -80,8 +81,6 @@ pub enum HirOverloadableOperatorKind {
     Mul,
     Div,
     Mod,
-    Neg,
-    Not,
     And,
     Or,
     Xor,
@@ -93,6 +92,11 @@ pub enum HirOverloadableOperatorKind {
     Lte,
     Gt,
     Gte,
+
+    AsRef,
+    DeRef,
+    Neg,
+    Not,
 }
 
 impl From<HirBinaryOperator> for HirOverloadableOperatorKind {
@@ -137,8 +141,6 @@ impl Into<String> for HirOverloadableOperatorKind {
             HirOverloadableOperatorKind::Mul => "mul".to_string(),
             HirOverloadableOperatorKind::Div => "div".to_string(),
             HirOverloadableOperatorKind::Mod => "mod".to_string(),
-            HirOverloadableOperatorKind::Neg => "neg".to_string(),
-            HirOverloadableOperatorKind::Not => "not".to_string(),
             HirOverloadableOperatorKind::And => "and".to_string(),
             HirOverloadableOperatorKind::Or => "or".to_string(),
             HirOverloadableOperatorKind::Xor => "xor".to_string(),
@@ -150,20 +152,24 @@ impl Into<String> for HirOverloadableOperatorKind {
             HirOverloadableOperatorKind::Lte => "less_equal".to_string(),
             HirOverloadableOperatorKind::Gt => "greater".to_string(),
             HirOverloadableOperatorKind::Gte => "greater_equal".to_string(),
+
+            HirOverloadableOperatorKind::Neg => "neg".to_string(),
+            HirOverloadableOperatorKind::Not => "not".to_string(),
+            HirOverloadableOperatorKind::AsRef => "as_ref".to_string(),
+            HirOverloadableOperatorKind::DeRef => "de_ref".to_string(),
         }
     }
 }
 
-impl From<&str> for HirOverloadableOperatorKind {
-    fn from(s: &str) -> Self {
-        match s {
+impl TryFrom<&str> for HirOverloadableOperatorKind {
+    type Error = HirError;
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        Ok(match s {
             "add" => HirOverloadableOperatorKind::Add,
             "sub" => HirOverloadableOperatorKind::Sub,
             "mul" => HirOverloadableOperatorKind::Mul,
             "div" => HirOverloadableOperatorKind::Div,
             "mod" => HirOverloadableOperatorKind::Mod,
-            "neg" => HirOverloadableOperatorKind::Neg,
-            "not" => HirOverloadableOperatorKind::Not,
             "and" => HirOverloadableOperatorKind::And,
             "or" => HirOverloadableOperatorKind::Or,
             "xor" => HirOverloadableOperatorKind::Xor,
@@ -175,8 +181,22 @@ impl From<&str> for HirOverloadableOperatorKind {
             "less_equal" => HirOverloadableOperatorKind::Lte,
             "greater" => HirOverloadableOperatorKind::Gt,
             "greater_equal" => HirOverloadableOperatorKind::Gte,
+            "neg" => HirOverloadableOperatorKind::Neg,
+            "not" => HirOverloadableOperatorKind::Not,
+            "as_ref" => HirOverloadableOperatorKind::AsRef,
+            "de_ref" => HirOverloadableOperatorKind::DeRef,
             _ => panic!("Unknown operator kind: {}", s),
-        }
+        })
+    }
+}
+
+impl HirOverloadableOperatorKind {
+    pub fn is_binary(&self) -> bool {
+        !self.is_unary()
+    }
+    pub fn is_unary(&self) -> bool {
+        use HirOverloadableOperatorKind::*;
+        matches!(self, Not | Neg)
     }
 }
 

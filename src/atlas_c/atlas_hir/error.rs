@@ -86,8 +86,12 @@ declare_error_type! {
         IncorrectIntrinsicCallArguments(IncorrectIntrinsicCallArgumentsError),
         CannotAccessFieldOfPointers(CannotAccessFieldOfPointersError),
         ReservedVariableName(ReservedVariableNameError),
+        // Operators
         UnknownOverloadableOperator(UnknownOverloadableOperatorError),
         OperatorIsNotImplementedForThisType(OperatorIsNotImplementedForThisTypeError),
+        OperatorMustUseConstThisModifier(OperatorMustUseConstThisModifierError),
+        OperatorSecondArgumentMustBeConstPointerToSelf(OperatorSecondArgumentMustBeConstPointerToSelfError),
+        OperatorOverloadDoesNotHaveRequiredAmountOfArgs(OperatorOverloadDoesNotHaveRequiredAmountOfArgsError),
     }
 }
 
@@ -1276,4 +1280,55 @@ pub struct OperatorIsNotImplementedForThisTypeError {
     pub span: Span,
     #[source_code]
     pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::operator_must_use_const_this_modifier),
+    help("use a const receiver for operator overloads")
+)]
+#[error("operator overloads must use a const `this` receiver")]
+pub struct OperatorMustUseConstThisModifierError {
+    #[label = "operator overload receiver must be `*const this`"]
+    pub span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::operator_second_argument_must_be_const_pointer_to_self),
+    help(
+        "the second operator argument must be a const pointer to the enclosing struct \
+    \n\tNB: This is currently a hard limitation of the compiler. It will probably be removed at one point"
+    )
+)]
+#[error(
+    "operator overloads must take `*const T` as their second argument, where `T` is the enclosing type"
+)]
+pub struct OperatorSecondArgumentMustBeConstPointerToSelfError {
+    #[label = "second argument must be `*const {ty_name}`"]
+    pub span: Span,
+    pub ty_name: String,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(sema::operator_overload_does_not_have_required_amount_of_args),
+    help(
+        "{kind} operator overloads must take exactly {expected} arguments (the `this` receiver{context})"
+    )
+)]
+#[error("operator overloads must take exactly {expected} arguments (the `this` receiver{context})")]
+pub struct OperatorOverloadDoesNotHaveRequiredAmountOfArgsError {
+    pub kind: String,
+    pub expected: usize,
+    #[label = "this operator overload takes {found} arguments but should actually only have {expected}"]
+    pub span: Span,
+    pub found: usize,
+    #[source_code]
+    pub src: NamedSource<String>,
+    pub context: String,
 }

@@ -6,6 +6,7 @@ use super::{
     expr,
     stmt::{HirBlock, HirExprStmt, HirStatement},
 };
+use crate::atlas_c::atlas_hir::pretty_print::HirPrettyPrinter;
 use crate::atlas_c::atlas_hir::signature::{
     HirFunctionParameterSignature, HirFunctionSignature, HirMethodAttribute,
     HirOverloadableOperatorKind, HirStructDestructorSignature, HirStructFieldSignature,
@@ -16,49 +17,42 @@ use crate::atlas_c::atlas_hir::special_methods::{
     SpecialMethodKind, SpecialMethodReceiver, primitive_special_call_descriptor,
 };
 use crate::atlas_c::atlas_hir::{
-    error::OperatorIsNotImplementedForThisTypeError, pretty_print::HirPrettyPrinter,
-};
-use crate::atlas_c::atlas_hir::{
     error::{
         AccessingClassFieldOutsideClassError, AccessingPrivateDestructorError,
         AccessingPrivateFieldError, AccessingPrivateFunctionError, AccessingPrivateFunctionOrigin,
-        AccessingPrivateObjectOrigin, AccessingPrivateStructError,
-        CallingNonConstMethodOnConstReferenceError, CallingNonConstMethodOnConstReferenceOrigin,
-        CanOnlyConstructStructsError, EmptyListLiteralError, FieldKind, HirError, HirResult,
-        IllegalOperationError, IllegalUnaryOperationError, InvalidSpecialMethodSignatureError,
-        MethodConstraintNotSatisfiedError, NotEnoughArgumentsError, NotEnoughArgumentsOrigin,
-        ReturningPointerToLocalVariableError, TryingToAccessFieldOnNonObjectTypeError,
+        AccessingPrivateObjectOrigin, AccessingPrivateStructError, AccessingPrivateUnionError,
+        CallingConsumingMethodOnMutableReferenceError,
+        CallingConsumingMethodOnMutableReferenceOrigin, CallingNonConstMethodOnConstReferenceError,
+        CallingNonConstMethodOnConstReferenceOrigin, CanOnlyConstructStructsError,
+        CannotAccessFieldOfPointersError, EmptyListLiteralError, FieldKind, HirError, HirResult,
+        IllegalOperationError, IllegalUnaryOperationError, InvalidListSizeError,
+        InvalidSpecialMethodSignatureError, ListIndexOutOfBoundsError,
+        MethodConstraintNotSatisfiedError, NonConstantListSizeError, NotEnoughArgumentsError,
+        NotEnoughArgumentsOrigin, OperatorIsNotImplementedForThisTypeError,
+        OperatorMustUseConstThisModifierError,
+        OperatorOverloadDoesNotHaveRequiredAmountOfArgsError, ReturningPointerToLocalVariableError,
+        StructCannotHaveAFieldOfItsOwnTypeError, TryingToAccessFieldOnNonObjectTypeError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin, TryingToIndexNonIndexableTypeError,
-        TryingToMutateConstPointerError, TypeCheckFailedError, TypeMismatchActual,
-        TypeMismatchError, UnknownFieldError, UnknownIdentifierError, UnknownMethodError,
-        UnknownTypeError, UnsupportedExpr,
+        TryingToMutateConstPointerError, TypeCheckFailedError, TypeIsNotCopyableError,
+        TypeMismatchActual, TypeMismatchError, UnionMustHaveAtLeastTwoVariantError,
+        UnionVariantDefinedMultipleTimesError, UnknownFieldError, UnknownIdentifierError,
+        UnknownMethodError, UnknownTypeError, UnsupportedExpr, VariableNameAlreadyDefinedError,
     },
     expr::{
         HirBinaryOperator, HirDeleteExpr, HirExpr, HirFieldAccessExpr, HirIdentExpr,
         HirThisLiteral, HirUnaryOp, HirUnsignedIntegerLiteralExpr,
     },
-    item::{HirStruct, HirStructMethod},
+    item::{HirStruct, HirStructDestructor, HirStructMethod, HirUnion},
     monomorphization_pass::{MethodMonomorphizationRequest, MonomorphizationPass},
     ty::{HirGenericTy, HirNamedTy, HirTy, HirTyId},
     type_check_pass::context::{ContextFunction, ContextVariable},
-    warning::{HirWarning, TryingToCastToTheSameTypeWarning},
-};
-use crate::atlas_c::atlas_hir::{
-    error::{
-        AccessingPrivateUnionError, CallingConsumingMethodOnMutableReferenceError,
-        CallingConsumingMethodOnMutableReferenceOrigin, CannotAccessFieldOfPointersError,
-        InvalidListSizeError, ListIndexOutOfBoundsError, NonConstantListSizeError,
-        StructCannotHaveAFieldOfItsOwnTypeError, TypeIsNotCopyableError,
-        UnionMustHaveAtLeastTwoVariantError, UnionVariantDefinedMultipleTimesError,
-        VariableNameAlreadyDefinedError,
+    warning::{
+        HirWarning, TryingToCastToTheSameTypeWarning,
+        UnionFieldCannotBeAutomaticallyDeletedWarning, UnsafeRawPointerStructWarning,
     },
-    warning::UnsafeRawPointerStructWarning,
 };
-use crate::atlas_c::atlas_hir::{
-    item::{HirStructDestructor, HirUnion},
-    warning::UnionFieldCannotBeAutomaticallyDeletedWarning,
-};
+
 use crate::atlas_c::utils;
 use crate::atlas_c::utils::Span;
 use miette::{ErrReport, NamedSource};
@@ -556,8 +550,7 @@ impl<'hir> TypeChecker<'hir> {
                 operator.name, class.name
             );
             self.context_functions.push(HashMap::new());
-            let result =
-                self.check_method(operator, class.signature.nullable_attribute_span.is_some());
+            let result = self.check_operator((class.name, class.name_span), operator);
             self.record_result(result);
         }
 
@@ -632,6 +625,66 @@ impl<'hir> TypeChecker<'hir> {
         }
         res
     }
+
+    fn check_operator(
+        &mut self,
+        (struct_name, struct_span): (&'hir str, Span),
+        method: &mut HirStructMethod<'hir>,
+    ) -> HirResult<()> {
+        let op: HirOverloadableOperatorKind = method.name.try_into()?;
+        let path = method.span.path;
+        let src = utils::get_file_content(path).unwrap();
+        if method.signature.modifier != HirStructMethodModifier::Const {
+            return Err(HirError::OperatorMustUseConstThisModifier(
+                OperatorMustUseConstThisModifierError {
+                    span: method.name_span,
+                    src: NamedSource::new(path, src),
+                },
+            ));
+        }
+        if op.is_binary() {
+            if method.signature.type_params.len() != 1 {
+                self.errors
+                    .push(HirError::OperatorOverloadDoesNotHaveRequiredAmountOfArgs(
+                        OperatorOverloadDoesNotHaveRequiredAmountOfArgsError {
+                            kind: op.into(),
+                            expected: 2,
+                            span: method.name_span,
+                            found: method.signature.type_params.len() + 1,
+                            src: NamedSource::new(path, src),
+                            context: " and one additional argument".into(),
+                        },
+                    ));
+            } else if let Err(err) = self.is_equivalent_ty(
+                self.arena.types().get_ptr_ty(
+                    self.arena.types().get_named_ty(struct_name, struct_span),
+                    true,
+                    struct_span,
+                ),
+                struct_span,
+                method.signature.params[0].ty,
+                method.signature.params[0].span,
+            ) {
+                self.errors.push(err);
+            }
+        } else if op.is_unary() {
+            if !method.signature.type_params.is_empty() {
+                self.errors
+                    .push(HirError::OperatorOverloadDoesNotHaveRequiredAmountOfArgs(
+                        OperatorOverloadDoesNotHaveRequiredAmountOfArgsError {
+                            kind: op.into(),
+                            expected: 1,
+                            span: method.name_span,
+                            found: method.signature.type_params.len() + 1,
+                            src: NamedSource::new(path, src),
+                            context: "".into(),
+                        },
+                    ));
+            }
+        }
+        self.check_method(method, false)
+    }
+
     fn check_method(
         &mut self,
         method: &mut HirStructMethod<'hir>,
@@ -1303,7 +1356,7 @@ impl<'hir> TypeChecker<'hir> {
                     Some(method) => method,
                     None => {
                         // Try to find it in operators
-                        match class.operators.get(&function_name.into()) {
+                        match class.operators.get(&function_name.try_into()?) {
                             Some(op_method) => op_method,
                             None => {
                                 let path = expr.span().path;
@@ -2124,7 +2177,9 @@ impl<'hir> TypeChecker<'hir> {
 
                         let method = if let Some(method) = class.methods.get(lookup_method_name) {
                             Some(method)
-                        } else if let Some(op) = class.operators.get(&lookup_method_name.into()) {
+                        } else if let Some(op) =
+                            class.operators.get(&lookup_method_name.try_into()?)
+                        {
                             Some(op)
                         } else {
                             None
