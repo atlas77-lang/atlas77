@@ -6,7 +6,6 @@ use super::{
     expr,
     stmt::{HirBlock, HirExprStmt, HirStatement},
 };
-use crate::atlas_c::atlas_hir::pretty_print::HirPrettyPrinter;
 use crate::atlas_c::atlas_hir::signature::{
     HirFunctionParameterSignature, HirFunctionSignature, HirMethodAttribute,
     HirOverloadableOperatorKind, HirStructDestructorSignature, HirStructFieldSignature,
@@ -15,6 +14,9 @@ use crate::atlas_c::atlas_hir::signature::{
 use crate::atlas_c::atlas_hir::special_methods::{
     INTRINSIC_PRIMITIVE_COPY, INTRINSIC_PRIMITIVE_DEFAULT, INTRINSIC_PRIMITIVE_HASH,
     SpecialMethodKind, SpecialMethodReceiver, primitive_special_call_descriptor,
+};
+use crate::atlas_c::atlas_hir::{
+    error::UnknownOverloadableOperatorError, pretty_print::HirPrettyPrinter,
 };
 use crate::atlas_c::atlas_hir::{
     error::{
@@ -631,7 +633,10 @@ impl<'hir> TypeChecker<'hir> {
         (struct_name, struct_span): (&'hir str, Span),
         method: &mut HirStructMethod<'hir>,
     ) -> HirResult<()> {
-        let op: HirOverloadableOperatorKind = method.name.try_into()?;
+        let op: HirOverloadableOperatorKind = method
+            .name
+            .try_into()
+            .map_err(|_| Self::unknown_overloadable_operator(method.name, &struct_span))?;
         let path = method.span.path;
         let src = utils::get_file_content(path).unwrap();
         if method.signature.modifier != HirStructMethodModifier::Const {
@@ -1356,7 +1361,9 @@ impl<'hir> TypeChecker<'hir> {
                     Some(method) => method,
                     None => {
                         // Try to find it in operators
-                        match class.operators.get(&function_name.try_into()?) {
+                        match class.operators.get(&function_name.try_into().map_err(|_| {
+                            Self::unknown_overloadable_operator(function_name, &s.span)
+                        })?) {
                             Some(op_method) => op_method,
                             None => {
                                 let path = expr.span().path;
@@ -2175,15 +2182,21 @@ impl<'hir> TypeChecker<'hir> {
                             )
                         };
 
-                        let method = if let Some(method) = class.methods.get(lookup_method_name) {
-                            Some(method)
-                        } else if let Some(op) =
-                            class.operators.get(&lookup_method_name.try_into()?)
-                        {
-                            Some(op)
-                        } else {
-                            None
-                        };
+                        let method =
+                            if let Some(method) = class.methods.get(lookup_method_name) {
+                                Some(method)
+                            } else if let Some(op) = class.operators.get(
+                                &lookup_method_name.try_into().map_err(|_| {
+                                    Self::unknown_overloadable_operator(
+                                        lookup_method_name,
+                                        &func_expr.span,
+                                    )
+                                })?,
+                            ) {
+                                Some(op)
+                            } else {
+                                None
+                            };
 
                         if let Some(method_sig) = method {
                             if !method_sig.is_instantiated {
@@ -4095,6 +4108,16 @@ impl<'hir> TypeChecker<'hir> {
         HirError::UnknownMethod(UnknownMethodError {
             method_name: method_name.to_string(),
             ty_name: ty_name.to_string(),
+            span: *span,
+            src: NamedSource::new(path, src),
+        })
+    }
+
+    fn unknown_overloadable_operator(op: &str, span: &Span) -> HirError {
+        let path = span.path;
+        let src = utils::get_file_content(path).unwrap();
+        HirError::UnknownOverloadableOperator(UnknownOverloadableOperatorError {
+            operator: op.into(),
             span: *span,
             src: NamedSource::new(path, src),
         })

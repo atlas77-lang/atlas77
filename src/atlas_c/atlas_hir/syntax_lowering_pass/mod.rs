@@ -736,27 +736,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         }
     }
 
-    const OPERATOR_NAMES: [(&'static str, HirOverloadableOperatorKind); 18] = [
-        ("add", HirOverloadableOperatorKind::Add),
-        ("sub", HirOverloadableOperatorKind::Sub),
-        ("mul", HirOverloadableOperatorKind::Mul),
-        ("div", HirOverloadableOperatorKind::Div),
-        ("mod", HirOverloadableOperatorKind::Mod),
-        ("neg", HirOverloadableOperatorKind::Neg),
-        ("not", HirOverloadableOperatorKind::Not),
-        ("and", HirOverloadableOperatorKind::And),
-        ("or", HirOverloadableOperatorKind::Or),
-        ("xor", HirOverloadableOperatorKind::Xor),
-        ("shl", HirOverloadableOperatorKind::Shl),
-        ("shr", HirOverloadableOperatorKind::Shr),
-        ("equal", HirOverloadableOperatorKind::Eq),
-        ("not_equal", HirOverloadableOperatorKind::NEq),
-        ("less", HirOverloadableOperatorKind::Lt),
-        ("less_equal", HirOverloadableOperatorKind::Lte),
-        ("greater", HirOverloadableOperatorKind::Gt),
-        ("greater_equal", HirOverloadableOperatorKind::Gte),
-    ];
-
     fn visit_operator_overload(
         &mut self,
         node: &'ast AstOperatorOverload,
@@ -778,26 +757,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         let (generics, where_clause) =
             self.merge_generic_constraints(node.generics, node.where_clause);
 
-        let operator;
-        if let Some((_, kind)) = Self::OPERATOR_NAMES
-            .iter()
-            .find(|&&(name, _)| name == node.name.name)
-        {
-            operator = HirOverloadableOperator {
-                kind: *kind,
-                span: node.name.span,
-            };
-        } else {
-            let path = node.span.path;
-            let src = utils::get_file_content(path).unwrap();
-            return Err(HirError::UnknownOverloadableOperator(
-                UnknownOverloadableOperatorError {
-                    operator: node.name.name.into(),
-                    src: NamedSource::new(path, src),
-                    span: node.name.span,
-                },
-            ));
-        }
+        let operator = node
+            .name
+            .name
+            .try_into()
+            .map_err(|_| Self::unknown_overloadable_operator(node.name.name, &node.span))?;
 
         let signature = self.arena.intern(HirStructMethodSignature {
             modifier: match node.modifier {
@@ -835,7 +799,13 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             signature,
             body,
         };
-        Ok((method, operator))
+        Ok((
+            method,
+            HirOverloadableOperator {
+                kind: operator,
+                span: node.span,
+            },
+        ))
     }
 
     fn visit_method(&mut self, node: &'ast AstMethod<'ast>) -> HirResult<HirStructMethod<'hir>> {
@@ -2253,6 +2223,16 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         HirError::StructNameCannotBeOneLetter(StructNameCannotBeOneLetterError {
             src: NamedSource::new(path, src),
             span: *span,
+        })
+    }
+
+    fn unknown_overloadable_operator(op: &str, span: &Span) -> HirError {
+        let path = span.path;
+        let src = utils::get_file_content(path).unwrap();
+        HirError::UnknownOverloadableOperator(UnknownOverloadableOperatorError {
+            operator: op.into(),
+            span: *span,
+            src: NamedSource::new(path, src),
         })
     }
 }
