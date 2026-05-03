@@ -1,0 +1,206 @@
+import "std/optional";
+
+public struct uint128 {
+  private:
+    high: uint64;
+    low: uint64;
+  public:
+    fun default() -> uint128 {
+        return uint128 {
+            .high = 0,
+            .low = 0
+        };
+    }
+    operator add(*const this, other: *const uint128) -> uint128 {
+        let low = this->low + other->low;
+        let carry: uint64 = 0;
+        if (low < this->low) {
+            carry = 1;
+        }
+        return uint128 {
+            .low = low, 
+            .high = this->high + other->high + carry
+        };
+    }
+    operator sub(*const this, other: *const uint128) -> uint128 {
+        let borrow: uint64 = 0;
+        let low = this->low - other->low;
+        if (this->low < low) {
+            borrow = 1;
+        }
+        return uint128 {
+            .low = low,
+            .high = (this->high - other->high) - borrow
+        };
+    }
+    operator mul(*const this, other: *const uint128) -> uint128 {
+        // TODO
+        return uint128::default();
+    }
+    operator div(*const this, other: *const uint128) -> uint128 {
+        // TODO
+        return uint128::default();
+    }
+    //! %
+    operator mod(*const this, other: *const uint128) -> uint128 {
+        // TODO
+        return uint128::default();
+    }
+    //! >>
+    operator shr(*const this, other: *const uint128) -> uint128 {
+        // TODO
+        return uint128::default();
+    }
+    //! <<
+    operator shl(*const this, other: *const uint128) -> uint128 {
+        // TODO
+        return uint128::default();
+    }
+    operator bin_and(*const this, other: *const uint128) -> uint128 {
+        // TODO
+        return uint128::default();
+    }
+    operator bin_or(*const this, other: *const uint128) -> uint128 {
+        // TODO
+        return uint128::default();
+    }
+    operator bin_xor(*const this, other: *const uint128) -> uint128 {
+        // TODO
+        return uint128::default();
+    }
+    operator equal(*const this, other: *const uint128) -> uint128 {
+        // TODO
+        return uint128::default();
+    }
+    operator not_equal(*const this, other: *const uint128) -> uint128 {
+        // TODO
+        return uint128::default();
+    }
+    operator less(*const this, other: *const uint128) -> uint128 {
+        // TODO
+        return uint128::default();
+    }
+    operator less_equal(*const this, other: *const uint128) -> uint128 {
+        // TODO
+        return uint128::default();
+    }
+    operator greater(*const this, other: *const uint128) -> uint128 {
+        // TODO
+        return uint128::default();
+    }
+    operator greater_equal(*const this, other: *const uint128) -> uint128 {
+        // TODO
+        return uint128::default();
+    }
+    
+    // TODO: Find a better name
+    fun to_64bits(*const this) -> std::optional<uint64> {
+        if this->high != 0
+        {
+            return std::optional<uint64>::empty();
+        }
+        return std::optional<uint64>::of(this->low);
+    }
+    fun to_64bits_unchecked(*const this) -> uint64 {
+        return this->low;
+    }
+}
+
+#[std::trivially_copyable]
+public struct int128 {
+  private:
+    high: int64;
+    low: uint64;
+  public:
+    fun default() -> int128 {
+        return int128 {
+            .high = 0,
+            .low = 0
+        };
+    }
+    operator neg(*const this) -> int128 {
+        return int128 {
+            .high = -this->high,
+            .low = this->low
+        }
+    }
+    operator add(*const this, other: *const int128) -> int128 {
+        // TODO
+        return int128::default();
+    }
+    operator sub(*const this, other: *const int128) -> int128 {
+        // TODO
+        return int128::default();
+    }
+    operator mul(*const this, other: *const int128) -> int128 {
+        // TODO
+        return int128::default();
+    }
+    operator div(*const this, other: *const int128) -> int128 {
+        // TODO
+        return int128::default();
+    }
+    //! %
+    operator mod(*const this, other: *const int128) -> int128 {
+        // TODO
+        return int128::default();
+    }
+    //! >>
+    operator shr(*const this, other: *const int128) -> int128 {
+        // TODO
+        return int128::default();
+    }
+    //! <<
+    operator shl(*const this, other: *const int128) -> int128 {
+        // TODO
+        return int128::default();
+    }
+    operator bin_and(*const this, other: *const int128) -> int128 {
+        // TODO
+        return int128::default();
+    }
+    operator bin_or(*const this, other: *const int128) -> int128 {
+        // TODO
+        return int128::default();
+    }
+    operator bin_xor(*const this, other: *const int128) -> int128 {
+        // TODO
+        return int128::default();
+    }
+    operator equal(*const this, other: *const int128) -> int128 {
+        // TODO
+        return int128::default();
+    }
+    operator not_equal(*const this, other: *const int128) -> int128 {
+        // TODO
+        return int128::default();
+    }
+    operator less(*const this, other: *const int128) -> int128 {
+        // TODO
+        return int128::default();
+    }
+    operator less_equal(*const this, other: *const int128) -> int128 {
+        // TODO
+        return int128::default();
+    }
+    operator greater(*const this, other: *const int128) -> int128 {
+        // TODO
+        return int128::default();
+    }
+    operator greater_equal(*const this, other: *const int128) -> int128 {
+        // TODO
+        return int128::default();
+    }
+    
+    // TODO: Find a better name
+    fun to_64bits(*const this) -> std::optional<int64> {
+        if this->high != 0
+        {
+            return std::optional<int64>::empty();
+        }
+        return std::optional<int64>::of(this->low as int64);
+    }
+    fun to_64bits_unchecked(*const this) -> int64 {
+        return this->low as int64;
+    }
+}
