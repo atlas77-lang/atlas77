@@ -243,8 +243,11 @@ impl HirTy<'_> {
         matches!(
             self,
             HirTy::Integer(_)
+            | HirTy::LiteralInteger(_)
                 | HirTy::Float(_)
+                | HirTy::LiteralFloat(_)
                 | HirTy::UnsignedInteger(_)
+                | HirTy::LiteralUnsignedInteger(_)
                 | HirTy::Boolean(_)
                 | HirTy::Unit(_)
                 | HirTy::Char(_)
