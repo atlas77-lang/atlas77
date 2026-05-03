@@ -5,6 +5,34 @@ extern fun clock() -> int64;
 extern fun clocks_per_sec() -> int64;
 extern fun pow(x: float64, y: float64) -> float64;
 
+#[std::trivially_copyable]
+public struct int128 {
+    hi: int64;
+    lo: uint64;
+    
+    operator add(*const this, other: *const int128) -> int128 {
+        let nlo = this->lo + other->lo;
+        let carry: int64 = 0;
+        if (nlo < this->lo) { carry = 1; }
+        let new = int128 {
+            .lo = nlo,
+            .hi = this->hi + other->hi + carry 
+        };
+        return new;
+    }
+
+    operator sub(*const this, other: *const int128) -> int128 {
+        let borrow: int64 = 0;
+        let nlo = this->lo - other->lo;
+        if (this->lo < other->lo) { borrow = 1; }
+        let new = int128 {
+            .lo = nlo,
+            .hi = this->hi - other->hi - borrow
+        };
+        return new;
+    }
+}
+
 fun mul64_to_u128(x: uint64, y: uint64, hi: *uint64, lo: *uint64) {
     let MASK32 = 4294967295;
     let x_lo = x & MASK32;
