@@ -2214,11 +2214,6 @@ impl<'hir> TypeChecker<'hir> {
                                     func_expr.generics.clone(),
                                     func_expr.span,
                                 );
-                                return Err(Self::unknown_method_err(
-                                    lookup_method_name,
-                                    name,
-                                    &field_access.span,
-                                ));
                             }
                         } else if !func_expr.generics.is_empty() {
                             self.maybe_enqueue_deferred_method_materialization(
@@ -2770,11 +2765,13 @@ impl<'hir> TypeChecker<'hir> {
             && struct_signature.operators.contains_key(&op)
         {
             return Ok(lhs_ty);
-        } else if let HirTy::Generic(g) = lhs_ty
-            && let Some(struct_signature) = self.signature.structs.get(g.name)
-            && struct_signature.operators.contains_key(&op)
-        {
-            return Ok(lhs_ty);
+        } else if let HirTy::Generic(g) = lhs_ty {
+            let mangled_name = MonomorphizationPass::generate_mangled_name(self.arena, g, "struct");
+            if let Some(struct_signature) = self.signature.structs.get(mangled_name)
+                && struct_signature.operators.contains_key(&op)
+            {
+                return Ok(lhs_ty);
+            }
         }
 
         Err(HirError::OperatorIsNotImplementedForThisType(
@@ -2802,13 +2799,15 @@ impl<'hir> TypeChecker<'hir> {
                 .contains_key(&HirOverloadableOperatorKind::from(op))
         {
             return Ok(ty);
-        } else if let HirTy::Generic(g) = ty
-            && let Some(struct_signature) = self.signature.structs.get(g.name)
-            && struct_signature
-                .operators
-                .contains_key(&HirOverloadableOperatorKind::from(op))
-        {
-            return Ok(ty);
+        } else if let HirTy::Generic(g) = ty {
+            let mangled_name = MonomorphizationPass::generate_mangled_name(self.arena, g, "struct");
+            if let Some(struct_signature) = self.signature.structs.get(mangled_name)
+                && struct_signature
+                    .operators
+                    .contains_key(&HirOverloadableOperatorKind::from(op))
+            {
+                return Ok(ty);
+            }
         }
 
         Err(HirError::OperatorIsNotImplementedForThisType(
@@ -3379,6 +3378,23 @@ impl<'hir> TypeChecker<'hir> {
 
         let func = class.methods.get(lookup_method_name);
 
+        if let Some(method_sig) = func
+            && !method_sig.is_instantiated
+        {
+            self.maybe_enqueue_deferred_method_materialization(
+                name,
+                static_access.field.name,
+                call_generics.clone(),
+                call_span,
+            );
+        } else {
+            self.maybe_enqueue_deferred_method_materialization(
+                name,
+                static_access.field.name,
+                call_generics.clone(),
+                call_span,
+            );
+        }
         if func.is_none()
             || !func
                 .map(|method_sig| method_sig.is_instantiated)
