@@ -206,6 +206,8 @@ This version was another rewrite, though partial in this case. It introduced and
 - **Stack allocation**: Objects or arrays can now be allocated on the stack instead of just being heap allocated. It's done as you would in C: `let x = MyStruct { ... };` or `let arr = [1, 2, 3];`. The language will automatically call the destructor of the object/array when it goes out of scope, so you don't have to worry about memory leaks in this case.
 - **Intrinsics**: There are now a few set of intrinsics available for you to be able to "ask" something to the compiler. e.g.: `sizeof<T>()`, `alignof<T>()`, `move(T)`. A lot more to come.
 - **Reflections**: This expands on the **intrinsics** to add `type_of<T>()` and `type_id<T>()`. It's relatively crude and most probably innefficient as of writing this, but at least it exists. A small `core::type_info` type has been added so you can manipulate and checks a bit the information of a type.
+- **Operator Overloading**: A limited way to overload operator has been introduced to allow you to do only `T op T`, meaning it only works on `lhs.ty == rhs.ty` and it should also return the same type. It's temporary for now and will be improved upon in the future.
+- **Integer Literals**: Add a way to have clean binary/octal/hexadecimal numbers with underscore for long numbers. The next step will be to add the equivalent of `LL`, `ULL`, ...
 
 #### Stability and Refinement
 
