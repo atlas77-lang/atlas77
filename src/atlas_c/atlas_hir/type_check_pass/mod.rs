@@ -1423,6 +1423,8 @@ impl<'hir> TypeChecker<'hir> {
                 let ty = self.check_expr(&mut u.expr)?;
                 if let Some(op) = u.op
                     && !ty.is_primitive()
+                    // AsRef works a bit differently. It can work on non primitive types
+                    && op != HirUnaryOp::AsRef
                 {
                     u.ty = self.check_unary_operator_overloading((ty, u.span), op.into())?;
                     u.is_overloaded = true;
@@ -1441,6 +1443,12 @@ impl<'hir> TypeChecker<'hir> {
                         Ok(ty)
                     }
                     Some(HirUnaryOp::AsRef) => {
+                        if let Ok(ty) =
+                            self.check_unary_operator_overloading((ty, u.span), HirUnaryOp::AsRef)
+                        {
+                            u.ty = ty;
+                            return Ok(ty);
+                        }
                         let ptr_ty = self.arena.types().get_ptr_ty(ty, false, u.span); // is_const = false for &
                         u.ty = ptr_ty;
                         Ok(ptr_ty)
