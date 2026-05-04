@@ -4,6 +4,121 @@ use std::str::ParseBoolError;
 
 use crate::atlas_c::utils::Span;
 
+fn parse_string_literal(lex: &mut logos::Lexer<'_, TokenKind>) -> String {
+    let raw = &lex.slice()[1..lex.slice().len() - 1];
+    let mut result = String::new();
+    let mut chars = raw.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            match chars.next() {
+                Some('n') => result.push('\n'),
+                Some('t') => result.push('\t'),
+                Some('r') => result.push('\r'),
+                Some('\\') => result.push('\\'),
+                Some('\'') => result.push('\''),
+                Some('"') => result.push('"'),
+                Some('0') => result.push('\0'),
+                Some(c) => {
+                    result.push('\\');
+                    result.push(c);
+                }
+                None => result.push('\\'),
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}
+
+fn parse_char_literal(lex: &mut logos::Lexer<'_, TokenKind>) -> char {
+    let c = lex.slice().chars().nth(1).unwrap();
+    if c == '\\' {
+        match lex.slice().chars().nth(2) {
+            Some('n') => '\n',
+            Some('t') => '\t',
+            Some('r') => '\r',
+            Some('\\') => '\\',
+            Some('\'') => '\'',
+            Some('"') => '"',
+            Some('0') => '\0',
+            Some(c) => c,
+            None => '\\',
+        }
+    } else {
+        c
+    }
+}
+
+fn parse_identifier(lex: &mut logos::Lexer<'_, TokenKind>) -> String {
+    lex.slice().to_string()
+}
+
+fn parse_integer(lex: &mut logos::Lexer<'_, TokenKind>) -> Result<i64, ParseIntError> {
+    parse_integer_literal(lex.slice())
+}
+
+fn parse_float(lex: &mut logos::Lexer<'_, TokenKind>) -> Result<f64, ParseFloatError> {
+    let slice = lex.slice();
+    if let Some(stripped) = slice.strip_suffix('f') {
+        stripped.parse()
+    } else {
+        slice.parse()
+    }
+}
+
+fn parse_unsigned_integer(lex: &mut logos::Lexer<'_, TokenKind>) -> Result<u64, ParseIntError> {
+    parse_unsigned_integer_literal(lex.slice())
+}
+
+fn parse_integer_literal(slice: &str) -> Result<i64, ParseIntError> {
+    let (radix, digits) = split_integer_literal(slice);
+    i64::from_str_radix(&digits, radix)
+}
+
+fn parse_unsigned_integer_literal(slice: &str) -> Result<u64, ParseIntError> {
+    let slice = slice.strip_suffix('u').unwrap();
+    let (radix, digits) = split_integer_literal(slice);
+    u64::from_str_radix(&digits, radix)
+}
+
+fn split_integer_literal(slice: &str) -> (u32, String) {
+    let (radix, digits) = if let Some(digits) = slice.strip_prefix("0b") {
+        (2, digits)
+    } else if let Some(digits) = slice.strip_prefix("0B") {
+        (2, digits)
+    } else if let Some(digits) = slice.strip_prefix("0o") {
+        (8, digits)
+    } else if let Some(digits) = slice.strip_prefix("0O") {
+        (8, digits)
+    } else if let Some(digits) = slice.strip_prefix("0x") {
+        (16, digits)
+    } else if let Some(digits) = slice.strip_prefix("0X") {
+        (16, digits)
+    } else {
+        (10, slice)
+    };
+
+    (radix, digits.replace('_', ""))
+}
+
+fn parse_bool(lex: &mut logos::Lexer<'_, TokenKind>) -> Result<bool, ParseBoolError> {
+    lex.slice().parse()
+}
+
+fn parse_comment(lex: &mut logos::Lexer<'_, TokenKind>) -> String {
+    lex.slice().to_string()
+}
+
+fn parse_doc_comment(lex: &mut logos::Lexer<'_, TokenKind>) -> String {
+    let slice = lex.slice();
+    if slice.len() > 4 && &slice[3..4] == " " {
+        slice[4..].to_string()
+    } else {
+        slice[3..].to_string()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
     pub span: Span,
@@ -66,87 +181,31 @@ impl From<ParseBoolError> for LexingError {
 //Skip whitespace regex
 #[logos(skip r"[ \t\n\f\r]+")]
 pub enum TokenKind {
-    //We need to be able to capture '\t', '\n', '\\', '\'', '\"', etc.
-    #[regex("\"[^\"]*\"", |lex| {
-        let raw = &lex.slice()[1..lex.slice().len()-1];
-        let mut result = String::new();
-        let mut chars = raw.chars();
-        while let Some(ch) = chars.next() {
-            if ch == '\\' {
-                match chars.next() {
-                    Some('n') => result.push('\n'),
-                    Some('t') => result.push('\t'),
-                    Some('r') => result.push('\r'),
-                    Some('\\') => result.push('\\'),
-                    Some('\'') => result.push('\''),
-                    Some('\"') => result.push('\"'),
-                    Some('0') => result.push('\0'),
-                    Some(c) => {
-                        result.push('\\');
-                        result.push(c);
-                    }
-                    None => result.push('\\'),
-                }
-            } else {
-                result.push(ch);
-            }
-        }
-        result
-    })]
+    #[regex("\"[^\"]*\"", parse_string_literal)]
     StringLiteral(String),
-    // Let's add all special chars, e.g.: \0, \n, \t, \r, \', ...
-    #[regex("'[^\']*'", |lex| {
-        let c = lex.slice().chars().nth(1).unwrap();
-        if c == '\\' {
-            match lex.slice().chars().nth(2) {
-                Some('n') => '\n',
-                Some('t') => '\t',
-                Some('r') => '\r',
-                Some('\\') => '\\',
-                Some('\'') => '\'',
-                Some('\"') => '\"',
-                Some('0') => '\0',
-                Some(c) => c,
-                None => '\\',
-            }
-        } else {
-            c
-        }
-    })]
+    #[regex("'[^\']*'", parse_char_literal)]
     Char(char),
-    #[regex("[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().to_string())]
+    #[regex("[a-zA-Z_][a-zA-Z0-9_]*", parse_identifier)]
     Identifier(String),
-    #[regex("[0-9]+", |lex| lex.slice().parse())]
+    #[regex(
+        "0[bB][01]+(?:_[01]+)*|0[oO][0-7]+(?:_[0-7]+)*|0[xX][0-9a-fA-F]+(?:_[0-9a-fA-F]+)*|[0-9]+(?:_[0-9]+)*",
+        parse_integer
+    )]
     Integer(i64),
-    // Let's add it with trailing as in 123f
-    #[regex("[0-9]+\\.[0-9]+|[0-9]+f", |lex| {
-        let slice = lex.slice();
-        if let Some(stripped) = slice.strip_suffix('f') {
-            stripped.parse()
-        } else {
-            slice.parse()
-        }
-    })]
+    #[regex("[0-9]+\\.[0-9]+|[0-9]+f", parse_float)]
     Float(f64),
     /// Let's add it with trailing as in 123u
-    #[regex("[0-9]+u", |lex| {
-        let slice = &lex.slice()[..lex.slice().len() - 1]; // Remove the trailing 'u'
-        slice.parse()
-    })]
+    #[regex(
+        "0[bB][01]+(?:_[01]+)*u|0[oO][0-7]+(?:_[0-7]+)*u|0[xX][0-9a-fA-F]+(?:_[0-9a-fA-F]+)*u|[0-9]+(?:_[0-9]+)*u",
+        parse_unsigned_integer
+    )]
     UnsignedInteger(u64),
-    #[regex("true|false", |lex| lex.slice().parse())]
+    #[regex("true|false", parse_bool)]
     Bool(bool),
-    #[regex(r"//.*|/\*[\s\S]*?\*/", |lex| lex.slice().to_string(), allow_greedy = true)]
+    #[regex(r"//.*|/\*[\s\S]*?\*/", parse_comment, allow_greedy = true)]
     Comments(String),
     /// ``//! This is a doc comment``
-    #[regex(r"//!.*", |lex| {
-        let slice = lex.slice();
-        if slice.len() > 4 && &slice[3..4] == " " {
-            slice[4..].to_string()
-        } else {
-            slice[3..].to_string()
-        }
-    }, allow_greedy = true)]
+    #[regex(r"//!.*", parse_doc_comment, allow_greedy = true)]
     Docs(String),
     #[token("(")]
     LParen,
