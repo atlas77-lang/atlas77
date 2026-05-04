@@ -175,7 +175,7 @@ fn main() -> miette::Result<()> {
                 },
                 true,
                 // We don't care about the compiler here, as we won't compile
-                Some(SupportedCompiler::from_str("none").expect("Invalid compiler specified")),
+                None,
                 "build".to_string(),
                 Vec::new(),
             )
