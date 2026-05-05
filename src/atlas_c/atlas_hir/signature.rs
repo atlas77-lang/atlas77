@@ -246,7 +246,10 @@ impl Display for HirGenericConstraintKind<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             HirGenericConstraintKind::Std { name, .. } => write!(f, "std::{}", name),
-            HirGenericConstraintKind::Operator { op, .. } => write!(f, "operator {:?}", op),
+            HirGenericConstraintKind::Operator { op, .. } => {
+                let op_name: String = op.kind.into();
+                write!(f, "operator::{}", op_name)
+            }
             HirGenericConstraintKind::Concept { name, .. } => {
                 write!(f, "{}", name)
             }

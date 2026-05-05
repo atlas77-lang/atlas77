@@ -724,14 +724,15 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 name: self.arena.names().get(std.name),
                 span: std.span,
             }),
-            _ => {
-                let path = constraint.span().path;
-                let src = utils::get_file_content(path).unwrap();
-                Err(HirError::UnsupportedItem(UnsupportedItemError {
-                    span: constraint.span(),
-                    item: format!("{:?}", constraint),
-                    src: NamedSource::new(path, src),
-                }))
+            AstGenericConstraint::Operator { op, span } => {
+                let hir_op = self.visit_bin_op(op)?;
+                Ok(HirGenericConstraintKind::Operator {
+                    op: HirOverloadableOperator {
+                        span: *span,
+                        kind: HirOverloadableOperatorKind::from(hir_op),
+                    },
+                    span: *span,
+                })
             }
         }
     }

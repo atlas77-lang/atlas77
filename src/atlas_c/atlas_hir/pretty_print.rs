@@ -251,7 +251,8 @@ impl HirPrettyPrinter {
                 self.write(name);
             }
             HirGenericConstraintKind::Operator { op, .. } => {
-                self.write(format!("operator{:?}", op.kind).as_str());
+                let op_name: String = op.kind.into();
+                self.write(format!("operator::{}", op_name).as_str());
             }
         }
     }

@@ -547,10 +547,6 @@ impl<'hir> TypeChecker<'hir> {
             }
             self.current_class_name = Some(class.name);
             self.current_func_name = Some(operator.name);
-            eprintln!(
-                "Checking operator {} for class {}",
-                operator.name, class.name
-            );
             self.context_functions.push(HashMap::new());
             let result = self.check_operator((class.name, class.name_span), operator);
             self.record_result(result);
