@@ -548,6 +548,22 @@ fn load_build_config(project_dir: &Path) -> miette::Result<AtlasBuildConfig> {
             .extend(collect_string_array(dependencies, "include_dirs"));
     }
 
+    // Backward compatibility: older atlas.toml files used [package].compiler/args.
+    if let Some(package_table) = root.get("package").and_then(|v| v.as_table()) {
+        if config.preferred_compiler.is_none() {
+            config.preferred_compiler = package_table
+                .get("compiler")
+                .and_then(|v| v.as_str())
+                .and_then(parse_supported_compiler);
+        }
+        config
+            .compiler_args
+            .extend(collect_string_array(package_table, "args"));
+        config
+            .compiler_args
+            .extend(collect_string_array(package_table, "c_args"));
+    }
+
     if let Some(build_table) = root.get("build").and_then(|v| v.as_table()) {
         config.preferred_compiler = build_table
             .get("compiler")

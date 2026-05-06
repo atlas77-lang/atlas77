@@ -547,10 +547,6 @@ impl<'hir> TypeChecker<'hir> {
             }
             self.current_class_name = Some(class.name);
             self.current_func_name = Some(operator.name);
-            eprintln!(
-                "Checking operator {} for class {}",
-                operator.name, class.name
-            );
             self.context_functions.push(HashMap::new());
             let result = self.check_operator((class.name, class.name_span), operator);
             self.record_result(result);
@@ -1175,9 +1171,16 @@ impl<'hir> TypeChecker<'hir> {
                 let ptrs_to_locals = self.get_local_ptr_targets(&l.value);
 
                 // Phase 3: Determine the actual variable type
-                let var_ty = if l.ty == self.arena.types().get_uninitialized_ty() {
-                    //Need inference
-                    expr_ty
+                let was_uninitialized = l.ty == self.arena.types().get_uninitialized_ty();
+                let var_ty = if was_uninitialized {
+                    // Keep `let x = ...` inferable across type-check rounds when the
+                    // initializer temporarily fails (e.g. before deferred method
+                    // monomorphization materializes).
+                    if matches!(expr_ty, HirTy::Error(_)) {
+                        self.arena.types().get_uninitialized_ty()
+                    } else {
+                        expr_ty
+                    }
                 } else {
                     match self.is_equivalent_ty(
                         l.ty,
@@ -1194,6 +1197,12 @@ impl<'hir> TypeChecker<'hir> {
                     l.ty
                 };
                 l.ty = var_ty;
+                let context_var_ty =
+                    if was_uninitialized && var_ty == self.arena.types().get_uninitialized_ty() {
+                        fallback_ty
+                    } else {
+                        var_ty
+                    };
 
                 // Phase 4: Update the registered variable with correct type and ptr_to_locals info
                 // We need to update the variable in the context to have the correct type and pointers
@@ -1205,7 +1214,7 @@ impl<'hir> TypeChecker<'hir> {
                         ContextVariable {
                             name: l.name,
                             name_span: l.name_span,
-                            ty: var_ty,
+                            ty: context_var_ty,
                             _ty_span: l.ty_span.unwrap_or(l.name_span),
                             _is_mut: true,
                             is_param: false,
@@ -1360,21 +1369,30 @@ impl<'hir> TypeChecker<'hir> {
                 let method = match class.methods.get(function_name) {
                     Some(method) => method,
                     None => {
-                        // Try to find it in operators
-                        match class.operators.get(&function_name.try_into().map_err(|_| {
-                            Self::unknown_overloadable_operator(function_name, &s.span)
-                        })?) {
-                            Some(op_method) => op_method,
-                            None => {
-                                let path = expr.span().path;
-                                let src = utils::get_file_content(path).unwrap();
-                                return Err(HirError::UnknownMethod(UnknownMethodError {
-                                    method_name: function_name.to_string(),
-                                    ty_name: class.name.to_string(),
-                                    span: expr.span(),
-                                    src: NamedSource::new(path, src),
-                                }));
+                        // Try to find it in operators only if the name can actually be an operator.
+                        if let Ok(op_name) = function_name.try_into() {
+                            match class.operators.get(&op_name) {
+                                Some(op_method) => op_method,
+                                None => {
+                                    let path = expr.span().path;
+                                    let src = utils::get_file_content(path).unwrap();
+                                    return Err(HirError::UnknownMethod(UnknownMethodError {
+                                        method_name: function_name.to_string(),
+                                        ty_name: class.name.to_string(),
+                                        span: expr.span(),
+                                        src: NamedSource::new(path, src),
+                                    }));
+                                }
                             }
+                        } else {
+                            let path = expr.span().path;
+                            let src = utils::get_file_content(path).unwrap();
+                            return Err(HirError::UnknownMethod(UnknownMethodError {
+                                method_name: function_name.to_string(),
+                                ty_name: class.name.to_string(),
+                                span: expr.span(),
+                                src: NamedSource::new(path, src),
+                            }));
                         }
                     }
                 };
@@ -2190,21 +2208,13 @@ impl<'hir> TypeChecker<'hir> {
                             )
                         };
 
-                        let method =
-                            if let Some(method) = class.methods.get(lookup_method_name) {
-                                Some(method)
-                            } else if let Some(op) = class.operators.get(
-                                &lookup_method_name.try_into().map_err(|_| {
-                                    Self::unknown_overloadable_operator(
-                                        lookup_method_name,
-                                        &func_expr.span,
-                                    )
-                                })?,
-                            ) {
-                                Some(op)
-                            } else {
-                                None
-                            };
+                        let method = if let Some(method) = class.methods.get(lookup_method_name) {
+                            Some(method)
+                        } else if let Ok(op_name) = lookup_method_name.try_into() {
+                            class.operators.get(&op_name)
+                        } else {
+                            None
+                        };
 
                         if let Some(method_sig) = method {
                             if !method_sig.is_instantiated {

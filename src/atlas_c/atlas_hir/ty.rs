@@ -251,6 +251,7 @@ impl HirTy<'_> {
                 | HirTy::Boolean(_)
                 | HirTy::Unit(_)
                 | HirTy::Char(_)
+                | HirTy::Error(_)
                 // TODO: string should not be a primitive anymore
                 | HirTy::String(_)
                 | HirTy::PtrTy(_)
@@ -266,6 +267,7 @@ impl HirTy<'_> {
             | HirTy::LiteralFloat(_)
             | HirTy::LiteralUnsignedInteger(_)
             | HirTy::Function(_)
+            | HirTy::Error(_)
             | HirTy::Slice(_) => true,
             HirTy::Named(named_ty) => signatures
                 .structs
@@ -303,6 +305,7 @@ impl HirTy<'_> {
             | HirTy::LiteralFloat(_)
             | HirTy::LiteralUnsignedInteger(_)
             | HirTy::Function(_)
+            | HirTy::Error(_)
             | HirTy::Slice(_) => true,
             HirTy::Named(named_ty) => signatures
                 .structs

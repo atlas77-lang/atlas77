@@ -80,6 +80,52 @@ impl<'ast> Parser<'ast> {
         }
     }
 
+    fn parse_operator_constraint_name(
+        &self,
+        op_name: &str,
+        span: &Span,
+    ) -> ParseResult<AstGenericConstraint<'ast>> {
+        let op = match op_name {
+            "add" => AstBinaryOp::Add,
+            "sub" => AstBinaryOp::Sub,
+            "mul" => AstBinaryOp::Mul,
+            "div" => AstBinaryOp::Div,
+            "mod" => AstBinaryOp::Mod,
+            "equal" => AstBinaryOp::Eq,
+            "not_equal" => AstBinaryOp::NEq,
+            "less" => AstBinaryOp::Lt,
+            "less_equal" => AstBinaryOp::Lte,
+            "greater" => AstBinaryOp::Gt,
+            "greater_equal" => AstBinaryOp::Gte,
+            "and" => AstBinaryOp::And,
+            "or" => AstBinaryOp::Or,
+            "shl" => AstBinaryOp::ShL,
+            "shr" => AstBinaryOp::ShR,
+            "bin_and" => AstBinaryOp::BinAnd,
+            "bin_or" => AstBinaryOp::BinOr,
+            "bin_xor" => AstBinaryOp::BinXor,
+            // Unary operators are intentionally unsupported in generic constraints for now.
+            "neg" | "not" | "as_ref" | "de_ref" => {
+                return Err(self.unexpected_token_error(
+                    TokenVec(vec![TokenKind::Identifier(
+                        "binary operator name (e.g. add, less, bin_and)".to_string(),
+                    )]),
+                    span,
+                ));
+            }
+            _ => {
+                return Err(self.unexpected_token_error(
+                    TokenVec(vec![TokenKind::Identifier(
+                        "operator name (e.g. add, less_equal, bin_xor)".to_string(),
+                    )]),
+                    span,
+                ));
+            }
+        };
+
+        Ok(AstGenericConstraint::Operator { op, span: *span })
+    }
+
     fn current(&self) -> &Token {
         &self.tokens[self.pos]
     }
@@ -962,28 +1008,27 @@ impl<'ast> Parser<'ast> {
         if self.current().kind() == TokenKind::Colon {
             let start_span = self.advance().span;
             // example: `T: Foo + Bar + Baz, G: Foo + Display`
-            //TODO: Add support for operator constraints.
             while self.current().kind() != TokenKind::Comma {
                 let constraint = match self.current().kind() {
                     TokenKind::KwOperator => {
                         let _ = self.advance();
                         self.expect(TokenKind::DoubleColon)?;
-                        self.expect(TokenKind::LParen)?;
-                        let op = match self.current().kind().try_into() {
-                            Ok(op) => op,
-                            Err(_) => {
+                        let op_name = match self.current().kind() {
+                            TokenKind::Identifier(name) => name,
+                            _ => {
                                 return Err(self.unexpected_token_error(
-                                    TokenVec(vec![TokenKind::Identifier("Operator".to_string())]),
+                                    TokenVec(vec![TokenKind::Identifier(
+                                        "operator name (e.g. add, less_equal, bin_xor)".to_string(),
+                                    )]),
                                     &self.current().span(),
                                 ));
                             }
                         };
+                        let constraint_span = Span::union_span(&start_span, &self.current().span());
+                        let constraint =
+                            self.parse_operator_constraint_name(&op_name, &constraint_span)?;
                         let _ = self.advance();
-                        self.expect(TokenKind::RParen)?;
-                        AstGenericConstraint::Operator {
-                            op,
-                            span: Span::union_span(&start_span, &self.current().span),
-                        }
+                        constraint
                     }
                     TokenKind::Identifier(n) => {
                         if n == "std" {
@@ -2792,6 +2837,16 @@ mod tests {
         to_expr_shape(let_stmt.value)
     }
 
+    fn parse_program_from_str(input: &str) -> ParseResult<()> {
+        let test_path = "examples/hello.atlas";
+        let mut lexer = AtlasLexer::new(test_path.into(), input.to_string());
+        let tokens = lexer.tokenize().unwrap_or_else(|e| panic!("{:?}", e));
+        let bump = Bump::new();
+        let arena = &AstArena::new(&bump);
+        let mut parser = Parser::new(arena, tokens, test_path);
+        parser.parse().map(|_| ())
+    }
+
     #[test]
     fn test_hello_world() -> Result<()> {
         let input = get_file_content("examples/hello.atlas").unwrap();
@@ -2843,5 +2898,85 @@ mod tests {
             }
             ExprShape::Other => panic!("Expected binary expression root"),
         }
+    }
+
+    #[test]
+    fn test_parse_operator_constraint_identifier_form() {
+        let input = "fun add_all<T: operator::add>(lhs: T, rhs: T) -> T { return lhs + rhs; }";
+        let test_path = "examples/hello.atlas";
+        let mut lexer = AtlasLexer::new(test_path.into(), input.to_string());
+        let tokens = lexer.tokenize().unwrap_or_else(|e| panic!("{:?}", e));
+        let bump = Bump::new();
+        let arena = &AstArena::new(&bump);
+        let mut parser = Parser::new(arena, tokens, test_path);
+        let program = parser.parse().unwrap_or_else(|e| panic!("{:?}", e));
+        let item = program.items.first().expect("Expected function item");
+        let fun = match **item {
+            AstItem::Function(ref f) => f,
+            _ => panic!("Expected function"),
+        };
+        assert_eq!(fun.generics.len(), 1);
+        assert_eq!(fun.generics[0].constraints.len(), 1);
+        assert!(matches!(
+            fun.generics[0].constraints[0],
+            AstGenericConstraint::Operator {
+                op: AstBinaryOp::Add,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_parse_mixed_operator_and_std_constraint() {
+        let input = "fun add_copy<T: operator::add + std::copyable>(lhs: T, rhs: T) -> T { return lhs + rhs; }";
+        let test_path = "examples/hello.atlas";
+        let mut lexer = AtlasLexer::new(test_path.into(), input.to_string());
+        let tokens = lexer.tokenize().unwrap_or_else(|e| panic!("{:?}", e));
+        let bump = Bump::new();
+        let arena = &AstArena::new(&bump);
+        let mut parser = Parser::new(arena, tokens, test_path);
+        let program = parser.parse().unwrap_or_else(|e| panic!("{:?}", e));
+        let item = program.items.first().expect("Expected function item");
+        let fun = match **item {
+            AstItem::Function(ref f) => f,
+            _ => panic!("Expected function"),
+        };
+        assert_eq!(fun.generics.len(), 1);
+        assert_eq!(fun.generics[0].constraints.len(), 2);
+        assert!(matches!(
+            fun.generics[0].constraints[0],
+            AstGenericConstraint::Operator {
+                op: AstBinaryOp::Add,
+                ..
+            }
+        ));
+        assert!(matches!(
+            fun.generics[0].constraints[1],
+            AstGenericConstraint::Std(_)
+        ));
+    }
+
+    #[test]
+    fn test_parse_operator_constraint_rejects_unknown_name() {
+        let result = parse_program_from_str(
+            "fun bad<T: operator::nope>(lhs: T, rhs: T) -> T { return lhs + rhs; }",
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_operator_constraint_rejects_unary_name() {
+        let result = parse_program_from_str(
+            "fun bad<T: operator::not>(lhs: T, rhs: T) -> T { return lhs + rhs; }",
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_operator_constraint_rejects_legacy_parenthesized_form() {
+        let result = parse_program_from_str(
+            "fun bad<T: operator::(+)>(lhs: T, rhs: T) -> T { return lhs + rhs; }",
+        );
+        assert!(result.is_err());
     }
 }

@@ -9,7 +9,7 @@ use crate::atlas_c::{
         expr::HirExpr,
         item::{HirStruct, HirStructDestructor, HirUnion},
         monomorphization_pass::generic_pool::HirGenericPool,
-        signature::{HirGenericConstraint, HirGenericConstraintKind, HirModuleSignature},
+        signature::{HirGenericConstraint, HirModuleSignature},
         stmt::HirStatement,
         ty::{HirFunctionTy, HirGenericTy, HirInlineArrayTy, HirPtrTy, HirSliceTy, HirTy},
     },
@@ -1165,24 +1165,12 @@ impl<'hir> MonomorphizationPass<'hir> {
 
                 // Check each constraint kind
                 for constraint_kind in &constraint.kind {
-                    match constraint_kind {
-                        // Check std::copyable constraint
-                        HirGenericConstraintKind::Std { name, .. }
-                            if *name == "copyable"
-                                && !self
-                                    .generic_pool
-                                    .implements_std_copyable(module_sig, concrete_type) =>
-                        {
-                            return false;
-                        }
-
-                        // Add more std constraints here as needed
-                        // Once there is more std constraints, consider refactoring to a match statement
-
-                        // Handle other constraint kinds as needed
-                        _ => {
-                            // For now, unknown constraints pass
-                        }
+                    if !self.generic_pool.is_constraint_kind_satisfied(
+                        module_sig,
+                        concrete_type,
+                        constraint_kind,
+                    ) {
+                        return false;
                     }
                 }
             }

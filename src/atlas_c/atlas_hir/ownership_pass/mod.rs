@@ -352,50 +352,6 @@ impl<'hir> HirOwnershipPass<'hir> {
         self.should_auto_delete(local.ty)
     }
 
-    fn is_implicitly_copyable(&self, ty: &'hir HirTy<'hir>) -> bool {
-        match ty {
-            HirTy::Integer(_)
-            | HirTy::UnsignedInteger(_)
-            | HirTy::Float(_)
-            | HirTy::Boolean(_)
-            | HirTy::Char(_)
-            | HirTy::Unit(_)
-            | HirTy::String(_)
-            | HirTy::LiteralInteger(_)
-            | HirTy::LiteralUnsignedInteger(_)
-            | HirTy::LiteralFloat(_)
-            | HirTy::PtrTy(_)
-            | HirTy::Function(_)
-            | HirTy::Slice(_) => true,
-            HirTy::InlineArray(arr) => self.is_implicitly_copyable(arr.inner),
-            HirTy::Named(named) => self
-                .signature
-                .structs
-                .get(named.name)
-                .is_some_and(|sig| sig.is_trivially_copyable),
-            HirTy::Generic(generic) => {
-                let sig = self
-                    .signature
-                    .structs
-                    .get(generic.name)
-                    .copied()
-                    .or_else(|| {
-                        self.signature
-                            .structs
-                            .values()
-                            .find(|sig| {
-                                sig.pre_mangled_ty.is_some_and(|pre| {
-                                    pre.name == generic.name && pre.inner == generic.inner
-                                })
-                            })
-                            .copied()
-                    });
-                sig.is_some_and(|sig| sig.is_trivially_copyable)
-            }
-            _ => false,
-        }
-    }
-
     fn ensure_identifier_copy_allowed(
         &self,
         scope_stack: &[ScopeFrame<'hir>],
@@ -426,7 +382,7 @@ impl<'hir> HirOwnershipPass<'hir> {
             return Ok(());
         }
 
-        if self.is_implicitly_copyable(src_local.ty) {
+        if src_local.ty.is_trivially_copyable(&self.signature) {
             return Ok(());
         }
 
