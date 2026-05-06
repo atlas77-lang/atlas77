@@ -61,6 +61,16 @@ impl<'hir> HirLoweringPass<'hir> {
         }
     }
 
+    fn overloaded_operator_owner_name(&self, ty: &'hir HirTy<'hir>) -> String {
+        match ty {
+            HirTy::Named(n) => n.name.to_string(),
+            HirTy::Generic(g) => {
+                MonomorphizationPass::generate_mangled_name(self.hir_arena, g, "struct").to_string()
+            }
+            _ => ty.get_valid_c_string(),
+        }
+    }
+
     /// Lower the entire Hir module to Lir
     pub fn lower(&mut self) -> LirResult<LirProgram> {
         let mut functions = Vec::new();
@@ -850,6 +860,7 @@ impl<'hir> HirLoweringPass<'hir> {
                     && let Some(op) = unary.op
                 {
                     let expr_operand = self.lower_expr(&unary.expr)?;
+                    let owner_name = self.overloaded_operator_owner_name(unary.expr.ty());
 
                     let dest = self.new_temp();
                     self.emit(LirInstr::Call {
@@ -857,7 +868,7 @@ impl<'hir> HirLoweringPass<'hir> {
                         dst: Some(dest.clone()),
                         func_name: format!(
                             "{}_{}",
-                            unary.ty.get_valid_c_string(),
+                            owner_name,
                             Into::<String>::into(Into::<HirOverloadableOperatorKind>::into(op))
                         ),
                         args: vec![LirOperand::AsRef(Box::new(expr_operand))],
@@ -914,12 +925,13 @@ impl<'hir> HirLoweringPass<'hir> {
                 let dest = self.new_temp();
 
                 if binop.is_overloaded {
+                    let owner_name = self.overloaded_operator_owner_name(binop.lhs.ty());
                     self.emit(LirInstr::Call {
                         ty: self.hir_ty_to_lir_ty(binop.ty, binop.span),
                         dst: Some(dest.clone()),
                         func_name: format!(
                             "{}_{}",
-                            binop.ty.get_valid_c_string(),
+                            owner_name,
                             Into::<String>::into(Into::<HirOverloadableOperatorKind>::into(
                                 binop.op
                             ))

@@ -9,7 +9,7 @@ use crate::atlas_c::{
         expr::HirExpr,
         item::{HirStruct, HirStructDestructor, HirUnion},
         monomorphization_pass::generic_pool::HirGenericPool,
-        signature::{HirGenericConstraint, HirModuleSignature},
+        signature::{HirGenericConstraint, HirModuleSignature, HirOverloadableOperatorKind},
         stmt::HirStatement,
         ty::{HirFunctionTy, HirGenericTy, HirInlineArrayTy, HirPtrTy, HirSliceTy, HirTy},
     },
@@ -91,6 +91,15 @@ impl<'hir> MonomorphizationPass<'hir> {
                     .signature
                     .methods
                     .retain(|_, method_sig| method_sig.generics.is_none());
+
+                // Also remove unresolved generic operators
+                struct_item
+                    .operators
+                    .retain(|operator| operator.signature.generics.is_none());
+                struct_item
+                    .signature
+                    .operators
+                    .retain(|_, operator_sig| operator_sig.generics.is_none());
 
                 module.signature.structs.insert(
                     struct_name,
@@ -634,6 +643,72 @@ impl<'hir> MonomorphizationPass<'hir> {
                 *func = new_func;
             }
         }
+
+        // Check and mark operators based on where_clause constraints
+        let mut operators_constraint_status: std::collections::HashMap<
+            HirOverloadableOperatorKind,
+            bool,
+        > = std::collections::HashMap::new();
+        for (op_kind, func) in new_struct.signature.operators.iter() {
+            // Check where_clause constraints (struct-level generics only)
+            let is_satisfied = if let Some(where_clause) = &func.where_clause {
+                self.check_where_constraints_on_method(
+                    where_clause,
+                    &generics,
+                    actual_type,
+                    &module.signature,
+                )
+            } else {
+                true
+            };
+
+            operators_constraint_status.insert(*op_kind, is_satisfied);
+        }
+
+        // Mark operators with unsatisfied constraints in signature
+        for (op_kind, func) in new_struct.signature.operators.iter_mut() {
+            if let Some(&is_satisfied) = operators_constraint_status.get(op_kind) {
+                let mut new_func = func.clone();
+                for param in new_func.params.iter_mut() {
+                    param.ty = self.swap_generic_types_in_ty(param.ty, types_to_change.clone());
+                }
+                let return_ty = self.swap_generic_types_in_ty(
+                    self.arena.intern(new_func.return_ty.clone()),
+                    types_to_change.clone(),
+                );
+                new_func.return_ty = return_ty.clone();
+                new_func.is_constraint_satisfied = is_satisfied;
+                new_func.is_instantiated = is_satisfied;
+                *func = new_func;
+            }
+        }
+
+        // Eagerly materialize operator bodies for satisfied constraints so
+        // lowering/codegen can emit concrete operator functions.
+        let mut materialized_operators = vec![];
+        for mut operator in new_struct.operators.iter().cloned() {
+            let Ok(op_kind) = HirOverloadableOperatorKind::try_from(operator.name) else {
+                continue;
+            };
+
+            let is_satisfied = operators_constraint_status
+                .get(&op_kind)
+                .copied()
+                .unwrap_or(false);
+
+            let Some(op_sig) = new_struct.signature.operators.get(&op_kind) else {
+                continue;
+            };
+            operator.signature = self.arena.intern(op_sig.clone());
+
+            if is_satisfied {
+                for statement in operator.body.statements.iter_mut() {
+                    self.monomorphize_statement(statement, types_to_change.clone(), module)?;
+                }
+                materialized_operators.push(operator);
+            }
+        }
+        new_struct.operators = materialized_operators;
 
         // Methods on concrete generic structs are materialized lazily on demand.
         // Keep signatures for type checking/diagnostics, but defer body creation.

@@ -137,9 +137,9 @@ impl From<HirUnaryOp> for HirOverloadableOperatorKind {
     }
 }
 
-impl Into<String> for HirOverloadableOperatorKind {
-    fn into(self) -> String {
-        match self {
+impl From<HirOverloadableOperatorKind> for String {
+    fn from(val: HirOverloadableOperatorKind) -> String {
+        match val {
             HirOverloadableOperatorKind::Add => "add".to_string(),
             HirOverloadableOperatorKind::Sub => "sub".to_string(),
             HirOverloadableOperatorKind::Mul => "mul".to_string(),

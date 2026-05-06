@@ -668,20 +668,18 @@ impl<'hir> TypeChecker<'hir> {
             ) {
                 self.errors.push(err);
             }
-        } else if op.is_unary() {
-            if !method.signature.type_params.is_empty() {
-                self.errors
-                    .push(HirError::OperatorOverloadDoesNotHaveRequiredAmountOfArgs(
-                        OperatorOverloadDoesNotHaveRequiredAmountOfArgsError {
-                            kind: op.into(),
-                            expected: 1,
-                            span: method.name_span,
-                            found: method.signature.type_params.len() + 1,
-                            src: NamedSource::new(path, src),
-                            context: "".into(),
-                        },
-                    ));
-            }
+        } else if op.is_unary() && !method.signature.type_params.is_empty() {
+            self.errors
+                .push(HirError::OperatorOverloadDoesNotHaveRequiredAmountOfArgs(
+                    OperatorOverloadDoesNotHaveRequiredAmountOfArgsError {
+                        kind: op.into(),
+                        expected: 1,
+                        span: method.name_span,
+                        found: method.signature.type_params.len() + 1,
+                        src: NamedSource::new(path, src),
+                        context: "".into(),
+                    },
+                ));
         }
         self.check_method(method, false)
     }
@@ -1444,7 +1442,7 @@ impl<'hir> TypeChecker<'hir> {
                     // AsRef works a bit differently. It can work on non primitive types
                     && op != HirUnaryOp::AsRef
                 {
-                    u.ty = self.check_unary_operator_overloading((ty, u.span), op.into())?;
+                    u.ty = self.check_unary_operator_overloading((ty, u.span), op)?;
                     u.is_overloaded = true;
                     return Ok(u.ty);
                 }
@@ -2774,12 +2772,44 @@ impl<'hir> TypeChecker<'hir> {
             && let Some(struct_signature) = self.signature.structs.get(n.name)
             && struct_signature.operators.contains_key(&op)
         {
+            // Check if operator's where_clause constraints are satisfied
+            if let Some(operator_signature) = struct_signature.operators.get(&op)
+                && !operator_signature.is_constraint_satisfied
+            {
+                let path = rhs_span.path;
+                let src = utils::get_file_content(path).unwrap();
+                return Err(HirError::MethodConstraintNotSatisfied(
+                    MethodConstraintNotSatisfiedError {
+                        member_kind: "operator".to_string(),
+                        member_name: format!("{:?}", op),
+                        ty_name: n.name.to_string(),
+                        span: rhs_span,
+                        src: NamedSource::new(path, src),
+                    },
+                ));
+            }
             return Ok(lhs_ty);
         } else if let HirTy::Generic(g) = lhs_ty {
             let mangled_name = MonomorphizationPass::generate_mangled_name(self.arena, g, "struct");
             if let Some(struct_signature) = self.signature.structs.get(mangled_name)
                 && struct_signature.operators.contains_key(&op)
             {
+                // Check if operator's where_clause constraints are satisfied
+                if let Some(operator_signature) = struct_signature.operators.get(&op)
+                    && !operator_signature.is_constraint_satisfied
+                {
+                    let path = rhs_span.path;
+                    let src = utils::get_file_content(path).unwrap();
+                    return Err(HirError::MethodConstraintNotSatisfied(
+                        MethodConstraintNotSatisfiedError {
+                            member_kind: "operator".to_string(),
+                            member_name: format!("{:?}", op),
+                            ty_name: HirPrettyPrinter::generic_ty_str(g),
+                            span: rhs_span,
+                            src: NamedSource::new(path, src),
+                        },
+                    ));
+                }
                 return Ok(lhs_ty);
             }
         }
@@ -2802,20 +2832,50 @@ impl<'hir> TypeChecker<'hir> {
         (ty, span): (&'hir HirTy<'hir>, Span),
         op: HirUnaryOp,
     ) -> HirResult<&'hir HirTy<'hir>> {
+        let op_kind = HirOverloadableOperatorKind::from(op);
         if let HirTy::Named(n) = ty
             && let Some(struct_signature) = self.signature.structs.get(n.name)
-            && struct_signature
-                .operators
-                .contains_key(&HirOverloadableOperatorKind::from(op))
+            && struct_signature.operators.contains_key(&op_kind)
         {
+            // Check if operator's where_clause constraints are satisfied
+            if let Some(operator_signature) = struct_signature.operators.get(&op_kind)
+                && !operator_signature.is_constraint_satisfied
+            {
+                let path = span.path;
+                let src = utils::get_file_content(path).unwrap();
+                return Err(HirError::MethodConstraintNotSatisfied(
+                    MethodConstraintNotSatisfiedError {
+                        member_kind: "operator".to_string(),
+                        member_name: format!("{:?}", op_kind),
+                        ty_name: n.name.to_string(),
+                        span,
+                        src: NamedSource::new(path, src),
+                    },
+                ));
+            }
             return Ok(ty);
         } else if let HirTy::Generic(g) = ty {
             let mangled_name = MonomorphizationPass::generate_mangled_name(self.arena, g, "struct");
             if let Some(struct_signature) = self.signature.structs.get(mangled_name)
-                && struct_signature
-                    .operators
-                    .contains_key(&HirOverloadableOperatorKind::from(op))
+                && struct_signature.operators.contains_key(&op_kind)
             {
+                // Check if operator's where_clause constraints are satisfied
+                if let Some(operator_signature) = struct_signature.operators.get(&op_kind)
+                    && !operator_signature.is_constraint_satisfied
+                {
+                    let path = span.path;
+                    let src = utils::get_file_content(path).unwrap();
+                    return Err(HirError::MethodConstraintNotSatisfied(
+                        MethodConstraintNotSatisfiedError {
+                            member_kind: "operator".to_string(),
+                            member_name: format!("{:?}", op_kind),
+                            ty_name: HirPrettyPrinter::generic_ty_str(g),
+                            span,
+                            src: NamedSource::new(path, src),
+                        },
+                    ));
+                }
+
                 return Ok(ty);
             }
         }
