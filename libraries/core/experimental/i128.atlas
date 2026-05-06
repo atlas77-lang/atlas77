@@ -1,7 +1,7 @@
 import "std/optional";
 
 public struct uint128 {
-  private:
+  public:
     high: uint64;
     low: uint64;
   public:
@@ -108,7 +108,7 @@ public struct uint128 {
 
 #[std::trivially_copyable]
 public struct int128 {
-  private:
+  public:
     high: int64;
     low: uint64;
   public:
@@ -122,7 +122,7 @@ public struct int128 {
         return int128 {
             .high = -this->high,
             .low = this->low
-        }
+        };
     }
     operator add(*const this, other: *const int128) -> int128 {
         // TODO
