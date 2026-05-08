@@ -41,7 +41,7 @@ namespace std {
         fun expect(data: T) -> std::expected<T, E> {
             return std::expected<T, E> {
                     .data = std::__expected_storage<T, E> { 
-                        .expected_value = data 
+                        .expected_value = std::move(data) 
                     }, 
                     .has_expected_value = true,
                     .is_empty = false
@@ -54,7 +54,7 @@ namespace std {
         fun unexpected(error: E) -> std::expected<T, E> {
             return std::expected<T, E> {
                 .data = std::__expected_storage<T, E> { 
-                    .unexpected_value = error 
+                    .unexpected_value = std::move(error) 
                 }, 
                 .has_expected_value = false,
                 .is_empty = false

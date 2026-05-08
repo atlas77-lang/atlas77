@@ -11,7 +11,6 @@ import "std/memory";
 
 
 namespace std {
-
     //! Internal storage for `optional<T>`.
     //!
     //! This untagged union holds either a `value: T` when present or
@@ -49,7 +48,7 @@ namespace std {
         fun of(data: T) -> std::optional<T> {
             return std::optional<T> {
                 .data = std::optional_storage<T> { 
-                    .value = data 
+                    .value = std::move(data) 
                 }, 
                 .has_value = true
             };
