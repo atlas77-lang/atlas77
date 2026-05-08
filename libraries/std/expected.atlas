@@ -113,5 +113,19 @@ namespace std {
                 return default;
             }
         }
+
+        operator not(*const this) -> bool {
+            return this->is_expected();
+        }
+
+        operator deref(*const this) -> T {
+            if (!this->has_expected_value) {
+                std::panic("called operator deref on an unexpected error");
+            } else {
+                this->is_empty = true; // Prevent double delete in destructor
+                let val = std::ptr::read(&this->data.expected_value);
+                return val;
+            }
+        }
     }
 }

@@ -110,5 +110,16 @@ namespace std {
                 return default;
             }
         }
+        operator not(*const this) -> bool {
+            return this->has_value();
+        }
+        // We could do compile time magic in the future to make it so for `std::trivially_copyable` types we don't set `has_value` to false
+        operator deref(*const this) -> T {
+            if !this->has_value() {
+                std::panic("Called deref operator on an empty value");
+            }
+            this->has_value = false;
+            return std::ptr::read(&this->data.value);
+        }
     }
 }
