@@ -164,8 +164,8 @@ impl From<HirOverloadableOperatorKind> for String {
 
             HirOverloadableOperatorKind::Neg => "neg".to_string(),
             HirOverloadableOperatorKind::Not => "not".to_string(),
-            HirOverloadableOperatorKind::AsRef => "as_ref".to_string(),
-            HirOverloadableOperatorKind::DeRef => "de_ref".to_string(),
+            HirOverloadableOperatorKind::AsRef => "asref".to_string(),
+            HirOverloadableOperatorKind::DeRef => "deref".to_string(),
         }
     }
 }
@@ -198,8 +198,8 @@ impl TryFrom<&str> for HirOverloadableOperatorKind {
 
             "neg" => HirOverloadableOperatorKind::Neg,
             "not" => HirOverloadableOperatorKind::Not,
-            "as_ref" => HirOverloadableOperatorKind::AsRef,
-            "de_ref" => HirOverloadableOperatorKind::DeRef,
+            "asref" => HirOverloadableOperatorKind::AsRef,
+            "deref" => HirOverloadableOperatorKind::DeRef,
             _ => return Err(()),
         })
     }
@@ -211,7 +211,7 @@ impl HirOverloadableOperatorKind {
     }
     pub fn is_unary(&self) -> bool {
         use HirOverloadableOperatorKind::*;
-        matches!(self, Not | Neg)
+        matches!(self, Not | Neg | DeRef | AsRef)
     }
 }
 
