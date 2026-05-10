@@ -1,0 +1,51 @@
+import "std/io";
+
+namespace std {
+    public struct byte {
+      public:
+        value: uint8;
+        fun new(val: uint8) -> std::byte {
+            return std::byte { .value = val };
+        }
+        // TODO: Add where I: std::integer or something
+        fun to_integer<I>(*const this) -> I {
+            return this->value as I;
+        }
+        operator bin_or(*const this, other: *const std::byte) -> std::byte {
+            return std::byte { .value = this->value | other->value };
+        }
+        operator bin_and(*const this, other: *const std::byte) -> std::byte {
+            return std::byte { .value = this->value & other->value };
+        }
+        operator bin_xor(*const this, other: *const std::byte) -> std::byte {
+            return std::byte { .value = this->value ^ other->value };
+        }
+        // operator bin_not(*const this) -> std::byte {
+        //     return std::byte { .value = ~this->value };
+        // }
+        operator shl(*const this, shift: uint64) -> std::byte {
+            return std::byte { .value = this->value << shift };
+        }
+        operator shr(*const this, shift: uint64) -> std::byte {
+            return std::byte { .value = this->value >> shift };
+        }
+        operator equal(*const this, other: *const std::byte) -> bool {
+            return this->value == other->value;
+        }
+        operator not_equal(*const this, other: *const std::byte) -> bool {
+            return this->value != other->value;
+        }
+        operator less(*const this, other: *const std::byte) -> bool {
+            return this->value < other->value;
+        }
+        operator less_equal(*const this, other: *const std::byte) -> bool {
+            return this->value <= other->value;
+        }
+        operator greater(*const this, other: *const std::byte) -> bool {
+            return this->value > other->value;
+        }
+        operator greater_equal(*const this, other: *const std::byte) -> bool {
+            return this->value >= other->value;
+        }
+    }
+}
