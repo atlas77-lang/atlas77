@@ -271,7 +271,7 @@ Here is a list of repositories that helped me a lot while making Atlas77:
 
 ## License
 
-Distributed under the MIT License. See `LICENSE-MIT.md` for more information.
+Dual-licensed under the MIT License and Beerware License. See [`LICENSE-MIT.md`](LICENSE-MIT.md) and [`LICENSE-BEERWARE.md`](LICENSE-BEERWARE) for more information.
 
 <!-- CONTACT -->
 
