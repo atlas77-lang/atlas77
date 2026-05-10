@@ -76,3 +76,6 @@ public fun alignof<T>() -> uint64
 {
     return align_of<T>();
 }
+
+public extern fun strerror(code: uint64) -> *const uint8;
+public extern fun c_errno() -> uint64;
