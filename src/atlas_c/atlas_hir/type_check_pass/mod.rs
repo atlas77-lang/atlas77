@@ -644,43 +644,105 @@ impl<'hir> TypeChecker<'hir> {
             ));
         }
         if op.is_binary() {
-            if method.signature.type_params.len() != 1 {
+            // Expect exactly two parameters: `this` and the other operand.
+            if method.signature.params.len() != 1 {
                 self.errors
                     .push(HirError::OperatorOverloadDoesNotHaveRequiredAmountOfArgs(
                         OperatorOverloadDoesNotHaveRequiredAmountOfArgsError {
                             kind: op.into(),
                             expected: 2,
                             span: method.name_span,
-                            found: method.signature.type_params.len() + 1,
+                            found: method.signature.params.len() + 1,
                             src: NamedSource::new(path, src),
                             context: " and one additional argument".into(),
                         },
                     ));
-            } else if let Err(err) = self.is_equivalent_ty(
-                self.arena.types().get_ptr_ty(
-                    self.arena.types().get_named_ty(struct_name, struct_span),
-                    true,
-                    struct_span,
-                ),
-                struct_span,
-                method.signature.params[0].ty,
-                method.signature.params[0].span,
-            ) {
-                self.errors.push(err);
+            } else {
+                // Operator-specific parameter/return checks
+                match op {
+                    HirOverloadableOperatorKind::Shl | HirOverloadableOperatorKind::Shr => {
+                        // RHS must be uint64
+                        if let Err(err) = self.is_equivalent_ty(
+                            self.arena.types().get_uint_ty(64),
+                            method.signature.params[0].span,
+                            method.signature.params[0].ty,
+                            method.signature.params[0].span,
+                        ) {
+                            self.errors.push(err);
+                        }
+                    }
+                    HirOverloadableOperatorKind::Eq
+                    | HirOverloadableOperatorKind::NEq
+                    | HirOverloadableOperatorKind::Gt
+                    | HirOverloadableOperatorKind::Gte
+                    | HirOverloadableOperatorKind::Lt
+                    | HirOverloadableOperatorKind::Lte => {
+                        if let Err(err) = self.is_equivalent_ty(
+                            self.arena.types().get_boolean_ty(),
+                            method
+                                .signature
+                                .return_ty_span
+                                .unwrap_or(method.signature.span),
+                            &method.signature.return_ty,
+                            method
+                                .signature
+                                .return_ty_span
+                                .unwrap_or(method.signature.span),
+                        ) {
+                            self.errors.push(err);
+                        }
+                    }
+                    _ => {
+                        if let Err(err) = self.is_equivalent_ty(
+                            self.arena.types().get_ptr_ty(
+                                self.arena.types().get_named_ty(struct_name, struct_span),
+                                true,
+                                struct_span,
+                            ),
+                            struct_span,
+                            method.signature.params[0].ty,
+                            method.signature.params[0].span,
+                        ) {
+                            self.errors.push(err);
+                        }
+                    }
+                }
             }
-        } else if op.is_unary() && !method.signature.type_params.is_empty() {
-            self.errors
-                .push(HirError::OperatorOverloadDoesNotHaveRequiredAmountOfArgs(
-                    OperatorOverloadDoesNotHaveRequiredAmountOfArgsError {
-                        kind: op.into(),
-                        expected: 1,
-                        span: method.name_span,
-                        found: method.signature.type_params.len() + 1,
-                        src: NamedSource::new(path, src),
-                        context: "".into(),
-                    },
-                ));
+        } else if op.is_unary() {
+            // Expect exactly one parameter: `this`.
+            if method.signature.params.len() != 1 {
+                self.errors
+                    .push(HirError::OperatorOverloadDoesNotHaveRequiredAmountOfArgs(
+                        OperatorOverloadDoesNotHaveRequiredAmountOfArgsError {
+                            kind: op.into(),
+                            expected: 1,
+                            span: method.name_span,
+                            found: method.signature.params.len(),
+                            src: NamedSource::new(path, src),
+                            context: "".into(),
+                        },
+                    ));
+            } else {
+                // For `not`, ensure return type is boolean
+                if matches!(op, HirOverloadableOperatorKind::Not) {
+                    if let Err(err) = self.is_equivalent_ty(
+                        self.arena.types().get_boolean_ty(),
+                        method
+                            .signature
+                            .return_ty_span
+                            .unwrap_or(method.signature.span),
+                        &method.signature.return_ty,
+                        method
+                            .signature
+                            .return_ty_span
+                            .unwrap_or(method.signature.span),
+                    ) {
+                        self.errors.push(err);
+                    }
+                }
+            }
         }
+
         self.check_method(method, false)
     }
 
@@ -1618,7 +1680,7 @@ impl<'hir> TypeChecker<'hir> {
             HirExpr::HirBinaryOperation(b) => {
                 let lhs = self.check_expr(&mut b.lhs)?;
                 let rhs = self.check_expr(&mut b.rhs)?;
-                if !lhs.is_primitive() && !rhs.is_primitive() {
+                if !lhs.is_primitive() {
                     b.ty = self.check_operator_overloading(
                         (lhs, b.lhs.span()),
                         (rhs, b.rhs.span()),
@@ -1661,15 +1723,6 @@ impl<'hir> TypeChecker<'hir> {
                 }
 
                 b.ty = lhs;
-                let is_equivalent = self.is_equivalent_ty(lhs, b.lhs.span(), rhs, b.rhs.span());
-                if is_equivalent.is_err() {
-                    return Err(Self::illegal_operation_err(
-                        lhs,
-                        rhs,
-                        b.span,
-                        "binary operation",
-                    ));
-                }
 
                 match b.op {
                     HirBinaryOperator::Add
@@ -1677,6 +1730,7 @@ impl<'hir> TypeChecker<'hir> {
                     | HirBinaryOperator::Mul
                     | HirBinaryOperator::Div
                     | HirBinaryOperator::Mod => {
+                        // For arithmetic ops, require both sides to be equivalent
                         if !TypeChecker::is_arithmetic_type(lhs) {
                             return Err(Self::illegal_operation_err(
                                 lhs,
@@ -1685,6 +1739,7 @@ impl<'hir> TypeChecker<'hir> {
                                 "arithmetic operation",
                             ));
                         }
+                        self.is_equivalent_ty(lhs, b.lhs.span(), rhs, b.rhs.span())?;
                         Ok(lhs)
                     }
                     HirBinaryOperator::And | HirBinaryOperator::Or => {
@@ -1696,6 +1751,7 @@ impl<'hir> TypeChecker<'hir> {
                                 "logical operation",
                             ));
                         }
+                        self.is_equivalent_ty(lhs, b.lhs.span(), rhs, b.rhs.span())?;
                         Ok(lhs)
                     }
                     HirBinaryOperator::Eq | HirBinaryOperator::Neq => {
@@ -1707,6 +1763,7 @@ impl<'hir> TypeChecker<'hir> {
                                 "equality comparison",
                             ));
                         }
+                        self.is_equivalent_ty(lhs, b.lhs.span(), rhs, b.rhs.span())?;
                         Ok(self.arena.types().get_boolean_ty())
                     }
                     HirBinaryOperator::Gt
@@ -1721,6 +1778,7 @@ impl<'hir> TypeChecker<'hir> {
                                 "ordering comparison",
                             ));
                         }
+                        self.is_equivalent_ty(lhs, b.lhs.span(), rhs, b.rhs.span())?;
                         Ok(self.arena.types().get_boolean_ty())
                     }
                     HirBinaryOperator::BinAnd
@@ -1734,15 +1792,30 @@ impl<'hir> TypeChecker<'hir> {
                                 "binary comparison",
                             ));
                         }
+                        self.is_equivalent_ty(lhs, b.lhs.span(), rhs, b.rhs.span())?;
                         Ok(lhs)
                     }
                     HirBinaryOperator::ShL | HirBinaryOperator::ShR => {
+                        // Left-hand side must be shiftable (integer-like)
                         if !TypeChecker::is_shiftable_type(lhs) {
                             return Err(Self::illegal_operation_err(
                                 lhs,
                                 rhs,
                                 b.span,
                                 "shift operation",
+                            ));
+                        }
+                        // RHS must be an unsigned integer (literal or typed)
+                        let rhs_is_unsigned = matches!(
+                            rhs,
+                            HirTy::UnsignedInteger(_) | HirTy::LiteralUnsignedInteger(_)
+                        );
+                        if !rhs_is_unsigned {
+                            return Err(Self::illegal_operation_err(
+                                lhs,
+                                rhs,
+                                b.span,
+                                "shift operation (rhs must be unsigned integer)",
                             ));
                         }
                         Ok(lhs)
@@ -2767,7 +2840,25 @@ impl<'hir> TypeChecker<'hir> {
         op: HirOverloadableOperatorKind,
     ) -> HirResult<&'hir HirTy<'hir>> {
         // Temporary solution:
-        self.is_equivalent_ty(lhs_ty, lhs_span, rhs_ty, rhs_span)?;
+        if matches!(
+            op,
+            HirOverloadableOperatorKind::Shl | HirOverloadableOperatorKind::Shr
+        ) {
+            let rhs_is_unsigned = matches!(
+                rhs_ty,
+                HirTy::UnsignedInteger(_) | HirTy::LiteralUnsignedInteger(_)
+            );
+            if !rhs_is_unsigned {
+                return Err(Self::illegal_operation_err(
+                    lhs_ty,
+                    rhs_ty,
+                    rhs_span,
+                    "shift operation (rhs must be unsigned integer)",
+                ));
+            }
+        } else {
+            self.is_equivalent_ty(lhs_ty, lhs_span, rhs_ty, rhs_span)?
+        };
         if let HirTy::Named(n) = lhs_ty
             && let Some(struct_signature) = self.signature.structs.get(n.name)
             && struct_signature.operators.contains_key(&op)

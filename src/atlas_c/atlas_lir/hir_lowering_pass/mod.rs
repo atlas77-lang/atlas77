@@ -938,7 +938,11 @@ impl<'hir> HirLoweringPass<'hir> {
                         ),
                         args: vec![
                             LirOperand::AsRef(Box::new(lhs)),
-                            LirOperand::AsRef(Box::new(rhs)),
+                            if matches!(binop.op, HirBinaryOperator::ShL | HirBinaryOperator::ShR) {
+                                rhs
+                            } else {
+                                LirOperand::AsRef(Box::new(rhs))
+                            },
                         ],
                     })?;
                     return Ok(dest);
