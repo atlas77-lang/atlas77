@@ -945,6 +945,7 @@ pub fn build(
     //TODO: `using_std` is currently unused
     _using_std: bool,
     compiler: Option<SupportedCompiler>,
+    compiler_binary_override: Option<String>,
     output_dir: String,
     extra_c_args: Vec<String>,
 ) -> miette::Result<()> {
@@ -1133,7 +1134,8 @@ pub fn build(
                 eprintln!(
                     "Embedded TinyCC feature is not enabled, trying to invoke system TCC compiler."
                 );
-                let mut command = std::process::Command::new("tcc");
+                let mut command =
+                    std::process::Command::new(compiler_binary_override.unwrap_or("tcc"));
                 command.arg("./build/output.atlas_c.c");
                 command.args(&atlas_build_config.c_sources);
                 command.arg("-o");
@@ -1156,7 +1158,8 @@ pub fn build(
         }
         SupportedCompiler::GCC => {
             // Let's invoke it with `gcc ./build/output.atlas_c.c -o {output_dir}` (and `-O2` for release)
-            let mut command = std::process::Command::new("gcc");
+            let mut command =
+                std::process::Command::new(compiler_binary_override.as_deref().unwrap_or("gcc"));
             command.arg("./build/output.atlas_c.c");
             command.args(&atlas_build_config.c_sources);
             command.arg("-o");
@@ -1182,7 +1185,8 @@ pub fn build(
         }
         SupportedCompiler::MSVC => {
             // Let's invoke it with `cl ./build/output.atlas_c.c /Fe:{output_dir}` (and `/O2` for release)
-            let mut command = std::process::Command::new("cl");
+            let mut command =
+                std::process::Command::new(compiler_binary_override.as_deref().unwrap_or("cl"));
             command.arg("./build/output.atlas_c.c");
             command.args(&atlas_build_config.c_sources);
             let target = if cfg!(target_os = "windows") {
@@ -1207,7 +1211,8 @@ pub fn build(
         }
         SupportedCompiler::Clang => {
             // Let's invoke it with `clang ./build/output.atlas_c.c -o {output_dir}` (and `-O2` for release)
-            let mut command = std::process::Command::new("clang");
+            let mut command =
+                std::process::Command::new(compiler_binary_override.as_deref().unwrap_or("clang"));
             command.arg("./build/output.atlas_c.c");
             command.args(&atlas_build_config.c_sources);
             command.arg("-o");
@@ -1233,7 +1238,8 @@ pub fn build(
         }
         SupportedCompiler::Intel => {
             // Let's invoke it with `icc ./build/output.atlas_c.c -o {output_dir}` (and `-O2` for release)
-            let mut command = std::process::Command::new("icc");
+            let mut command =
+                std::process::Command::new(compiler_binary_override.as_deref().unwrap_or("icc"));
             command.arg("./build/output.atlas_c.c");
             command.args(&atlas_build_config.c_sources);
             command.arg("-o");

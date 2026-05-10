@@ -63,6 +63,12 @@ enum AtlasRuntimeCLI {
         /// * Intel: "intel"/"icc"
         compiler: Option<String>,
         #[arg(
+            long,
+            help = "Override the binary path of the compiler",
+            long_help = "Override the binary path of the compiler to use. If omitted, the default for the compiler selected with --compiler will be used."
+        )]
+        compiler_binary_override: Option<String>,
+        #[arg(
             short = 'o',
             long,
             default_value = "./build",
@@ -128,6 +134,7 @@ fn main() -> miette::Result<()> {
             debug,
             no_std: no_standard_lib,
             compiler,
+            compiler_binary_override,
             output_dir,
             c_args,
         } => {
@@ -148,6 +155,7 @@ fn main() -> miette::Result<()> {
                     SupportedCompiler::from_str(&value.to_lowercase())
                         .expect("Invalid compiler specified")
                 }),
+                compiler_binary_override,
                 output_dir,
                 c_args,
             )
@@ -175,6 +183,7 @@ fn main() -> miette::Result<()> {
                 },
                 true,
                 // We don't care about the compiler here, as we won't compile
+                None,
                 None,
                 "build".to_string(),
                 Vec::new(),
