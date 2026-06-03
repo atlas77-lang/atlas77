@@ -1,0 +1,14 @@
+public struct Span {
+  public:
+    start: uint64;
+    end: uint64;
+    path: *const uint8;
+
+    fun default() -> Span {
+        return Span {
+            .start = 0u,
+            .end = 0u,
+            .path = "<stdin>",
+        };
+    }
+}

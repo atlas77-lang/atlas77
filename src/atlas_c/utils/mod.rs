@@ -83,7 +83,7 @@ pub fn get_file_content(path: &str) -> Result<String, std::io::Error> {
 }
 
 /// Yeah, we shouldn't be doing this but oh well
-/// But I guess it's okay since I only leak strings for file paths which are few and far between
+/// I guess it's okay since I only leak strings for file paths which are few and far between
 /// Later, I'll try to implement that with some kind of map, so we only have one static str per file path
 pub fn string_to_static_str(s: String) -> &'static str {
     Box::leak(s.into_boxed_str())

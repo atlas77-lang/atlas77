@@ -394,15 +394,3 @@ pub enum TokenKind {
     KwThen,
     EoI,
 }
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Literal {
-    Integer(i64),
-    Float(f64),
-    //Only with trailing i.e. 1_u64
-    UnsignedInteger(u64),
-    Bool(bool),
-    Char(char),
-    Identifier(String),
-    StringLiteral(String),
-}
