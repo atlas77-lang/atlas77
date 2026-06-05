@@ -3926,31 +3926,6 @@ impl<'hir> TypeChecker<'hir> {
                     _ => self.is_equivalent_ty(p1.inner, expected_span, p2.inner, found_span),
                 }
             }
-            // If it expects a value type, but found a pointer, dereference should be explicit
-            (expected, HirTy::PtrTy(p)) => {
-                self.is_equivalent_ty(expected, expected_span, p.inner, found_span)?;
-                // check if found is copyable
-                match expected {
-                    HirTy::PtrTy(ptr) => {
-                        if ptr.inner.is_copyable(&self.signature) {
-                            return Ok(());
-                        }
-                    }
-                    _ => {
-                        if expected.is_copyable(&self.signature) {
-                            return Ok(());
-                        }
-                    }
-                }
-                Err(HirError::TypeIsNotCopyable(TypeIsNotCopyableError {
-                    span: found_span,
-                    type_name: found_ty.to_string(),
-                    src: NamedSource::new(
-                        found_span.path,
-                        utils::get_file_content(found_span.path).unwrap(),
-                    ),
-                }))
-            }
             // TODO: Replace Unit type with a proper nullptr_t type
             (HirTy::PtrTy(_), HirTy::Unit(_)) => Ok(()),
             // We silently ignore those errors, because they arise from earlier issues. e.g. if a variable
