@@ -1,3 +1,5 @@
+use serde::Serialize;
+
 use super::{signature::HirFunctionSignature, stmt::HirBlock};
 use crate::atlas_c::atlas_hir::signature::{
     HirFlag, HirStructDestructorSignature, HirStructFieldSignature, HirStructMethodSignature,
@@ -6,7 +8,7 @@ use crate::atlas_c::atlas_hir::signature::{
 use crate::atlas_c::atlas_hir::ty::HirGenericTy;
 use crate::atlas_c::utils::Span;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HirGlobalConst<'hir> {
     pub span: Span,
     pub name: &'hir str,
@@ -18,7 +20,7 @@ pub struct HirGlobalConst<'hir> {
     pub vis: HirVisibility,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HirFunction<'hir> {
     pub span: Span,
     pub name: &'hir str,
@@ -29,7 +31,7 @@ pub struct HirFunction<'hir> {
 }
 
 /// Used by the type checker to import the API Signature of a module.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HirImport<'hir> {
     pub span: Span,
     pub path: &'hir str,
@@ -40,7 +42,7 @@ pub struct HirImport<'hir> {
     pub alias_span: Option<Span>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HirUnion<'hir> {
     pub span: Span,
     pub name: &'hir str,
@@ -52,7 +54,7 @@ pub struct HirUnion<'hir> {
     pub pre_mangled_ty: Option<&'hir HirGenericTy<'hir>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HirStruct<'hir> {
     pub span: Span,
     pub name: &'hir str,
@@ -68,7 +70,7 @@ pub struct HirStruct<'hir> {
     pub flag: HirFlag,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HirEnum<'hir> {
     pub span: Span,
     pub name: &'hir str,
@@ -78,7 +80,7 @@ pub struct HirEnum<'hir> {
     pub docstring: Option<&'hir str>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HirEnumVariant<'hir> {
     pub span: Span,
     pub name: &'hir str,
@@ -87,7 +89,7 @@ pub struct HirEnumVariant<'hir> {
     pub value: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HirStructMethod<'hir> {
     pub span: Span,
     pub name: &'hir str,
@@ -96,7 +98,7 @@ pub struct HirStructMethod<'hir> {
     pub body: HirBlock<'hir>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 /// Also used for the destructor
 pub struct HirStructDestructor<'hir> {
     pub span: Span,
@@ -105,7 +107,7 @@ pub struct HirStructDestructor<'hir> {
     pub vis: HirVisibility,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 /// Represents a package path declaration like `package my_project::my_module;`
 pub struct HirPackage<'hir> {
     pub span: Span,

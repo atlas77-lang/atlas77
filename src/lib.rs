@@ -22,13 +22,16 @@ pub mod tcc;
 
 use crate::atlas_c::{
     atlas_codegen::{CCodeGen, HEADER_NAME},
+    atlas_frontend::parser::error::SyntaxError,
     atlas_hir::{
-        dead_code_elimination_pass::DeadCodeEliminationPass,
+        HirModule,
         error::{HirError, HirErrorGravity, HirPass, SemanticAnalysisFailedError},
         ownership_pass::HirOwnershipPass,
         pretty_print::HirPrettyPrinter,
+        warning::HirWarning,
     },
     atlas_lir::hir_lowering_pass::HirLoweringPass,
+    utils::Span,
 };
 use atlas_c::{
     atlas_frontend::{parse, parser::arena::AstArena},
@@ -38,6 +41,7 @@ use atlas_c::{
     },
 };
 use bumpalo::Bump;
+use serde::Serialize;
 use std::{
     io::Write,
     path::{Path, PathBuf},
@@ -939,6 +943,240 @@ pub fn generate_docs(output_dir: String, path: Option<&str>) {
     }
 }
 
+#[derive(Debug, Serialize)]
+pub struct CompilerError {
+    pub message: String,
+    pub span: Span,
+    pub kind: CompilerErrorKind,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
+pub enum CompilerErrorKind {
+    #[serde(rename = "error")]
+    Error,
+    #[serde(rename = "note")]
+    Note,
+    #[serde(rename = "warning")]
+    Warning,
+}
+
+pub struct FrontendResult<'hir> {
+    pub hir: Option<&'hir HirModule<'hir>>,
+    pub hir_errors: Vec<HirError>,
+    pub hir_warnings: Vec<HirWarning>,
+    pub ast_errors: Vec<SyntaxError>,
+}
+
+pub fn run_frontend<'ast, 'hir>(
+    path: String,
+    source: String,
+    ast_arena: &'ast AstArena<'ast>,
+    hir_arena: &'hir HirArena<'hir>,
+    debug_dumps: bool,
+) -> FrontendResult<'hir> {
+    let path_buf = get_path(&path);
+    let file_path = atlas_c::utils::string_to_static_str(path_buf.to_str().unwrap().to_owned());
+    let program = match parse(file_path, ast_arena, source) {
+        Ok(prog) => prog,
+        Err(e) => {
+            return FrontendResult {
+                hir: None,
+                hir_errors: Vec::new(),
+                hir_warnings: Vec::new(),
+                ast_errors: vec![*e],
+            };
+        }
+    };
+
+    //hir
+    let mut lower = AstSyntaxLoweringPass::new(hir_arena, &program, ast_arena, true);
+
+    let hir = match lower.lower() {
+        Ok(hir) => hir,
+        Err(e) => {
+            return FrontendResult {
+                hir: None,
+                hir_errors: vec![e],
+                hir_warnings: Vec::new(),
+                ast_errors: Vec::new(),
+            };
+        }
+    };
+
+    if debug_dumps {
+        let mut hir_printer = HirPrettyPrinter::new();
+        let hir_output = hir_printer.print_module(hir, "AST Syntax Lowering Pass");
+        let mut file_hir = std::fs::File::create("./build/unfinished_output.atlas").unwrap();
+        file_hir.write_all(hir_output.as_bytes()).unwrap();
+    }
+
+    //monomorphize
+    let mut monomorphizer = MonomorphizationPass::new(hir_arena, lower.generic_pool);
+    let hir = match monomorphizer.monomorphize(hir) {
+        Ok(hir) => hir,
+        Err(e) => {
+            return FrontendResult {
+                hir: None,
+                hir_errors: vec![e],
+                hir_warnings: Vec::new(),
+                ast_errors: Vec::new(),
+            };
+        }
+    };
+
+    if debug_dumps {
+        let mut hir_printer = HirPrettyPrinter::new();
+        let hir_output = hir_printer.print_module(hir, "Monomorphization pass");
+        let mut file_monomorphization =
+            std::fs::File::create("./build/m_unfinished_output.atlas").unwrap();
+        file_monomorphization
+            .write_all(hir_output.as_bytes())
+            .unwrap();
+    }
+
+    // type-check with on-demand method monomorphization requests.
+    let mut semantic_errors: Vec<HirError> = Vec::new();
+    let mut typecheck_result: Result<(), HirError> = Ok(());
+
+    // Kinda high, but we want to be 100% sure to converge on monomorphization before giving up and reporting errors. If this becomes a problem we can always add a more specific heuristic here.
+    const MAX_ON_DEMAND_MONO_ROUNDS: usize = 128;
+
+    for _round in 0..MAX_ON_DEMAND_MONO_ROUNDS {
+        let mut type_checker = TypeChecker::new(hir_arena);
+        typecheck_result = type_checker.check(hir);
+
+        let requests = type_checker.take_method_monomorphization_requests();
+        if requests.is_empty() {
+            break;
+        }
+
+        let changed = match monomorphizer.monomorphize_requested_methods(hir, requests) {
+            Err(e) => {
+                return FrontendResult {
+                    hir: Some(&*hir),
+                    hir_errors: vec![e],
+                    hir_warnings: Vec::new(),
+                    ast_errors: Vec::new(),
+                };
+            }
+            Ok(changed) => changed,
+        };
+        if !changed {
+            break;
+        }
+    }
+
+    let mut can_continue_to_ownership = true;
+    if let Err(err) = typecheck_result {
+        can_continue_to_ownership = match err.gravity() {
+            HirErrorGravity::CanGoUpTo(pass) => (pass as u8) >= (HirPass::OwnershipPass as u8),
+            HirErrorGravity::CanFinishCurrentPassButNotContinue => false,
+            HirErrorGravity::Critical => false,
+        };
+
+        match err {
+            HirError::TypeCheckFailed(aggregate) => {
+                semantic_errors.extend(aggregate.errors);
+            }
+            other => semantic_errors.push(other),
+        }
+    }
+
+    // Generic templates are no longer needed after on-demand monomorphization converges.
+    monomorphizer.clear_generic(&mut *hir);
+
+    //ownership analysis + RAII delete insertion (run even after recoverable type-check errors)
+    if can_continue_to_ownership {
+        let mut ownership_pass = HirOwnershipPass::new(hir_arena, &hir.signature);
+        if let Err(err) = ownership_pass.run(&mut *hir) {
+            match err {
+                HirError::OwnershipAnalysisFailed(aggregate) => {
+                    semantic_errors.extend(aggregate.errors);
+                }
+                other => semantic_errors.push(other),
+            }
+        }
+    }
+
+    FrontendResult {
+        hir: Some(hir),
+        hir_errors: semantic_errors,
+        hir_warnings: vec![],
+        ast_errors: vec![],
+    }
+}
+
+#[cfg(feature = "serde")]
+#[derive(serde::Serialize)]
+struct CompilationOutput<'hir> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hir: Option<&'hir atlas_c::atlas_hir::HirModule<'hir>>,
+    errors: Vec<CompilerError>,
+}
+
+pub fn to_json(path: String, output_file: Option<String>) -> miette::Result<()> {
+    #[cfg(not(feature = "serde"))]
+    {
+        eprintln!("The 'serde' / 'serde_json' features are not enabled.");
+        std::process::exit(1);
+    }
+
+    #[cfg(feature = "serde")]
+    {
+        let source = std::fs::read_to_string(&path)
+            .map_err(|e| miette::miette!("Failed to read source file at path: {} - {}", path, e))?;
+
+        let bump = Bump::new();
+        let ast_arena = AstArena::new(&bump);
+        let hir_arena = HirArena::new();
+
+        let frontend_res = run_frontend(path, source, &ast_arena, &hir_arena, false);
+
+        let out = match &frontend_res.hir {
+            Some(res) => CompilationOutput {
+                hir: Some(res),
+                errors: {
+                    let mut comp_errors: Vec<CompilerError> = vec![];
+                    for ast_error in frontend_res.ast_errors {
+                        comp_errors.push(ast_error.into());
+                    }
+                    for hir_error in frontend_res.hir_errors {
+                        comp_errors.extend(Vec::<CompilerError>::from(hir_error));
+                    }
+
+                    comp_errors
+                },
+            },
+            None => CompilationOutput {
+                hir: None,
+                errors: {
+                    let mut comp_errors: Vec<CompilerError> = vec![];
+                    for ast_error in frontend_res.ast_errors {
+                        comp_errors.push(ast_error.into());
+                    }
+                    for hir_error in frontend_res.hir_errors {
+                        comp_errors.extend(Vec::<CompilerError>::from(hir_error));
+                    }
+
+                    comp_errors
+                },
+            },
+        };
+
+        let json_str = serde_json::to_string_pretty(&out)
+            .map_err(|e| miette::miette!("Failed to serialize to JSON: {}", e))?;
+
+        if let Some(out_path) = output_file {
+            std::fs::write(out_path, json_str)
+                .map_err(|e| miette::miette!("Failed to write JSON output: {}", e))?;
+        } else {
+            println!("{}", json_str);
+        }
+
+        Ok(())
+    }
+}
+
 pub fn build(
     path: String,
     _flag: CompilationFlag,
@@ -971,98 +1209,17 @@ pub fn build(
     }); //parse
     let bump = Bump::new();
     let ast_arena = AstArena::new(&bump);
-    let file_path = atlas_c::utils::string_to_static_str(path_buf.to_str().unwrap().to_owned());
-    let program = match parse(file_path, &ast_arena, source) {
-        Ok(prog) => prog,
-        Err(e) => {
-            return Err((*e).into());
-        }
-    };
-
-    //hir
     let hir_arena = HirArena::new();
-    let mut lower = AstSyntaxLoweringPass::new(&hir_arena, &program, &ast_arena, true);
-    let hir = lower.lower()?;
 
-    let mut hir_printer = HirPrettyPrinter::new();
-    let hir_output = hir_printer.print_module(hir, "AST Syntax Lowering Pass");
-    let mut file_hir = std::fs::File::create("./build/unfinished_output.atlas").unwrap();
-    file_hir.write_all(hir_output.as_bytes()).unwrap();
-
-    //monomorphize
-    let mut monomorphizer = MonomorphizationPass::new(&hir_arena, lower.generic_pool);
-    let hir = monomorphizer.monomorphize(hir)?;
-    hir_printer.clear();
-    let mut file_monomorphization =
-        std::fs::File::create("./build/m_unfinished_output.atlas").unwrap();
-    file_monomorphization
-        .write_all(
-            hir_printer
-                .print_module(hir, "Monomorphization pass")
-                .as_bytes(),
-        )
-        .unwrap();
-
-    // type-check with on-demand method monomorphization requests.
-    let mut hir = hir;
-    let mut semantic_errors: Vec<HirError> = Vec::new();
-    let mut typecheck_result: Result<(), HirError> = Ok(());
-    // Kinda high, but we want to be 100% sure to converge on monomorphization before giving up and reporting errors. If this becomes a problem we can always add a more specific heuristic here.
-    const MAX_ON_DEMAND_MONO_ROUNDS: usize = 128;
-
-    for _round in 0..MAX_ON_DEMAND_MONO_ROUNDS {
-        let mut type_checker = TypeChecker::new(&hir_arena);
-        typecheck_result = type_checker.check(&mut *hir);
-
-        let requests = type_checker.take_method_monomorphization_requests();
-        if requests.is_empty() {
-            break;
-        }
-
-        let changed = monomorphizer.monomorphize_requested_methods(&mut *hir, requests)?;
-        if !changed {
-            break;
-        }
-    }
-
-    if let Err(err) = typecheck_result {
-        let can_continue_to_ownership = match err.gravity() {
-            HirErrorGravity::CanGoUpTo(pass) => (pass as u8) >= (HirPass::OwnershipPass as u8),
-            HirErrorGravity::CanFinishCurrentPassButNotContinue => false,
-            HirErrorGravity::Critical => false,
-        };
-
-        match err {
-            HirError::TypeCheckFailed(aggregate) => {
-                semantic_errors.extend(aggregate.errors);
-            }
-            other => semantic_errors.push(other),
-        }
-
-        if !can_continue_to_ownership {
-            return Err(
-                HirError::SemanticAnalysisFailed(SemanticAnalysisFailedError {
-                    error_count: semantic_errors.len(),
-                    errors: semantic_errors,
-                })
-                .into(),
-            );
-        }
-    }
-
-    // Generic templates are no longer needed after on-demand monomorphization converges.
-    monomorphizer.clear_generic(&mut *hir);
-
-    //ownership analysis + RAII delete insertion (run even after recoverable type-check errors)
-    let mut ownership_pass = HirOwnershipPass::new(&hir_arena, &hir.signature);
-    if let Err(err) = ownership_pass.run(&mut *hir) {
-        match err {
-            HirError::OwnershipAnalysisFailed(aggregate) => {
-                semantic_errors.extend(aggregate.errors);
-            }
-            other => semantic_errors.push(other),
-        }
-    }
+    let frontend_res = run_frontend(path.clone(), source, &ast_arena, &hir_arena, true);
+    let hir = if let Some(hir) = frontend_res.hir {
+        hir
+    } else {
+        // TODO this should absolutely return all the errors instead of just printing and exiting, but this is easier for now
+        eprintln!("Failed to generate HIR for path: {}", path);
+        std::process::exit(1);
+    };
+    let semantic_errors = frontend_res.hir_errors;
 
     if !semantic_errors.is_empty() {
         return Err(
@@ -1075,8 +1232,8 @@ pub fn build(
     }
 
     //Dead code elimination (only in release mode)
-    let mut dce_pass = DeadCodeEliminationPass::new(&hir_arena);
-    hir = dce_pass.eliminate_dead_code(hir)?;
+    // let mut dce_pass = DeadCodeEliminationPass::new(&hir_arena);
+    // hir = dce_pass.eliminate_dead_code(hir)?;
 
     // Write HIR output
     let mut hir_printer = HirPrettyPrinter::new();

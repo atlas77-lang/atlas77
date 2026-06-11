@@ -36,8 +36,8 @@ use crate::atlas_c::atlas_hir::{
         StructCannotHaveAFieldOfItsOwnTypeError, TryingToAccessFieldOnNonObjectTypeError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin, TryingToIndexNonIndexableTypeError,
-        TryingToMutateConstPointerError, TypeCheckFailedError, TypeIsNotCopyableError,
-        TypeMismatchActual, TypeMismatchError, UnionMustHaveAtLeastTwoVariantError,
+        TryingToMutateConstPointerError, TypeCheckFailedError, TypeMismatchActual,
+        TypeMismatchError, UnionMustHaveAtLeastTwoVariantError,
         UnionVariantDefinedMultipleTimesError, UnknownFieldError, UnknownIdentifierError,
         UnknownMethodError, UnknownTypeError, UnsupportedExpr, VariableNameAlreadyDefinedError,
     },
@@ -724,8 +724,8 @@ impl<'hir> TypeChecker<'hir> {
                     ));
             } else {
                 // For `not`, ensure return type is boolean
-                if matches!(op, HirOverloadableOperatorKind::Not) {
-                    if let Err(err) = self.is_equivalent_ty(
+                if matches!(op, HirOverloadableOperatorKind::Not)
+                    && let Err(err) = self.is_equivalent_ty(
                         self.arena.types().get_boolean_ty(),
                         method
                             .signature
@@ -736,9 +736,9 @@ impl<'hir> TypeChecker<'hir> {
                             .signature
                             .return_ty_span
                             .unwrap_or(method.signature.span),
-                    ) {
-                        self.errors.push(err);
-                    }
+                    )
+                {
+                    self.errors.push(err);
                 }
             }
         }
@@ -4324,7 +4324,7 @@ impl<'hir> TypeChecker<'hir> {
         let src = utils::get_file_content(path).unwrap();
         HirError::IllegalUnaryOperation(IllegalUnaryOperationError {
             operation: operation.to_string(),
-            expr_span,
+            span: expr_span,
             src: NamedSource::new(path, src),
             ty: ty.to_string(),
         })
@@ -4340,7 +4340,7 @@ impl<'hir> TypeChecker<'hir> {
         let src = utils::get_file_content(path).unwrap();
         HirError::IllegalOperation(IllegalOperationError {
             operation: operation.to_string(),
-            expr_span,
+            span: expr_span,
             src: NamedSource::new(path, src),
             ty1: ty1.to_string(),
             ty2: ty2.to_string(),

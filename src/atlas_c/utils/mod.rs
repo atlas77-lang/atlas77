@@ -1,7 +1,8 @@
 use crate::atlas_lib::{CORE_LIB_DIR, STD_LIB_DIR};
-use miette::SourceSpan;
+use miette::{LabeledSpan, SourceSpan};
+use serde::Serialize;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub struct Span {
     pub start: usize,
     pub end: usize,
@@ -21,6 +22,17 @@ impl Default for Span {
 impl From<Span> for SourceSpan {
     fn from(span: Span) -> Self {
         SourceSpan::new(span.start.into(), span.end - span.start)
+    }
+}
+
+impl From<LabeledSpan> for Span {
+    fn from(val: LabeledSpan) -> Self {
+        Span {
+            start: val.offset(),
+            end: val.offset() + val.len(),
+            // Sadly we don't know the file...
+            path: "<stdin>",
+        }
     }
 }
 

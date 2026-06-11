@@ -3,10 +3,12 @@
 
 use crate::{atlas_c::utils::Span, declare_warning_type};
 use miette::{Diagnostic, NamedSource};
+use serde::Serialize;
 use thiserror::Error;
 
 declare_warning_type!(
     #[warning("semantic warning: {0}")]
+    #[derive(Serialize)]
     pub enum HirWarning {
         ThisTypeIsStillUnstable(ThisTypeIsStillUnstableWarning),
         TryingToCastToTheSameType(TryingToCastToTheSameTypeWarning),
@@ -19,7 +21,7 @@ declare_warning_type!(
     }
 );
 
-#[derive(Error, Diagnostic, Debug)]
+#[derive(Error, Diagnostic, Debug, Serialize)]
 #[diagnostic(
     code(sema::non_trivially_copyable_struct_holds_a_raw_pointer_with_no_custom_destructor),
     severity(warning),
@@ -32,6 +34,7 @@ declare_warning_type!(
 )]
 pub struct UnsafeRawPointerStructWarning {
     #[source_code]
+    #[serde(skip_serializing)]
     pub src: NamedSource<String>,
     #[label = "Struct not marked as `std::trivially_copyable` declared here"]
     pub struct_span: Span,
@@ -40,7 +43,7 @@ pub struct UnsafeRawPointerStructWarning {
     pub struct_name: String,
 }
 
-#[derive(Error, Diagnostic, Debug)]
+#[derive(Error, Diagnostic, Debug, Serialize)]
 #[diagnostic(
     code(sema::consuming_method_may_leak_this),
     severity(warning),
@@ -51,13 +54,14 @@ pub struct UnsafeRawPointerStructWarning {
 #[error("Consuming method `{method_signature}` does not explicitly delete `this`")]
 pub struct ConsumingMethodMayLeakThisWarning {
     #[source_code]
+    #[serde(skip_serializing)]
     pub src: NamedSource<String>,
     #[label = "This method takes ownership of `this` but doesn't delete it, which may cause a memory leak"]
     pub span: Span,
     pub method_signature: String,
 }
 
-#[derive(Error, Diagnostic, Debug)]
+#[derive(Error, Diagnostic, Debug, Serialize)]
 #[diagnostic(
     code(sema::trying_to_cast_to_the_same_type),
     severity(warning),
@@ -66,17 +70,19 @@ pub struct ConsumingMethodMayLeakThisWarning {
 #[error("Trying to cast something which is of type `{ty}` to `{ty}`")]
 pub struct TryingToCastToTheSameTypeWarning {
     #[source_code]
+    #[serde(skip_serializing)]
     pub src: NamedSource<String>,
     #[label = "Casting to the same type is redundant"]
     pub span: Span,
     pub ty: String,
 }
 
-#[derive(Error, Diagnostic, Debug)]
+#[derive(Error, Diagnostic, Debug, Serialize)]
 #[diagnostic(code(sema::type_is_still_unstable), severity(warning))]
 #[error("{type_name} is still unstable. {info}")]
 pub struct ThisTypeIsStillUnstableWarning {
     #[source_code]
+    #[serde(skip_serializing)]
     pub src: NamedSource<String>,
     #[label = "There is no guarantee of this working properly. Beware."]
     pub span: Span,
@@ -84,7 +90,7 @@ pub struct ThisTypeIsStillUnstableWarning {
     //Additional info about why it's unstable
     pub info: String,
 }
-#[derive(Error, Diagnostic, Debug)]
+#[derive(Error, Diagnostic, Debug, Serialize)]
 #[diagnostic(
     code(sema::unnecessary_copy_due_to_later_borrows),
     severity(warning),
@@ -93,6 +99,7 @@ pub struct ThisTypeIsStillUnstableWarning {
 #[error("Variable `{var_name}` is copied here but only borrowed later")]
 pub struct UnnecessaryCopyDueToLaterBorrowsWarning {
     #[source_code]
+    #[serde(skip_serializing)]
     pub src: NamedSource<String>,
     #[label(
         primary,
@@ -104,7 +111,7 @@ pub struct UnnecessaryCopyDueToLaterBorrowsWarning {
     pub borrow_uses: Vec<Span>,
 }
 
-#[derive(Error, Diagnostic, Debug)]
+#[derive(Error, Diagnostic, Debug, Serialize)]
 #[diagnostic(
     code(sema::union_field_cannot_be_automatically_deleted),
     severity(warning),
@@ -117,6 +124,7 @@ pub struct UnnecessaryCopyDueToLaterBorrowsWarning {
 )]
 pub struct UnionFieldCannotBeAutomaticallyDeletedWarning {
     #[source_code]
+    #[serde(skip_serializing)]
     pub src: NamedSource<String>,
 
     #[label = "Union field `{variant_name}` cannot be automatically deleted here."]
@@ -132,7 +140,7 @@ pub struct UnionFieldCannotBeAutomaticallyDeletedWarning {
     pub usage_loc_type: String,
 }
 
-#[derive(Error, Diagnostic, Debug)]
+#[derive(Error, Diagnostic, Debug, Serialize)]
 #[diagnostic(code(sema::potential_wrong_signature), severity(warning))]
 #[error(
     "Special method `{method_name}` might have the wrong signature `{signature}`\n\t(expected `{expected_signature}`)"
@@ -142,12 +150,13 @@ pub struct SpecialMethodMightHaveWrongSignatureWarning {
     pub expected_signature: String,
     pub method_name: String,
     #[source_code]
+    #[serde(skip_serializing)]
     pub src: NamedSource<String>,
     #[label = "Method `{method_name}` is a special method but its signature `{signature}` does not match the expected signature `{expected_signature}` for this method, which may lead to it not being recognized as a special method and not being called in certain situations"]
     pub span: Span,
 }
 
-#[derive(Error, Diagnostic, Debug)]
+#[derive(Error, Diagnostic, Debug, Serialize)]
 #[diagnostic(
     code(sema::method_looks_like_an_operator),
     severity(warning),
@@ -161,5 +170,6 @@ pub struct MethodLooksLikeAnOperatorWarning {
     #[label = "method looks like an operator"]
     pub span: Span,
     #[source_code]
+    #[serde(skip_serializing)]
     pub src: NamedSource<String>,
 }

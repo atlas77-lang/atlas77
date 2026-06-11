@@ -8,6 +8,7 @@ use crate::{atlas_c::utils::Span, declare_error_type};
 
 declare_error_type! {
     #[error("lir_error: {0}")]
+    #[derive()]
     pub enum LirLoweringError {
         UnsupportedHirExpr(UnsupportedHirExprError),
         CurrentFunctionDoesntExist(CurrentFunctionDoesntExistError),
