@@ -57,8 +57,13 @@ use crate::atlas_c::atlas_hir::{
 
 use crate::atlas_c::utils;
 use crate::atlas_c::utils::Span;
-use miette::{ErrReport, NamedSource};
-use std::collections::{HashMap, HashSet};
+use miette::NamedSource;
+use std::{
+    collections::{HashMap, HashSet},
+    mem::MaybeUninit,
+};
+
+pub static mut WARNINGS: MaybeUninit<Vec<HirWarning>> = MaybeUninit::uninit();
 
 pub struct TypeChecker<'hir> {
     arena: &'hir HirArena<'hir>,
@@ -81,6 +86,9 @@ pub struct TypeChecker<'hir> {
 
 impl<'hir> TypeChecker<'hir> {
     pub fn new(arena: &'hir HirArena<'hir>) -> Self {
+        unsafe {
+            WARNINGS = MaybeUninit::new(Vec::new());
+        }
         Self {
             arena,
             context_functions: vec![],
@@ -4357,7 +4365,7 @@ impl<'hir> TypeChecker<'hir> {
     ) {
         let path = union_span.path;
         let src = utils::get_file_content(path).unwrap();
-        let warning: ErrReport = HirWarning::UnionFieldCannotBeAutomaticallyDeleted(
+        let warning = HirWarning::UnionFieldCannotBeAutomaticallyDeleted(
             UnionFieldCannotBeAutomaticallyDeletedWarning {
                 union_span: *union_span,
                 union_name: union_name.to_string(),
@@ -4367,22 +4375,25 @@ impl<'hir> TypeChecker<'hir> {
                 usage_loc_span,
                 src: NamedSource::new(path, src),
             },
-        )
-        .into();
-        eprintln!("{:?}", warning);
+        );
+        unsafe {
+            let mut_ref = (*(&raw mut WARNINGS)).assume_init_mut();
+            mut_ref.push(warning);
+        }
     }
 
     fn trying_to_cast_to_the_same_type_warning(span: &Span, ty: &str) {
         let path = span.path;
         let src = utils::get_file_content(path).unwrap();
-        let warning: ErrReport =
-            HirWarning::TryingToCastToTheSameType(TryingToCastToTheSameTypeWarning {
-                span: *span,
-                src: NamedSource::new(path, src),
-                ty: ty.to_string(),
-            })
-            .into();
-        eprintln!("{:?}", warning);
+        let warning = HirWarning::TryingToCastToTheSameType(TryingToCastToTheSameTypeWarning {
+            span: *span,
+            src: NamedSource::new(path, src),
+            ty: ty.to_string(),
+        });
+        unsafe {
+            let mut_ref = (*(&raw mut WARNINGS)).assume_init_mut();
+            mut_ref.push(warning);
+        }
     }
 
     fn non_trivially_copyable_struct_holds_a_raw_pointer_with_no_custom_destructor_warning(
@@ -4391,15 +4402,16 @@ impl<'hir> TypeChecker<'hir> {
     ) {
         let path = class.span.path;
         let src = utils::get_file_content(path).unwrap();
-        let warning: ErrReport =
-            HirWarning::UnsafeRawPointerStruct(UnsafeRawPointerStructWarning {
-                src: NamedSource::new(path, src),
-                struct_span: class.name_span,
-                pointer_span,
-                struct_name: class.name.to_string(),
-            })
-            .into();
-        eprintln!("{:?}", warning);
+        let warning = HirWarning::UnsafeRawPointerStruct(UnsafeRawPointerStructWarning {
+            src: NamedSource::new(path, src),
+            struct_span: class.name_span,
+            pointer_span,
+            struct_name: class.name.to_string(),
+        });
+        unsafe {
+            let mut_ref = (*(&raw mut WARNINGS)).assume_init_mut();
+            mut_ref.push(warning);
+        }
     }
 
     /// Check if the expression is a pointer (`&expr`) to a local variable,

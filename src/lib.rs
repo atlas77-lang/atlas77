@@ -28,6 +28,7 @@ use crate::atlas_c::{
         error::{HirError, HirErrorGravity, HirPass, SemanticAnalysisFailedError},
         ownership_pass::HirOwnershipPass,
         pretty_print::HirPrettyPrinter,
+        type_check_pass::WARNINGS,
         warning::HirWarning,
     },
     atlas_lir::hir_lowering_pass::HirLoweringPass,
@@ -44,6 +45,7 @@ use bumpalo::Bump;
 use serde::Serialize;
 use std::{
     io::Write,
+    mem::take,
     path::{Path, PathBuf},
     process::Command,
     str::FromStr,
@@ -989,7 +991,10 @@ pub fn run_frontend<'ast, 'hir>(
     };
 
     //hir
+    let mut warnings: Vec<HirWarning> = Vec::new();
     let mut lower = AstSyntaxLoweringPass::new(hir_arena, &program, ast_arena, true);
+
+    warnings.extend(take(&mut lower.warnings));
 
     let hir = match lower.lower() {
         Ok(hir) => hir,
@@ -997,7 +1002,7 @@ pub fn run_frontend<'ast, 'hir>(
             return FrontendResult {
                 hir: None,
                 hir_errors: vec![e],
-                hir_warnings: Vec::new(),
+                hir_warnings: warnings,
                 ast_errors: Vec::new(),
             };
         }
@@ -1018,7 +1023,7 @@ pub fn run_frontend<'ast, 'hir>(
             return FrontendResult {
                 hir: None,
                 hir_errors: vec![e],
-                hir_warnings: Vec::new(),
+                hir_warnings: warnings,
                 ast_errors: Vec::new(),
             };
         }
@@ -1055,7 +1060,7 @@ pub fn run_frontend<'ast, 'hir>(
                 return FrontendResult {
                     hir: Some(&*hir),
                     hir_errors: vec![e],
-                    hir_warnings: Vec::new(),
+                    hir_warnings: warnings,
                     ast_errors: Vec::new(),
                 };
             }
@@ -1064,6 +1069,10 @@ pub fn run_frontend<'ast, 'hir>(
         if !changed {
             break;
         }
+    }
+    unsafe {
+        let warnings_from_type_check = (*(&raw mut WARNINGS)).assume_init_mut();
+        warnings.extend(warnings_from_type_check.clone());
     }
 
     let mut can_continue_to_ownership = true;
@@ -1101,7 +1110,7 @@ pub fn run_frontend<'ast, 'hir>(
     FrontendResult {
         hir: Some(hir),
         hir_errors: semantic_errors,
-        hir_warnings: vec![],
+        hir_warnings: warnings,
         ast_errors: vec![],
     }
 }
@@ -1143,6 +1152,9 @@ pub fn to_json(path: String, output_file: Option<String>) -> miette::Result<()> 
                     for hir_error in frontend_res.hir_errors {
                         comp_errors.extend(Vec::<CompilerError>::from(hir_error));
                     }
+                    for hir_warning in frontend_res.hir_warnings {
+                        comp_errors.extend(Vec::<CompilerError>::from(hir_warning));
+                    }
 
                     comp_errors
                 },
@@ -1157,7 +1169,9 @@ pub fn to_json(path: String, output_file: Option<String>) -> miette::Result<()> 
                     for hir_error in frontend_res.hir_errors {
                         comp_errors.extend(Vec::<CompilerError>::from(hir_error));
                     }
-
+                    for hir_warning in frontend_res.hir_warnings {
+                        comp_errors.extend(Vec::<CompilerError>::from(hir_warning));
+                    }
                     comp_errors
                 },
             },
@@ -1219,13 +1233,27 @@ pub fn build(
         eprintln!("Failed to generate HIR for path: {}", path);
         std::process::exit(1);
     };
-    let semantic_errors = frontend_res.hir_errors;
 
-    if !semantic_errors.is_empty() {
+    if !frontend_res.ast_errors.is_empty() {
+        for err in frontend_res.ast_errors {
+            let report: miette::Report = err.into();
+            eprintln!("{:?}", report);
+        }
+        std::process::exit(1);
+    }
+
+    if !frontend_res.hir_warnings.is_empty() {
+        for warning in frontend_res.hir_warnings {
+            let report: miette::Report = warning.into();
+            eprintln!("{:?}", report);
+        }
+    }
+
+    if !frontend_res.hir_errors.is_empty() {
         return Err(
             HirError::SemanticAnalysisFailed(SemanticAnalysisFailedError {
-                error_count: semantic_errors.len(),
-                errors: semantic_errors,
+                error_count: frontend_res.hir_errors.len(),
+                errors: frontend_res.hir_errors,
             })
             .into(),
         );

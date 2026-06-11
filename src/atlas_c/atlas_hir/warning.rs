@@ -1,14 +1,14 @@
 // For some reason I get unused assignment warnings in this file
 #![allow(unused_assignments)]
 
-use crate::{atlas_c::utils::Span, declare_warning_type};
+use crate::{CompilerError, CompilerErrorKind, atlas_c::utils::Span, declare_warning_type};
 use miette::{Diagnostic, NamedSource};
 use serde::Serialize;
 use thiserror::Error;
 
 declare_warning_type!(
     #[warning("semantic warning: {0}")]
-    #[derive(Serialize)]
+    #[derive(Serialize, Clone)]
     pub enum HirWarning {
         ThisTypeIsStillUnstable(ThisTypeIsStillUnstableWarning),
         TryingToCastToTheSameType(TryingToCastToTheSameTypeWarning),
@@ -21,7 +21,7 @@ declare_warning_type!(
     }
 );
 
-#[derive(Error, Diagnostic, Debug, Serialize)]
+#[derive(Error, Diagnostic, Debug, Serialize, Clone)]
 #[diagnostic(
     code(sema::non_trivially_copyable_struct_holds_a_raw_pointer_with_no_custom_destructor),
     severity(warning),
@@ -43,7 +43,7 @@ pub struct UnsafeRawPointerStructWarning {
     pub struct_name: String,
 }
 
-#[derive(Error, Diagnostic, Debug, Serialize)]
+#[derive(Error, Diagnostic, Debug, Serialize, Clone)]
 #[diagnostic(
     code(sema::consuming_method_may_leak_this),
     severity(warning),
@@ -61,7 +61,7 @@ pub struct ConsumingMethodMayLeakThisWarning {
     pub method_signature: String,
 }
 
-#[derive(Error, Diagnostic, Debug, Serialize)]
+#[derive(Error, Diagnostic, Debug, Serialize, Clone)]
 #[diagnostic(
     code(sema::trying_to_cast_to_the_same_type),
     severity(warning),
@@ -77,7 +77,7 @@ pub struct TryingToCastToTheSameTypeWarning {
     pub ty: String,
 }
 
-#[derive(Error, Diagnostic, Debug, Serialize)]
+#[derive(Error, Diagnostic, Debug, Serialize, Clone)]
 #[diagnostic(code(sema::type_is_still_unstable), severity(warning))]
 #[error("{type_name} is still unstable. {info}")]
 pub struct ThisTypeIsStillUnstableWarning {
@@ -90,7 +90,7 @@ pub struct ThisTypeIsStillUnstableWarning {
     //Additional info about why it's unstable
     pub info: String,
 }
-#[derive(Error, Diagnostic, Debug, Serialize)]
+#[derive(Error, Diagnostic, Debug, Serialize, Clone)]
 #[diagnostic(
     code(sema::unnecessary_copy_due_to_later_borrows),
     severity(warning),
@@ -111,7 +111,7 @@ pub struct UnnecessaryCopyDueToLaterBorrowsWarning {
     pub borrow_uses: Vec<Span>,
 }
 
-#[derive(Error, Diagnostic, Debug, Serialize)]
+#[derive(Error, Diagnostic, Debug, Serialize, Clone)]
 #[diagnostic(
     code(sema::union_field_cannot_be_automatically_deleted),
     severity(warning),
@@ -140,7 +140,7 @@ pub struct UnionFieldCannotBeAutomaticallyDeletedWarning {
     pub usage_loc_type: String,
 }
 
-#[derive(Error, Diagnostic, Debug, Serialize)]
+#[derive(Error, Diagnostic, Debug, Serialize, Clone)]
 #[diagnostic(code(sema::potential_wrong_signature), severity(warning))]
 #[error(
     "Special method `{method_name}` might have the wrong signature `{signature}`\n\t(expected `{expected_signature}`)"
@@ -156,7 +156,7 @@ pub struct SpecialMethodMightHaveWrongSignatureWarning {
     pub span: Span,
 }
 
-#[derive(Error, Diagnostic, Debug, Serialize)]
+#[derive(Error, Diagnostic, Debug, Serialize, Clone)]
 #[diagnostic(
     code(sema::method_looks_like_an_operator),
     severity(warning),
@@ -172,4 +172,89 @@ pub struct MethodLooksLikeAnOperatorWarning {
     #[source_code]
     #[serde(skip_serializing)]
     pub src: NamedSource<String>,
+}
+
+impl From<HirWarning> for Vec<CompilerError> {
+    fn from(w: HirWarning) -> Vec<CompilerError> {
+        match w {
+            HirWarning::ThisTypeIsStillUnstable(warning) => vec![CompilerError {
+                message: warning.to_string(),
+                span: warning.span,
+                kind: CompilerErrorKind::Warning,
+            }],
+            HirWarning::TryingToCastToTheSameType(warning) => vec![CompilerError {
+                message: warning.to_string(),
+                span: warning.span,
+                kind: CompilerErrorKind::Warning,
+            }],
+            HirWarning::ConsumingMethodMayLeakThis(warning) => vec![CompilerError {
+                message: warning.to_string(),
+                span: warning.span,
+                kind: CompilerErrorKind::Warning,
+            }],
+            HirWarning::UnnecessaryCopyDueToLaterBorrows(warning) => {
+                let mut warnings = vec![CompilerError {
+                    message: warning.to_string(),
+                    span: warning.span,
+                    kind: CompilerErrorKind::Warning,
+                }];
+                for borrow_span in warning.borrow_uses {
+                    warnings.push(CompilerError {
+                        message: format!(
+                            "Borrow of `{}` here contributes to the unnecessary copy",
+                            warning.var_name
+                        ),
+                        span: borrow_span,
+                        kind: CompilerErrorKind::Warning,
+                    });
+                }
+
+                warnings
+            }
+            HirWarning::UnionFieldCannotBeAutomaticallyDeleted(warning) => vec![
+                CompilerError {
+                    message: warning.to_string(),
+                    span: warning.union_span,
+                    kind: CompilerErrorKind::Warning,
+                },
+                CompilerError {
+                    message: format!(
+                        "The union field `{}` is used here, which may lead to it not being properly deleted if it's the active variant when the struct is dropped",
+                        warning.variant_name
+                    ),
+                    span: warning.usage_loc_span,
+                    kind: CompilerErrorKind::Warning,
+                },
+                CompilerError {
+                    message: format!("Union field `{}` declared here", warning.variant_name),
+                    span: warning.variant_span,
+                    kind: CompilerErrorKind::Warning,
+                },
+            ],
+            HirWarning::UnsafeRawPointerStruct(warning) => vec![
+                CompilerError {
+                    message: warning.to_string(),
+                    span: warning.struct_span,
+                    kind: CompilerErrorKind::Warning,
+                },
+                CompilerError {
+                    message: format!(
+                        "Raw pointer field declared here, which may lead to memory safety issues if the struct is copied or moved without proper handling"
+                    ),
+                    span: warning.pointer_span,
+                    kind: CompilerErrorKind::Warning,
+                },
+            ],
+            HirWarning::SpecialMethodMightHaveWrongSignature(warning) => vec![CompilerError {
+                message: warning.to_string(),
+                span: warning.span,
+                kind: CompilerErrorKind::Warning,
+            }],
+            HirWarning::MethodLooksLikeAnOperator(warning) => vec![CompilerError {
+                message: warning.to_string(),
+                span: warning.span,
+                kind: CompilerErrorKind::Warning,
+            }],
+        }
+    }
 }

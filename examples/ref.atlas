@@ -7,5 +7,7 @@ fun main() {
     let ref_i = &i;
 
     let foo = Foo {};
-    let ref_foo: Foo = foo;
+    let ref_foo: Foo = &foo;
+    
+    let a: uint64 = 42.0;
 }

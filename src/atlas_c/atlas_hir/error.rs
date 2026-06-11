@@ -1468,11 +1468,18 @@ impl From<HirError> for Vec<CompilerError> {
                 span: error.span,
                 kind: CompilerErrorKind::Error,
             }],
-            HirError::TypeMismatch(error) => vec![CompilerError {
-                message: error.to_string(),
-                span: error.span,
-                kind: CompilerErrorKind::Error,
-            }],
+            HirError::TypeMismatch(error) => vec![
+                CompilerError {
+                    message: error.to_string(),
+                    span: error.span,
+                    kind: CompilerErrorKind::Error,
+                },
+                CompilerError {
+                    message: "TODO: show the actual type here".to_string(),
+                    span: error.actual.span,
+                    kind: CompilerErrorKind::Note,
+                },
+            ],
             HirError::UnsupportedStatement(error) => vec![CompilerError {
                 message: error.to_string(),
                 span: error.span,
