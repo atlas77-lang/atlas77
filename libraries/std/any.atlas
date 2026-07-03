@@ -7,9 +7,7 @@ namespace std {
         UNEQUIVALENT_CAST;
         MOVED_ANY_VALUE;
     }
-    fun deleter<T>(t: *T) {
-        delete *t;
-    }
+
     public struct any {
       private:
         val: *unit;
@@ -48,8 +46,10 @@ namespace std {
                     std::cast_error>::unexpected(
                         std::cast_error::MOVED_ANY_VALUE);
             }
+            
             let ptr: *T = this->val as *T;
             this->val = null;
+
             return std::expected<
                 T,
                 std::cast_error>::expect(
