@@ -71,6 +71,45 @@ impl<'hir> HirLoweringPass<'hir> {
         }
     }
 
+    fn overloaded_operator_return_ty(
+        &self,
+        receiver_ty: &'hir HirTy<'hir>,
+        op: HirOverloadableOperatorKind,
+        span: Span,
+    ) -> LirResult<LirTy> {
+        let Some(owner_name) = self.class_name_from_receiver_ty(receiver_ty) else {
+            return Err(unsupported_expr(
+                span,
+                format!("unable to resolve overloaded operator owner type: {:?}", receiver_ty),
+            ));
+        };
+
+        let Some(struct_sig) = self.hir_module.signature.structs.get(owner_name) else {
+            return Err(unsupported_expr(
+                span,
+                format!(
+                    "unable to find struct signature for overloaded operator owner: {}",
+                    owner_name
+                ),
+            ));
+        };
+
+        let Some(method_sig) = struct_sig.operators.get(&op) else {
+            return Err(unsupported_expr(
+                span,
+                format!(
+                    "struct {} does not define overloaded operator {:?}",
+                    owner_name, op
+                ),
+            ));
+        };
+
+        Ok(self.hir_ty_to_lir_ty(
+            &method_sig.return_ty,
+            method_sig.return_ty_span.unwrap_or(method_sig.span),
+        ))
+    }
+
     /// Lower the entire Hir module to Lir
     pub fn lower(&mut self) -> LirResult<LirProgram> {
         let mut functions = Vec::new();
@@ -860,17 +899,25 @@ impl<'hir> HirLoweringPass<'hir> {
                     && let Some(op) = unary.op
                 {
                     let expr_operand = self.lower_expr(&unary.expr)?;
-                    let owner_name = self.overloaded_operator_owner_name(unary.expr.ty());
+                    let op_kind: HirOverloadableOperatorKind = op.into();
+                    let return_ty = self.overloaded_operator_return_ty(
+                        unary.expr.ty(),
+                        op_kind,
+                        unary.span,
+                    )?;
 
                     let dest = self.new_temp();
+                    let owner_name = self.overloaded_operator_owner_name(unary.expr.ty());
+                    let func_name = format!(
+                        "{}_{}",
+                        owner_name,
+                        Into::<String>::into(op_kind)
+                    );
+
                     self.emit(LirInstr::Call {
-                        ty: self.hir_ty_to_lir_ty(unary.ty, unary.span),
+                        ty: return_ty,
                         dst: Some(dest.clone()),
-                        func_name: format!(
-                            "{}_{}",
-                            owner_name,
-                            Into::<String>::into(Into::<HirOverloadableOperatorKind>::into(op))
-                        ),
+                        func_name,
                         args: vec![LirOperand::AsRef(Box::new(expr_operand))],
                     })?;
                     return Ok(dest);
@@ -925,16 +972,20 @@ impl<'hir> HirLoweringPass<'hir> {
                 let dest = self.new_temp();
 
                 if binop.is_overloaded {
+                    let op_kind: HirOverloadableOperatorKind = binop.op.into();
+                    let return_ty = self.overloaded_operator_return_ty(
+                        binop.lhs.ty(),
+                        op_kind,
+                        binop.span,
+                    )?;
                     let owner_name = self.overloaded_operator_owner_name(binop.lhs.ty());
                     self.emit(LirInstr::Call {
-                        ty: self.hir_ty_to_lir_ty(binop.ty, binop.span),
+                        ty: return_ty,
                         dst: Some(dest.clone()),
                         func_name: format!(
                             "{}_{}",
                             owner_name,
-                            Into::<String>::into(Into::<HirOverloadableOperatorKind>::into(
-                                binop.op
-                            ))
+                            Into::<String>::into(op_kind)
                         ),
                         args: vec![
                             LirOperand::AsRef(Box::new(lhs)),
