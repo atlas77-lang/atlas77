@@ -6,11 +6,11 @@ use super::{
     expr,
     stmt::{HirBlock, HirExprStmt, HirStatement},
 };
-use crate::atlas_c::atlas_hir::signature::{
+use crate::atlas_c::atlas_hir::{error::UnknownFunctionError, signature::{
     HirFunctionParameterSignature, HirFunctionSignature, HirMethodAttribute,
     HirOverloadableOperatorKind, HirStructDestructorSignature, HirStructFieldSignature,
     HirStructMethodModifier, HirStructSignature, HirVisibility,
-};
+}};
 use crate::atlas_c::atlas_hir::special_methods::{
     INTRINSIC_PRIMITIVE_COPY, INTRINSIC_PRIMITIVE_DEFAULT, INTRINSIC_PRIMITIVE_HASH,
     SpecialMethodKind, SpecialMethodReceiver, primitive_special_call_descriptor,
@@ -2145,7 +2145,7 @@ impl<'hir> TypeChecker<'hir> {
                                         func_expr,
                                     );
                                 }
-                                return Err(Self::unknown_type_err(name, &i.span));
+                                return Err(Self::unknown_func_err(name, &i.span));
                             }
                         };
 
@@ -4240,6 +4240,17 @@ impl<'hir> TypeChecker<'hir> {
         let path = span.path;
         let src = utils::get_file_content(path).unwrap();
         HirError::UnknownType(UnknownTypeError {
+            name: name.to_string(),
+            span: *span,
+            src: NamedSource::new(path, src),
+        })
+    }
+
+    #[inline(always)]
+    fn unknown_func_err(name: &str, span: &Span) -> HirError {
+        let path = span.path;
+        let src = utils::get_file_content(path).unwrap();
+        HirError::UnknownFunction(UnknownFunctionError {
             name: name.to_string(),
             span: *span,
             src: NamedSource::new(path, src),

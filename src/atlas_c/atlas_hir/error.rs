@@ -23,6 +23,7 @@ declare_error_type! {
         NotEnoughGenerics(NotEnoughGenericsError),
         NotEnoughArguments(NotEnoughArgumentsError),
         UnknownType(UnknownTypeError),
+        UnknownFunction(UnknownFunctionError),
         BreakOutsideLoop(BreakOutsideLoopError),
         ContinueOutsideLoop(ContinueOutsideLoopError),
         TypeMismatch(TypeMismatchError),
@@ -906,6 +907,19 @@ pub struct UnknownTypeError {
 }
 
 #[derive(Error, Diagnostic, Debug, Serialize)]
+#[diagnostic(code(sema::unknown_type), help("Check if the function is declared and in scope"))]
+#[error("Undefined function {name}")]
+
+pub struct UnknownFunctionError {
+    pub name: String,
+    #[label = "Could not find function: `{name}`"]
+    pub span: Span,
+    #[source_code]
+    #[serde(skip_serializing)]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug, Serialize)]
 #[diagnostic(code(sema::break_outside_loop))]
 #[error("break statement outside of loop")]
 pub struct BreakOutsideLoopError {
@@ -1454,6 +1468,11 @@ impl From<HirError> for Vec<CompilerError> {
                 kind: CompilerErrorKind::Error,
             }],
             HirError::UnknownType(error) => vec![CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Error,
+            }],
+            HirError::UnknownFunction(error) => vec![CompilerError{
                 message: error.to_string(),
                 span: error.span,
                 kind: CompilerErrorKind::Error,
