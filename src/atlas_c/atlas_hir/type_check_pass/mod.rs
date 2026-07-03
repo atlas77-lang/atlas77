@@ -643,14 +643,14 @@ impl<'hir> TypeChecker<'hir> {
             .map_err(|_| Self::unknown_overloadable_operator(method.name, &struct_span))?;
         let path = method.span.path;
         let src = utils::get_file_content(path).unwrap();
-        if method.signature.modifier != HirStructMethodModifier::Const {
-            return Err(HirError::OperatorMustUseConstThisModifier(
-                OperatorMustUseConstThisModifierError {
-                    span: method.name_span,
-                    src: NamedSource::new(path, src),
-                },
-            ));
-        }
+        // if method.signature.modifier != HirStructMethodModifier::Const {
+        //     return Err(HirError::OperatorMustUseConstThisModifier(
+        //         OperatorMustUseConstThisModifierError {
+        //             span: method.name_span,
+        //             src: NamedSource::new(path, src),
+        //         },
+        //     ));
+        // }
         if op.is_binary() {
             // Expect exactly two parameters: `this` and the other operand.
             if method.signature.params.len() != 1 {
