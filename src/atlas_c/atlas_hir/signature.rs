@@ -1,3 +1,5 @@
+use serde::Serialize;
+
 use super::ty::HirTy;
 use crate::atlas_c::atlas_frontend::parser::ast::{
     AstFlag, AstMethodAttribute, AstNullablePredicateSemantics, AstVisibility,
@@ -12,7 +14,7 @@ use std::fmt::Display;
 /// An HirModuleSignature represents the API of a module.
 ///
 /// Currently only functions exist in the language.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct HirModuleSignature<'hir> {
     pub functions: BTreeMap<&'hir str, &'hir HirFunctionSignature<'hir>>,
     pub structs: BTreeMap<&'hir str, &'hir HirStructSignature<'hir>>,
@@ -26,7 +28,7 @@ pub struct HirModuleSignature<'hir> {
     pub imported_modules: BTreeMap<&'hir str, &'hir HirModuleSignature<'hir>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 /// As of now, structs don't inherit concepts.
 pub struct HirStructSignature<'hir> {
     pub declaration_span: Span,
@@ -65,14 +67,14 @@ pub struct HirStructSignature<'hir> {
     pub c_name: Option<&'hir str>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize)]
 pub struct HirOverloadableOperator {
     // Where it's implemented or requested
     pub span: Span,
     pub kind: HirOverloadableOperatorKind,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub enum HirOverloadableOperatorKind {
     Add,
     Sub,
@@ -215,7 +217,7 @@ impl HirOverloadableOperatorKind {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HirGenericConstraint<'hir> {
     pub span: Span,
     pub generic_name: &'hir str,
@@ -223,7 +225,7 @@ pub struct HirGenericConstraint<'hir> {
     pub kind: Vec<&'hir HirGenericConstraintKind<'hir>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum HirGenericConstraintKind<'hir> {
     // e.g. std::copyable
     Std {
@@ -257,7 +259,7 @@ impl Display for HirGenericConstraintKind<'_> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HirUnionSignature<'hir> {
     pub declaration_span: Span,
     pub vis: HirVisibility,
@@ -275,7 +277,7 @@ pub struct HirUnionSignature<'hir> {
     pub c_name: Option<&'hir str>,
 }
 
-#[derive(Debug, Clone, PartialEq, Copy, Default)]
+#[derive(Debug, Clone, PartialEq, Copy, Default, Serialize)]
 pub enum HirVisibility {
     #[default]
     Public,
@@ -290,7 +292,7 @@ impl From<AstVisibility> for HirVisibility {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub enum HirFlag {
     Copyable(Span),
     TriviallyCopyable(Span),
@@ -351,7 +353,7 @@ impl HirFlag {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 //Also used for the destructor
 pub struct HirStructDestructorSignature<'hir> {
     pub span: Span,
@@ -360,7 +362,7 @@ pub struct HirStructDestructorSignature<'hir> {
     pub docstring: Option<&'hir str>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HirStructConstantSignature<'hir> {
     pub span: Span,
     pub vis: HirVisibility,
@@ -372,7 +374,7 @@ pub struct HirStructConstantSignature<'hir> {
     pub docstring: Option<&'hir str>,
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Default, Serialize)]
 pub enum ConstantValue {
     Int(i64),
     Float(f64),
@@ -434,7 +436,7 @@ impl TryFrom<HirExpr<'_>> for ConstantValue {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HirStructFieldSignature<'hir> {
     pub span: Span,
     pub vis: HirVisibility,
@@ -445,7 +447,7 @@ pub struct HirStructFieldSignature<'hir> {
     pub docstring: Option<&'hir str>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HirStructMethodSignature<'hir> {
     pub span: Span,
     pub vis: HirVisibility,
@@ -468,7 +470,7 @@ pub struct HirStructMethodSignature<'hir> {
     pub docstring: Option<&'hir str>,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Serialize)]
 pub enum HirStructMethodModifier {
     /// Static method - no `this` parameter
     Static,
@@ -481,7 +483,7 @@ pub enum HirStructMethodModifier {
     Consuming,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum HirNullablePredicateSemantics {
     Empty,
     Present,
@@ -496,7 +498,7 @@ impl From<AstNullablePredicateSemantics> for HirNullablePredicateSemantics {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum HirMethodAttribute {
     Nullable(Span),
     NullablePredicate {
@@ -525,7 +527,7 @@ impl From<AstMethodAttribute> for HirMethodAttribute {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HirFunctionSignature<'hir> {
     pub span: Span,
     pub vis: HirVisibility,
@@ -546,14 +548,14 @@ pub struct HirFunctionSignature<'hir> {
     pub c_name: Option<&'hir str>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HirTypeParameterItemSignature<'hir> {
     pub span: Span,
     pub name: &'hir str,
     pub name_span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HirFunctionParameterSignature<'hir> {
     pub span: Span,
     pub name: &'hir str,

@@ -7,7 +7,7 @@ use crate::atlas_c::{
         HirModule,
         arena::HirArena,
         expr::{HirBinaryOperator, HirExpr, HirUnaryOp},
-        item::{HirFunction, HirStruct, HirStructDestructor, HirStructMethod, HirUnion},
+        item::{HirEnum, HirFunction, HirStruct, HirStructDestructor, HirStructMethod, HirUnion},
         monomorphization_pass::MonomorphizationPass,
         signature::{ConstantValue, HirOverloadableOperatorKind, HirStructMethodModifier},
         special_methods::{
@@ -22,8 +22,8 @@ use crate::atlas_c::{
             UnknownTypeError, UnsupportedHirExprError,
         },
         program::{
-            LirBlock, LirExternFunction, LirFunction, LirInstr, LirOperand, LirProgram, LirStruct,
-            LirTerminator, LirTy, LirUnion,
+            LirBlock, LirEnum, LirExternFunction, LirFunction, LirInstr, LirOperand, LirProgram,
+            LirStruct, LirTerminator, LirTy, LirUnion,
         },
     },
     utils::{self, Span},
@@ -71,6 +71,48 @@ impl<'hir> HirLoweringPass<'hir> {
         }
     }
 
+    fn overloaded_operator_return_ty(
+        &self,
+        receiver_ty: &'hir HirTy<'hir>,
+        op: HirOverloadableOperatorKind,
+        span: Span,
+    ) -> LirResult<LirTy> {
+        let Some(owner_name) = self.class_name_from_receiver_ty(receiver_ty) else {
+            return Err(unsupported_expr(
+                span,
+                format!(
+                    "unable to resolve overloaded operator owner type: {:?}",
+                    receiver_ty
+                ),
+            ));
+        };
+
+        let Some(struct_sig) = self.hir_module.signature.structs.get(owner_name) else {
+            return Err(unsupported_expr(
+                span,
+                format!(
+                    "unable to find struct signature for overloaded operator owner: {}",
+                    owner_name
+                ),
+            ));
+        };
+
+        let Some(method_sig) = struct_sig.operators.get(&op) else {
+            return Err(unsupported_expr(
+                span,
+                format!(
+                    "struct {} does not define overloaded operator {:?}",
+                    owner_name, op
+                ),
+            ));
+        };
+
+        Ok(self.hir_ty_to_lir_ty(
+            &method_sig.return_ty,
+            method_sig.return_ty_span.unwrap_or(method_sig.span),
+        ))
+    }
+
     /// Lower the entire Hir module to Lir
     pub fn lower(&mut self) -> LirResult<LirProgram> {
         let mut functions = Vec::new();
@@ -116,11 +158,17 @@ impl<'hir> HirLoweringPass<'hir> {
             unions.push(self.lower_union(body)?);
         }
 
+        let mut enums = Vec::new();
+        for body in self.hir_module.body.enums.values() {
+            enums.push(self.lower_enum(body)?);
+        }
+
         Ok(LirProgram {
             functions,
             extern_functions,
             structs,
             unions,
+            enums,
         })
     }
 
@@ -194,6 +242,19 @@ impl<'hir> HirLoweringPass<'hir> {
                 CurrentFunctionDoesntExistError,
             )))
         }
+    }
+
+    fn lower_enum(&mut self, enum_body: &'hir HirEnum<'hir>) -> LirResult<LirEnum> {
+        let mut values = BTreeMap::new();
+        for value in enum_body.variants.iter() {
+            values.insert(value.name.to_string(), value.value);
+        }
+        let lir_enum = LirEnum {
+            name: enum_body.name.to_string(),
+            c_name: None,
+            variants: values,
+        };
+        Ok(lir_enum)
     }
 
     fn lower_union(&mut self, union_body: &'hir HirUnion<'hir>) -> LirResult<LirUnion> {
@@ -860,17 +921,18 @@ impl<'hir> HirLoweringPass<'hir> {
                     && let Some(op) = unary.op
                 {
                     let expr_operand = self.lower_expr(&unary.expr)?;
-                    let owner_name = self.overloaded_operator_owner_name(unary.expr.ty());
+                    let op_kind: HirOverloadableOperatorKind = op.into();
+                    let return_ty =
+                        self.overloaded_operator_return_ty(unary.expr.ty(), op_kind, unary.span)?;
 
                     let dest = self.new_temp();
+                    let owner_name = self.overloaded_operator_owner_name(unary.expr.ty());
+                    let func_name = format!("{}_{}", owner_name, Into::<String>::into(op_kind));
+
                     self.emit(LirInstr::Call {
-                        ty: self.hir_ty_to_lir_ty(unary.ty, unary.span),
+                        ty: return_ty,
                         dst: Some(dest.clone()),
-                        func_name: format!(
-                            "{}_{}",
-                            owner_name,
-                            Into::<String>::into(Into::<HirOverloadableOperatorKind>::into(op))
-                        ),
+                        func_name,
                         args: vec![LirOperand::AsRef(Box::new(expr_operand))],
                     })?;
                     return Ok(dest);
@@ -925,17 +987,14 @@ impl<'hir> HirLoweringPass<'hir> {
                 let dest = self.new_temp();
 
                 if binop.is_overloaded {
+                    let op_kind: HirOverloadableOperatorKind = binop.op.into();
+                    let return_ty =
+                        self.overloaded_operator_return_ty(binop.lhs.ty(), op_kind, binop.span)?;
                     let owner_name = self.overloaded_operator_owner_name(binop.lhs.ty());
                     self.emit(LirInstr::Call {
-                        ty: self.hir_ty_to_lir_ty(binop.ty, binop.span),
+                        ty: return_ty,
                         dst: Some(dest.clone()),
-                        func_name: format!(
-                            "{}_{}",
-                            owner_name,
-                            Into::<String>::into(Into::<HirOverloadableOperatorKind>::into(
-                                binop.op
-                            ))
-                        ),
+                        func_name: format!("{}_{}", owner_name, Into::<String>::into(op_kind)),
                         args: vec![
                             LirOperand::AsRef(Box::new(lhs)),
                             if matches!(binop.op, HirBinaryOperator::ShL | HirBinaryOperator::ShR) {

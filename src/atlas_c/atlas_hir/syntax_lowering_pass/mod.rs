@@ -74,7 +74,7 @@ pub struct AstSyntaxLoweringPass<'ast, 'hir> {
     module_body: HirModuleBody<'hir>,
     module_signature: HirModuleSignature<'hir>,
     /// Collect warnings during lowering (Only nullable types for now)
-    warnings: Vec<HirWarning>,
+    pub warnings: Vec<HirWarning>,
     /// Keep track of already imported modules to avoid duplicate imports
     pub already_imported: BTreeMap<&'hir str, ()>,
     pub using_std: bool,
@@ -182,8 +182,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             self.visit_item(item)?;
         }
 
-        for warning in self.warnings.drain(..) {
-            let report: miette::ErrReport = warning.into();
+        for warning in self.warnings.iter() {
+            let report: miette::ErrReport = warning.clone().into();
             eprintln!("{:?}", report.severity());
             eprintln!("{:?}", report);
         }

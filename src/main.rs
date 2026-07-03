@@ -124,6 +124,17 @@ enum AtlasRuntimeCLI {
         /// Output directory for generated files (defaults to header directory)
         output_dir: Option<String>,
     },
+    #[command(
+        about = "Generate JSON representation of the HIR tree for a given Atlas77 source file",
+        long_about = "Generate JSON representation of the HIR tree, using serde_json, for a given Atlas77 source file. This is useful for debugging and testing the compiler's internal representation of the code. The output will be printed to stdout, so you can redirect it to a file if needed (example: atlas77 to_json src/main.atlas > hir.json)."
+    )]
+    ToJson {
+        /// Path to the Atlas77 source file (defaults to src/main.atlas)
+        file_path: Option<String>,
+        #[arg(short = 'o', long)]
+        /// Output file for the generated JSON (defaults to stdout)
+        output: Option<String>,
+    },
 }
 
 fn main() -> miette::Result<()> {
@@ -212,6 +223,11 @@ fn main() -> miette::Result<()> {
                     println!("- {}: {}", item.name, item.reason);
                 }
             }
+            Ok(())
+        }
+        AtlasRuntimeCLI::ToJson { file_path, output } => {
+            let path = file_path.unwrap_or("src/main.atlas".to_string());
+            atlas_77::to_json(path, output)?;
             Ok(())
         }
     }

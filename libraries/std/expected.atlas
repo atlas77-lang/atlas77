@@ -118,7 +118,7 @@ namespace std {
             return this->is_expected();
         }
 
-        operator deref(*const this) -> T {
+        operator deref(*this) -> T {
             if (!this->has_expected_value) {
                 std::panic("called operator deref on an unexpected error");
             } else {

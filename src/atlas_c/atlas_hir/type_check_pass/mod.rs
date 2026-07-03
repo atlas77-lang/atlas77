@@ -6,14 +6,17 @@ use super::{
     expr,
     stmt::{HirBlock, HirExprStmt, HirStatement},
 };
-use crate::atlas_c::atlas_hir::signature::{
-    HirFunctionParameterSignature, HirFunctionSignature, HirMethodAttribute,
-    HirOverloadableOperatorKind, HirStructDestructorSignature, HirStructFieldSignature,
-    HirStructMethodModifier, HirStructSignature, HirVisibility,
-};
 use crate::atlas_c::atlas_hir::special_methods::{
     INTRINSIC_PRIMITIVE_COPY, INTRINSIC_PRIMITIVE_DEFAULT, INTRINSIC_PRIMITIVE_HASH,
     SpecialMethodKind, SpecialMethodReceiver, primitive_special_call_descriptor,
+};
+use crate::atlas_c::atlas_hir::{
+    error::UnknownFunctionError,
+    signature::{
+        HirFunctionParameterSignature, HirFunctionSignature, HirMethodAttribute,
+        HirOverloadableOperatorKind, HirStructDestructorSignature, HirStructFieldSignature,
+        HirStructMethodModifier, HirStructSignature, HirVisibility,
+    },
 };
 use crate::atlas_c::atlas_hir::{
     error::UnknownOverloadableOperatorError, pretty_print::HirPrettyPrinter,
@@ -36,8 +39,8 @@ use crate::atlas_c::atlas_hir::{
         StructCannotHaveAFieldOfItsOwnTypeError, TryingToAccessFieldOnNonObjectTypeError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin, TryingToIndexNonIndexableTypeError,
-        TryingToMutateConstPointerError, TypeCheckFailedError, TypeIsNotCopyableError,
-        TypeMismatchActual, TypeMismatchError, UnionMustHaveAtLeastTwoVariantError,
+        TryingToMutateConstPointerError, TypeCheckFailedError, TypeMismatchActual,
+        TypeMismatchError, UnionMustHaveAtLeastTwoVariantError,
         UnionVariantDefinedMultipleTimesError, UnknownFieldError, UnknownIdentifierError,
         UnknownMethodError, UnknownTypeError, UnsupportedExpr, VariableNameAlreadyDefinedError,
     },
@@ -57,8 +60,13 @@ use crate::atlas_c::atlas_hir::{
 
 use crate::atlas_c::utils;
 use crate::atlas_c::utils::Span;
-use miette::{ErrReport, NamedSource};
-use std::collections::{HashMap, HashSet};
+use miette::NamedSource;
+use std::{
+    collections::{HashMap, HashSet},
+    mem::MaybeUninit,
+};
+
+pub static mut WARNINGS: MaybeUninit<Vec<HirWarning>> = MaybeUninit::uninit();
 
 pub struct TypeChecker<'hir> {
     arena: &'hir HirArena<'hir>,
@@ -81,6 +89,9 @@ pub struct TypeChecker<'hir> {
 
 impl<'hir> TypeChecker<'hir> {
     pub fn new(arena: &'hir HirArena<'hir>) -> Self {
+        unsafe {
+            WARNINGS = MaybeUninit::new(Vec::new());
+        }
         Self {
             arena,
             context_functions: vec![],
@@ -635,14 +646,14 @@ impl<'hir> TypeChecker<'hir> {
             .map_err(|_| Self::unknown_overloadable_operator(method.name, &struct_span))?;
         let path = method.span.path;
         let src = utils::get_file_content(path).unwrap();
-        if method.signature.modifier != HirStructMethodModifier::Const {
-            return Err(HirError::OperatorMustUseConstThisModifier(
-                OperatorMustUseConstThisModifierError {
-                    span: method.name_span,
-                    src: NamedSource::new(path, src),
-                },
-            ));
-        }
+        // if method.signature.modifier != HirStructMethodModifier::Const {
+        //     return Err(HirError::OperatorMustUseConstThisModifier(
+        //         OperatorMustUseConstThisModifierError {
+        //             span: method.name_span,
+        //             src: NamedSource::new(path, src),
+        //         },
+        //     ));
+        // }
         if op.is_binary() {
             // Expect exactly two parameters: `this` and the other operand.
             if method.signature.params.len() != 1 {
@@ -710,7 +721,7 @@ impl<'hir> TypeChecker<'hir> {
             }
         } else if op.is_unary() {
             // Expect exactly one parameter: `this`.
-            if method.signature.params.len() != 1 {
+            if method.signature.params.len() != 0 {
                 self.errors
                     .push(HirError::OperatorOverloadDoesNotHaveRequiredAmountOfArgs(
                         OperatorOverloadDoesNotHaveRequiredAmountOfArgsError {
@@ -724,8 +735,8 @@ impl<'hir> TypeChecker<'hir> {
                     ));
             } else {
                 // For `not`, ensure return type is boolean
-                if matches!(op, HirOverloadableOperatorKind::Not) {
-                    if let Err(err) = self.is_equivalent_ty(
+                if matches!(op, HirOverloadableOperatorKind::Not)
+                    && let Err(err) = self.is_equivalent_ty(
                         self.arena.types().get_boolean_ty(),
                         method
                             .signature
@@ -736,9 +747,9 @@ impl<'hir> TypeChecker<'hir> {
                             .signature
                             .return_ty_span
                             .unwrap_or(method.signature.span),
-                    ) {
-                        self.errors.push(err);
-                    }
+                    )
+                {
+                    self.errors.push(err);
                 }
             }
         }
@@ -2137,7 +2148,7 @@ impl<'hir> TypeChecker<'hir> {
                                         func_expr,
                                     );
                                 }
-                                return Err(Self::unknown_type_err(name, &i.span));
+                                return Err(Self::unknown_func_err(name, &i.span));
                             }
                         };
 
@@ -3926,31 +3937,6 @@ impl<'hir> TypeChecker<'hir> {
                     _ => self.is_equivalent_ty(p1.inner, expected_span, p2.inner, found_span),
                 }
             }
-            // If it expects a value type, but found a pointer, dereference should be explicit
-            (expected, HirTy::PtrTy(p)) => {
-                self.is_equivalent_ty(expected, expected_span, p.inner, found_span)?;
-                // check if found is copyable
-                match expected {
-                    HirTy::PtrTy(ptr) => {
-                        if ptr.inner.is_copyable(&self.signature) {
-                            return Ok(());
-                        }
-                    }
-                    _ => {
-                        if expected.is_copyable(&self.signature) {
-                            return Ok(());
-                        }
-                    }
-                }
-                Err(HirError::TypeIsNotCopyable(TypeIsNotCopyableError {
-                    span: found_span,
-                    type_name: found_ty.to_string(),
-                    src: NamedSource::new(
-                        found_span.path,
-                        utils::get_file_content(found_span.path).unwrap(),
-                    ),
-                }))
-            }
             // TODO: Replace Unit type with a proper nullptr_t type
             (HirTy::PtrTy(_), HirTy::Unit(_)) => Ok(()),
             // We silently ignore those errors, because they arise from earlier issues. e.g. if a variable
@@ -4264,6 +4250,17 @@ impl<'hir> TypeChecker<'hir> {
     }
 
     #[inline(always)]
+    fn unknown_func_err(name: &str, span: &Span) -> HirError {
+        let path = span.path;
+        let src = utils::get_file_content(path).unwrap();
+        HirError::UnknownFunction(UnknownFunctionError {
+            name: name.to_string(),
+            span: *span,
+            src: NamedSource::new(path, src),
+        })
+    }
+
+    #[inline(always)]
     fn unknown_identifier_err(name: &str, span: &Span) -> HirError {
         let path = span.path;
         let src = utils::get_file_content(path).unwrap();
@@ -4349,7 +4346,7 @@ impl<'hir> TypeChecker<'hir> {
         let src = utils::get_file_content(path).unwrap();
         HirError::IllegalUnaryOperation(IllegalUnaryOperationError {
             operation: operation.to_string(),
-            expr_span,
+            span: expr_span,
             src: NamedSource::new(path, src),
             ty: ty.to_string(),
         })
@@ -4365,7 +4362,7 @@ impl<'hir> TypeChecker<'hir> {
         let src = utils::get_file_content(path).unwrap();
         HirError::IllegalOperation(IllegalOperationError {
             operation: operation.to_string(),
-            expr_span,
+            span: expr_span,
             src: NamedSource::new(path, src),
             ty1: ty1.to_string(),
             ty2: ty2.to_string(),
@@ -4382,7 +4379,7 @@ impl<'hir> TypeChecker<'hir> {
     ) {
         let path = union_span.path;
         let src = utils::get_file_content(path).unwrap();
-        let warning: ErrReport = HirWarning::UnionFieldCannotBeAutomaticallyDeleted(
+        let warning = HirWarning::UnionFieldCannotBeAutomaticallyDeleted(
             UnionFieldCannotBeAutomaticallyDeletedWarning {
                 union_span: *union_span,
                 union_name: union_name.to_string(),
@@ -4392,22 +4389,25 @@ impl<'hir> TypeChecker<'hir> {
                 usage_loc_span,
                 src: NamedSource::new(path, src),
             },
-        )
-        .into();
-        eprintln!("{:?}", warning);
+        );
+        unsafe {
+            let mut_ref = (*(&raw mut WARNINGS)).assume_init_mut();
+            mut_ref.push(warning);
+        }
     }
 
     fn trying_to_cast_to_the_same_type_warning(span: &Span, ty: &str) {
         let path = span.path;
         let src = utils::get_file_content(path).unwrap();
-        let warning: ErrReport =
-            HirWarning::TryingToCastToTheSameType(TryingToCastToTheSameTypeWarning {
-                span: *span,
-                src: NamedSource::new(path, src),
-                ty: ty.to_string(),
-            })
-            .into();
-        eprintln!("{:?}", warning);
+        let warning = HirWarning::TryingToCastToTheSameType(TryingToCastToTheSameTypeWarning {
+            span: *span,
+            src: NamedSource::new(path, src),
+            ty: ty.to_string(),
+        });
+        unsafe {
+            let mut_ref = (*(&raw mut WARNINGS)).assume_init_mut();
+            mut_ref.push(warning);
+        }
     }
 
     fn non_trivially_copyable_struct_holds_a_raw_pointer_with_no_custom_destructor_warning(
@@ -4416,15 +4416,16 @@ impl<'hir> TypeChecker<'hir> {
     ) {
         let path = class.span.path;
         let src = utils::get_file_content(path).unwrap();
-        let warning: ErrReport =
-            HirWarning::UnsafeRawPointerStruct(UnsafeRawPointerStructWarning {
-                src: NamedSource::new(path, src),
-                struct_span: class.name_span,
-                pointer_span,
-                struct_name: class.name.to_string(),
-            })
-            .into();
-        eprintln!("{:?}", warning);
+        let warning = HirWarning::UnsafeRawPointerStruct(UnsafeRawPointerStructWarning {
+            src: NamedSource::new(path, src),
+            struct_span: class.name_span,
+            pointer_span,
+            struct_name: class.name.to_string(),
+        });
+        unsafe {
+            let mut_ref = (*(&raw mut WARNINGS)).assume_init_mut();
+            mut_ref.push(warning);
+        }
     }
 
     /// Check if the expression is a pointer (`&expr`) to a local variable,

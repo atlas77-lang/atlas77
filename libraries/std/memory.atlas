@@ -59,6 +59,11 @@ namespace std {
 
     //! A zero-sized type used as a sentinel for empty states in unions.
     public struct empty {}
+
+    //! A deleter function for T. Useful for when you need to store the destructor of T in a struct. 
+    public fun deleter<T>(t: *T) {
+        delete *t;
+    }
 }
 
 #[core::intrinsic]

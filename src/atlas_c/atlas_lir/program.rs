@@ -10,6 +10,7 @@ pub struct LirProgram {
     pub extern_functions: Vec<LirExternFunction>,
     pub structs: Vec<LirStruct>,
     pub unions: Vec<LirUnion>,
+    pub enums: Vec<LirEnum>,
 }
 
 impl LirProgram {
@@ -123,6 +124,13 @@ pub struct LirUnion {
     pub name: String,
     pub c_name: Option<String>,
     pub variants: BTreeMap<String, LirTy>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LirEnum {
+    pub name: String,
+    pub c_name: Option<String>,
+    pub variants: BTreeMap<String, u64>,
 }
 
 #[derive(Debug, Clone)]
