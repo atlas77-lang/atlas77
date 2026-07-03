@@ -271,10 +271,13 @@ impl HirTy<'_> {
             | HirTy::Function(_)
             | HirTy::Error(_)
             | HirTy::Slice(_) => true,
-            HirTy::Named(named_ty) => signatures
-                .structs
-                .get(named_ty.name)
-                .is_some_and(|sig| sig.is_trivially_copyable),
+            HirTy::Named(named_ty) => {
+                signatures
+                    .structs
+                    .get(named_ty.name)
+                    .is_some_and(|sig| sig.is_trivially_copyable)
+                    || signatures.enums.get(named_ty.name).is_some()
+            }
             HirTy::Generic(generic_ty) => signatures
                 .structs
                 .get(generic_ty.name)

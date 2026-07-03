@@ -907,7 +907,10 @@ pub struct UnknownTypeError {
 }
 
 #[derive(Error, Diagnostic, Debug, Serialize)]
-#[diagnostic(code(sema::unknown_type), help("Check if the function is declared and in scope"))]
+#[diagnostic(
+    code(sema::unknown_type),
+    help("Check if the function is declared and in scope")
+)]
 #[error("Undefined function {name}")]
 
 pub struct UnknownFunctionError {
@@ -1472,7 +1475,7 @@ impl From<HirError> for Vec<CompilerError> {
                 span: error.span,
                 kind: CompilerErrorKind::Error,
             }],
-            HirError::UnknownFunction(error) => vec![CompilerError{
+            HirError::UnknownFunction(error) => vec![CompilerError {
                 message: error.to_string(),
                 span: error.span,
                 kind: CompilerErrorKind::Error,

@@ -6,14 +6,17 @@ use super::{
     expr,
     stmt::{HirBlock, HirExprStmt, HirStatement},
 };
-use crate::atlas_c::atlas_hir::{error::UnknownFunctionError, signature::{
-    HirFunctionParameterSignature, HirFunctionSignature, HirMethodAttribute,
-    HirOverloadableOperatorKind, HirStructDestructorSignature, HirStructFieldSignature,
-    HirStructMethodModifier, HirStructSignature, HirVisibility,
-}};
 use crate::atlas_c::atlas_hir::special_methods::{
     INTRINSIC_PRIMITIVE_COPY, INTRINSIC_PRIMITIVE_DEFAULT, INTRINSIC_PRIMITIVE_HASH,
     SpecialMethodKind, SpecialMethodReceiver, primitive_special_call_descriptor,
+};
+use crate::atlas_c::atlas_hir::{
+    error::UnknownFunctionError,
+    signature::{
+        HirFunctionParameterSignature, HirFunctionSignature, HirMethodAttribute,
+        HirOverloadableOperatorKind, HirStructDestructorSignature, HirStructFieldSignature,
+        HirStructMethodModifier, HirStructSignature, HirVisibility,
+    },
 };
 use crate::atlas_c::atlas_hir::{
     error::UnknownOverloadableOperatorError, pretty_print::HirPrettyPrinter,
