@@ -718,7 +718,7 @@ impl<'hir> TypeChecker<'hir> {
             }
         } else if op.is_unary() {
             // Expect exactly one parameter: `this`.
-            if method.signature.params.len() != 1 {
+            if method.signature.params.len() != 0 {
                 self.errors
                     .push(HirError::OperatorOverloadDoesNotHaveRequiredAmountOfArgs(
                         OperatorOverloadDoesNotHaveRequiredAmountOfArgsError {
