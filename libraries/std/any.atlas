@@ -1,0 +1,59 @@
+import "core/reflection";
+import "std/memory";
+import "std/expected";
+
+namespace std {
+    enum cast_error {
+        UNEQUIVALENT_CAST;
+        MOVED_ANY_VALUE;
+    }
+
+    public struct any {
+      private:
+        val: *unit;
+        type_info: core::type_info;
+        deleter: fun(*unit) -> unit;
+
+      public:
+        ~any() {
+            if this->val != null {
+                this->deleter(this->val);
+                std::free(this->val);
+            }
+        }
+
+        fun new<T>(value: T) -> std::any {
+            let ptr = std::zero_alloc<T>(1);
+            *ptr = std::move(value);
+            let fn: fun(*T) -> unit = std::deleter<T>;
+            return std::any {
+                .val = ptr as *unit,
+                .type_info = type_of<T>(),
+                .deleter = fn as fun(*unit) -> unit
+            };
+        }
+
+        fun cast<T>(*this) -> std::expected<T, std::cast_error> {
+            if this->type_info.id != type_id<T>() {
+                return std::expected<
+                    T, 
+                    std::cast_error>::unexpected(
+                        std::cast_error::UNEQUIVALENT_CAST);
+            }
+            if this-> val == null {
+                return std::expected<
+                    T,
+                    std::cast_error>::unexpected(
+                        std::cast_error::MOVED_ANY_VALUE);
+            }
+            
+            let ptr: *T = this->val as *T;
+            this->val = null;
+
+            return std::expected<
+                T,
+                std::cast_error>::expect(
+                    std::ptr::read<T>(ptr));
+        }
+    }
+}

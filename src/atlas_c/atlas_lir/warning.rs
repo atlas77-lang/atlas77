@@ -5,5 +5,7 @@ use crate::declare_error_type;
 
 declare_error_type! {
     #[error("lir_warning: {0}")]
-    pub enum LirLoweringWarning {}
+    #[derive()]
+    pub enum LirLoweringWarning {
+    }
 }

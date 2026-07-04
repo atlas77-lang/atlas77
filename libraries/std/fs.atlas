@@ -1,79 +1,110 @@
-//WARNING: Outdated
+import "std/optional";
+import "std/expected";
+import "std/memory";
 
-//! Filesystem helpers used by the standard library.
-//!
-//! Low-level file and directory operations. Higher-level convenience APIs are
-//! provided through the `File` struct below.
-private extern read_dir(path: string) -> [string];
-private extern read_file(path: string) -> string;
-private extern write_file(path: string, content: string);
-private extern remove_file(path: string);
-private extern file_exists(path: string) -> bool;
-private extern close_file(path: string);
+// Opaque type
+// TODO: Add `#[opaque]`
+public extern struct FILE {}
 
-//NB: This struct works for now, but because of the lack of move/copy semantics in Atlas,
-// it may lead to unexpected behavior.
-public struct File {
-private:
-    content: string;
-public:
-    path: string;
-public:
-    //! Creates a new File object with the given path
-    //! Note: The file is not opened until the open() method is called
-    File(path: string) {
-        this.content = "";
-        this.path = path;
+#[c_name("fopen")]
+public extern fun fopen(path: *const uint8, mode: *const uint8) -> *FILE;
+#[c_name("fread")]
+public extern fun fread(buf: *uint8, size: uint64, nmemb: uint64, f: *FILE) -> uint64;
+#[c_name("fwrite")]
+public extern fun fwrite(buf: *const uint8, size: uint64, nmemb: uint64, f: *FILE) -> uint64;
+#[c_name("fclose")]
+public extern fun fclose(f: *FILE) -> int32;
+#[c_name("fflush")]
+public extern fun fflush(f: *FILE) -> int32;
+#[c_name("fseek")]
+public extern fun fseek(f: *FILE, offset: int64, whence: int32) -> int32;
+#[c_name("ftell")]
+public extern fun ftell(f: *FILE) -> int64;
+#[c_name("feof")]
+public extern fun feof(f: *FILE) -> int32;
+
+namespace std {
+    namespace c_ffi {
+        #[c_name("fopen")]
+        public extern fun fopen(path: *const uint8, mode: *const uint8) -> *FILE;
+        #[c_name("fread")]
+        public extern fun fread(buf: *uint8, size: uint64, nmemb: uint64, f: *FILE) -> uint64;
+        #[c_name("fwrite")]
+        public extern fun fwrite(buf: *const uint8, size: uint64, nmemb: uint64, f: *FILE) -> uint64;
+        #[c_name("fclose")]
+        public extern fun fclose(f: *FILE) -> int32;
+        #[c_name("fflush")]
+        public extern fun fflush(f: *FILE) -> int32;
+        #[c_name("fseek")]
+        public extern fun fseek(f: *FILE, offset: int64, whence: int32) -> int32;
+        #[c_name("ftell")]
+        public extern fun ftell(f: *FILE) -> int64;
+        #[c_name("feof")]
+        public extern fun feof(f: *FILE) -> int32;
     }
 
-    ~File() {
-        //Following the RAII pattern, we close the file when it goes out of scope
-        close_file(this.path);
+    // Simple IO error type (can be later replaced by richer `std::io::Error`)
+    public struct IoError {
+        msg: std::string;
     }
 
-    //! Not sure if this is a good idea to have a copy constructor for File
-    File(from: &const File) {
-        this.path = *from.path;
-        this.content = *from.content;
+    //! Mode enum to avoid mode strings at callsites
+    public enum FILE_MODE {
+        //! Read only
+        READ,
+        //! Truncate/Create
+        WRITE,
+        //! Append/Create
+        APPEND,
+        //! Read + Write
+        READ_WRITE,
     }
 
-    fun read(&this) -> string {
-        let content = read_file(this.path);
-        this.content = content;
-        return this.content;
-    }
+    public struct file {
+      private:
+        handle: *FILE;
+      public:
+        // TODO1: Replace `std::string` by a proper enum, but fuck it for now
+        // TODO2: Make it takes a `T` with a `std::to_string` or something constraint
+        //! Open a file in read only mode
+        fun open(path: *const uint8) -> std::expected<std::file, std::string> {
+            let fs = std::c_ffi::fopen(path, "r");
+            if fs != null {
+                return std::expected<std::file, std::string>::expect(std::file {
+                    .handle = fs
+                });
+            } else {
+                return std::expected<std::file, std::string>::unexpected(
+                    std::string::from_chars(strerror(c_errno()))
+                );
+            }
+        }
+        ~file() {
+            if this->handle != null {
+                fclose(this->handle);
+                this->handle = null;
+            }
+        }
+        // Should be a `std::expected<blablabla>` but fuck that who need to know why it failed?
+        // Same TODO as std::file::open TODO2
+        fun read(path: *const uint8) -> std::optional<std::string> {
+            
+        }
+        //! Open a file in write only, create one if needs be
+        fun create(path: *const uint8) -> std::expected<std::file, std::string> {
 
-    fun open(&this) {
-        this.content = read_file(this.path);
-        return;
-    }
+        }
+        fun write(*this) -> std::expected<unit, std::string> {
 
-    //! Closes the file
-    //! NB: Takes ownership of the File object 
-    fun close(this) {
-        delete this;
-    }
-
-    fun write(&this, content: string) {
-        write_file(this.path, content);
-        return;
-    }
-
-    fun remove(&this) {
-        remove_file(this.path);
-        return;
-    }
-
-    fun exists(&this) -> bool {
-        return file_exists(this.path);
-    }
-
-    fun read_dir(&this, path: string) -> [string] {
-        return read_dir(path);
-    }
-
-    fun read_file(&this, path: string) -> string {
-        return read_file(path);
+        }
+        fun write_all()
+        // Unsafe
+        fun get_handle(*this) -> *FILE {
+            return this->handle;
+        }
     }
 }
 
+fun main() {
+    let file = std::file::open("test.txt");
+}

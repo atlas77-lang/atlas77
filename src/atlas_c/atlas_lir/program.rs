@@ -10,6 +10,7 @@ pub struct LirProgram {
     pub extern_functions: Vec<LirExternFunction>,
     pub structs: Vec<LirStruct>,
     pub unions: Vec<LirUnion>,
+    pub enums: Vec<LirEnum>,
 }
 
 impl LirProgram {
@@ -96,6 +97,7 @@ impl LirProgram {
                 visiting.remove(&format!("U:{}", name));
                 (total_size, max_align)
             }
+            LirTy::AtomicTy { inner } => self.layout_of_ty(&*inner, visiting),
         }
     }
 
@@ -123,6 +125,13 @@ pub struct LirUnion {
     pub name: String,
     pub c_name: Option<String>,
     pub variants: BTreeMap<String, LirTy>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LirEnum {
+    pub name: String,
+    pub c_name: Option<String>,
+    pub variants: BTreeMap<String, u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -223,6 +232,7 @@ pub enum LirTy {
     StructType(String),
     UnionType(String),
     ArrayTy { inner: Box<LirTy>, size: usize },
+    AtomicTy { inner: Box<LirTy> },
 }
 
 impl LirTy {

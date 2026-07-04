@@ -9,9 +9,11 @@ use crate::atlas_c::{
         expr::HirExpr,
         item::{HirStruct, HirStructDestructor, HirUnion},
         monomorphization_pass::generic_pool::HirGenericPool,
-        signature::{HirGenericConstraint, HirGenericConstraintKind, HirModuleSignature},
+        signature::{HirGenericConstraint, HirModuleSignature, HirOverloadableOperatorKind},
         stmt::HirStatement,
-        ty::{HirFunctionTy, HirGenericTy, HirInlineArrayTy, HirPtrTy, HirSliceTy, HirTy},
+        ty::{
+            HirAtomicTy, HirFunctionTy, HirGenericTy, HirInlineArrayTy, HirPtrTy, HirSliceTy, HirTy,
+        },
     },
     utils::{self, Span},
 };
@@ -91,6 +93,15 @@ impl<'hir> MonomorphizationPass<'hir> {
                     .signature
                     .methods
                     .retain(|_, method_sig| method_sig.generics.is_none());
+
+                // Also remove unresolved generic operators
+                struct_item
+                    .operators
+                    .retain(|operator| operator.signature.generics.is_none());
+                struct_item
+                    .signature
+                    .operators
+                    .retain(|_, operator_sig| operator_sig.generics.is_none());
 
                 module.signature.structs.insert(
                     struct_name,
@@ -635,6 +646,72 @@ impl<'hir> MonomorphizationPass<'hir> {
             }
         }
 
+        // Check and mark operators based on where_clause constraints
+        let mut operators_constraint_status: std::collections::HashMap<
+            HirOverloadableOperatorKind,
+            bool,
+        > = std::collections::HashMap::new();
+        for (op_kind, func) in new_struct.signature.operators.iter() {
+            // Check where_clause constraints (struct-level generics only)
+            let is_satisfied = if let Some(where_clause) = &func.where_clause {
+                self.check_where_constraints_on_method(
+                    where_clause,
+                    &generics,
+                    actual_type,
+                    &module.signature,
+                )
+            } else {
+                true
+            };
+
+            operators_constraint_status.insert(*op_kind, is_satisfied);
+        }
+
+        // Mark operators with unsatisfied constraints in signature
+        for (op_kind, func) in new_struct.signature.operators.iter_mut() {
+            if let Some(&is_satisfied) = operators_constraint_status.get(op_kind) {
+                let mut new_func = func.clone();
+                for param in new_func.params.iter_mut() {
+                    param.ty = self.swap_generic_types_in_ty(param.ty, types_to_change.clone());
+                }
+                let return_ty = self.swap_generic_types_in_ty(
+                    self.arena.intern(new_func.return_ty.clone()),
+                    types_to_change.clone(),
+                );
+                new_func.return_ty = return_ty.clone();
+                new_func.is_constraint_satisfied = is_satisfied;
+                new_func.is_instantiated = is_satisfied;
+                *func = new_func;
+            }
+        }
+
+        // Eagerly materialize operator bodies for satisfied constraints so
+        // lowering/codegen can emit concrete operator functions.
+        let mut materialized_operators = vec![];
+        for mut operator in new_struct.operators.iter().cloned() {
+            let Ok(op_kind) = HirOverloadableOperatorKind::try_from(operator.name) else {
+                continue;
+            };
+
+            let is_satisfied = operators_constraint_status
+                .get(&op_kind)
+                .copied()
+                .unwrap_or(false);
+
+            let Some(op_sig) = new_struct.signature.operators.get(&op_kind) else {
+                continue;
+            };
+            operator.signature = self.arena.intern(op_sig.clone());
+
+            if is_satisfied {
+                for statement in operator.body.statements.iter_mut() {
+                    self.monomorphize_statement(statement, types_to_change.clone(), module)?;
+                }
+                materialized_operators.push(operator);
+            }
+        }
+        new_struct.operators = materialized_operators;
+
         // Methods on concrete generic structs are materialized lazily on demand.
         // Keep signatures for type checking/diagnostics, but defer body creation.
         new_struct.methods.clear();
@@ -1096,6 +1173,13 @@ impl<'hir> MonomorphizationPass<'hir> {
                     span: ptr_ty.span,
                 }))
             }
+            HirTy::Atomic(a) => {
+                let new_inner = self.swap_generic_types_in_ty(a.inner, types_to_change);
+                self.arena.intern(HirTy::Atomic(HirAtomicTy {
+                    inner: new_inner,
+                    span: a.span,
+                }))
+            }
             HirTy::Function(fn_ty) => {
                 let new_ret = self.swap_generic_types_in_ty(fn_ty.ret_ty, types_to_change.clone());
                 let new_params = fn_ty
@@ -1165,24 +1249,12 @@ impl<'hir> MonomorphizationPass<'hir> {
 
                 // Check each constraint kind
                 for constraint_kind in &constraint.kind {
-                    match constraint_kind {
-                        HirGenericConstraintKind::Std { name, .. } => {
-                            // Check std::copyable constraint
-                            if *name == "copyable"
-                                && !self
-                                    .generic_pool
-                                    .implements_std_copyable(module_sig, concrete_type)
-                            {
-                                return false;
-                            }
-                        }
-                        // Add more std constraints here as needed
-                        // Once there is more std constraints, consider refactoring to a match statement
-
-                        // Handle other constraint kinds as needed
-                        _ => {
-                            // For now, unknown constraints pass
-                        }
+                    if !self.generic_pool.is_constraint_kind_satisfied(
+                        module_sig,
+                        concrete_type,
+                        constraint_kind,
+                    ) {
+                        return false;
                     }
                 }
             }
@@ -1261,6 +1333,10 @@ impl<'hir> MonomorphizationPass<'hir> {
                 inner: self.change_inner_type(ptr_ty.inner, generic_name, new_type, module),
                 is_const: ptr_ty.is_const,
                 span: ptr_ty.span,
+            })),
+            HirTy::Atomic(a) => self.arena.intern(HirTy::Atomic(HirAtomicTy {
+                inner: self.change_inner_type(a.inner, generic_name, new_type, module),
+                span: a.span,
             })),
             _ => type_to_change,
         }

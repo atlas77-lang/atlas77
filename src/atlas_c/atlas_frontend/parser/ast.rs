@@ -275,6 +275,16 @@ pub enum AstGenericConstraint<'ast> {
     Std(AstStdGenericConstraint<'ast>),
 }
 
+impl AstGenericConstraint<'_> {
+    pub fn span(&self) -> Span {
+        match self {
+            AstGenericConstraint::Concept(c) => c.span,
+            AstGenericConstraint::Operator { span, .. } => *span,
+            AstGenericConstraint::Std(std) => std.span,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AstStdGenericConstraint<'ast> {
     pub span: Span,
@@ -350,12 +360,19 @@ pub enum AstMethodAttribute {
 
 #[derive(Debug, Clone)]
 pub struct AstOperatorOverload<'ast> {
+    pub modifier: AstMethodModifier,
+    pub vis: AstVisibility,
     pub span: Span,
-    //TODO: Replace AstBinaryOp with AstOverloadableOperator
-    pub op: AstBinaryOp,
-    pub args: &'ast [&'ast AstObjField<'ast>],
-    pub body: &'ast AstBlock<'ast>,
+    pub name: &'ast AstIdentifier<'ast>,
+    pub generics: Option<&'ast [&'ast AstGeneric<'ast>]>,
+    pub args: &'ast [&'ast AstArg<'ast>],
     pub ret: &'ast AstType<'ast>,
+    pub body: &'ast AstBlock<'ast>,
+    /// Optional where clause containing constraints on struct and method generics.
+    /// During syntax lowering, method-level generic constraints are moved into the `generics` field as bounds.
+    pub where_clause: Option<&'ast [&'ast AstGeneric<'ast>]>,
+    pub attributes: &'ast [&'ast AstMethodAttribute],
+    pub docstring: Option<&'ast str>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -865,6 +882,7 @@ pub enum AstType<'ast> {
     Variadic(AstVariadicType<'ast>),
     PtrTy(AstPtrTy<'ast>),
     Const(&'ast AstType<'ast>),
+    Atomic(AstAtomicType<'ast>),
 }
 
 impl std::fmt::Display for AstType<'_> {
@@ -893,6 +911,7 @@ impl AstType<'_> {
             AstType::Variadic(t) => t.span,
             AstType::PtrTy(t) => t.span,
             AstType::Const(c) => c.span(),
+            AstType::Atomic(a) => a.span,
         }
     }
 
@@ -935,6 +954,7 @@ impl AstType<'_> {
             }
             AstType::PtrTy(ptr_ty) => format!("*{}", ptr_ty.inner.name()),
             AstType::Const(c) => c.name(),
+            AstType::Atomic(a) => format!("__atomic {}", a.inner.name()),
         }
     }
 }
@@ -945,6 +965,13 @@ pub struct AstPtrTy<'ast> {
     pub span: Span,
     pub inner: &'ast AstType<'ast>,
     pub is_const: bool,
+}
+
+#[derive(Debug, Clone)]
+/// A raw pointer type in atlas has the form of `ptr<T>`
+pub struct AstAtomicType<'ast> {
+    pub span: Span,
+    pub inner: &'ast AstType<'ast>,
 }
 
 #[derive(Debug, Clone)]

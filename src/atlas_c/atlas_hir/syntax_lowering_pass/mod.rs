@@ -9,8 +9,9 @@ use crate::atlas_c::{
             ast::{
                 AstArg, AstBinaryOp, AstBlock, AstDestructor, AstEnum, AstExpr, AstExternFunction,
                 AstFlag, AstFunction, AstGeneric, AstGenericConstraint, AstIdentifier, AstImport,
-                AstItem, AstLiteral, AstMethod, AstMethodModifier, AstNamespace, AstProgram,
-                AstStatement, AstStruct, AstType, AstUnaryOp, AstUnion,
+                AstItem, AstLiteral, AstMethod, AstMethodModifier, AstNamespace,
+                AstOperatorOverload, AstProgram, AstStatement, AstStruct, AstType, AstUnaryOp,
+                AstUnion,
             },
         },
     },
@@ -20,8 +21,9 @@ use crate::atlas_c::{
         error::{
             AssignmentCannotBeAnExpressionError, HirError, HirResult,
             IncorrectIntrinsicCallArgumentsError, NonConstantValueError, ReservedVariableNameError,
-            StructNameCannotBeOneLetterError, UnknownFileImportError, UnknownTypeError,
-            UnsupportedExpr, UnsupportedItemError, UselessError,
+            StructNameCannotBeOneLetterError, UnknownFileImportError,
+            UnknownOverloadableOperatorError, UnknownTypeError, UnsupportedExpr,
+            UnsupportedItemError, UselessError,
         },
         expr::{
             HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr,
@@ -41,9 +43,10 @@ use crate::atlas_c::{
         signature::{
             ConstantValue, HirFunctionParameterSignature, HirFunctionSignature,
             HirGenericConstraint, HirGenericConstraintKind, HirMethodAttribute, HirModuleSignature,
-            HirStructConstantSignature, HirStructDestructorSignature, HirStructFieldSignature,
-            HirStructMethodModifier, HirStructMethodSignature, HirStructSignature,
-            HirTypeParameterItemSignature, HirUnionSignature, HirVisibility,
+            HirOverloadableOperator, HirOverloadableOperatorKind, HirStructConstantSignature,
+            HirStructDestructorSignature, HirStructFieldSignature, HirStructMethodModifier,
+            HirStructMethodSignature, HirStructSignature, HirTypeParameterItemSignature,
+            HirUnionSignature, HirVisibility,
         },
         special_methods::{
             INTRINSIC_ALIGNOF, INTRINSIC_SIZEOF, INTRINSIC_TYPE_ID, INTRINSIC_TYPE_OF,
@@ -55,7 +58,10 @@ use crate::atlas_c::{
             HirVariableStmt, HirWhileStmt,
         },
         ty::{HirGenericTy, HirNamedTy, HirTy},
-        warning::{HirWarning, SpecialMethodMightHaveWrongSignatureWarning},
+        warning::{
+            HirWarning, MethodLooksLikeAnOperatorWarning,
+            SpecialMethodMightHaveWrongSignatureWarning,
+        },
     },
     utils::{self, Span},
 };
@@ -68,7 +74,7 @@ pub struct AstSyntaxLoweringPass<'ast, 'hir> {
     module_body: HirModuleBody<'hir>,
     module_signature: HirModuleSignature<'hir>,
     /// Collect warnings during lowering (Only nullable types for now)
-    warnings: Vec<HirWarning>,
+    pub warnings: Vec<HirWarning>,
     /// Keep track of already imported modules to avoid duplicate imports
     pub already_imported: BTreeMap<&'hir str, ()>,
     pub using_std: bool,
@@ -134,8 +140,12 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         Ok(())
     }
 
-    fn method_returns_self(&self, method: &HirStructMethod<'hir>, struct_name: &'hir str) -> bool {
-        match &method.signature.return_ty {
+    fn method_returns_self(
+        &self,
+        sig: &HirStructMethodSignature<'hir>,
+        struct_name: &'hir str,
+    ) -> bool {
+        match &sig.return_ty {
             HirTy::Named(n) => n.name == struct_name,
             HirTy::Generic(g) => g.name == struct_name,
             _ => false,
@@ -144,25 +154,25 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
     fn special_method_matches_signature(
         &self,
-        method: &HirStructMethod<'hir>,
+        sig: &HirStructMethodSignature<'hir>,
         kind: SpecialMethodKind,
         struct_name: &'hir str,
     ) -> bool {
         match kind {
             SpecialMethodKind::Copy => {
-                method.signature.modifier == HirStructMethodModifier::Const
-                    && method.signature.params.is_empty()
-                    && self.method_returns_self(method, struct_name)
+                sig.modifier == HirStructMethodModifier::Const
+                    && sig.params.is_empty()
+                    && self.method_returns_self(sig, struct_name)
             }
             SpecialMethodKind::Default => {
-                method.signature.modifier == HirStructMethodModifier::Static
-                    && method.signature.params.is_empty()
-                    && self.method_returns_self(method, struct_name)
+                sig.modifier == HirStructMethodModifier::Static
+                    && sig.params.is_empty()
+                    && self.method_returns_self(sig, struct_name)
             }
             SpecialMethodKind::Hash => {
-                method.signature.modifier == HirStructMethodModifier::Const
-                    && method.signature.params.is_empty()
-                    && &method.signature.return_ty == self.arena.types().get_uint_ty(64)
+                sig.modifier == HirStructMethodModifier::Const
+                    && sig.params.is_empty()
+                    && &sig.return_ty == self.arena.types().get_uint_ty(64)
             }
         }
     }
@@ -172,9 +182,9 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             self.visit_item(item)?;
         }
 
-        for _ in 0..(self.warnings.len()) {
-            let warning: HirWarning = self.warnings.remove(0);
-            let report: ErrReport = warning.into();
+        for warning in self.warnings.iter() {
+            let report: miette::ErrReport = warning.clone().into();
+            eprintln!("{:?}", report.severity());
             eprintln!("{:?}", report);
         }
 
@@ -544,7 +554,8 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
         let mut operators = Vec::new();
         for operator in node.operators.iter() {
-            operators.push(self.visit_bin_op(&operator.op)?);
+            let hir_method = self.visit_operator_overload(operator)?;
+            operators.push(hir_method);
         }
 
         let mut constants: BTreeMap<&'hir str, &'hir HirStructConstantSignature<'hir>> =
@@ -596,7 +607,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         for method in methods.iter() {
             if let Some(descriptor) = special_method_by_name(method.name) {
                 let kind = descriptor.kind;
-                if self.special_method_matches_signature(method, kind, name) {
+                if self.special_method_matches_signature(method.signature, kind, name) {
                     match kind {
                         SpecialMethodKind::Copy => has_copy_method = true,
                         SpecialMethodKind::Default => has_default_method = true,
@@ -655,7 +666,13 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 }
                 map
             },
-            operators,
+            operators: {
+                let mut map = BTreeMap::new();
+                for (sig, op) in operators.iter() {
+                    map.insert(op.kind, sig.signature.clone());
+                }
+                map
+            },
             constants,
             is_instantiated: generics.is_empty(),
             generics,
@@ -683,6 +700,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             name_span: node.name.span,
             signature,
             methods,
+            operators: operators.into_iter().map(|(op, _)| op).collect(),
             fields,
             destructor,
             vis: node.vis.into(),
@@ -702,21 +720,106 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     span: concept_bound.span,
                 })
             }
-            AstGenericConstraint::Operator { op, span } => {
-                let operator = self.visit_bin_op(op)?;
-                Ok(HirGenericConstraintKind::Operator {
-                    op: operator,
-                    span: *span,
-                })
-            }
             AstGenericConstraint::Std(std) => Ok(HirGenericConstraintKind::Std {
                 name: self.arena.names().get(std.name),
                 span: std.span,
             }),
+            AstGenericConstraint::Operator { op, span } => {
+                let hir_op = self.visit_bin_op(op)?;
+                Ok(HirGenericConstraintKind::Operator {
+                    op: HirOverloadableOperator {
+                        span: *span,
+                        kind: HirOverloadableOperatorKind::from(hir_op),
+                    },
+                    span: *span,
+                })
+            }
         }
     }
 
+    fn visit_operator_overload(
+        &mut self,
+        node: &'ast AstOperatorOverload,
+    ) -> HirResult<(HirStructMethod<'hir>, HirOverloadableOperator)> {
+        let type_parameters = node
+            .args
+            .iter()
+            .map(|arg| self.visit_type_param_item(arg))
+            .collect::<HirResult<Vec<_>>>();
+        let ret_type_span = node.ret.span();
+        let ret_type = self.visit_ty(node.ret)?.clone();
+        let parameters = node
+            .args
+            .iter()
+            .map(|arg| self.visit_func_param(arg))
+            .collect::<HirResult<Vec<_>>>();
+
+        let body = self.visit_block(node.body)?;
+        let (generics, where_clause) =
+            self.merge_generic_constraints(node.generics, node.where_clause);
+
+        let operator = node
+            .name
+            .name
+            .try_into()
+            .map_err(|_| Self::unknown_overloadable_operator(node.name.name, &node.span))?;
+
+        let signature = self.arena.intern(HirStructMethodSignature {
+            modifier: match node.modifier {
+                AstMethodModifier::Const => HirStructMethodModifier::Const,
+                AstMethodModifier::Static => HirStructMethodModifier::Static,
+                AstMethodModifier::Mutable => HirStructMethodModifier::Mutable,
+                AstMethodModifier::Consuming => HirStructMethodModifier::Consuming,
+            },
+            span: node.span,
+            vis: node.vis.into(),
+            params: parameters?,
+            generics,
+            type_params: type_parameters?,
+            return_ty: ret_type,
+            return_ty_span: Some(ret_type_span),
+            where_clause,
+            // Sets to true by default; monomorphization pass will update if needed
+            is_constraint_satisfied: true,
+            attributes: node
+                .attributes
+                .iter()
+                .map(|attr| HirMethodAttribute::from(**attr))
+                .collect(),
+            is_instantiated: true,
+            docstring: if let Some(docstring) = node.docstring {
+                Some(self.arena.names().get(docstring))
+            } else {
+                None
+            },
+        });
+        let method = HirStructMethod {
+            span: node.span,
+            name: self.arena.names().get(node.name.name),
+            name_span: node.name.span,
+            signature,
+            body,
+        };
+        Ok((
+            method,
+            HirOverloadableOperator {
+                kind: operator,
+                span: node.span,
+            },
+        ))
+    }
+
     fn visit_method(&mut self, node: &'ast AstMethod<'ast>) -> HirResult<HirStructMethod<'hir>> {
+        if TryInto::<HirOverloadableOperatorKind>::try_into(node.name.name).is_ok() {
+            let path = node.span.path;
+            let src = utils::get_file_content(path).unwrap();
+            let warning = HirWarning::MethodLooksLikeAnOperator(MethodLooksLikeAnOperatorWarning {
+                method_name: node.name.name.into(),
+                src: NamedSource::new(path, src),
+                span: node.name.span,
+            });
+            self.warnings.push(warning);
+        }
         let type_parameters = node
             .args
             .iter()
@@ -1412,6 +1515,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     lhs: Box::new(lhs.clone()),
                     rhs: Box::new(rhs.clone()),
                     ty: self.arena.types().get_uninitialized_ty(),
+                    is_overloaded: false,
                 });
                 Ok(hir)
             }
@@ -1428,6 +1532,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     },
                     expr: Box::new(expr.clone()),
                     ty: expr.ty(),
+                    is_overloaded: false,
                 });
                 Ok(hir)
             }
@@ -2109,6 +2214,10 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     src: NamedSource::new(path, src),
                 }));
             }
+            AstType::Atomic(a) => {
+                let inner_ty = self.visit_ty(a.inner)?;
+                self.arena.types().get_atomic_ty(inner_ty, a.span)
+            }
         };
         Ok(ty)
     }
@@ -2119,6 +2228,16 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         HirError::StructNameCannotBeOneLetter(StructNameCannotBeOneLetterError {
             src: NamedSource::new(path, src),
             span: *span,
+        })
+    }
+
+    fn unknown_overloadable_operator(op: &str, span: &Span) -> HirError {
+        let path = span.path;
+        let src = utils::get_file_content(path).unwrap();
+        HirError::UnknownOverloadableOperator(UnknownOverloadableOperatorError {
+            operator: op.into(),
+            span: *span,
+            src: NamedSource::new(path, src),
         })
     }
 }

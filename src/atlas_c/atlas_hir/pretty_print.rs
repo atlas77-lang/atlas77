@@ -1,3 +1,5 @@
+use std::fmt::format;
+
 use crate::atlas_c::atlas_hir::{
     item::HirUnion,
     signature::{
@@ -174,6 +176,15 @@ impl HirPrettyPrinter {
             self.writeln("");
         }
 
+        // Operators
+        if !struct_def.operators.is_empty() {
+            self.writeln("// Operators");
+            for op in &struct_def.operators {
+                self.print_operator_overload(op);
+                self.writeln("");
+            }
+        }
+
         // Methods
         if !struct_def.methods.is_empty() {
             self.writeln("// Methods");
@@ -242,9 +253,58 @@ impl HirPrettyPrinter {
                 self.write(name);
             }
             HirGenericConstraintKind::Operator { op, .. } => {
-                self.write(format!("operator{}", op).as_str());
+                let op_name: String = op.kind.into();
+                self.write(format!("operator::{}", op_name).as_str());
             }
         }
+    }
+
+    pub fn print_overloadable_operator_signature(
+        &mut self,
+        name: &str,
+        op_sig: &HirStructMethodSignature,
+    ) {
+        self.write(&format!("operator {}(", name));
+        match &op_sig.modifier {
+            HirStructMethodModifier::Const => self.write("*const this"),
+            HirStructMethodModifier::Mutable => self.write("*this"),
+            HirStructMethodModifier::Consuming => self.write("this"),
+            HirStructMethodModifier::Static => {}
+        }
+        if !op_sig.params.is_empty() && op_sig.modifier != HirStructMethodModifier::Static {
+            self.write(", ");
+        }
+        for (i, param) in op_sig.params.iter().enumerate() {
+            if i > 0 {
+                self.write(", ");
+            }
+            self.write(&format!("{}: {}", param.name, Self::type_str(param.ty)));
+        }
+
+        self.write(")");
+
+        self.write(&format!(" -> {} ", Self::type_str(&op_sig.return_ty)));
+        if let Some(where_clause) = &op_sig.where_clause {
+            self.write("\n");
+            self.indent();
+            self.write_indent();
+            self.print_where_clause(where_clause);
+            self.dedent();
+            self.write("\n");
+            self.write_indent();
+        }
+    }
+
+    fn print_operator_overload(&mut self, method: &HirStructMethod) {
+        self.write_indent();
+
+        self.print_overloadable_operator_signature(method.name, method.signature);
+
+        self.write("{\n");
+        self.indent();
+        self.print_block(&method.body);
+        self.dedent();
+        self.writeln("}");
     }
 
     pub fn print_method_signature(&mut self, name: &str, method_sig: &HirStructMethodSignature) {
@@ -671,6 +731,9 @@ impl HirPrettyPrinter {
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("fun({}) -> {}", params, Self::type_str(f.ret_ty))
+            }
+            HirTy::Atomic(a) => {
+                format!("__atomic {}", a.inner)
             }
         }
     }

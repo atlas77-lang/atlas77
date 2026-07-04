@@ -16,7 +16,7 @@ use clap::Parser;
 #[command(
     bin_name = "atlas77",
     author = "atlas77-lang",
-    version("v0.8.0 Reforged"),
+    version("v0.8.2 Reforged"),
     about = "Programming language made in Rust, a goofy cousin to C++ and a modern version of C. \nNB: The language is still in early development and is not stable yet, BEWARE.",
     long_about = "Atlas77 is a programming language made in Rust. It is a statically typed language with a focus on being a goofy cousin to C++ and a modern version of C and useful for me (Gipson62) at least. \n\nNB: The language is still in early development and is not stable yet, BEWARE."
 )]
@@ -62,6 +62,12 @@ enum AtlasRuntimeCLI {
         /// * Clang: "clang"
         /// * Intel: "intel"/"icc"
         compiler: Option<String>,
+        #[arg(
+            long,
+            help = "Override the binary path of the compiler",
+            long_help = "Override the binary path of the compiler to use. If omitted, the default for the compiler selected with --compiler will be used."
+        )]
+        compiler_binary_override: Option<String>,
         #[arg(
             short = 'o',
             long,
@@ -118,6 +124,17 @@ enum AtlasRuntimeCLI {
         /// Output directory for generated files (defaults to header directory)
         output_dir: Option<String>,
     },
+    #[command(
+        about = "Generate JSON representation of the HIR tree for a given Atlas77 source file",
+        long_about = "Generate JSON representation of the HIR tree, using serde_json, for a given Atlas77 source file. This is useful for debugging and testing the compiler's internal representation of the code. The output will be printed to stdout, so you can redirect it to a file if needed (example: atlas77 to_json src/main.atlas > hir.json)."
+    )]
+    ToJson {
+        /// Path to the Atlas77 source file (defaults to src/main.atlas)
+        file_path: Option<String>,
+        #[arg(short = 'o', long)]
+        /// Output file for the generated JSON (defaults to stdout)
+        output: Option<String>,
+    },
 }
 
 fn main() -> miette::Result<()> {
@@ -128,6 +145,7 @@ fn main() -> miette::Result<()> {
             debug,
             no_std: no_standard_lib,
             compiler,
+            compiler_binary_override,
             output_dir,
             c_args,
         } => {
@@ -148,6 +166,7 @@ fn main() -> miette::Result<()> {
                     SupportedCompiler::from_str(&value.to_lowercase())
                         .expect("Invalid compiler specified")
                 }),
+                compiler_binary_override,
                 output_dir,
                 c_args,
             )
@@ -175,7 +194,8 @@ fn main() -> miette::Result<()> {
                 },
                 true,
                 // We don't care about the compiler here, as we won't compile
-                Some(SupportedCompiler::from_str("none").expect("Invalid compiler specified")),
+                None,
+                None,
                 "build".to_string(),
                 Vec::new(),
             )
@@ -203,6 +223,11 @@ fn main() -> miette::Result<()> {
                     println!("- {}: {}", item.name, item.reason);
                 }
             }
+            Ok(())
+        }
+        AtlasRuntimeCLI::ToJson { file_path, output } => {
+            let path = file_path.unwrap_or("src/main.atlas".to_string());
+            atlas_77::to_json(path, output)?;
             Ok(())
         }
     }

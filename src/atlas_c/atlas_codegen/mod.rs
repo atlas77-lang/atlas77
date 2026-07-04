@@ -9,8 +9,8 @@
 use crate::atlas_c::{
     atlas_hir::signature::ConstantValue,
     atlas_lir::program::{
-        LirBlock, LirFunction, LirInstr, LirOperand, LirProgram, LirStruct, LirTerminator, LirTy,
-        LirUnion,
+        LirBlock, LirEnum, LirFunction, LirInstr, LirOperand, LirProgram, LirStruct, LirTerminator,
+        LirTy, LirUnion,
     },
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -149,6 +149,13 @@ impl CCodeGen {
                 &format!("typedef struct {} {};", struct_name, struct_name),
             );
         }
+        for enum_ in program.enums.iter() {
+            let enum_name = Self::c_ident(&enum_.name);
+            Self::write_to_top(
+                &mut self.c_header,
+                &format!("typedef enum {} {};", enum_name, enum_name),
+            );
+        }
     }
 
     fn type_dependencies_for_ty(ty: &LirTy, deps: &mut HashSet<TypeDependency>) {
@@ -202,6 +209,12 @@ impl CCodeGen {
 
         let mut defined_structs: HashSet<String> = HashSet::new();
         let mut defined_unions: HashSet<String> = HashSet::new();
+
+        for enum_ in program.enums.iter() {
+            self.codegen_enum(enum_);
+            // Kinda spaghetti code but hey
+            defined_structs.insert(enum_.name.clone());
+        }
 
         loop {
             let mut progress = false;
@@ -259,6 +272,16 @@ impl CCodeGen {
         for union in remaining_unions {
             self.codegen_union(union);
         }
+    }
+
+    fn codegen_enum(&mut self, enum_: &LirEnum) {
+        let enum_name = Self::c_ident(&enum_.name);
+        let mut enum_def = format!("enum {} {{\n", enum_name);
+        for (variant_name, variant_value) in enum_.variants.iter() {
+            enum_def.push_str(&format!("\t{} = {},\n", variant_name, variant_value));
+        }
+        enum_def.push_str("};\n\n");
+        Self::write_to_file(&mut self.c_header, &enum_def, self.indent_level);
     }
 
     fn codegen_union(&mut self, union: &LirUnion) {
@@ -439,6 +462,7 @@ impl CCodeGen {
             // For union types, we don't use pointers for now
             LirTy::UnionType(name) => Self::c_ident(name),
             LirTy::ArrayTy { inner, size } => format!("{}[{}]", self.codegen_type(inner), size),
+            LirTy::AtomicTy { inner } => format!("_Atomic {}", self.codegen_type(inner)),
             /* _ => unimplemented!("Type codegen not implemented for {:?}", ty), */
         }
     }

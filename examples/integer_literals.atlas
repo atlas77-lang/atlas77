@@ -1,0 +1,41 @@
+import "std/io";
+
+extern fun panic(msg: *const uint8);
+
+fun assert(condition: bool, message: *const uint8) {
+	if !condition {
+		panic(message);
+	}
+}
+
+fun main() {
+	let decimal = 1_234_567;
+	let binary = 0b1010_0101;
+	let binary_upper = 0B1111_0000;
+	let octal = 0o755;
+	let octal_upper = 0O644;
+	let hex = 0xDEAD_BEEF;
+	let hex_upper = 0XCAFE_BABE;
+
+	let unsigned_decimal = 1_000u;
+	let unsigned_binary = 0b1111_0000u;
+	let unsigned_octal = 0o1_234u;
+	let unsigned_hex = 0xFF_ECu;
+	let unsigned_hex_upper = 0XAB_CD_EFu;
+
+	assert(decimal == 1234567, "decimal literal failed");
+	assert(binary == 165, "binary literal failed");
+	assert(binary_upper == 240, "uppercase binary literal failed");
+	assert(octal == 493, "octal literal failed");
+	assert(octal_upper == 420, "uppercase octal literal failed");
+	assert(hex == 3735928559, "hex literal failed");
+	assert(hex_upper == 3405691582, "uppercase hex literal failed");
+
+	assert(unsigned_decimal == 1000u, "unsigned decimal literal failed");
+	assert(unsigned_binary == 240u, "unsigned binary literal failed");
+	assert(unsigned_octal == 668u, "unsigned octal literal failed");
+	assert(unsigned_hex == 65516u, "unsigned hex literal failed");
+	assert(unsigned_hex_upper == 11259375u, "unsigned uppercase hex literal failed");
+
+	std::println("integer_literals: ok");
+}
