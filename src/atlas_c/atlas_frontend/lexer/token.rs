@@ -312,6 +312,8 @@ pub enum TokenKind {
     KwNull,
     #[token("extern")]
     KwExtern,
+    #[token("__atomic")]
+    KwAtomic,
     #[token("struct")]
     KwStruct,
     #[token("concept")]

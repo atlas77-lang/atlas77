@@ -27,6 +27,8 @@ declare_error_type! {
         BreakOutsideLoop(BreakOutsideLoopError),
         ContinueOutsideLoop(ContinueOutsideLoopError),
         TypeMismatch(TypeMismatchError),
+        AtomicTypeMismatch(AtomicTypeMismatchError),
+        AtomicTypeCannotBeNested(AtomicTypeCannotBeNestedError),
         UnsupportedStatement(UnsupportedStatementError),
         UnsupportedExpr(UnsupportedExpr),
         UnsupportedType(UnsupportedTypeError),
@@ -960,6 +962,38 @@ pub struct TypeMismatchError {
 }
 
 #[derive(Error, Diagnostic, Debug, Serialize)]
+#[diagnostic(
+    code(sema::atomic_type_mismatch),
+    help("atomic values must stay atomic and the wrapped type must match exactly")
+)]
+#[error("atomic type mismatch: found `{}` but expected `{expected_ty}`", actual.actual_ty)]
+pub struct AtomicTypeMismatchError {
+    #[label("expected {expected_ty}")]
+    pub span: Span,
+    pub expected_ty: String,
+    #[source_code]
+    #[serde(skip_serializing)]
+    pub src: NamedSource<String>,
+    #[source]
+    #[diagnostic_source]
+    pub actual: TypeMismatchActual,
+}
+
+#[derive(Error, Diagnostic, Debug, Serialize)]
+#[diagnostic(
+    code(sema::atomic_type_cannot_be_nested),
+    help("remove the inner `__atomic` wrapper")
+)]
+#[error("atomic types cannot contain another atomic type")]
+pub struct AtomicTypeCannotBeNestedError {
+    #[label = "nested atomic type here"]
+    pub span: Span,
+    #[source_code]
+    #[serde(skip_serializing)]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug, Serialize)]
 #[diagnostic()]
 #[error("")]
 pub struct TypeMismatchActual {
@@ -1502,6 +1536,23 @@ impl From<HirError> for Vec<CompilerError> {
                     kind: CompilerErrorKind::Note,
                 },
             ],
+            HirError::AtomicTypeMismatch(error) => vec![
+                CompilerError {
+                    message: error.to_string(),
+                    span: error.span,
+                    kind: CompilerErrorKind::Error,
+                },
+                CompilerError {
+                    message: "TODO: show the actual type here".to_string(),
+                    span: error.actual.span,
+                    kind: CompilerErrorKind::Note,
+                },
+            ],
+            HirError::AtomicTypeCannotBeNested(error) => vec![CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Error,
+            }],
             HirError::UnsupportedStatement(error) => vec![CompilerError {
                 message: error.to_string(),
                 span: error.span,

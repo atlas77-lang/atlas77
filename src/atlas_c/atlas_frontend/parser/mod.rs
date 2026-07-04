@@ -8,9 +8,9 @@ use miette::NamedSource;
 use crate::atlas_c::{
     atlas_frontend::parser::{
         ast::{
-            AstArg, AstEnum, AstEnumVariant, AstFlag, AstGlobalConst, AstInlineArrayType,
-            AstListLiteralWithSize, AstNullLiteral, AstObjLiteralExpr, AstObjLiteralField,
-            AstPtrTy, AstStdGenericConstraint, AstUnion, AstVariadicType,
+            AstArg, AstAtomicType, AstEnum, AstEnumVariant, AstFlag, AstGlobalConst,
+            AstInlineArrayType, AstListLiteralWithSize, AstNullLiteral, AstObjLiteralExpr,
+            AstObjLiteralField, AstPtrTy, AstStdGenericConstraint, AstUnion, AstVariadicType,
         },
         error::{
             ConstTypeNotSupportedYetError, DestructorWithParametersError, FlagDoesntExistError,
@@ -2729,6 +2729,14 @@ impl<'ast> Parser<'ast> {
                 };
                 eprintln!("{:?}", Into::<miette::Report>::into(warning));
                 non_const_ty
+            }
+            TokenKind::KwAtomic => {
+                let start = self.advance().span;
+                let inner_ty = self.parse_type()?;
+                AstType::Atomic(AstAtomicType {
+                    span: Span::union_span(&start, &self.current().span()),
+                    inner: self.arena.alloc(inner_ty),
+                })
             }
             _ => {
                 return Err(self.unexpected_token_error(

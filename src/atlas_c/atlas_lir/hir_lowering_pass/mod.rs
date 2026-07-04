@@ -1836,6 +1836,12 @@ impl<'hir> HirLoweringPass<'hir> {
                     inner: Box::new(inner),
                 }
             }
+            HirTy::Atomic(a) => {
+                let inner = self.hir_ty_to_lir_ty(a.inner, span);
+                LirTy::AtomicTy {
+                    inner: Box::new(inner),
+                }
+            }
         }
     }
 
@@ -1911,6 +1917,7 @@ impl<'hir> HirLoweringPass<'hir> {
                 visiting.remove(&visit_key);
                 (Self::align_to(max_size, max_align), max_align)
             }
+            LirTy::AtomicTy { inner } => self.lir_type_size_and_align(inner),
         }
     }
 
@@ -2559,6 +2566,7 @@ impl std::fmt::Display for LirTy {
             LirTy::StructType(name) => write!(f, "struct {}", name),
             LirTy::UnionType(name) => write!(f, "union {}", name),
             LirTy::ArrayTy { inner, size } => write!(f, "[{}; {}]", inner, size),
+            LirTy::AtomicTy { inner } => write!(f, "__atomic({})", inner),
         }
     }
 }

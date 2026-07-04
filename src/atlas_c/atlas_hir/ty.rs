@@ -24,6 +24,7 @@ const UNINITIALIZED_TY_ID: u8 = 0x50;
 const ERROR_TY_ID: u8 = 0x51;
 const NAMED_TY_ID: u8 = 0x60;
 const GENERIC_TY_ID: u8 = 0x70;
+const ATOMIC_TY_ID: u8 = 0x80;
 const POINTER_TY_ID: u8 = 0x90;
 
 impl HirTyId {
@@ -100,6 +101,13 @@ impl HirTyId {
         let mut hasher = DefaultHasher::new();
 
         (FUNCTION_TY_ID, ret_ty, params).hash(&mut hasher);
+        Self(hasher.finish())
+    }
+
+    pub fn compute_atomic_ty_id(inner_ty: &HirTyId) -> Self {
+        let mut hasher = DefaultHasher::new();
+
+        (ATOMIC_TY_ID, inner_ty).hash(&mut hasher);
         Self(hasher.finish())
     }
 
@@ -188,6 +196,7 @@ impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
                 let ret_ty = HirTyId::from(f.ret_ty);
                 HirTyId::compute_function_ty_id(&ret_ty, &parameters)
             }
+            HirTy::Atomic(a) => HirTyId::compute_atomic_ty_id(&HirTyId::from(a.inner)),
         }
     }
 }
@@ -212,6 +221,7 @@ pub enum HirTy<'hir> {
     Generic(HirGenericTy<'hir>),
     Function(HirFunctionTy<'hir>),
     PtrTy(HirPtrTy<'hir>),
+    Atomic(HirAtomicTy<'hir>),
 }
 
 impl HirTy<'_> {
@@ -396,6 +406,9 @@ impl HirTy<'_> {
                     .join("_");
                 format!("fn_{}_ret_{}", params, func.ret_ty.get_valid_c_string())
             }
+            HirTy::Atomic(a) => {
+                format!("_Atomic_{}", a.inner.get_valid_c_string())
+            }
         }
     }
 }
@@ -465,6 +478,9 @@ impl fmt::Display for HirTy<'_> {
                     .join(", ");
                 write!(f, "({}) -> {}", params, func.ret_ty)
             }
+            HirTy::Atomic(a) => {
+                write!(f, "__atomic {}", a.inner)
+            }
         }
     }
 }
@@ -475,6 +491,13 @@ pub struct HirPtrTy<'hir> {
     pub inner: &'hir HirTy<'hir>,
     /// Whether this is a const pointer (*const T) or mutable pointer (*T)
     pub is_const: bool,
+    pub span: Span,
+}
+
+/// C atomic equivalent (intrinsic type)
+#[derive(Debug, Clone, Eq, Hash, PartialEq, Serialize)]
+pub struct HirAtomicTy<'hir> {
+    pub inner: &'hir HirTy<'hir>,
     pub span: Span,
 }
 

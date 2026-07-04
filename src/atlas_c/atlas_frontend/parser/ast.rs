@@ -882,6 +882,7 @@ pub enum AstType<'ast> {
     Variadic(AstVariadicType<'ast>),
     PtrTy(AstPtrTy<'ast>),
     Const(&'ast AstType<'ast>),
+    Atomic(AstAtomicType<'ast>),
 }
 
 impl std::fmt::Display for AstType<'_> {
@@ -910,6 +911,7 @@ impl AstType<'_> {
             AstType::Variadic(t) => t.span,
             AstType::PtrTy(t) => t.span,
             AstType::Const(c) => c.span(),
+            AstType::Atomic(a) => a.span,
         }
     }
 
@@ -952,6 +954,7 @@ impl AstType<'_> {
             }
             AstType::PtrTy(ptr_ty) => format!("*{}", ptr_ty.inner.name()),
             AstType::Const(c) => c.name(),
+            AstType::Atomic(a) => format!("__atomic {}", a.inner.name()),
         }
     }
 }
@@ -962,6 +965,13 @@ pub struct AstPtrTy<'ast> {
     pub span: Span,
     pub inner: &'ast AstType<'ast>,
     pub is_const: bool,
+}
+
+#[derive(Debug, Clone)]
+/// A raw pointer type in atlas has the form of `ptr<T>`
+pub struct AstAtomicType<'ast> {
+    pub span: Span,
+    pub inner: &'ast AstType<'ast>,
 }
 
 #[derive(Debug, Clone)]

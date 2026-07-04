@@ -1,3 +1,5 @@
+use std::fmt::format;
+
 use crate::atlas_c::atlas_hir::{
     item::HirUnion,
     signature::{
@@ -729,6 +731,9 @@ impl HirPrettyPrinter {
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("fun({}) -> {}", params, Self::type_str(f.ret_ty))
+            }
+            HirTy::Atomic(a) => {
+                format!("__atomic {}", a.inner)
             }
         }
     }

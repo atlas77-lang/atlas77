@@ -26,6 +26,7 @@ use crate::atlas_c::atlas_hir::{
         AccessingClassFieldOutsideClassError, AccessingPrivateDestructorError,
         AccessingPrivateFieldError, AccessingPrivateFunctionError, AccessingPrivateFunctionOrigin,
         AccessingPrivateObjectOrigin, AccessingPrivateStructError, AccessingPrivateUnionError,
+        AtomicTypeCannotBeNestedError, AtomicTypeMismatchError,
         CallingConsumingMethodOnMutableReferenceError,
         CallingConsumingMethodOnMutableReferenceOrigin, CallingNonConstMethodOnConstReferenceError,
         CallingNonConstMethodOnConstReferenceOrigin, CanOnlyConstructStructsError,
@@ -34,7 +35,6 @@ use crate::atlas_c::atlas_hir::{
         InvalidSpecialMethodSignatureError, ListIndexOutOfBoundsError,
         MethodConstraintNotSatisfiedError, NonConstantListSizeError, NotEnoughArgumentsError,
         NotEnoughArgumentsOrigin, OperatorIsNotImplementedForThisTypeError,
-        OperatorMustUseConstThisModifierError,
         OperatorOverloadDoesNotHaveRequiredAmountOfArgsError, ReturningPointerToLocalVariableError,
         StructCannotHaveAFieldOfItsOwnTypeError, TryingToAccessFieldOnNonObjectTypeError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldError,
@@ -247,7 +247,7 @@ impl<'hir> TypeChecker<'hir> {
 
     fn type_requires_drop(
         &self,
-        field_span: Span,
+        span: Span,
         ty: &'hir HirTy<'hir>,
         requires_drop: &HashMap<&'hir str, bool>,
     ) -> bool {
@@ -267,9 +267,7 @@ impl<'hir> TypeChecker<'hir> {
             | HirTy::LiteralUnsignedInteger(_)
             | HirTy::Uninitialized(_)
             | HirTy::Error(_) => false,
-            HirTy::InlineArray(arr) => {
-                self.type_requires_drop(field_span, arr.inner, requires_drop)
-            }
+            HirTy::InlineArray(arr) => self.type_requires_drop(span, arr.inner, requires_drop),
             HirTy::Named(n) => {
                 if self.signature.enums.contains_key(n.name) {
                     return false;
@@ -281,14 +279,14 @@ impl<'hir> TypeChecker<'hir> {
                 }
                 if let Some(sig) = self.signature.unions.get(n.name) {
                     sig.variants.iter().for_each(|(_, variant)| {
-                        if self.type_requires_drop(field_span, variant.ty, requires_drop) {
+                        if self.type_requires_drop(span, variant.ty, requires_drop) {
                             Self::union_field_cannot_be_automatically_deleted_warning(
                                 &sig.name_span,
                                 n.name,
                                 variant.name,
                                 &variant.span,
                                 format!("{}", ty),
-                                field_span,
+                                span,
                             );
                         }
                     });
@@ -309,6 +307,7 @@ impl<'hir> TypeChecker<'hir> {
                 }
                 requires_drop.get(g.name).copied().unwrap_or(false)
             }
+            HirTy::Atomic(a) => self.type_requires_drop(span, a.inner, requires_drop),
         }
     }
 
@@ -613,7 +612,8 @@ impl<'hir> TypeChecker<'hir> {
             | HirTy::LiteralFloat(_)
             | HirTy::LiteralUnsignedInteger(_)
             | HirTy::Function(_) => true,
-            HirTy::InlineArray(arr) => self.type_exists(arr.inner),
+            HirTy::Atomic(a) => self.type_exists(a.inner),
+            HirTy::InlineArray(a) => self.type_exists(a.inner),
             HirTy::Uninitialized(_) | HirTy::Error(_) => false,
         }
     }
@@ -3378,6 +3378,7 @@ impl<'hir> TypeChecker<'hir> {
             HirTy::Slice(l) => Self::get_generic_name(l.inner),
             HirTy::Named(n) => Some(n.name),
             HirTy::PtrTy(ptr_ty) => Self::get_generic_name(ptr_ty.inner),
+            HirTy::Atomic(a) => Self::get_generic_name(a.inner),
             _ => None,
         }
     }
@@ -3402,6 +3403,10 @@ impl<'hir> TypeChecker<'hir> {
                 ptr_ty.is_const,
                 ptr_ty.span,
             ),
+            HirTy::Atomic(a) => self
+                .arena
+                .types()
+                .get_atomic_ty(self.get_generic_ret_ty(a.inner, actual_generic_ty), a.span),
             _ => actual_generic_ty,
         }
     }
@@ -3418,9 +3423,12 @@ impl<'hir> TypeChecker<'hir> {
             (HirTy::PtrTy(ptr1), HirTy::PtrTy(ptr2)) => {
                 Self::get_generic_ty(ptr1.inner, ptr2.inner)
             }
+            (HirTy::Atomic(a1), HirTy::Atomic(a2)) => Self::get_generic_ty(a1.inner, a2.inner),
             (HirTy::Named(_), _) => Some(given_ty),
             (HirTy::PtrTy(p1), _) => Self::get_generic_ty(p1.inner, given_ty),
             (_, HirTy::PtrTy(p2)) => Self::get_generic_ty(ty, p2.inner),
+            (HirTy::Atomic(a), _) => Self::get_generic_ty(a.inner, given_ty),
+            (_, HirTy::Atomic(a)) => Self::get_generic_ty(ty, a.inner),
             _ => None,
         }
     }
@@ -3909,6 +3917,33 @@ impl<'hir> TypeChecker<'hir> {
                     ))
                 }
             }
+            (HirTy::Atomic(a1), HirTy::Atomic(a2)) => {
+                if let HirTy::Atomic(inner_atomic) = a1.inner {
+                    return Err(Self::atomic_type_cannot_be_nested_err(inner_atomic.span));
+                }
+                if let HirTy::Atomic(inner_atomic) = a2.inner {
+                    return Err(Self::atomic_type_cannot_be_nested_err(inner_atomic.span));
+                }
+                if self
+                    .is_equivalent_ty(a1.inner, expected_span, a2.inner, found_span)
+                    .is_ok()
+                {
+                    Ok(())
+                } else {
+                    Err(Self::atomic_type_mismatch_err(
+                        &format!("{}", expected_ty),
+                        &expected_span,
+                        &format!("{}", found_ty),
+                        &found_span,
+                    ))
+                }
+            }
+            (HirTy::Atomic(_), _) | (_, HirTy::Atomic(_)) => Err(Self::atomic_type_mismatch_err(
+                &format!("{}", expected_ty),
+                &expected_span,
+                &format!("{}", found_ty),
+                &found_span,
+            )),
             (HirTy::PtrTy(p), HirTy::String(_)) => {
                 if p.inner == self.arena.types().get_uint_ty(8) {
                     Ok(())
@@ -3958,6 +3993,41 @@ impl<'hir> TypeChecker<'hir> {
                 }
             }
         }
+    }
+
+    fn atomic_type_mismatch_err(
+        expected_type: &str,
+        expected_loc: &Span,
+        actual_type: &str,
+        actual_loc: &Span,
+    ) -> HirError {
+        let actual_path = actual_loc.path;
+        let actual_src = utils::get_file_content(actual_path).unwrap();
+        let actual_err = TypeMismatchActual {
+            actual_ty: actual_type.to_string(),
+            span: *actual_loc,
+            src: NamedSource::new(actual_path, actual_src),
+        };
+
+        let expected_path = expected_loc.path;
+        let expected_src = utils::get_file_content(expected_path).unwrap();
+        let expected_err = AtomicTypeMismatchError {
+            expected_ty: expected_type.to_string(),
+            span: *expected_loc,
+            src: NamedSource::new(expected_path, expected_src),
+            actual: actual_err,
+        };
+
+        HirError::AtomicTypeMismatch(expected_err)
+    }
+
+    fn atomic_type_cannot_be_nested_err(span: Span) -> HirError {
+        let path = span.path;
+        let src = utils::get_file_content(path).unwrap();
+        HirError::AtomicTypeCannotBeNested(AtomicTypeCannotBeNestedError {
+            span,
+            src: NamedSource::new(path, src),
+        })
     }
 
     fn get_class_name_of_type(&self, ty: &HirTy<'hir>) -> Option<&'hir str> {

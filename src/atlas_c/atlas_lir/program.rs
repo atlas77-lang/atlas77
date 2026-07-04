@@ -97,6 +97,7 @@ impl LirProgram {
                 visiting.remove(&format!("U:{}", name));
                 (total_size, max_align)
             }
+            LirTy::AtomicTy { inner } => self.layout_of_ty(&*inner, visiting),
         }
     }
 
@@ -231,6 +232,7 @@ pub enum LirTy {
     StructType(String),
     UnionType(String),
     ArrayTy { inner: Box<LirTy>, size: usize },
+    AtomicTy { inner: Box<LirTy> },
 }
 
 impl LirTy {

@@ -2214,6 +2214,10 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     src: NamedSource::new(path, src),
                 }));
             }
+            AstType::Atomic(a) => {
+                let inner_ty = self.visit_ty(a.inner)?;
+                self.arena.types().get_atomic_ty(inner_ty, a.span)
+            }
         };
         Ok(ty)
     }

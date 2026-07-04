@@ -11,7 +11,9 @@ use crate::atlas_c::{
         monomorphization_pass::generic_pool::HirGenericPool,
         signature::{HirGenericConstraint, HirModuleSignature, HirOverloadableOperatorKind},
         stmt::HirStatement,
-        ty::{HirFunctionTy, HirGenericTy, HirInlineArrayTy, HirPtrTy, HirSliceTy, HirTy},
+        ty::{
+            HirAtomicTy, HirFunctionTy, HirGenericTy, HirInlineArrayTy, HirPtrTy, HirSliceTy, HirTy,
+        },
     },
     utils::{self, Span},
 };
@@ -1171,6 +1173,13 @@ impl<'hir> MonomorphizationPass<'hir> {
                     span: ptr_ty.span,
                 }))
             }
+            HirTy::Atomic(a) => {
+                let new_inner = self.swap_generic_types_in_ty(a.inner, types_to_change);
+                self.arena.intern(HirTy::Atomic(HirAtomicTy {
+                    inner: new_inner,
+                    span: a.span,
+                }))
+            }
             HirTy::Function(fn_ty) => {
                 let new_ret = self.swap_generic_types_in_ty(fn_ty.ret_ty, types_to_change.clone());
                 let new_params = fn_ty
@@ -1324,6 +1333,10 @@ impl<'hir> MonomorphizationPass<'hir> {
                 inner: self.change_inner_type(ptr_ty.inner, generic_name, new_type, module),
                 is_const: ptr_ty.is_const,
                 span: ptr_ty.span,
+            })),
+            HirTy::Atomic(a) => self.arena.intern(HirTy::Atomic(HirAtomicTy {
+                inner: self.change_inner_type(a.inner, generic_name, new_type, module),
+                span: a.span,
             })),
             _ => type_to_change,
         }
