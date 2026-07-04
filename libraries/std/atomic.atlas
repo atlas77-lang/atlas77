@@ -1,0 +1,114 @@
+private extern fun atomic_init<T>(obj: *__atomic T, val: T);
+
+private extern fun atomic_store<T>(obj: *__atomic T, val: T);
+private extern fun atomic_store_explicit<T>(obj: *__atomic T, val: T, order: MEMORY_ORDERING);
+
+private extern fun atomic_load<T>(obj: *__atomic T) -> T;
+private extern fun atomic_load_explicit<T>(obj: *__atomic T, order: MEMORY_ORDERING) -> T;
+
+private extern fun atomic_exchange<T>(obj: *__atomic T, val: T) -> T;
+private extern fun atomic_exchange_explicit<T>(obj: *__atomic T, val: T, order: MEMORY_ORDERING) -> T;
+
+private extern fun atomic_compare_exchange_strong<T>(obj: *__atomic T, expected: *T, desired: T) -> bool;
+private extern fun atomic_compare_exchange_strong_explicit<T>(obj: *__atomic T, expected: *T, desired: T, success_order: MEMORY_ORDERING, failure_order: MEMORY_ORDERING) -> bool;
+
+private extern fun atomic_compare_exchange_weak<T>(obj: *__atomic T, expected: *T, desired: T) -> bool;
+private extern fun atomic_compare_exchange_weak_explicit<T>(obj: *__atomic T, expected: *T, desired: T, success_order: MEMORY_ORDERING, failure_order: MEMORY_ORDERING) -> bool;
+
+private extern fun atomic_fetch_add<T>(obj: *__atomic T, val: T) -> T;
+private extern fun atomic_fetch_add_explicit<T>(obj: *__atomic T, val: T, order: MEMORY_ORDERING) -> T;
+
+private extern fun atomic_fetch_sub<T>(obj: *__atomic T, val: T) -> T;
+private extern fun atomic_fetch_sub_explicit<T>(obj: *__atomic T, val: T, order: MEMORY_ORDERING) -> T;
+
+private extern fun atomic_fetch_or<T>(obj: *__atomic T, val: T) -> T;
+private extern fun atomic_fetch_or_explicit<T>(obj: *__atomic T, val: T, order: MEMORY_ORDERING) -> T;
+
+private extern fun atomic_fetch_xor<T>(obj: *__atomic T, val: T) -> T;
+private extern fun atomic_fetch_xor_explicit<T>(obj: *__atomic T, val: T, order: MEMORY_ORDERING) -> T;
+
+private extern fun atomic_fetch_and<T>(obj: *__atomic T, val: T) -> T;
+private extern fun atomic_fetch_and_explicit<T>(obj: *__atomic T, val: T, order: MEMORY_ORDERING) -> T;
+
+private extern fun atomic_thread_fence(order: MEMORY_ORDERING);
+private extern fun atomic_signal_fence(order: MEMORY_ORDERING);
+
+private extern fun atomic_is_lock_free<T>(obj: *__atomic T) -> bool;
+
+private extern fun atomic_flag_test_and_set(obj: *atomic_flag) -> bool;
+private extern fun atomic_flag_test_and_set_explicit(obj: *atomic_flag, order: MEMORY_ORDERING) -> bool;
+private extern fun atomic_flag_clear(obj: *atomic_flag);
+private extern fun atomic_flag_clear_explicit(obj: *atomic_flag, order: MEMORY_ORDERING);
+
+private extern fun ATOMIC_VAR_INIT<T>(value: T) -> __atomic T;
+
+
+
+private enum MEMORY_ORDERING {
+    RELAXED = 0;
+    CONSUME = 1;
+    ACQUIRE = 2;
+    RELEASE = 3;
+    ACQUIRE_RELEASE = 4;
+    SEQUENTIALLY_CONSISTENT = 5;
+}
+
+namespace std {
+    //! A wrapper around atomic operations for type `T`.
+    //! 
+    //! DISCLAIMER: This is a work in progress and only targets primitive types for now.
+    #[std::non_copyable]
+    public struct atomic<T> {
+      private:
+        value: __atomic T;
+      public:
+        fun new(val: T) -> std::atomic<T> {
+            return std::atomic<T>{ .value = ATOMIC_VAR_INIT(val) };
+        }
+        
+
+        fun load(*const this) -> T {
+            return atomic_load(&this->value);
+        }
+        fun store(*this, val: T) {
+            return atomic_store(&this->value, val);
+        }
+
+        // Potentially Add `Where T: Primitive` to this section to ensure "atomic_fetch_add" is not misused
+
+        // Useless operator ngl
+        operator add(*const this, other: *const std::atomic<T>) -> std::atomic<T> where T: Add {
+            let left_val = atomic_load<T>(&this->value);
+            let right_val = atomic_load<T>(&other->value);
+            
+            return std::atomic<T>::new(left_val + right_val);
+        }
+
+        // Should be "where T: AddAssign" but it doesn't exist yet
+        fun fetch_add(*this, val: T) where T: Add {
+            atomic_fetch_add(&this->value, val);
+        }
+        // Should be "where T: SubAssign" but it doesn't exist yet
+        fun fetch_sub(*this, val: T) where T: Sub {
+            atomic_fetch_sub(&this->value, val);
+        }
+        // Should be "where T: OrAssign" but it doesn't exist yet
+        fun fetch_or(*this, val: T) where T: Or {
+            atomic_fetch_or(&this->value, val);
+        }
+        // Should be "where T: AndAssign" but it doesn't exist yet
+        fun fetch_and(*this, val: T) where T: And {
+            atomic_fetch_and(&this->value, val);
+        }
+        // Should be "where T: XorAssign" but it doesn't exist yet
+        fun fetch_xor(*this, val: T) where T: Xor {
+            atomic_fetch_xor(&this->value, val);
+        }
+    }
+}
+
+fun main() {
+    let a = std::atomic<int32>::new(5);
+    let b = std::atomic<int32>::new(10);
+    let c = a + b;
+}
