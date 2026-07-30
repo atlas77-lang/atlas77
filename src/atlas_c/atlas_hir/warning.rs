@@ -238,9 +238,7 @@ impl From<HirWarning> for Vec<CompilerError> {
                     kind: CompilerErrorKind::Warning,
                 },
                 CompilerError {
-                    message: format!(
-                        "Raw pointer field declared here, which may lead to memory safety issues if the struct is copied or moved without proper handling"
-                    ),
+                    message: "Raw pointer field declared here, which may lead to memory safety issues if the struct is copied or moved without proper handling".to_string(),
                     span: warning.pointer_span,
                     kind: CompilerErrorKind::Warning,
                 },

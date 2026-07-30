@@ -286,7 +286,7 @@ impl HirTy<'_> {
                     .structs
                     .get(named_ty.name)
                     .is_some_and(|sig| sig.is_trivially_copyable)
-                    || signatures.enums.get(named_ty.name).is_some()
+                    || signatures.enums.contains_key(named_ty.name)
             }
             HirTy::Generic(generic_ty) => signatures
                 .structs

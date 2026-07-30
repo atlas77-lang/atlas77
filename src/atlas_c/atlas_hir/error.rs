@@ -914,7 +914,6 @@ pub struct UnknownTypeError {
     help("Check if the function is declared and in scope")
 )]
 #[error("Undefined function {name}")]
-
 pub struct UnknownFunctionError {
     pub name: String,
     #[label = "Could not find function: `{name}`"]

@@ -1,5 +1,3 @@
-use std::fmt::format;
-
 use crate::atlas_c::atlas_hir::{
     item::HirUnion,
     signature::{

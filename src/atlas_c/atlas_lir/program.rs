@@ -97,7 +97,7 @@ impl LirProgram {
                 visiting.remove(&format!("U:{}", name));
                 (total_size, max_align)
             }
-            LirTy::AtomicTy { inner } => self.layout_of_ty(&*inner, visiting),
+            LirTy::AtomicTy { inner } => self.layout_of_ty(inner, visiting),
         }
     }
 
