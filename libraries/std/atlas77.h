@@ -45,6 +45,7 @@ typedef unsigned long uint32_t;
 #include <time.h>
 #include <ctype.h>
 #include <errno.h>
+#include <stdatomic.h>
 #if defined(_WIN32)
 #include <windows.h>
 #endif
