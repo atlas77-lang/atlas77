@@ -40,7 +40,7 @@ private extern fun atomic_flag_test_and_set_explicit(obj: *atomic_flag, order: M
 private extern fun atomic_flag_clear(obj: *atomic_flag);
 private extern fun atomic_flag_clear_explicit(obj: *atomic_flag, order: MEMORY_ORDERING);
 
-private extern fun ATOMIC_VAR_INIT<T>(value: T) -> __atomic T;
+public extern fun ATOMIC_VAR_INIT<T>(value: T) -> __atomic T;
 
 private enum MEMORY_ORDERING {
     RELAXED = 0;
