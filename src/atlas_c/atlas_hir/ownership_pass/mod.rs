@@ -70,7 +70,14 @@ impl<'hir> HirOwnershipPass<'hir> {
 
         for strukt in hir_module.body.structs.values_mut() {
             for method in &mut strukt.methods {
-                self.run_ownership_for_body(&mut method.body, &method.signature.params);
+                self.run_ownership_for_method_body(
+                    &mut method.body,
+                    &method.signature.params,
+                    method.signature.modifier.clone(),
+                    self._hir_arena
+                        .types()
+                        .get_named_ty(strukt.name, strukt.name_span),
+                );
             }
 
             for operator in &mut strukt.operators {
@@ -95,6 +102,69 @@ impl<'hir> HirOwnershipPass<'hir> {
         Ok(())
     }
 
+    fn run_ownership_for_method_body(
+        &mut self,
+        body: &mut HirBlock<'hir>,
+        params: &[HirFunctionParameterSignature<'hir>],
+        method_modifier: HirStructMethodModifier,
+        struct_ty: &'hir HirTy<'hir>,
+    ) {
+        let mut scope_stack = vec![ScopeFrame::default()];
+        match method_modifier {
+            HirStructMethodModifier::Consuming => {
+                self.register_local(
+                    &mut scope_stack,
+                    LocalVar {
+                        name: "this",
+                        ty: struct_ty,
+                        is_compiler_temp: false,
+                    },
+                );
+            }
+            HirStructMethodModifier::Const => {
+                self.register_local(
+                    &mut scope_stack,
+                    LocalVar {
+                        name: "this",
+                        ty: self
+                            ._hir_arena
+                            .types()
+                            .get_ptr_ty(struct_ty, true, Span::default()),
+                        is_compiler_temp: false,
+                    },
+                );
+            }
+            HirStructMethodModifier::Mutable => {
+                self.register_local(
+                    &mut scope_stack,
+                    LocalVar {
+                        name: "this",
+                        ty: self
+                            ._hir_arena
+                            .types()
+                            .get_ptr_ty(struct_ty, false, Span::default()),
+                        is_compiler_temp: false,
+                    },
+                );
+            }
+            HirStructMethodModifier::Static => {}
+        }
+        for param in params {
+            self.register_local(
+                &mut scope_stack,
+                LocalVar {
+                    name: param.name,
+                    ty: param.ty,
+                    is_compiler_temp: self.is_compiler_temp_name(param.name),
+                },
+            );
+        }
+
+        let transformed_body = self.transform_block(body.clone(), &mut scope_stack);
+
+        *body = transformed_body;
+    }
+
     fn run_ownership_for_body(
         &mut self,
         body: &mut HirBlock<'hir>,
@@ -112,7 +182,9 @@ impl<'hir> HirOwnershipPass<'hir> {
             );
         }
 
-        *body = self.transform_block(body.clone(), &mut scope_stack);
+        let transformed_body = self.transform_block(body.clone(), &mut scope_stack);
+
+        *body = transformed_body;
     }
 
     fn transform_block(
@@ -132,11 +204,7 @@ impl<'hir> HirOwnershipPass<'hir> {
                 HirStatement::Return(ret) => {
                     if let Some(expr) = &ret.value {
                         self.validate_expr(expr, scope_stack);
-                        if let Some(delete_stmt) =
-                            self.delete_after_consuming_method_call(expr, scope_stack)
-                        {
-                            statements.push(delete_stmt);
-                        }
+
                         let excluded = self.returned_identifier_name(expr);
                         statements.extend(self.collect_scope_drops(scope_stack, excluded));
                     }
@@ -147,12 +215,7 @@ impl<'hir> HirOwnershipPass<'hir> {
                     if let Some((name, span)) = self.deleted_identifier(&expr_stmt.expr) {
                         self.mark_deleted(scope_stack, name, span);
                     }
-                    let delete_stmt =
-                        self.delete_after_consuming_method_call(&expr_stmt.expr, scope_stack);
                     statements.push(HirStatement::Expr(expr_stmt));
-                    if let Some(delete_stmt) = delete_stmt {
-                        statements.push(delete_stmt);
-                    }
                 }
                 HirStatement::Let(let_stmt) => {
                     self.validate_expr(&let_stmt.value, scope_stack);
@@ -161,8 +224,7 @@ impl<'hir> HirOwnershipPass<'hir> {
                         &let_stmt.value,
                         Some(let_stmt.name),
                     ));
-                    let delete_stmt =
-                        self.delete_after_consuming_method_call(&let_stmt.value, scope_stack);
+
                     let consumed_temp = self.consumed_compiler_temp_from_value(
                         scope_stack,
                         &let_stmt.value,
@@ -181,9 +243,6 @@ impl<'hir> HirOwnershipPass<'hir> {
                         self.mark_deleted(scope_stack, temp_name, temp_span);
                     }
                     statements.push(HirStatement::Let(let_stmt));
-                    if let Some(delete_stmt) = delete_stmt {
-                        statements.push(delete_stmt);
-                    }
                 }
                 HirStatement::Const(const_stmt) => {
                     self.validate_expr(&const_stmt.value, scope_stack);
@@ -192,8 +251,7 @@ impl<'hir> HirOwnershipPass<'hir> {
                         &const_stmt.value,
                         Some(const_stmt.name),
                     ));
-                    let delete_stmt =
-                        self.delete_after_consuming_method_call(&const_stmt.value, scope_stack);
+
                     let consumed_temp = self.consumed_compiler_temp_from_value(
                         scope_stack,
                         &const_stmt.value,
@@ -212,9 +270,6 @@ impl<'hir> HirOwnershipPass<'hir> {
                         self.mark_deleted(scope_stack, temp_name, temp_span);
                     }
                     statements.push(HirStatement::Const(const_stmt));
-                    if let Some(delete_stmt) = delete_stmt {
-                        statements.push(delete_stmt);
-                    }
                 }
                 HirStatement::Assign(assign_stmt) => {
                     self.validate_expr(&assign_stmt.dst, scope_stack);
@@ -239,12 +294,8 @@ impl<'hir> HirOwnershipPass<'hir> {
                     if let Some((temp_name, temp_span)) = consumed_temp {
                         self.mark_deleted(scope_stack, temp_name, temp_span);
                     }
-                    let delete_stmt =
-                        self.delete_after_consuming_method_call(&assign_stmt.val, scope_stack);
+
                     statements.push(HirStatement::Assign(assign_stmt));
-                    if let Some(delete_stmt) = delete_stmt {
-                        statements.push(delete_stmt);
-                    }
                 }
                 HirStatement::IfElse(mut if_else) => {
                     self.validate_expr(&if_else.condition, scope_stack);
@@ -384,20 +435,21 @@ impl<'hir> HirOwnershipPass<'hir> {
         value: &HirExpr<'hir>,
         dst_name: Option<&'hir str>,
     ) -> HirResult<()> {
-        let src = match self.strip_noop_unary(value) {
-            HirExpr::Ident(id) => id,
+        let (src_name, src_span) = match self.strip_noop_unary(value) {
+            HirExpr::Ident(id) => (id.name, id.span),
+            HirExpr::ThisLiteral(t) => ("this", t.span),
             _ => return Ok(()),
         };
 
-        if dst_name.is_some_and(|dst| dst == src.name) {
+        if dst_name.is_some_and(|dst| dst == src_name) {
             return Ok(());
         }
 
-        let Some(src_local) = self.find_local(scope_stack, src.name) else {
+        let Some(src_local) = self.find_local(scope_stack, src_name) else {
             return Ok(());
         };
 
-        if let Some(state) = self.find_state(scope_stack, src.name)
+        if let Some(state) = self.find_state(scope_stack, src_name)
             && !matches!(state, OwnershipState::Alive)
         {
             return Ok(());
@@ -412,7 +464,7 @@ impl<'hir> HirOwnershipPass<'hir> {
             return Ok(());
         }
 
-        let path = src.span.path;
+        let path = src_span.path;
         let src_text = utils::get_file_content(path).unwrap_or_default();
         let name = if let Some(sig) = self.signature.structs.get(src_local.name) {
             if let Some(pre) = sig.pre_mangled_ty {
@@ -426,7 +478,7 @@ impl<'hir> HirOwnershipPass<'hir> {
         Err(HirError::TypeIsNotTriviallyCopyable(
             TypeIsNotTriviallyCopyableError {
                 src: NamedSource::new(path, src_text),
-                span: src.span,
+                span: src_span,
                 type_name: name,
             },
         ))
@@ -437,25 +489,27 @@ impl<'hir> HirOwnershipPass<'hir> {
         scope_stack: &[ScopeFrame<'hir>],
         assign: &HirAssignStmt<'hir>,
     ) -> Option<(&'hir str, crate::atlas_c::utils::Span)> {
-        let dst = match self.strip_noop_unary(&assign.dst) {
-            HirExpr::Ident(id) => id,
+        let dst_name = match self.strip_noop_unary(&assign.dst) {
+            HirExpr::Ident(id) => id.name,
+            HirExpr::ThisLiteral(_) => "this",
             _ => return None,
         };
-        let src = match self.strip_noop_unary(&assign.val) {
-            HirExpr::Ident(id) => id,
+        let (src_name, src_span) = match self.strip_noop_unary(&assign.val) {
+            HirExpr::Ident(id) => (id.name, id.span),
+            HirExpr::ThisLiteral(t) => ("this", t.span),
             _ => return None,
         };
 
-        if src.name == dst.name {
+        if src_name == dst_name {
             return None;
         }
 
-        let src_local = self.find_local(scope_stack, src.name)?;
+        let src_local = self.find_local(scope_stack, src_name)?;
         if !src_local.is_compiler_temp {
             return None;
         }
 
-        let dst_local = self.find_local(scope_stack, dst.name)?;
+        let dst_local = self.find_local(scope_stack, dst_name)?;
         if dst_local.is_compiler_temp {
             return None;
         }
@@ -464,7 +518,7 @@ impl<'hir> HirOwnershipPass<'hir> {
             return None;
         }
 
-        Some((src.name, src.span))
+        Some((src_name, src_span))
     }
 
     fn consumed_compiler_temp_from_value(
@@ -474,16 +528,17 @@ impl<'hir> HirOwnershipPass<'hir> {
         dst_name: &'hir str,
         dst_ty: &'hir HirTy<'hir>,
     ) -> Option<(&'hir str, crate::atlas_c::utils::Span)> {
-        let src = match self.strip_noop_unary(value) {
-            HirExpr::Ident(id) => id,
+        let (src_name, src_span) = match self.strip_noop_unary(value) {
+            HirExpr::Ident(id) => (id.name, id.span),
+            HirExpr::ThisLiteral(t) => ("this", t.span),
             _ => return None,
         };
 
-        if src.name == dst_name {
+        if src_name == dst_name {
             return None;
         }
 
-        let src_local = self.find_local(scope_stack, src.name)?;
+        let src_local = self.find_local(scope_stack, src_name)?;
         if !src_local.is_compiler_temp {
             return None;
         }
@@ -496,7 +551,7 @@ impl<'hir> HirOwnershipPass<'hir> {
             return None;
         }
 
-        Some((src.name, src.span))
+        Some((src_name, src_span))
     }
 
     fn find_local<'a>(
@@ -528,18 +583,9 @@ impl<'hir> HirOwnershipPass<'hir> {
     fn returned_identifier_name(&self, expr: &HirExpr<'hir>) -> Option<&'hir str> {
         match self.strip_noop_unary(expr) {
             HirExpr::Ident(id) => Some(id.name),
+            HirExpr::ThisLiteral(_) => Some("this"),
             _ => None,
         }
-    }
-
-    fn delete_after_consuming_method_call(
-        &self,
-        expr: &HirExpr<'hir>,
-        scope_stack: &mut [ScopeFrame<'hir>],
-    ) -> Option<HirStatement<'hir>> {
-        let (name, span, ty) = self.consuming_method_receiver(expr, scope_stack)?;
-        self.mark_moved(scope_stack, name, span);
-        Some(self.delete_stmt_for(expr.span(), name, ty))
     }
 
     fn consuming_method_receiver(
@@ -592,6 +638,9 @@ impl<'hir> HirOwnershipPass<'hir> {
             HirExpr::Ident(id) => {
                 self.record_result(self.validate_identifier_use(scope_stack, id.name, id.span))
             }
+            HirExpr::ThisLiteral(t) => {
+                self.record_result(self.validate_identifier_use(scope_stack, "this", t.span));
+            }
             HirExpr::Delete(del) => self.validate_expr(&del.expr, scope_stack),
             HirExpr::Unary(unary) => self.validate_expr(&unary.expr, scope_stack),
             HirExpr::Casting(cast) => self.validate_expr(&cast.expr, scope_stack),
@@ -606,7 +655,7 @@ impl<'hir> HirOwnershipPass<'hir> {
                     self.record_result(self.ensure_identifier_copy_allowed(scope_stack, arg, None));
                 }
                 if let Some((name, span, _ty)) = self.consuming_method_receiver(expr, scope_stack) {
-                    self.mark_deleted(scope_stack, name, span);
+                    self.mark_consumed(scope_stack, name, span);
                 }
             }
             HirExpr::ListLiteral(list) => {
@@ -653,8 +702,7 @@ impl<'hir> HirOwnershipPass<'hir> {
                     self.record_result(res);
                 }
             }
-            HirExpr::ThisLiteral(_)
-            | HirExpr::FloatLiteral(_)
+            HirExpr::FloatLiteral(_)
             | HirExpr::CharLiteral(_)
             | HirExpr::IntegerLiteral(_)
             | HirExpr::UnitLiteral(_)
@@ -743,37 +791,41 @@ impl<'hir> HirOwnershipPass<'hir> {
         arg: &HirExpr<'hir>,
     ) -> HirResult<()> {
         let stripped = self.strip_noop_unary(arg);
-        let HirExpr::Ident(id) = stripped else {
-            let path = arg.span().path;
-            let src = utils::get_file_content(path).unwrap_or_default();
-            return Err(HirError::CannotMoveFromRvalue(CannotMoveFromRvalueError {
-                src: NamedSource::new(path, src),
-                span: arg.span(),
-                hint: "`std::move` only accepts local variables; assign the expression to a local first".to_string(),
-            }));
+        let (id_name, id_span) = match stripped {
+            HirExpr::Ident(id) => (id.name, id.span),
+            HirExpr::ThisLiteral(t) => ("this", t.span),
+            _ => {
+                let path = arg.span().path;
+                let src = utils::get_file_content(path).unwrap_or_default();
+                return Err(HirError::CannotMoveFromRvalue(CannotMoveFromRvalueError {
+                    src: NamedSource::new(path, src),
+                    span: arg.span(),
+                    hint: "`std::move` only accepts local variables; assign the expression to a local first".to_string(),
+                }));
+            }
         };
 
-        if self.find_local(scope_stack, id.name).is_none() {
-            let path = id.span.path;
+        if self.find_local(scope_stack, id_name).is_none() {
+            let path = id_span.path;
             let src = utils::get_file_content(path).unwrap_or_default();
             return Err(HirError::CannotMoveFromRvalue(CannotMoveFromRvalueError {
                 src: NamedSource::new(path, src),
-                span: id.span,
+                span: id_span,
                 hint: "`std::move` only accepts local variables".to_string(),
             }));
         }
 
-        if self.is_compiler_temp_name(id.name) {
-            let path = id.span.path;
+        if self.is_compiler_temp_name(id_name) {
+            let path = id_span.path;
             let src = utils::get_file_content(path).unwrap_or_default();
             return Err(HirError::CannotMoveFromRvalue(CannotMoveFromRvalueError {
                 src: NamedSource::new(path, src),
-                span: id.span,
+                span: id_span,
                 hint: "`std::move` cannot be used with compiler temporaries (`__tmpN`); move from a named local variable".to_string(),
             }));
         }
 
-        self.mark_moved(scope_stack, id.name, id.span);
+        self.mark_moved(scope_stack, id_name, id_span);
         Ok(())
     }
 
@@ -960,6 +1012,7 @@ impl<'hir> HirOwnershipPass<'hir> {
         match self.strip_noop_unary(expr) {
             HirExpr::Delete(delete) => match self.strip_noop_unary(&delete.expr) {
                 HirExpr::Ident(id) => Some((id.name, id.span)),
+                HirExpr::ThisLiteral(t) => Some(("this", t.span)),
                 _ => None,
             },
             _ => None,
@@ -998,6 +1051,22 @@ impl<'hir> HirOwnershipPass<'hir> {
         }
     }
 
+    fn mark_consumed(
+        &self,
+        scope_stack: &mut [ScopeFrame<'hir>],
+        name: &'hir str,
+        consumed_span: crate::atlas_c::utils::Span,
+    ) {
+        for frame in scope_stack.iter_mut().rev() {
+            if frame.states.contains_key(name) {
+                frame
+                    .states
+                    .insert(name, OwnershipState::Consumed(vec![consumed_span]));
+                return;
+            }
+        }
+    }
+
     fn mark_assigned_alive(
         &self,
         scope_stack: &mut [ScopeFrame<'hir>],
@@ -1007,6 +1076,13 @@ impl<'hir> HirOwnershipPass<'hir> {
             for frame in scope_stack.iter_mut().rev() {
                 if frame.states.contains_key(id.name) {
                     frame.states.insert(id.name, OwnershipState::Alive);
+                    return;
+                }
+            }
+        } else if let HirExpr::ThisLiteral(t) = self.strip_noop_unary(&assign.dst) {
+            for frame in scope_stack.iter_mut().rev() {
+                if frame.states.contains_key("this") {
+                    frame.states.insert("this", OwnershipState::Alive);
                     return;
                 }
             }
