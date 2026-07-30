@@ -14,7 +14,8 @@ use crate::atlas_c::{
             TypeIsNotTriviallyCopyableError,
         },
         expr::{HirDeleteExpr, HirExpr, HirIdentExpr, HirUnaryOp},
-        signature::{HirFunctionParameterSignature, HirModuleSignature},
+        monomorphization_pass::MonomorphizationPass,
+        signature::{HirFunctionParameterSignature, HirModuleSignature, HirStructMethodModifier},
         stmt::{HirAssignStmt, HirBlock, HirExprStmt, HirStatement},
         ty::HirTy,
     },
@@ -131,6 +132,11 @@ impl<'hir> HirOwnershipPass<'hir> {
                 HirStatement::Return(ret) => {
                     if let Some(expr) = &ret.value {
                         self.validate_expr(expr, scope_stack);
+                        if let Some(delete_stmt) =
+                            self.delete_after_consuming_method_call(expr, scope_stack)
+                        {
+                            statements.push(delete_stmt);
+                        }
                         let excluded = self.returned_identifier_name(expr);
                         statements.extend(self.collect_scope_drops(scope_stack, excluded));
                     }
@@ -141,7 +147,12 @@ impl<'hir> HirOwnershipPass<'hir> {
                     if let Some((name, span)) = self.deleted_identifier(&expr_stmt.expr) {
                         self.mark_deleted(scope_stack, name, span);
                     }
+                    let delete_stmt =
+                        self.delete_after_consuming_method_call(&expr_stmt.expr, scope_stack);
                     statements.push(HirStatement::Expr(expr_stmt));
+                    if let Some(delete_stmt) = delete_stmt {
+                        statements.push(delete_stmt);
+                    }
                 }
                 HirStatement::Let(let_stmt) => {
                     self.validate_expr(&let_stmt.value, scope_stack);
@@ -150,6 +161,8 @@ impl<'hir> HirOwnershipPass<'hir> {
                         &let_stmt.value,
                         Some(let_stmt.name),
                     ));
+                    let delete_stmt =
+                        self.delete_after_consuming_method_call(&let_stmt.value, scope_stack);
                     let consumed_temp = self.consumed_compiler_temp_from_value(
                         scope_stack,
                         &let_stmt.value,
@@ -168,6 +181,9 @@ impl<'hir> HirOwnershipPass<'hir> {
                         self.mark_deleted(scope_stack, temp_name, temp_span);
                     }
                     statements.push(HirStatement::Let(let_stmt));
+                    if let Some(delete_stmt) = delete_stmt {
+                        statements.push(delete_stmt);
+                    }
                 }
                 HirStatement::Const(const_stmt) => {
                     self.validate_expr(&const_stmt.value, scope_stack);
@@ -176,6 +192,8 @@ impl<'hir> HirOwnershipPass<'hir> {
                         &const_stmt.value,
                         Some(const_stmt.name),
                     ));
+                    let delete_stmt =
+                        self.delete_after_consuming_method_call(&const_stmt.value, scope_stack);
                     let consumed_temp = self.consumed_compiler_temp_from_value(
                         scope_stack,
                         &const_stmt.value,
@@ -194,6 +212,9 @@ impl<'hir> HirOwnershipPass<'hir> {
                         self.mark_deleted(scope_stack, temp_name, temp_span);
                     }
                     statements.push(HirStatement::Const(const_stmt));
+                    if let Some(delete_stmt) = delete_stmt {
+                        statements.push(delete_stmt);
+                    }
                 }
                 HirStatement::Assign(assign_stmt) => {
                     self.validate_expr(&assign_stmt.dst, scope_stack);
@@ -218,7 +239,12 @@ impl<'hir> HirOwnershipPass<'hir> {
                     if let Some((temp_name, temp_span)) = consumed_temp {
                         self.mark_deleted(scope_stack, temp_name, temp_span);
                     }
+                    let delete_stmt =
+                        self.delete_after_consuming_method_call(&assign_stmt.val, scope_stack);
                     statements.push(HirStatement::Assign(assign_stmt));
+                    if let Some(delete_stmt) = delete_stmt {
+                        statements.push(delete_stmt);
+                    }
                 }
                 HirStatement::IfElse(mut if_else) => {
                     self.validate_expr(&if_else.condition, scope_stack);
@@ -506,6 +532,61 @@ impl<'hir> HirOwnershipPass<'hir> {
         }
     }
 
+    fn delete_after_consuming_method_call(
+        &self,
+        expr: &HirExpr<'hir>,
+        scope_stack: &mut [ScopeFrame<'hir>],
+    ) -> Option<HirStatement<'hir>> {
+        let (name, span, ty) = self.consuming_method_receiver(expr, scope_stack)?;
+        self.mark_moved(scope_stack, name, span);
+        Some(self.delete_stmt_for(expr.span(), name, ty))
+    }
+
+    fn consuming_method_receiver(
+        &self,
+        expr: &HirExpr<'hir>,
+        scope_stack: &[ScopeFrame<'hir>],
+    ) -> Option<(&'hir str, crate::atlas_c::utils::Span, &'hir HirTy<'hir>)> {
+        let HirExpr::Call(call) = self.strip_noop_unary(expr) else {
+            return None;
+        };
+
+        let HirExpr::FieldAccess(field_access) = self.strip_noop_unary(&call.callee) else {
+            return None;
+        };
+
+        let receiver = self.strip_noop_unary(&field_access.target);
+        let HirExpr::Ident(receiver_id) = receiver else {
+            return None;
+        };
+
+        let receiver_local = self.find_local(scope_stack, receiver_id.name)?;
+        let class_name = self.class_name_from_receiver_ty(field_access.target.ty())?;
+        let class = self.signature.structs.get(class_name)?;
+        let method = class.methods.get(field_access.field.name)?;
+        if method.modifier != HirStructMethodModifier::Consuming {
+            return None;
+        }
+
+        Some((receiver_local.name, field_access.span, receiver_local.ty))
+    }
+
+    fn class_name_from_receiver_ty(&self, ty: &'hir HirTy<'hir>) -> Option<&'hir str> {
+        match ty {
+            HirTy::Named(named) => Some(named.name),
+            HirTy::Generic(generic) => {
+                let mangled =
+                    MonomorphizationPass::generate_mangled_name(self._hir_arena, generic, "struct");
+                self.signature
+                    .structs
+                    .contains_key(mangled)
+                    .then_some(mangled)
+            }
+            HirTy::PtrTy(ptr) => self.class_name_from_receiver_ty(ptr.inner),
+            _ => None,
+        }
+    }
+
     fn validate_expr(&mut self, expr: &HirExpr<'hir>, scope_stack: &mut Vec<ScopeFrame<'hir>>) {
         match self.strip_noop_unary(expr) {
             HirExpr::Ident(id) => {
@@ -523,6 +604,9 @@ impl<'hir> HirOwnershipPass<'hir> {
                 for arg in &call.args {
                     self.validate_expr(arg, scope_stack);
                     self.record_result(self.ensure_identifier_copy_allowed(scope_stack, arg, None));
+                }
+                if let Some((name, span, _ty)) = self.consuming_method_receiver(expr, scope_stack) {
+                    self.mark_deleted(scope_stack, name, span);
                 }
             }
             HirExpr::ListLiteral(list) => {
