@@ -131,6 +131,7 @@ pub struct LirUnion {
 pub struct LirEnum {
     pub name: String,
     pub c_name: Option<String>,
+    pub is_extern: bool,
     pub variants: BTreeMap<String, u64>,
 }
 

@@ -316,6 +316,7 @@ impl<'ast> Parser<'ast> {
                     }
                     TokenKind::KwStruct => Ok(AstItem::ExternStruct(self.parse_extern_struct()?)),
                     TokenKind::KwUnion => Ok(AstItem::ExternUnion(self.parse_extern_union()?)),
+                    TokenKind::KwEnum => Ok(AstItem::ExternEnum(self.parse_extern_enum()?)),
                     _ => Err(self.unexpected_token_error(
                         TokenVec(vec![
                             TokenKind::KwFunc,
@@ -2095,6 +2096,12 @@ impl<'ast> Parser<'ast> {
 
     fn parse_extern_union(&mut self) -> ParseResult<AstUnion<'ast>> {
         let mut node = self.parse_union()?;
+        node.is_extern = true;
+        Ok(node)
+    }
+
+    fn parse_extern_enum(&mut self) -> ParseResult<AstEnum<'ast>> {
+        let mut node = self.parse_enum()?;
         node.is_extern = true;
         Ok(node)
     }

@@ -252,6 +252,7 @@ impl<'hir> HirLoweringPass<'hir> {
         let lir_enum = LirEnum {
             name: enum_body.name.to_string(),
             c_name: None,
+            is_extern: enum_body.is_extern,
             variants: values,
         };
         Ok(lir_enum)

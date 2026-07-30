@@ -150,6 +150,9 @@ impl CCodeGen {
             );
         }
         for enum_ in program.enums.iter() {
+            if enum_.is_extern {
+                continue;
+            }
             let enum_name = Self::c_ident(&enum_.name);
             Self::write_to_top(
                 &mut self.c_header,

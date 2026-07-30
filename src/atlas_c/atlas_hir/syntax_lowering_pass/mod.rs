@@ -289,7 +289,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     .unions
                     .insert(union_name, self.arena.intern(hir_union.signature.clone()));
             }
-            AstItem::Enum(e) => {
+            AstItem::ExternEnum(e) | AstItem::Enum(e) => {
                 let hir_enum = self.visit_enum(e)?;
                 let qualified = self.qualified_name(e.name.name);
                 let enum_name = self.arena.names().get(&qualified);
@@ -421,6 +421,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             name_span: ast_enum.name.span,
             variants,
             vis: ast_enum.vis.into(),
+            is_extern: ast_enum.is_extern,
             docstring: if let Some(docstring) = ast_enum.docstring {
                 Some(self.arena.names().get(docstring))
             } else {
