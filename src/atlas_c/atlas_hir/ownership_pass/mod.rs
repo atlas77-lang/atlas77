@@ -1079,7 +1079,7 @@ impl<'hir> HirOwnershipPass<'hir> {
                     return;
                 }
             }
-        } else if let HirExpr::ThisLiteral(t) = self.strip_noop_unary(&assign.dst) {
+        } else if let HirExpr::ThisLiteral(_) = self.strip_noop_unary(&assign.dst) {
             for frame in scope_stack.iter_mut().rev() {
                 if frame.states.contains_key("this") {
                     frame.states.insert("this", OwnershipState::Alive);

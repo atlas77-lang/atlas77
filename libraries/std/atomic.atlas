@@ -63,13 +63,51 @@ namespace std {
         fun new(val: T) -> std::atomic<T> {
             return std::atomic<T>{ .value = ATOMIC_VAR_INIT(val) };
         }
-        
 
         fun load(*const this) -> T {
             return atomic_load(&this->value);
         }
+        fun load_explicit(*const this, order: MEMORY_ORDERING) -> T {
+            return atomic_load_explicit(&this->value, order);
+        }
         fun store(*this, val: T) {
-            return atomic_store(&this->value, val);
+            atomic_store(&this->value, val);
+        }
+        fun store_explicit(*this, val: T, order: MEMORY_ORDERING) {
+            atomic_store_explicit(&this->value, val, order);
+        }
+        fun exchange(*this, val: T) -> T {
+            return atomic_exchange(&this->value, val);
+        }
+        fun exchange_explicit(*this, val: T, order: MEMORY_ORDERING) -> T {
+            return atomic_exchange_explicit(&this->value, val, order);
+        }
+        fun is_lock_free(*const this) -> bool {
+            return atomic_is_lock_free(&this->value);
+        }
+
+        fun compare_exchange_strong(*this, expected: *T, desired: T) -> bool {
+            return atomic_compare_exchange_strong(&this->value, expected, desired);
+        }
+        fun compare_exchange_strong_explicit(*this, expected: *T, desired: T, order: MEMORY_ORDERING) -> bool {
+            return atomic_compare_exchange_strong_explicit(&this->value, expected, desired, order);
+        }
+        fun compare_exchange_weak(*this, expected: *T, desired: T) -> bool {
+            return atomic_compare_exchange_weak(&this->value, expected, desired);
+        }
+        fun compare_exchange_weak_explicit(
+            *this, 
+            expected: *T, 
+            desired: T, 
+            success_order: MEMORY_ORDERING, 
+            failure_order: MEMORY_ORDERING) -> bool 
+        {
+            return atomic_compare_exchange_weak_explicit(
+                &this->value, 
+                expected, 
+                desired, 
+                success_order, 
+                failure_order);
         }
 
         // Potentially Add `Where T: Primitive` to this section to ensure "atomic_fetch_add" is not misused
@@ -86,21 +124,36 @@ namespace std {
         fun fetch_add(*this, val: T) where T: operator::add {
             atomic_fetch_add(&this->value, val);
         }
+        fun fetch_add_explicit(*this, val: T, order: MEMORY_ORDERING) where T: operator::add {
+            atomic_fetch_add_explicit(&this->value, val, order);
+        }
         // Should be "where T: SubAssign" but it doesn't exist yet
         fun fetch_sub(*this, val: T) where T: operator::sub {
             atomic_fetch_sub(&this->value, val);
+        }
+        fun fetch_sub_explicit(*this, val: T, order: MEMORY_ORDERING) where T: operator::sub {
+            atomic_fetch_sub_explicit(&this->value, val, order);
         }
         // Should be "where T: OrAssign" but it doesn't exist yet
         fun fetch_or(*this, val: T) where T: operator::bin_or {
             atomic_fetch_or(&this->value, val);
         }
+        fun fetch_or_explicit(*this, val: T, order: MEMORY_ORDERING) where T: operator::bin_or {
+            atomic_fetch_or_explicit(&this->value, val, order);
+        }
         // Should be "where T: AndAssign" but it doesn't exist yet
         fun fetch_and(*this, val: T) where T: operator::bin_and {
             atomic_fetch_and(&this->value, val);
         }
+        fun fetch_and_explicit(*this, val: T, order: MEMORY_ORDERING) where T: operator::bin_and {
+            atomic_fetch_and_explicit(&this->value, val, order);
+        }
         // Should be "where T: XorAssign" but it doesn't exist yet
         fun fetch_xor(*this, val: T) where T: operator::bin_xor {
             atomic_fetch_xor(&this->value, val);
+        }
+        fun fetch_xor_explicit(*this, val: T, order: MEMORY_ORDERING) where T: operator::bin_xor {
+            atomic_fetch_xor_explicit(&this->value, val, order);
         }
     }
 }
