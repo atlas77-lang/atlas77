@@ -1,0 +1,133 @@
+import "self/utils/span.atlas";
+import "std/optional";
+
+public struct Token {
+  public:
+    kind: TokenKind;
+    span: Span;
+    val: std::optional<Literal>;
+}
+
+public union Literal {
+  public:
+    int64_lit: int64;
+    uint64_lit: uint64;
+    float64_lit: float64;
+    string_lit: std::string;
+    bool_lit: bool;
+    ident_lit: std::string;
+    char_lit: char;
+}
+
+
+public enum TokenKind {
+    StringLiteral;
+    Char;
+    Identifier;
+    Integer;
+    Float;
+    UnsignedInteger;
+    Bool;
+    Comments;
+    /// ``//! This is a doc comment``
+    Docs;
+    LParen;
+    RParen;
+    LBrace;
+    RBrace;
+    LBracket;
+    RBracket;
+    Comma;
+    Plus;
+    OpAssignAdd;
+    Minus;
+    OpAssignSub;
+    Slash;
+    OpAssignDiv;
+    Star;
+    OpAssignMul;
+    Percent;
+    OpAssignMod;
+    OpAssign;
+    BackSlash;
+    Semicolon;
+    Quote;
+    Interrogation;
+    EqEq;
+    NEq;
+    Bang;
+    DoubleDot;
+    Dot;
+    Ellipsis;
+    Hash;
+    DoubleColon;
+    Colon;
+    RArrow;
+    LArrow;
+    LFatArrow;
+    LAngle;
+    OpGreaterThanEq;
+    RAngle;
+    OpAnd;
+    Ampersand;
+    OpOr;
+    Pipe;
+    Caret;
+    RFatArrow;
+    Tilde;
+    KwThis;
+    KwOperator;
+    KwClass;
+    KwDelete;
+    KwFunc;
+    //Used for generics constraints and bounds (i.e. fn foo<T>(arg: T) -> T where T: Add)
+    KwWhere;
+    KwNull;
+    KwExtern;
+    KwStruct;
+    KwConcept;
+    KwEnum;
+    KwUnion;
+    KwNamespace;
+    KwImport;
+    //Visibility
+    KwPublic;
+    KwPrivate;
+    //Control Flow
+    KwIf;
+    KwElse;
+    KwMatch;
+    //Loops
+    KwWhile;
+    KwBreak;
+    KwContinue;
+    KwReturn;
+    //Variables
+    KwLet;
+    KwConst;
+    //Misc
+    KwAs;
+    //Signed Types
+    Int64Ty;
+    Int32Ty;
+    Int16Ty;
+    Int8Ty;
+    //Float Types
+    Float64Ty;
+    Float32Ty;
+    //Unsigned Types
+    UInt64Ty;
+    UInt32Ty;
+    UInt16Ty;
+    UInt8Ty;
+    //other types
+    UnitTy;
+    CharTy;
+    BoolTy;
+    ThisTy;
+    StrTy;
+    // === Keywords for compile-time ===
+    KwComptime;
+    KwThen;
+    EoI;
+}

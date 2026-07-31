@@ -7,10 +7,11 @@ use thiserror::Error;
 use crate::atlas_c::atlas_frontend::lexer::TokenVec;
 use crate::atlas_c::atlas_frontend::lexer::token::{LexingError, Token};
 use crate::atlas_c::utils::Span;
-use crate::declare_error_type;
+use crate::{CompilerError, CompilerErrorKind, declare_error_type};
 
 declare_error_type! {
     #[error("Parse error: {0}")]
+    #[derive()]
     pub enum SyntaxError {
         UnexpectedEndOfFile(UnexpectedEndOfFileError),
         UnexpectedToken(UnexpectedTokenError),
@@ -143,4 +144,56 @@ pub struct SizeOfArrayMustBeKnownAtCompileTimeError {
     pub src: NamedSource<String>,
     #[label("size of array must be known at compile time")]
     pub span: Span,
+}
+
+impl From<SyntaxError> for CompilerError {
+    fn from(e: SyntaxError) -> CompilerError {
+        match e {
+            SyntaxError::UnexpectedEndOfFile(error) => CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Error,
+            },
+            SyntaxError::UnexpectedToken(error) => CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Error,
+            },
+            SyntaxError::OnlyOneDestructorAllowed(error) => CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Error,
+            },
+            SyntaxError::InvalidCharacter(error) => CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Error,
+            },
+            SyntaxError::DestructorWithParameters(error) => CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Error,
+            },
+            SyntaxError::FlagDoesntExist(error) => CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Error,
+            },
+            SyntaxError::SizeOfArrayMustBeKnownAtCompileTime(error) => CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Error,
+            },
+            SyntaxError::ConstTypeNotSupportedYet(error) => CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Warning, // This is a warning for now since the compilation can continue, but it might become an error in the future when we decide to not allow const types at all
+            },
+            SyntaxError::MissPlacedComment(error) => CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Warning, // This is a warning for now since the compilation can continue, but it might become an error in the future when we decide to not allow misplaced comments at all
+            },
+        }
+    }
 }

@@ -8,8 +8,12 @@ import "std/io";
 import "std/memory";
 
 namespace std {
-    private struct map_pair<K: std::hashable, V> {
-    public:
+    // concept hashable {
+    //     fun hash(*const this) -> uint64;
+    // }
+
+    private struct map_pair<K: std::hashable + operator::equal, V> {
+      public:
         key: K;
         value: V;
 
@@ -20,21 +24,21 @@ namespace std {
     }
 
     #[std::trivially_copyable]
-    private struct map_bucket<K: std::hashable, V> {
-    public:
+    private struct map_bucket<K: std::hashable + operator::equal, V> {
+      public:
         occupied: bool;
         hash: uint64;
         dib: uint64;
         pair: *std::map_pair<K, V>;
     }
 
-    public struct map<K: std::hashable, V> {
-    private:
+    public struct map<K: std::hashable + operator::equal, V> {
+      private:
         buckets: *std::map_bucket<K, V>;
         length: uint64;
         capacity: uint64;
 
-    public:
+      public:
         fun new() -> std::map<K, V> {
             return std::map<K, V>::with_capacity(16u);
         }
@@ -179,7 +183,7 @@ namespace std {
             this->length = 0u;
         }
 
-    private:
+      private:
         fun min_capacity(*const this) -> uint64 {
             return 8u;
         }

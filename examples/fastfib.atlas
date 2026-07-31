@@ -1,0 +1,110 @@
+import "std/io";
+import "std/optional";
+import "core/experimental/i128";
+
+extern fun time(tloc: *int64) -> int64;
+extern fun clock() -> int64;
+extern fun clocks_per_sec() -> int64;
+extern fun pow(x: float64, y: float64) -> float64;
+
+fun mul64_to_u128(x: uint64, y: uint64) -> uint128 {
+    let MASK32 = 4294967295;
+    let x_lo = x & MASK32;
+    let x_hi = x >> 32;
+    let y_lo = y & MASK32;
+    let y_hi = y >> 32;
+
+    let p0 = x_lo * y_lo;
+    let p1 = x_lo * y_hi;
+    let p2 = x_hi * y_lo;
+    let p3 = x_hi * y_hi;
+
+    let mid = (p0 >> 32) + (p1 & MASK32) + (p2 & MASK32);
+    let mid_hi = (mid >> 32) + (p1 >> 32) + (p2 >> 32) + (p3 & MASK32);
+
+    return uint128 {
+        .low = (p0 & MASK32) | (mid << 32),
+        .high = (p3 >> 32) + mid_hi
+    };
+}
+
+fun compute_c(a: uint64, b: uint64) -> uint128 {
+    let ab: uint128 = mul64_to_u128(a, b);
+    let aa: uint128 = mul64_to_u128(a, a);
+
+    return (ab + ab) - aa;
+}
+
+fun compute_d(a: uint64, b: uint64) -> uint128 {
+    let aa: uint128 = mul64_to_u128(a, a);
+    let bb: uint128 = mul64_to_u128(b, b);
+
+    return aa + bb;
+}
+
+fun fib(n: int64) -> int64 {
+    if (n < 0) {
+        return -1;
+    }
+    
+    if (n > 92) {
+        return -1;
+    }
+
+    let a: uint64 = 0; // F(0)
+    let b: uint64 = 1; // F(1)
+
+    let start_bit: int64 = -1;
+    let i: int64 = 63;
+    while (i >= 0 && start_bit == -1) {
+        if ((((n) >> i) & 1) == 1) {
+            start_bit = i;
+        }
+        i = i - 1;
+    }
+    if (start_bit == -1) {
+        return 0;
+    }
+
+    i = start_bit;
+    while (i >= 0) {
+        let c = compute_c(a, b);
+        let d = compute_d(a, b);
+
+        if ((((n) >> i) & 1) == 0) {
+            let new_a = c.to_64bits();
+            if (new_a.has_value() == false) { return -1; }
+
+            let new_b = d.to_64bits();
+            if (new_b.has_value() == false) { return -1; }
+
+            a = new_a.value();
+            b = new_b.value();
+        } else {
+            let new_a = d.to_64bits();
+            if (new_a.has_value() == false) { return -1; }
+
+            let sum: uint128 = c + d;
+
+            let new_b = sum.to_64bits();
+
+            if (new_b.has_value() == false) { return -1; }
+
+            a = new_a.value();
+            b = new_b.value();
+        }
+
+        i = i - 1;
+    }
+
+    return a as int64;
+}
+
+fun main() {
+    let start_time = clock();
+    std::printf("%ld\n", fib(40));
+    let end_time = clock();
+    let cpu_time_used = ((end_time - start_time) as float64 / clocks_per_sec() as float64);
+    std::printf("Time: %fms\n", cpu_time_used * 1000.0);      // Milliseconds
+    std::printf("Time: %fµs\n", cpu_time_used * 1000000.0);   // Microseconds
+}

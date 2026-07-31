@@ -1,0 +1,59 @@
+import "std/memory";
+import "std/io";
+import "std/atomic";
+
+namespace std {
+    private struct __control_block<T> {
+        public:
+        ref_count: std::atomic<int64>;
+        val: T;
+    }
+
+    // TODO: Add `A: std::allocator = std::default_allocator` generic parameter for custom allocators
+    public struct shared_ptr<T> {
+        private:
+        cb: *std::__control_block<T>;
+        fun release(*this) {
+            if this->cb != null {
+                this->cb->ref_count.fetch_sub(1);
+                if this->cb->ref_count.load() <= 0 {
+                    std::free(this->cb);
+                    std::printf("Released shared_ptr and freed memory\n", "");
+                }
+            }
+        }
+      public:
+        ~shared_ptr() {
+            std::printf("Dropping shared_ptr with ref_count: %d\n", this->cb->ref_count);
+            this->release();
+        }
+        fun new(val: T) -> std::shared_ptr<T> {
+            let cb = std::zero_alloc<std::__control_block<T>>(1);
+            cb->val = std::move(val);
+            cb->ref_count.store(1);
+            return std::shared_ptr<T> {
+                .cb = cb,
+            };
+        }
+        //! Unsafe
+        fun from_raw(ptr: *T) -> std::shared_ptr<T> {
+            let cb = std::zero_alloc<std::__control_block>(1);
+            cb->ref_count = 1;
+            return std::shared_ptr<T> {
+                .cb  = cb,
+                .ptr = ptr,
+            };
+        }
+        fun copy(*const this) -> std::shared_ptr<T> {
+            std::printf("Copying shared_ptr with ref_count: %d\n", this->cb->ref_count);
+            this->cb->ref_count = this->cb->ref_count + 1;
+            return std::shared_ptr<T> {
+                .cb = this->cb,
+                .ptr = this->ptr,
+            };
+        }
+        operator deref(*const this) -> T where T: std::trivially_copyable {
+            return this->cb->val;
+        }
+    }
+}

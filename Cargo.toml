@@ -1,6 +1,6 @@
 [package]
 name = "atlas_77"
-version = "0.8.0"
+version = "0.8.2"
 edition = "2024"
 description = "Wannabe systems programming language."
 authors = ["Gipson62"]
@@ -32,12 +32,12 @@ name = "atlas77"
 path = "src/main.rs"
 
 [dependencies]
-libc = "^0.2.184"
+libc = "^0.2.186"
 # For the CLI
-clap = { version = "4.6.0", features = ["derive"] }
+clap = { version = "4.6.1", features = ["derive"] }
 bumpalo = "3.20.2"
 # For pretty printing of errors
-miette = { version = "7.6.0", features = ["fancy"] }
+miette = { version = "7.6.0", features = ["fancy", "serde"] }
 thiserror = "2.0.18"
 # For the Lexer
 logos = "0.16.1"
@@ -45,20 +45,22 @@ logos = "0.16.1"
 include_dir = "0.7.4"
 
 # For documentation
-pulldown-cmark = { version = "0.13.3", optional = true }            # markdown parsing(optional)
-tera = { version = "1.20", optional = true }                        # HTML templating
-syntect = { version = "5.3", optional = true }                      # code highlighting 
-serde = { version = "1.0", features = ["derive"], optional = true } # for serializing the table of contents
-serde_json = { version = "1.0", optional = true }                   # for serializing the table of contents
+pulldown-cmark = { version = "0.13.3", optional = true } # markdown parsing(optional)
+tera = { version = "1.20", optional = true } # HTML templating
+syntect = { version = "5.3", optional = true } # code highlighting 
+serde = { version = "1.0", features = [
+    "derive",
+], optional = true } # for serializing the table of contents
+serde_json = { version = "1.0", optional = true } # for serializing the table of contents
 target-lexicon = "0.13.5"
 toml = "1.1.2"
 lang-c = "0.15.1"
 
 [features]
-default = ["embedded-tinycc"]
+default = ["embedded-tinycc", "serde", "serde_json"]
 docs = ["pulldown-cmark", "tera", "syntect", "serde", "serde_json"]
 embedded-tinycc = []
 
 [build-dependencies]
 walkdir = "^2"
-cc = "1.2.59"
+cc = "1.2.61"

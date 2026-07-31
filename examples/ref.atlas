@@ -1,0 +1,13 @@
+struct Foo {
+
+}
+
+fun main() {
+    let i = 125894;
+    let ref_i = &i;
+
+    let foo = Foo {};
+    let ref_foo: Foo = &foo;
+    
+    let a: uint64 = 42.0;
+}

@@ -11,7 +11,6 @@ import "std/memory";
 
 
 namespace std {
-
     //! Internal storage for `optional<T>`.
     //!
     //! This untagged union holds either a `value: T` when present or
@@ -49,7 +48,7 @@ namespace std {
         fun of(data: T) -> std::optional<T> {
             return std::optional<T> {
                 .data = std::optional_storage<T> { 
-                    .value = data 
+                    .value = std::move(data) 
                 }, 
                 .has_value = true
             };
@@ -110,6 +109,17 @@ namespace std {
                 delete this;
                 return default;
             }
+        }
+        operator not(*const this) -> bool {
+            return this->has_value();
+        }
+        // We could do compile time magic in the future to make it so for `std::trivially_copyable` types we don't set `has_value` to false
+        operator deref(*this) -> T {
+            if !this->has_value() {
+                std::panic("Called deref operator on an empty value");
+            }
+            this->has_value = false;
+            return std::ptr::read(&this->data.value);
         }
     }
 }

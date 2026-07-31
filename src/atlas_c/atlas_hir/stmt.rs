@@ -1,10 +1,12 @@
+use serde::Serialize;
+
 use super::{expr::HirExpr, ty::HirTy};
 use crate::atlas_c::utils::Span;
 /// Most of the statements could actually be replaced with
 ///
 /// Statement::Expr(HirExpr)
 /// Only the HirBlock & HirReturn is useful
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum HirStatement<'hir> {
     Block(HirBlock<'hir>),
     Return(HirReturn<'hir>),
@@ -36,19 +38,20 @@ impl HirStatement<'_> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HirExprStmt<'hir> {
     pub span: Span,
     pub expr: HirExpr<'hir>,
 }
-#[derive(Debug, Clone)]
+
+#[derive(Debug, Clone, Serialize)]
 pub struct HirWhileStmt<'hir> {
     pub span: Span,
     pub condition: HirExpr<'hir>,
     pub body: HirBlock<'hir>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HirVariableStmt<'hir> {
     pub span: Span,
     pub name: &'hir str,
@@ -58,7 +61,7 @@ pub struct HirVariableStmt<'hir> {
     pub value: HirExpr<'hir>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HirAssignStmt<'hir> {
     pub span: Span,
     pub dst: HirExpr<'hir>,
@@ -66,20 +69,20 @@ pub struct HirAssignStmt<'hir> {
     pub ty: &'hir HirTy<'hir>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HirIfElseStmt<'hir> {
     pub span: Span,
     pub condition: HirExpr<'hir>,
     pub then_branch: HirBlock<'hir>,
     pub else_branch: Option<HirBlock<'hir>>,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HirReturn<'hir> {
     pub span: Span,
     pub value: Option<HirExpr<'hir>>,
     pub ty: &'hir HirTy<'hir>,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HirBlock<'hir> {
     pub span: Span,
     pub statements: Vec<HirStatement<'hir>>,

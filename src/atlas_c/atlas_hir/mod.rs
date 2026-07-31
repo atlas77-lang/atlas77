@@ -28,17 +28,19 @@ pub mod stmt;
 pub mod ty;
 pub mod warning;
 
-#[derive(Debug, Clone, Default)]
+use serde::Serialize;
+
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct HirModuleGraph<'hir> {
     pub modules: BTreeMap<HirModuleId<'hir>, HirModule<'hir>>,
 }
 
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize)]
 pub struct HirModuleId<'hir> {
     pub name: &'hir str,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct HirModuleBody<'hir> {
     pub functions: BTreeMap<&'hir str, HirFunction<'hir>>,
     pub structs: BTreeMap<&'hir str, HirStruct<'hir>>,
@@ -49,7 +51,7 @@ pub struct HirModuleBody<'hir> {
     pub unions: BTreeMap<&'hir str, HirUnion<'hir>>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 /// A module is
 pub struct HirModule<'hir> {
     pub body: HirModuleBody<'hir>,

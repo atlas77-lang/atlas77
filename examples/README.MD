@@ -8,6 +8,7 @@ This file keeps track of all the examples.
 | [Hello World](hello.atlas)                | ✅    |
 | [Type Checking](type_check.atlas)         | ✅    |
 | [Test](test.atlas) (used by the compiler) | ✅    |
+| [Integer Literals](integer_literals.atlas) | ✅   |
 | [Guessing Game](guessing_game.atlas)      | 🔧    |
 | [Nullable Protocol (valid)](nullable_protocol_ok.atlas) | ✅ |
 | [Nullable Invalid: predicate return](nullable_invalid_predicate_return.atlas) | ✅ |

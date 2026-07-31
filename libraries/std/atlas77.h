@@ -44,6 +44,8 @@ typedef unsigned long uint32_t;
 #include <string.h>
 #include <time.h>
 #include <ctype.h>
+#include <errno.h>
+#include <stdatomic.h>
 #if defined(_WIN32)
 #include <windows.h>
 #endif
@@ -164,6 +166,11 @@ static uint64_t atlas77_string_hash(const char *s)
         ++s;
     }
     return hash;
+}
+
+static uint64_t c_errno()
+{
+    return errno;
 }
 
 #endif /* ATLAS77_H */

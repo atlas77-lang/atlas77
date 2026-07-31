@@ -11,8 +11,8 @@ use super::ty::{
 };
 use crate::atlas_c::{
     atlas_hir::ty::{
-        HirFunctionTy, HirLiteralFloatTy, HirLiteralIntegerTy, HirLiteralUnsignedIntegerTy,
-        HirPtrTy,
+        HirAtomicTy, HirFunctionTy, HirLiteralFloatTy, HirLiteralIntegerTy,
+        HirLiteralUnsignedIntegerTy, HirPtrTy,
     },
     utils::Span,
 };
@@ -292,5 +292,17 @@ impl<'arena> TypeArena<'arena> {
         span: Span,
     ) -> &'arena HirTy<'arena> {
         self.get_function_ty_with_spans(params, vec![], ret_ty, span, span)
+    }
+
+    pub fn get_atomic_ty(
+        &'arena self,
+        inner: &'arena HirTy<'arena>,
+        span: Span,
+    ) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_atomic_ty_id(&HirTyId::from(inner));
+        self.intern.borrow_mut().entry(id).or_insert_with(|| {
+            self.allocator
+                .alloc(HirTy::Atomic(HirAtomicTy { inner, span }))
+        })
     }
 }
