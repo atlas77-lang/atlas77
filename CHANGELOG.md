@@ -2,6 +2,73 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.2] - 2026-07-31
+
+### Bug Fixes
+
+- Finally get a proper consuming method semantics ([fc8be92](https://github.com/atlas77-lang/Atlas77/commit/fc8be921342014c7690aa6533aa6775ad1c5c197))
+- Consuming methods now consume the object ([3d8afb4](https://github.com/atlas77-lang/Atlas77/commit/3d8afb4297984af85419bd994af1198176027b1a))
+- Make shared_ptr rc atomic ([7013e30](https://github.com/atlas77-lang/Atlas77/commit/7013e30334ab80577b7a16d90b7c880a7762cbd9))
+- #include <std::atomic.h> ([458f4e4](https://github.com/atlas77-lang/Atlas77/commit/458f4e48a56e3a5561a1841747c1f9a5cefde230))
+- Enum finally codegen (finally need it) ([685ecfc](https://github.com/atlas77-lang/Atlas77/commit/685ecfcfc7f555adeda1782630be51087ab9a7ba))
+- Operator overloading return type used ([e847f0a](https://github.com/atlas77-lang/Atlas77/commit/e847f0a5955a31a775a7db20024ce054337cf15b))
+- Not necessary const method modifier on operator overloads ([d320b9f](https://github.com/atlas77-lang/Atlas77/commit/d320b9f49c1e604670004292c93168f297f1b3d1))
+- Deref actually modifies inner value ([4ab17c7](https://github.com/atlas77-lang/Atlas77/commit/4ab17c7757fc554f1c890d174bedaa1840532281))
+- Op overload for unary operator erroneous behaviour ([b80fd57](https://github.com/atlas77-lang/Atlas77/commit/b80fd57412136fd4aef010289e8f39356664faf3))
+- Add unknwon function error ([9c988a5](https://github.com/atlas77-lang/Atlas77/commit/9c988a5f5f74d81cda72ac6579751c5df3ef8334))
+- Type checker pointer error ([f984d22](https://github.com/atlas77-lang/Atlas77/commit/f984d22caf03bee3d48e2b0b498ebefe86d609e7))
+- License description in README was misleading ([4cfa609](https://github.com/atlas77-lang/Atlas77/commit/4cfa60912752269fbd1c0a8ce43bf9362295ede6))
+- Add specific checks for operators in the type checking ([bb53820](https://github.com/atlas77-lang/Atlas77/commit/bb53820b89546344baa92a4cdc539bac67fb612f))
+- Use std::move in expected & optional for non trivially_copyable types ([9ec0a5c](https://github.com/atlas77-lang/Atlas77/commit/9ec0a5c1a884a3699cf2584afde16ab6f187bf6e))
+- Issue with asref and deref operators being treated as binary ([b636198](https://github.com/atlas77-lang/Atlas77/commit/b636198e7db34771d1bb4ed73f8bc3640b37647e))
+- Remove main() from time.atlas ([789f663](https://github.com/atlas77-lang/Atlas77/commit/789f66384298f029bca90d1a7605ae66e4ed92f1))
+- Issues with operator overloading method names for generic structs ([cf514d4](https://github.com/atlas77-lang/Atlas77/commit/cf514d4e9739cecf0984efe975d72e8078fd9758))
+- Allow '[package]' to hold the compiler config in the atlas.toml ([8704551](https://github.com/atlas77-lang/Atlas77/commit/8704551e38b0ee18f29139b9906ec542888e13a4))
+- Issues with the internal '<error>' type poisoning the typechecker ([0604896](https://github.com/atlas77-lang/Atlas77/commit/060489612636614180c18577d948670ce2f72caf))
+- Operators were in the way of monomorphization ([55a392b](https://github.com/atlas77-lang/Atlas77/commit/55a392b886712c0f7608fc7751e0db8821de1b53))
+- AsRef operator would not work on non primitive type ([2b2b3c2](https://github.com/atlas77-lang/Atlas77/commit/2b2b3c2e5587ab7bca58820ba85b8aa0506fbe92))
+- Literal numbers are actually primitive, fml ([ef47562](https://github.com/atlas77-lang/Atlas77/commit/ef4756273ae2ff44ffcca496e9e52f066e95ce5e))
+
+### Features
+
+- Expanded upon the std::atomic baseline ([7e91989](https://github.com/atlas77-lang/Atlas77/commit/7e91989eb922730eaa279680f65579b4ca272e27))
+- Allow for external enums ([28aca17](https://github.com/atlas77-lang/Atlas77/commit/28aca17228967d725eb43e15ef6690756163e442))
+- Improvement over the std::any struct ([7667f0d](https://github.com/atlas77-lang/Atlas77/commit/7667f0de59189ce4877514ad97d9b32285157076))
+- Add operator::equal constraint to std::map ([2521681](https://github.com/atlas77-lang/Atlas77/commit/2521681f1710e9f12cca2fca55897f045802e309))
+- Add experimental `std::atomic<T>` ([494b4f3](https://github.com/atlas77-lang/Atlas77/commit/494b4f38506d03ef6bc214a9c08fb0852367fe57))
+- Add `__atomic` type qualifier for future `std::atomic<T>` ([b41466c](https://github.com/atlas77-lang/Atlas77/commit/b41466cb7f92d707fe6a19ef0c7104dfbb1f3b06))
+- Add 'std::any' type ([941dc6b](https://github.com/atlas77-lang/Atlas77/commit/941dc6b8010f9f837b32dabddfe6fcbbaed2dbd5))
+- Added warnings to FrontendResult ([b17db6f](https://github.com/atlas77-lang/Atlas77/commit/b17db6ffde18d3a240bf9ba81514e2d203ab3b98))
+- Added JSON serialization with to-json command ([c27546c](https://github.com/atlas77-lang/Atlas77/commit/c27546ca20fbb028a8d3a68bcdee32e113a4b2bf))
+- Stdlib extension for std::fs and std::queue (non final) ([29efe18](https://github.com/atlas77-lang/Atlas77/commit/29efe18aa2572f952f1be8fdcd5fadc5e02f409e))
+- Slow start of the bootstrap ([921ccd6](https://github.com/atlas77-lang/Atlas77/commit/921ccd6797bc9a5f7407f047b6dc3b968933babb))
+- Add --compiler-binary-override flag to override the compiler binary ([7668fdc](https://github.com/atlas77-lang/Atlas77/commit/7668fdc9d7ae626ede9a82ec0094bf9fa7e716a8))
+- Add the BEERWARE License for funsies ([ee2fd13](https://github.com/atlas77-lang/Atlas77/commit/ee2fd13cb496181c217001112504cb2be8c3b241))
+- Add errno headers to the atlas77.h header ([c026676](https://github.com/atlas77-lang/Atlas77/commit/c026676d0bcca4bf6bc6165fd44551fc8b3d7388))
+- Add a very basic 'std::shared_ptr<T>' to the standard library ([85be17d](https://github.com/atlas77-lang/Atlas77/commit/85be17daa82f33a7f23fe5750c58e04a4de2b993))
+- Add 'std::byte' to the standard library ([38f10f0](https://github.com/atlas77-lang/Atlas77/commit/38f10f00ac48b2e6799127e03dd0ace851b9b0b6))
+- Add 'deref' and 'not' to optional and expected to simplify them ([3add489](https://github.com/atlas77-lang/Atlas77/commit/3add4893ad8f9063b5d0f653199a0108d1893c37))
+- Add operator constraint checks and monomorphization ([2e6e4ef](https://github.com/atlas77-lang/Atlas77/commit/2e6e4efdd7206a3a78a5b039f861dde91b28887b))
+- Add operator constraints for generics and method level where clauses ([810195a](https://github.com/atlas77-lang/Atlas77/commit/810195a584ab6deac3baafbf246b4aa12fe18259))
+- Support for integer literals with underscores ([0cca7cd](https://github.com/atlas77-lang/Atlas77/commit/0cca7cdb1d3df07d6beebf430d8ed2fcf62a633b))
+- Add skeleton for (u)int128 types but no real implementation of operators ([572a358](https://github.com/atlas77-lang/Atlas77/commit/572a3581286d61228a5129ac1bac72c8540fd30c))
+- Streamline operator overloading in the compiler ([ab34f98](https://github.com/atlas77-lang/Atlas77/commit/ab34f9804b75d408aabd614c74b2d446f74658ba))
+- Add checks to operator overloading signatures ([74cfba7](https://github.com/atlas77-lang/Atlas77/commit/74cfba73ea9ba8036d9aadf5e4be6bc283dad199))
+- Add support for operator overloading in Atlas ([b9beb0a](https://github.com/atlas77-lang/Atlas77/commit/b9beb0ad4e193815dd782cfd97e5bad23c46706e))
+
+### Refactor
+
+- Moved std::deleter to memory.atlas ([682a732](https://github.com/atlas77-lang/Atlas77/commit/682a732ffc7f9f507b3c34cddf765ad84d518026))
+
+### Misc
+
+- Clippy ([4c689e8](https://github.com/atlas77-lang/Atlas77/commit/4c689e873d6e484a56ba6f980c437becd1cdab37))
+- I forgot to bump the version number in the code ([c9fcab9](https://github.com/atlas77-lang/Atlas77/commit/c9fcab9b755478936c53eb02510951da741543ca))
+
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
 ## [0.8.1] - 2026-05-02
 
 ### Bug Fixes
