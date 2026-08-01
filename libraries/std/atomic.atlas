@@ -111,49 +111,62 @@ namespace std {
         }
 
         // Potentially Add `Where T: Primitive` to this section to ensure "atomic_fetch_add" is not misused
-
-        // Useless operator ngl
-        operator add(*const this, other: *const std::atomic<T>) -> std::atomic<T> where T: operator::add {
-            let left_val = atomic_load<T>(&this->value);
-            let right_val = atomic_load<T>(&other->value);
-            
-            return std::atomic<T>::new(left_val + right_val);
-        }
+        // At least temporarily
 
         // Should be "where T: AddAssign" but it doesn't exist yet
-        fun fetch_add(*this, val: T) where T: operator::add {
-            atomic_fetch_add(&this->value, val);
+        fun fetch_add(*this, val: T) -> T
+            where T: operator::add 
+        {
+            return atomic_fetch_add(&this->value, val);
         }
-        fun fetch_add_explicit(*this, val: T, order: MEMORY_ORDERING) where T: operator::add {
-            atomic_fetch_add_explicit(&this->value, val, order);
+        fun fetch_add_explicit(*this, val: T, order: MEMORY_ORDERING) -> T
+            where T: operator::add 
+        {
+            return atomic_fetch_add_explicit(&this->value, val, order);
         }
         // Should be "where T: SubAssign" but it doesn't exist yet
-        fun fetch_sub(*this, val: T) where T: operator::sub {
-            atomic_fetch_sub(&this->value, val);
+        fun fetch_sub(*this, val: T) -> T
+            where T: operator::sub 
+        {
+            return atomic_fetch_sub(&this->value, val);
         }
-        fun fetch_sub_explicit(*this, val: T, order: MEMORY_ORDERING) where T: operator::sub {
-            atomic_fetch_sub_explicit(&this->value, val, order);
+        fun fetch_sub_explicit(*this, val: T, order: MEMORY_ORDERING) -> T
+            where T: operator::sub 
+        {
+            return atomic_fetch_sub_explicit(&this->value, val, order);
         }
         // Should be "where T: OrAssign" but it doesn't exist yet
-        fun fetch_or(*this, val: T) where T: operator::bin_or {
-            atomic_fetch_or(&this->value, val);
+        fun fetch_or(*this, val: T) -> T
+            where T: operator::bin_or 
+        {
+            return atomic_fetch_or(&this->value, val);
         }
-        fun fetch_or_explicit(*this, val: T, order: MEMORY_ORDERING) where T: operator::bin_or {
-            atomic_fetch_or_explicit(&this->value, val, order);
+        fun fetch_or_explicit(*this, val: T, order: MEMORY_ORDERING) -> T
+            where T: operator::bin_or 
+        {
+            return atomic_fetch_or_explicit(&this->value, val, order);
         }
         // Should be "where T: AndAssign" but it doesn't exist yet
-        fun fetch_and(*this, val: T) where T: operator::bin_and {
-            atomic_fetch_and(&this->value, val);
+        fun fetch_and(*this, val: T) -> T
+            where T: operator::bin_and 
+        {
+            return atomic_fetch_and(&this->value, val);
         }
-        fun fetch_and_explicit(*this, val: T, order: MEMORY_ORDERING) where T: operator::bin_and {
-            atomic_fetch_and_explicit(&this->value, val, order);
+        fun fetch_and_explicit(*this, val: T, order: MEMORY_ORDERING) -> T
+            where T: operator::bin_and 
+        {
+            return atomic_fetch_and_explicit(&this->value, val, order);
         }
         // Should be "where T: XorAssign" but it doesn't exist yet
-        fun fetch_xor(*this, val: T) where T: operator::bin_xor {
-            atomic_fetch_xor(&this->value, val);
+        fun fetch_xor(*this, val: T) -> T
+            where T: operator::bin_xor 
+        {
+            return atomic_fetch_xor(&this->value, val);
         }
-        fun fetch_xor_explicit(*this, val: T, order: MEMORY_ORDERING) where T: operator::bin_xor {
-            atomic_fetch_xor_explicit(&this->value, val, order);
+        fun fetch_xor_explicit(*this, val: T, order: MEMORY_ORDERING) -> T
+            where T: operator::bin_xor 
+        {
+            return atomic_fetch_xor_explicit(&this->value, val, order);
         }
     }
 }
