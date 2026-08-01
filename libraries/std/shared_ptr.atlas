@@ -4,56 +4,108 @@ import "std/atomic";
 
 namespace std {
     private struct __control_block<T> {
-        public:
+      public:
         ref_count: std::atomic<int64>;
-        val: T;
+        weak_count: std::atomic<int64>;
+        __val_destructor: fun(*T) -> unit;
     }
 
     // TODO: Add `A: std::allocator = std::default_allocator` generic parameter for custom allocators
     public struct shared_ptr<T> {
-        private:
+      private:
         cb: *std::__control_block<T>;
+        ptr: *T;
         fun release(*this) {
             if this->cb != null {
-                this->cb->ref_count.fetch_sub(1);
-                if this->cb->ref_count.load() <= 0 {
+                if this->cb->ref_count.fetch_sub(1) == 1 {
+                    this->cb->__val_destructor(this->ptr);
+
                     std::free(this->cb);
-                    std::printf("Released shared_ptr and freed memory\n", "");
                 }
             }
         }
       public:
         ~shared_ptr() {
-            std::printf("Dropping shared_ptr with ref_count: %d\n", this->cb->ref_count);
             this->release();
         }
         fun new(val: T) -> std::shared_ptr<T> {
             let cb = std::zero_alloc<std::__control_block<T>>(1);
-            cb->val = std::move(val);
             cb->ref_count.store(1);
+            cb->weak_count.store(1);
+            cb->__val_destructor = std::deleter<T>;
+            let ptr = std::zero_alloc<T>(1);
+            *ptr = std::move(val);
             return std::shared_ptr<T> {
                 .cb = cb,
+                .ptr = ptr,
             };
         }
         //! Unsafe
         fun from_raw(ptr: *T) -> std::shared_ptr<T> {
-            let cb = std::zero_alloc<std::__control_block>(1);
-            cb->ref_count = 1;
+            let cb = std::zero_alloc<std::__control_block<T>>(1);
+            cb->ref_count.store(1);
+            cb->__val_destructor = std::deleter<T>;
             return std::shared_ptr<T> {
                 .cb  = cb,
                 .ptr = ptr,
             };
         }
         fun copy(*const this) -> std::shared_ptr<T> {
-            std::printf("Copying shared_ptr with ref_count: %d\n", this->cb->ref_count);
-            this->cb->ref_count = this->cb->ref_count + 1;
+            if this->cb == null {
+                std::panic("std::shared_ptr control block is null for some reason");
+            }
+            this->cb->ref_count.fetch_add(1);
             return std::shared_ptr<T> {
                 .cb = this->cb,
                 .ptr = this->ptr,
             };
         }
+        //! Unsafe function, and only temporary until references are added back to Atlas77
+        fun get(*const this) -> *const T {
+            return this->ptr;
+        }
+        //! Unsafe function, and only temporary until references are added back to Atlas77
+        fun get_mut(*const this) -> *T {
+            return this->ptr;
+        }
+        fun is_null(*const this) -> bool {
+            return this->ptr == null || this->cb == null;
+        }
+        fun use_count(*const this) -> int64 {
+            if this->cb == null { return 0; }
+            return this->cb->ref_count.load();
+        }
         operator deref(*const this) -> T where T: std::trivially_copyable {
-            return this->cb->val;
+            return *this->ptr;
+        }
+        operator not(*const this) -> bool {
+            return this->ptr != null;
+        }
+        operator equal(*const this, other: *const std::shared_ptr<T>) -> bool 
+            where T: operator::equal
+        {
+            return *this->ptr == *other->ptr;
+        }
+        fun get_weak(*this) -> std::weak_ptr<T> {
+            this->cb->weak_count.fetch_add(1);
+            return std::weak_ptr<T> {
+                .cb = this->cb,
+                .ptr = this->ptr,
+            };
+        }
+    }
+
+    //! NB: Not properly implemented just yet...
+    public struct weak_ptr<T> {
+      private:
+        cb: std::__control_block<T>;
+        ptr: *T;
+
+      public:
+        fun copy(*this) -> std::weak_ptr<T> {
+            if this->cb == null {
+                std::panic("std::weak_ptr control block is null for some reason");
+            }
         }
     }
 }
