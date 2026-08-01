@@ -18,6 +18,7 @@ declare_warning_type!(
         UnsafeRawPointerStruct(UnsafeRawPointerStructWarning),
         SpecialMethodMightHaveWrongSignature(SpecialMethodMightHaveWrongSignatureWarning),
         MethodLooksLikeAnOperator(MethodLooksLikeAnOperatorWarning),
+        UnusedResultFromFunction(UnusedResultFromFunctionWarning),
     }
 );
 
@@ -174,6 +175,22 @@ pub struct MethodLooksLikeAnOperatorWarning {
     pub src: NamedSource<String>,
 }
 
+#[derive(Error, Diagnostic, Debug, Serialize, Clone)]
+#[diagnostic(
+    code(sema::unused_result_from_non_trivial_function),
+    severity(warning),
+    help("Consider storing the result into a temporary variable or just ignore this warning")
+)]
+#[error("Function `{func_name}` returns a non trivial type, but its results is discarded...")]
+pub struct UnusedResultFromFunctionWarning {
+    pub func_name: String,
+    #[label = "Called here"]
+    pub span: Span,
+    #[source_code]
+    #[serde(skip_serializing)]
+    pub src: NamedSource<String>,
+}
+
 impl From<HirWarning> for Vec<CompilerError> {
     fn from(w: HirWarning) -> Vec<CompilerError> {
         match w {
@@ -249,6 +266,11 @@ impl From<HirWarning> for Vec<CompilerError> {
                 kind: CompilerErrorKind::Warning,
             }],
             HirWarning::MethodLooksLikeAnOperator(warning) => vec![CompilerError {
+                message: warning.to_string(),
+                span: warning.span,
+                kind: CompilerErrorKind::Warning,
+            }],
+            HirWarning::UnusedResultFromFunction(warning) => vec![CompilerError {
                 message: warning.to_string(),
                 span: warning.span,
                 kind: CompilerErrorKind::Warning,

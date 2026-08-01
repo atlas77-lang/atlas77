@@ -1105,6 +1105,7 @@ pub fn run_frontend<'ast, 'hir>(
                 other => semantic_errors.push(other),
             }
         }
+        warnings.extend(ownership_pass.warnings);
     }
 
     FrontendResult {

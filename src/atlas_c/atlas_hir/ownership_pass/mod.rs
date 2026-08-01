@@ -15,9 +15,11 @@ use crate::atlas_c::{
         },
         expr::{HirDeleteExpr, HirExpr, HirIdentExpr, HirUnaryOp},
         monomorphization_pass::MonomorphizationPass,
+        pretty_print::HirPrettyPrinter,
         signature::{HirFunctionParameterSignature, HirModuleSignature, HirStructMethodModifier},
         stmt::{HirAssignStmt, HirBlock, HirExprStmt, HirStatement},
         ty::HirTy,
+        warning::{HirWarning, UnusedResultFromFunctionWarning},
     },
     utils::{self, Span},
 };
@@ -50,6 +52,7 @@ pub struct HirOwnershipPass<'hir> {
     _hir_arena: &'hir HirArena<'hir>,
     signature: HirModuleSignature<'hir>,
     errors: Vec<HirError>,
+    pub warnings: Vec<HirWarning>,
 }
 
 impl<'hir> HirOwnershipPass<'hir> {
@@ -58,6 +61,7 @@ impl<'hir> HirOwnershipPass<'hir> {
             _hir_arena: hir_arena,
             signature: signature.clone(),
             errors: Vec::new(),
+            warnings: Vec::new(),
         }
     }
 
@@ -215,7 +219,32 @@ impl<'hir> HirOwnershipPass<'hir> {
                     if let Some((name, span)) = self.deleted_identifier(&expr_stmt.expr) {
                         self.mark_deleted(scope_stack, name, span);
                     }
-                    statements.push(HirStatement::Expr(expr_stmt));
+
+                    if self.should_auto_delete(expr_stmt.expr.ty())
+                        && let HirExpr::Call(c) = self.strip_noop_unary(&expr_stmt.expr)
+                    {
+                        let path = expr_stmt.span.path;
+                        let src = utils::get_file_content(path).unwrap();
+                        let mut pretty_printer = HirPrettyPrinter::new();
+                        pretty_printer.print_expr(&c.callee);
+                        let func_name = pretty_printer.get_output();
+                        self.warnings.push(HirWarning::UnusedResultFromFunction(
+                            UnusedResultFromFunctionWarning {
+                                func_name,
+                                span: expr_stmt.span,
+                                src: NamedSource::new(path, src),
+                            },
+                        ));
+                        statements.push(HirStatement::Expr(HirExprStmt {
+                            span: expr_stmt.span,
+                            expr: HirExpr::Delete(HirDeleteExpr {
+                                span: expr_stmt.span,
+                                expr: Box::new(expr_stmt.expr),
+                            }),
+                        }));
+                    } else {
+                        statements.push(HirStatement::Expr(expr_stmt));
+                    }
                 }
                 HirStatement::Let(let_stmt) => {
                     self.validate_expr(&let_stmt.value, scope_stack);
