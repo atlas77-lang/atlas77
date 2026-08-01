@@ -358,11 +358,11 @@ impl HirTy<'_> {
     /// Which is not a valid C identifier. It should returns `Foo_T_ptr` instead.
     pub fn get_valid_c_string(&self) -> String {
         match self {
-            HirTy::Integer(_) => "int64".to_string(),
+            HirTy::Integer(i) => format!("int{}", i.size_in_bits),
             HirTy::LiteralInteger(li) => format!("int{}", li.get_minimal_int_ty().size_in_bits),
-            HirTy::Float(_) => "float64".to_string(),
+            HirTy::Float(f) => format!("float{}", f.size_in_bits),
             HirTy::LiteralFloat(lf) => format!("float{}", lf.get_float_ty().size_in_bits),
-            HirTy::UnsignedInteger(_) => "uint64".to_string(),
+            HirTy::UnsignedInteger(u) => format!("uint{}", u.size_in_bits),
             HirTy::LiteralUnsignedInteger(lu) => {
                 format!("uint{}", lu.get_minimal_uint_ty().size_in_bits)
             }
