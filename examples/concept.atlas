@@ -1,0 +1,34 @@
+// This file is only there for testing purposes rn
+
+namespace std {
+    concept equal {
+        operator equal(*const this, other: *const This) -> This;
+    }
+    
+    enum ordering {
+        LESS;
+        GREATER;
+        EQUAL;
+    }
+    concept compare {
+        fun compare(*const this, other: *const This) -> std::ordering;
+        operator equal(*const this, other: *const This) -> bool {
+            return this->compare(other) == std::ordering::EQUAL; 
+        }
+        operator less(*const this, other: *const This) -> bool {
+            return this->compare(other) == std::ordering::LESS;
+        }
+        operator less_equal(*const this, other: *const This) -> bool {
+            let res = this->compare(other);
+            return res == std::ordering::EQUAL || res == std::ordering::LESS; 
+        }
+        operator greater(*const this, other: *const This) -> bool {
+            return this->compare(other) == std::ordering::GREATER;
+        }
+        operator great_equal(*const this, other: *const This) -> bool {
+            let res = this->compare(other);
+            return res == std::ordering::EQUAL || res == std::ordering::GREATER; 
+        }
+    }
+}
+
