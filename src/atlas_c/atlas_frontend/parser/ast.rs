@@ -28,12 +28,14 @@ pub enum AstItem<'ast> {
     Union(AstUnion<'ast>),
     Constant(AstGlobalConst<'ast>),
     Concept(AstConcept<'ast>),
+    Extend(AstExtendBlock<'ast>),
 }
 
 impl AstItem<'_> {
     pub fn set_vis(&mut self, vis: AstVisibility) {
         match self {
             AstItem::Import(_) => {}
+            AstItem::Extend(_) => {}
             AstItem::Namespace(v) => v.vis = vis,
             AstItem::Struct(v) => v.vis = vis,
             AstItem::ExternFunction(v) => v.vis = vis,
@@ -72,6 +74,7 @@ impl AstItem<'_> {
             AstItem::Constant(v) => v.span,
             AstItem::ExternConstant(v) => v.span,
             AstItem::Concept(v) => v.span,
+            AstItem::Extend(v) => v.span,
         }
     }
 }
@@ -161,6 +164,15 @@ impl<'ast> AstItem<'ast> {
                 }
             },
             AstItem::Constant(c) => match c.docstring {
+                Some(existing) => {
+                    let combined = format!("{}\n{}", docstring, existing);
+                    c.docstring = Some(arena.alloc(combined));
+                }
+                None => {
+                    c.docstring = Some(docstring);
+                }
+            },
+            AstItem::Concept(c) => match c.docstring {
                 Some(existing) => {
                     let combined = format!("{}\n{}", docstring, existing);
                     c.docstring = Some(arena.alloc(combined));
@@ -319,6 +331,15 @@ pub struct AstConcept<'ast> {
     pub required_methods: &'ast [&'ast AstMethodSignature<'ast>],
     pub docstring: Option<&'ast str>,
     pub is_extern: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct AstExtendBlock<'ast> {
+    pub span: Span,
+    pub ty: &'ast AstType<'ast>,
+    pub concept: &'ast AstType<'ast>,
+    pub operators: &'ast [&'ast AstOperatorOverload<'ast>],
+    pub methods: &'ast [&'ast AstMethod<'ast>],
 }
 
 #[derive(Debug, Clone)]

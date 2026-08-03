@@ -309,6 +309,24 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     .unions
                     .insert(union_name, self.arena.intern(hir_union.signature.clone()));
             }
+            AstItem::Concept(_) => {
+                let path = ast_item.span().path;
+                let src = utils::get_file_content(path).unwrap();
+                return Err(HirError::UnsupportedItem(UnsupportedItemError {
+                    span: ast_item.span(),
+                    item: "concept".to_string(),
+                    src: NamedSource::new(path, src),
+                }));
+            }
+            AstItem::Extend(_) => {
+                let path = ast_item.span().path;
+                let src = utils::get_file_content(path).unwrap();
+                return Err(HirError::UnsupportedItem(UnsupportedItemError {
+                    span: ast_item.span(),
+                    item: "extend block".to_string(),
+                    src: NamedSource::new(path, src),
+                }));
+            }
             _ => {
                 let path = ast_item.span().path;
                 let src = utils::get_file_content(path).unwrap();

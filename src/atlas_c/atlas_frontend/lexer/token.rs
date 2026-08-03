@@ -318,6 +318,8 @@ pub enum TokenKind {
     KwStruct,
     #[token("concept")]
     KwConcept,
+    #[token("extend")]
+    KwExtend,
     #[token("enum")]
     KwEnum,
     #[token("union")]

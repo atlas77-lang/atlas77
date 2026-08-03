@@ -8,10 +8,10 @@ use miette::NamedSource;
 use crate::atlas_c::{
     atlas_frontend::parser::{
         ast::{
-            AstArg, AstAtomicType, AstConcept, AstEnum, AstEnumVariant, AstFlag, AstGlobalConst,
-            AstInlineArrayType, AstListLiteralWithSize, AstMethodSignature, AstNullLiteral,
-            AstObjLiteralExpr, AstObjLiteralField, AstOperatorOverloadSignature, AstPtrTy,
-            AstStdGenericConstraint, AstUnion, AstVariadicType,
+            AstArg, AstAtomicType, AstConcept, AstEnum, AstEnumVariant, AstExtendBlock, AstFlag,
+            AstGlobalConst, AstInlineArrayType, AstListLiteralWithSize, AstMethodSignature,
+            AstNullLiteral, AstObjLiteralExpr, AstObjLiteralField, AstOperatorOverloadSignature,
+            AstPtrTy, AstStdGenericConstraint, AstUnion, AstVariadicType,
         },
         error::{
             ConstTypeNotSupportedYetError, DestructorWithParametersError, FlagDoesntExistError,
@@ -331,6 +331,7 @@ impl<'ast> Parser<'ast> {
             TokenKind::KwFunc => Ok(AstItem::Function(self.parse_func()?)),
             TokenKind::KwStruct => Ok(AstItem::Struct(self.parse_struct()?)),
             TokenKind::KwConcept => Ok(AstItem::Concept(self.parse_concept()?)),
+            TokenKind::KwExtend => Ok(AstItem::Extend(self.parse_extend_block()?)),
             TokenKind::KwUnion => Ok(AstItem::Union(self.parse_union()?)),
             TokenKind::KwEnum => Ok(AstItem::Enum(self.parse_enum()?)),
             TokenKind::KwConst => {
@@ -720,6 +721,44 @@ impl<'ast> Parser<'ast> {
             docstring: None,
             is_extern: false,
             c_name: None,
+        };
+        Ok(node)
+    }
+
+    fn parse_extend_block(&mut self) -> ParseResult<AstExtendBlock<'ast>> {
+        let start_span = self.expect(TokenKind::KwExtend)?.span;
+        let ty = self.parse_type()?;
+        self.expect(TokenKind::Identifier("with".to_string()))?;
+        let concept = self.parse_type()?;
+
+        self.expect(TokenKind::LBrace)?;
+        let mut methods = vec![];
+        let mut operators = vec![];
+        // Empty if there is none
+        while self.current().kind() != TokenKind::RBrace {
+            match self.current().kind() {
+                TokenKind::KwOperator => {
+                    operators.push(self.parse_operator()?);
+                }
+                TokenKind::KwFunc => {
+                    methods.push(self.parse_method()?);
+                }
+                _ => {
+                    return Err(self.unexpected_token_error(
+                        TokenVec(vec![TokenKind::Identifier("Methods/Operator".to_string())]),
+                        &self.current().span,
+                    ));
+                }
+            }
+        }
+        self.expect(TokenKind::RBrace)?;
+
+        let node = AstExtendBlock {
+            span: Span::union_span(&start_span, &concept.span()),
+            ty: self.arena.alloc(ty),
+            concept: self.arena.alloc(concept),
+            methods: self.arena.alloc_vec(methods),
+            operators: self.arena.alloc_vec(operators),
         };
         Ok(node)
     }
