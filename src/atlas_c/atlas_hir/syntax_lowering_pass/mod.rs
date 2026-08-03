@@ -7,11 +7,11 @@ use crate::atlas_c::{
         parser::{
             arena::AstArena,
             ast::{
-                AstArg, AstBinaryOp, AstBlock, AstDestructor, AstEnum, AstExpr, AstExternFunction,
-                AstFlag, AstFunction, AstGeneric, AstGenericConstraint, AstIdentifier, AstImport,
-                AstItem, AstLiteral, AstMethod, AstMethodModifier, AstNamespace,
-                AstOperatorOverload, AstProgram, AstStatement, AstStruct, AstType, AstUnaryOp,
-                AstUnion,
+                AstArg, AstBinaryOp, AstBlock, AstDestructor, AstEnum, AstExpr, AstExtendBlock,
+                AstExternFunction, AstFlag, AstFunction, AstGeneric, AstGenericConstraint,
+                AstIdentifier, AstImport, AstItem, AstLiteral, AstMethod, AstMethodModifier,
+                AstNamespace, AstOperatorOverload, AstProgram, AstStatement, AstStruct, AstType,
+                AstUnaryOp, AstUnion,
             },
         },
     },
@@ -34,12 +34,14 @@ use crate::atlas_c::{
             HirStringLiteralExpr, HirThisLiteral, HirUnaryOp, HirUnitLiteralExpr,
             HirUnsignedIntegerLiteralExpr, UnaryOpExpr,
         },
+        intrinsic_methods::{
+            INTRINSIC_ALIGNOF, INTRINSIC_SIZEOF, INTRINSIC_TYPE_ID, INTRINSIC_TYPE_OF,
+        },
         item::{
-            HirEnum, HirEnumVariant, HirFunction, HirStruct, HirStructDestructor, HirStructMethod,
-            HirUnion,
+            HirEnum, HirEnumVariant, HirExtendBlock, HirFunction, HirStruct, HirStructDestructor,
+            HirStructMethod, HirUnion,
         },
         monomorphization_pass::generic_pool::HirGenericPool,
-        pretty_print::HirPrettyPrinter,
         signature::{
             ConstantValue, HirFunctionParameterSignature, HirFunctionSignature,
             HirGenericConstraint, HirGenericConstraintKind, HirMethodAttribute, HirModuleSignature,
@@ -48,20 +50,12 @@ use crate::atlas_c::{
             HirStructMethodSignature, HirStructSignature, HirTypeParameterItemSignature,
             HirUnionSignature, HirVisibility,
         },
-        special_methods::{
-            INTRINSIC_ALIGNOF, INTRINSIC_SIZEOF, INTRINSIC_TYPE_ID, INTRINSIC_TYPE_OF,
-            SpecialMethodKind, expected_signature_for_struct, special_method_by_name,
-            special_method_enabled_by_flag,
-        },
         stmt::{
             HirAssignStmt, HirBlock, HirExprStmt, HirIfElseStmt, HirReturn, HirStatement,
             HirVariableStmt, HirWhileStmt,
         },
-        ty::{HirGenericTy, HirNamedTy, HirTy},
-        warning::{
-            HirWarning, MethodLooksLikeAnOperatorWarning,
-            SpecialMethodMightHaveWrongSignatureWarning,
-        },
+        ty::{HirGenericTy, HirNamedTy, HirTy, HirTyId},
+        warning::{HirWarning, MethodLooksLikeAnOperatorWarning},
     },
     utils::{self, Span},
 };
@@ -140,43 +134,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         Ok(())
     }
 
-    fn method_returns_self(
-        &self,
-        sig: &HirStructMethodSignature<'hir>,
-        struct_name: &'hir str,
-    ) -> bool {
-        match &sig.return_ty {
-            HirTy::Named(n) => n.name == struct_name,
-            HirTy::Generic(g) => g.name == struct_name,
-            _ => false,
-        }
-    }
-
-    fn special_method_matches_signature(
-        &self,
-        sig: &HirStructMethodSignature<'hir>,
-        kind: SpecialMethodKind,
-        struct_name: &'hir str,
-    ) -> bool {
-        match kind {
-            SpecialMethodKind::Copy => {
-                sig.modifier == HirStructMethodModifier::Const
-                    && sig.params.is_empty()
-                    && self.method_returns_self(sig, struct_name)
-            }
-            SpecialMethodKind::Default => {
-                sig.modifier == HirStructMethodModifier::Static
-                    && sig.params.is_empty()
-                    && self.method_returns_self(sig, struct_name)
-            }
-            SpecialMethodKind::Hash => {
-                sig.modifier == HirStructMethodModifier::Const
-                    && sig.params.is_empty()
-                    && &sig.return_ty == self.arena.types().get_uint_ty(64)
-            }
-        }
-    }
-
     pub fn lower(&mut self) -> HirResult<&'hir mut HirModule<'hir>> {
         for item in self.ast.items {
             self.visit_item(item)?;
@@ -193,6 +150,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             signature: self.module_signature.clone(),
         }))
     }
+
     pub fn visit_item(&mut self, ast_item: &'ast AstItem<'ast>) -> HirResult<()> {
         match ast_item {
             AstItem::Namespace(ns) => {
@@ -265,6 +223,13 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     for (name, hir_union) in allocated_hir.body.unions.iter() {
                         self.module_body.unions.insert(name, hir_union.clone());
                     }
+                    for (ty_key, blocks) in allocated_hir.body.extends.iter() {
+                        self.module_body
+                            .extends
+                            .entry(*ty_key)
+                            .or_default()
+                            .extend(blocks.iter().cloned());
+                    }
                     for (name, signature) in allocated_hir.signature.unions.iter() {
                         self.module_signature.unions.insert(name, signature);
                     }
@@ -318,14 +283,13 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     src: NamedSource::new(path, src),
                 }));
             }
-            AstItem::Extend(_) => {
-                let path = ast_item.span().path;
-                let src = utils::get_file_content(path).unwrap();
-                return Err(HirError::UnsupportedItem(UnsupportedItemError {
-                    span: ast_item.span(),
-                    item: "extend block".to_string(),
-                    src: NamedSource::new(path, src),
-                }));
+            AstItem::Extend(e) => {
+                let extend = self.visit_extend_block(e)?;
+                self.module_body
+                    .extends
+                    .entry(extend.ty_key)
+                    .or_default()
+                    .push(extend);
             }
             _ => {
                 let path = ast_item.span().path;
@@ -338,6 +302,37 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
         }
         Ok(())
+    }
+
+    fn visit_extend_block(
+        &mut self,
+        ast_extend: &'ast AstExtendBlock<'ast>,
+    ) -> HirResult<HirExtendBlock<'hir>> {
+        let ty = self.visit_ty(ast_extend.ty)?;
+        let concept = self.visit_ty(ast_extend.concept)?;
+
+        let mut methods = Vec::new();
+        for method in ast_extend.methods.iter() {
+            methods.push(self.visit_method(method)?);
+        }
+
+        let mut operators = Vec::new();
+        for operator in ast_extend.operators.iter() {
+            let (method, _op_kind) = self.visit_operator_overload(operator)?;
+            operators.push(method);
+        }
+
+        Ok(HirExtendBlock {
+            span: ast_extend.span,
+            ty,
+            ty_key: HirTyId::from(ty),
+            ty_span: ast_extend.ty.span(),
+            concept,
+            concept_key: HirTyId::from(concept),
+            concept_span: ast_extend.concept.span(),
+            methods,
+            operators,
+        })
     }
 
     fn visit_union(&mut self, ast_union: &'ast AstUnion<'ast>) -> HirResult<HirUnion<'hir>> {
@@ -620,48 +615,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             None
         };
 
-        let mut has_copy_method = false;
-        let mut has_default_method = false;
-        let mut has_hash_method = false;
-        for method in methods.iter() {
-            if let Some(descriptor) = special_method_by_name(method.name) {
-                let kind = descriptor.kind;
-                if self.special_method_matches_signature(method.signature, kind, name) {
-                    match kind {
-                        SpecialMethodKind::Copy => has_copy_method = true,
-                        SpecialMethodKind::Default => has_default_method = true,
-                        SpecialMethodKind::Hash => has_hash_method = true,
-                    }
-                    continue;
-                }
-
-                // We only warn because it's not really an error to have this method name
-                // with a different signature, though it's most probably a mistake.
-                let path = method.span.path;
-                let src = utils::get_file_content(path).unwrap();
-                let mut pretty_printer = HirPrettyPrinter::new();
-                pretty_printer.print_method_signature(method.name, method.signature);
-                let signature = pretty_printer.get_output();
-                self.warnings
-                    .push(HirWarning::SpecialMethodMightHaveWrongSignature(
-                        SpecialMethodMightHaveWrongSignatureWarning {
-                            signature,
-                            expected_signature: expected_signature_for_struct(kind, name),
-                            method_name: method.name.into(),
-                            src: NamedSource::new(path, src),
-                            span: method.span,
-                        },
-                    ));
-            }
-        }
-
         let is_trivially_copyable = matches!(node.flag, AstFlag::TriviallyCopyable(_));
-        let has_copy_capability =
-            has_copy_method || special_method_enabled_by_flag(SpecialMethodKind::Copy, node.flag);
-        let has_default_capability = has_default_method
-            || special_method_enabled_by_flag(SpecialMethodKind::Default, node.flag);
-        let has_hash_capability =
-            has_hash_method || special_method_enabled_by_flag(SpecialMethodKind::Hash, node.flag);
 
         let signature = HirStructSignature {
             declaration_span: node.span,
@@ -697,9 +651,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             generics,
             destructor: destructor.as_ref().map(|d| d.signature.clone()),
             had_user_defined_destructor,
-            is_std_copyable: has_copy_capability,
-            is_std_default: has_default_capability,
-            is_std_hashable: has_hash_capability,
             is_trivially_copyable,
             nullable_attribute_span: node.nullable_attribute_span,
             docstring: if let Some(docstring) = node.docstring {

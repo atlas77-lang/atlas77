@@ -6,6 +6,7 @@ use crate::atlas_c::atlas_hir::signature::{
     HirStructSignature, HirUnionSignature, HirVisibility,
 };
 use crate::atlas_c::atlas_hir::ty::HirGenericTy;
+use crate::atlas_c::atlas_hir::ty::{HirTy, HirTyId};
 use crate::atlas_c::utils::Span;
 
 #[derive(Debug, Clone, Serialize)]
@@ -97,6 +98,20 @@ pub struct HirStructMethod<'hir> {
     pub name_span: Span,
     pub signature: &'hir HirStructMethodSignature<'hir>,
     pub body: HirBlock<'hir>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+/// A type extension block such as `extend T with SomeConcept { ... }`.
+pub struct HirExtendBlock<'hir> {
+    pub span: Span,
+    pub ty: &'hir HirTy<'hir>,
+    pub ty_key: HirTyId,
+    pub ty_span: Span,
+    pub concept: &'hir HirTy<'hir>,
+    pub concept_key: HirTyId,
+    pub concept_span: Span,
+    pub methods: Vec<HirStructMethod<'hir>>,
+    pub operators: Vec<HirStructMethod<'hir>>,
 }
 
 #[derive(Debug, Clone, Serialize)]

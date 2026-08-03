@@ -6,18 +6,7 @@ use super::{
     expr,
     stmt::{HirBlock, HirExprStmt, HirStatement},
 };
-use crate::atlas_c::atlas_hir::special_methods::{
-    INTRINSIC_PRIMITIVE_COPY, INTRINSIC_PRIMITIVE_DEFAULT, INTRINSIC_PRIMITIVE_HASH,
-    SpecialMethodKind, SpecialMethodReceiver, primitive_special_call_descriptor,
-};
-use crate::atlas_c::atlas_hir::{
-    error::UnknownFunctionError,
-    signature::{
-        HirFunctionParameterSignature, HirFunctionSignature, HirMethodAttribute,
-        HirOverloadableOperatorKind, HirStructDestructorSignature, HirStructFieldSignature,
-        HirStructMethodModifier, HirStructSignature, HirVisibility,
-    },
-};
+
 use crate::atlas_c::atlas_hir::{
     error::UnknownOverloadableOperatorError, pretty_print::HirPrettyPrinter,
 };
@@ -32,9 +21,9 @@ use crate::atlas_c::atlas_hir::{
         CallingNonConstMethodOnConstReferenceOrigin, CanOnlyConstructStructsError,
         CannotAccessFieldOfPointersError, EmptyListLiteralError, FieldKind, HirError, HirResult,
         IllegalOperationError, IllegalUnaryOperationError, InvalidListSizeError,
-        InvalidSpecialMethodSignatureError, ListIndexOutOfBoundsError,
-        MethodConstraintNotSatisfiedError, NonConstantListSizeError, NotEnoughArgumentsError,
-        NotEnoughArgumentsOrigin, OperatorIsNotImplementedForThisTypeError,
+        ListIndexOutOfBoundsError, MethodConstraintNotSatisfiedError, NonConstantListSizeError,
+        NotEnoughArgumentsError, NotEnoughArgumentsOrigin,
+        OperatorIsNotImplementedForThisTypeError,
         OperatorOverloadDoesNotHaveRequiredAmountOfArgsError, ReturningPointerToLocalVariableError,
         StructCannotHaveAFieldOfItsOwnTypeError, TryingToAccessFieldOnNonObjectTypeError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldError,
@@ -48,7 +37,7 @@ use crate::atlas_c::atlas_hir::{
         HirBinaryOperator, HirDeleteExpr, HirExpr, HirFieldAccessExpr, HirIdentExpr,
         HirThisLiteral, HirUnaryOp, HirUnsignedIntegerLiteralExpr,
     },
-    item::{HirStruct, HirStructDestructor, HirStructMethod, HirUnion},
+    item::{HirExtendBlock, HirStruct, HirStructDestructor, HirStructMethod, HirUnion},
     monomorphization_pass::{MethodMonomorphizationRequest, MonomorphizationPass},
     ty::{HirGenericTy, HirNamedTy, HirTy, HirTyId},
     type_check_pass::context::{ContextFunction, ContextVariable},
@@ -57,12 +46,20 @@ use crate::atlas_c::atlas_hir::{
         UnionFieldCannotBeAutomaticallyDeletedWarning, UnsafeRawPointerStructWarning,
     },
 };
+use crate::atlas_c::atlas_hir::{
+    error::{InvalidSpecialMethodSignatureError, UnknownFunctionError},
+    signature::{
+        HirFunctionParameterSignature, HirFunctionSignature, HirMethodAttribute,
+        HirOverloadableOperatorKind, HirStructDestructorSignature, HirStructFieldSignature,
+        HirStructMethodModifier, HirStructMethodSignature, HirStructSignature, HirVisibility,
+    },
+};
 
 use crate::atlas_c::utils;
 use crate::atlas_c::utils::Span;
 use miette::NamedSource;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     mem::MaybeUninit,
 };
 
@@ -78,6 +75,7 @@ pub struct TypeChecker<'hir> {
     signature: HirModuleSignature<'hir>,
     current_func_name: Option<&'hir str>,
     current_class_name: Option<&'hir str>,
+    module_extends: BTreeMap<HirTyId, Vec<HirExtendBlock<'hir>>>,
     //TODO: Move this to the MonomorphizationPass in the future
     extern_monomorphized: HashMap<
         (&'hir str, Vec<&'hir HirTy<'hir>>, Vec<&'hir HirTy<'hir>>),
@@ -98,6 +96,7 @@ impl<'hir> TypeChecker<'hir> {
             signature: HirModuleSignature::default(),
             current_func_name: None,
             current_class_name: None,
+            module_extends: BTreeMap::new(),
             extern_monomorphized: HashMap::new(),
             pending_method_monomorphization: Vec::new(),
             errors: Vec::new(),
@@ -177,9 +176,100 @@ impl<'hir> TypeChecker<'hir> {
         true
     }
 
+    fn find_extend_method(
+        &self,
+        ty: &HirTy<'hir>,
+        method_name: &'hir str,
+    ) -> Option<HirStructMethodSignature<'hir>> {
+        self.module_extends.get(&ty.type_key()).and_then(|blocks| {
+            blocks
+                .iter()
+                .flat_map(|block| block.methods.iter())
+                .find(|method| method.name == method_name)
+                .map(|method| method.signature.clone())
+        })
+    }
+
+    fn validate_and_apply_method_call(
+        &mut self,
+        target_ty: &'hir HirTy<'hir>,
+        ty_name: String,
+        method_signature: &HirStructMethodSignature<'hir>,
+        field_access: &mut HirFieldAccessExpr<'hir>,
+        call_args: &mut Vec<expr::HirExpr<'hir>>,
+        call_args_ty: &mut Vec<&'hir HirTy<'hir>>,
+        call_generics: &mut Vec<&'hir HirTy<'hir>>,
+        call_span: Span,
+    ) -> HirResult<&'hir HirTy<'hir>> {
+        if !method_signature.is_constraint_satisfied {
+            let path = field_access.span.path;
+            let src = utils::get_file_content(path).unwrap();
+            return Err(HirError::MethodConstraintNotSatisfied(
+                MethodConstraintNotSatisfiedError {
+                    member_kind: "method".to_string(),
+                    member_name: field_access.field.name.to_string(),
+                    ty_name,
+                    span: field_access.span,
+                    src: NamedSource::new(path, src),
+                },
+            ));
+        }
+
+        if method_signature.modifier == HirStructMethodModifier::Static {
+            let src = utils::get_file_content(field_access.span.path).unwrap();
+            return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                span: field_access.span,
+                expr: "Static method call on instance".to_string(),
+                src: NamedSource::new(field_access.span.path, src),
+            }));
+        }
+
+        if method_signature.params.len() != call_args.len() {
+            return Err(Self::not_enough_arguments_err(
+                "method".to_string(),
+                method_signature.params.len(),
+                &method_signature.span,
+                call_args.len(),
+                &call_span,
+            ));
+        }
+
+        if self.is_const_ptr_ty(target_ty)
+            && method_signature.modifier != HirStructMethodModifier::Const
+        {
+            return Err(Self::calling_non_const_method_on_const_reference_err(
+                &method_signature.span,
+                &field_access.span,
+            ));
+        }
+
+        if self.is_mutable_ptr_ty(target_ty)
+            && method_signature.modifier == HirStructMethodModifier::Consuming
+        {
+            return Err(Self::calling_consuming_method_on_mutable_reference_err(
+                &method_signature.span,
+                &field_access.span,
+            ));
+        }
+
+        for (param, arg) in method_signature.params.iter().zip(call_args.iter_mut()) {
+            self.retag_integer_literal_for_expected_ty(param.ty, arg);
+            let arg_ty = self.check_expr(arg)?;
+            self.is_equivalent_ty(param.ty, param.span, arg_ty, arg.span())?;
+            call_args_ty.push(param.ty);
+        }
+
+        field_access.ty = self.arena.intern(method_signature.return_ty.clone());
+        call_generics.clear();
+        field_access.field.ty = self.arena.intern(method_signature.return_ty.clone());
+
+        Ok(self.arena.intern(method_signature.return_ty.clone()))
+    }
+
     pub fn check(&mut self, hir: &mut HirModule<'hir>) -> HirResult<()> {
         self.errors.clear();
         self.signature = hir.signature.clone();
+        self.module_extends = hir.body.extends.clone();
 
         // Auto-destructor synthesis now happens after monomorphization, during type checking.
         self.synthesize_auto_destructors(hir);
@@ -430,9 +520,6 @@ impl<'hir> TypeChecker<'hir> {
             let is_trivially_copyable = !(has_destructor || strct.signature.flag.is_non_copyable());
 
             strct.signature.is_trivially_copyable = is_trivially_copyable;
-            if is_trivially_copyable {
-                strct.signature.is_std_copyable = true;
-            }
 
             if let Some(sig_ref) = hir.signature.structs.get_mut(struct_name) {
                 *sig_ref = self.arena.intern(strct.signature.clone());
@@ -762,7 +849,6 @@ impl<'hir> TypeChecker<'hir> {
         method: &mut HirStructMethod<'hir>,
         is_nullable_type: bool,
     ) -> HirResult<()> {
-        self.check_special_method_signature(method.name, method)?;
         self.check_nullable_method_attributes(method, is_nullable_type)?;
         self.context_functions.push(HashMap::new());
         self.context_functions.last_mut().unwrap().insert(
@@ -918,24 +1004,6 @@ impl<'hir> TypeChecker<'hir> {
         }
 
         Ok(())
-    }
-
-    fn check_special_method_signature(
-        &mut self,
-        name: &str,
-        _method: &HirStructMethod<'hir>,
-    ) -> HirResult<()> {
-        match name {
-            "display" => {
-                // TODO: Implement display method signature checks
-                Ok(())
-            }
-            "to_string" => {
-                // TODO: Implement to_string method signature checks
-                Ok(())
-            }
-            _ => Ok(()),
-        }
     }
 
     fn check_func(&mut self, func: &mut HirFunction<'hir>) -> HirResult<()> {
@@ -2088,11 +2156,6 @@ impl<'hir> TypeChecker<'hir> {
                     return self.check_generic_function_reference(func_expr);
                 }
 
-                if let Some(rewritten) = self.try_rewrite_primitive_special_call(func_expr)? {
-                    *expr = rewritten;
-                    return self.check_expr(expr);
-                }
-
                 let path = func_expr.span.path;
                 let callee = func_expr.callee.as_mut();
                 match callee {
@@ -2230,9 +2293,47 @@ impl<'hir> TypeChecker<'hir> {
                             ));
                         }
 
+                        let lookup_method_name = if func_expr.generics.is_empty() {
+                            field_access.field.name
+                        } else {
+                            MonomorphizationPass::generate_mangled_name(
+                                self.arena,
+                                &HirGenericTy {
+                                    name: field_access.field.name,
+                                    inner: func_expr
+                                        .generics
+                                        .iter()
+                                        .map(|g| (*g).clone())
+                                        .collect(),
+                                    span: func_expr.span,
+                                },
+                                "method",
+                            )
+                        };
+
                         let name = match self.get_class_name_of_type(target_ty) {
                             Some(n) => n,
                             None => {
+                                if let Some(method_sig) =
+                                    self.find_extend_method(target_ty, lookup_method_name)
+                                {
+                                    field_access.field.name = lookup_method_name;
+                                    let call_span = func_expr.span;
+                                    let call_args = &mut func_expr.args;
+                                    let call_args_ty = &mut func_expr.args_ty;
+                                    let call_generics = &mut func_expr.generics;
+                                    return self.validate_and_apply_method_call(
+                                        target_ty,
+                                        format!("{}", target_ty),
+                                        &method_sig,
+                                        field_access,
+                                        call_args,
+                                        call_args_ty,
+                                        call_generics,
+                                        call_span,
+                                    );
+                                }
+
                                 let path = field_access.span.path;
                                 let src = utils::get_file_content(path).unwrap();
                                 return Err(HirError::TryingToAccessFieldOnNonObjectType(
@@ -2272,24 +2373,6 @@ impl<'hir> TypeChecker<'hir> {
                                 },
                             ));
                         }
-                        let lookup_method_name = if func_expr.generics.is_empty() {
-                            field_access.field.name
-                        } else {
-                            MonomorphizationPass::generate_mangled_name(
-                                self.arena,
-                                &HirGenericTy {
-                                    name: field_access.field.name,
-                                    inner: func_expr
-                                        .generics
-                                        .iter()
-                                        .map(|g| (*g).clone())
-                                        .collect(),
-                                    span: func_expr.span,
-                                },
-                                "method",
-                            )
-                        };
-
                         let method = if let Some(method) = class.methods.get(lookup_method_name) {
                             Some(method)
                         } else if let Ok(op_name) = lookup_method_name.try_into() {
@@ -2446,6 +2529,24 @@ impl<'hir> TypeChecker<'hir> {
                                 field_signature.span,
                                 "function pointer field",
                                 func_expr,
+                            )
+                        } else if let Some(method_sig) =
+                            self.find_extend_method(target_ty, lookup_method_name)
+                        {
+                            field_access.field.name = lookup_method_name;
+                            let call_span = func_expr.span;
+                            let call_args = &mut func_expr.args;
+                            let call_args_ty = &mut func_expr.args_ty;
+                            let call_generics = &mut func_expr.generics;
+                            self.validate_and_apply_method_call(
+                                target_ty,
+                                format!("{}", target_ty),
+                                &method_sig,
+                                field_access,
+                                call_args,
+                                call_args_ty,
+                                call_generics,
+                                call_span,
                             )
                         } else {
                             Err(Self::unknown_method_err(
@@ -2773,52 +2874,6 @@ impl<'hir> TypeChecker<'hir> {
                 }
             }
             HirExpr::IntrinsicCall(intrinsic) => {
-                match intrinsic.name {
-                    INTRINSIC_PRIMITIVE_DEFAULT => {
-                        if !intrinsic.args.is_empty() || intrinsic.args_ty.len() != 1 {
-                            return Err(Self::type_mismatch_err(
-                                "primitive default intrinsic arguments",
-                                &intrinsic.span,
-                                "exactly one type argument and zero value arguments",
-                                &intrinsic.span,
-                            ));
-                        }
-                        intrinsic.ty = intrinsic.args_ty[0];
-                        return Ok(intrinsic.ty);
-                    }
-                    INTRINSIC_PRIMITIVE_COPY => {
-                        if intrinsic.args.len() != 1 {
-                            return Err(Self::not_enough_arguments_err(
-                                "primitive copy intrinsic".to_string(),
-                                1,
-                                &intrinsic.span,
-                                intrinsic.args.len(),
-                                &intrinsic.span,
-                            ));
-                        }
-                        let arg_ty = self.check_expr(&mut intrinsic.args[0])?;
-                        intrinsic.args_ty = vec![arg_ty];
-                        intrinsic.ty = arg_ty;
-                        return Ok(arg_ty);
-                    }
-                    INTRINSIC_PRIMITIVE_HASH => {
-                        if intrinsic.args.len() != 1 {
-                            return Err(Self::not_enough_arguments_err(
-                                "primitive hash intrinsic".to_string(),
-                                1,
-                                &intrinsic.span,
-                                intrinsic.args.len(),
-                                &intrinsic.span,
-                            ));
-                        }
-                        let arg_ty = self.check_expr(&mut intrinsic.args[0])?;
-                        intrinsic.args_ty = vec![arg_ty];
-                        intrinsic.ty = self.arena.types().get_uint_ty(64);
-                        return Ok(intrinsic.ty);
-                    }
-                    _ => {}
-                }
-
                 // Intrinsic functions are defined as external functions with special handling
                 //Let's just use the extern fn checker for now
                 let signature = match self.signature.functions.get(intrinsic.name) {
@@ -2990,108 +3045,6 @@ impl<'hir> TypeChecker<'hir> {
                 src: NamedSource::new(span.path, utils::get_file_content(span.path).unwrap()),
             },
         ))
-    }
-
-    fn is_primitive_special_receiver_ty(&self, ty: &HirTy<'hir>) -> bool {
-        matches!(
-            ty,
-            HirTy::Boolean(_)
-                | HirTy::Integer(_)
-                | HirTy::Float(_)
-                | HirTy::Char(_)
-                | HirTy::String(_)
-                | HirTy::UnsignedInteger(_)
-                | HirTy::Unit(_)
-                | HirTy::LiteralInteger(_)
-                | HirTy::LiteralUnsignedInteger(_)
-                | HirTy::LiteralFloat(_)
-                // Slices are just pointers under the hood, so we can support special methods on them as well
-                | HirTy::Slice(_)
-        )
-    }
-
-    fn primitive_special_call_supported_for_ty(
-        &self,
-        kind: SpecialMethodKind,
-        ty: &HirTy<'hir>,
-    ) -> bool {
-        if !self.is_primitive_special_receiver_ty(ty) {
-            return false;
-        }
-        match kind {
-            SpecialMethodKind::Copy => true,
-            SpecialMethodKind::Default => true,
-            SpecialMethodKind::Hash => true,
-        }
-    }
-
-    fn try_rewrite_primitive_special_call(
-        &mut self,
-        func_expr: &mut expr::HirFunctionCallExpr<'hir>,
-    ) -> HirResult<Option<HirExpr<'hir>>> {
-        if !func_expr.generics.is_empty() {
-            return Ok(None);
-        }
-
-        match func_expr.callee.as_mut() {
-            HirExpr::FieldAccess(field_access) => {
-                let Some(descriptor) = primitive_special_call_descriptor(
-                    field_access.field.name,
-                    SpecialMethodReceiver::Instance,
-                ) else {
-                    return Ok(None);
-                };
-
-                if !func_expr.args.is_empty() {
-                    return Ok(None);
-                }
-
-                let receiver_ty = self.check_expr(&mut field_access.target)?;
-                if !self.primitive_special_call_supported_for_ty(descriptor.kind, receiver_ty) {
-                    return Ok(None);
-                }
-
-                let return_ty = match descriptor.kind {
-                    SpecialMethodKind::Copy => receiver_ty,
-                    SpecialMethodKind::Hash => self.arena.types().get_uint_ty(64),
-                    SpecialMethodKind::Default => receiver_ty,
-                };
-
-                Ok(Some(HirExpr::IntrinsicCall(expr::HirIntrinsicCallExpr {
-                    span: func_expr.span,
-                    name: descriptor.intrinsic_name,
-                    args: vec![(*field_access.target).clone()],
-                    args_ty: vec![receiver_ty],
-                    ty: return_ty,
-                })))
-            }
-            HirExpr::StaticAccess(static_access) => {
-                let Some(descriptor) = primitive_special_call_descriptor(
-                    static_access.field.name,
-                    SpecialMethodReceiver::Static,
-                ) else {
-                    return Ok(None);
-                };
-
-                if !func_expr.args.is_empty() {
-                    return Ok(None);
-                }
-
-                let target_ty = static_access.target;
-                if !self.primitive_special_call_supported_for_ty(descriptor.kind, target_ty) {
-                    return Ok(None);
-                }
-
-                Ok(Some(HirExpr::IntrinsicCall(expr::HirIntrinsicCallExpr {
-                    span: func_expr.span,
-                    name: descriptor.intrinsic_name,
-                    args: vec![],
-                    args_ty: vec![target_ty],
-                    ty: target_ty,
-                })))
-            }
-            _ => Ok(None),
-        }
     }
 
     fn check_generic_function_reference(

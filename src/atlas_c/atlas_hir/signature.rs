@@ -49,13 +49,6 @@ pub struct HirStructSignature<'hir> {
     /// It's only optional, because at the beginning of the pass, the destructor might not exist yet
     pub destructor: Option<HirStructDestructorSignature<'hir>>,
     pub had_user_defined_destructor: bool,
-    /// True when the struct provides a userland `copy(*const this) -> This`-style API
-    /// (or legacy copyable flag during transition).
-    pub is_std_copyable: bool,
-    /// True when the struct provides a userland `default() -> This` static API.
-    pub is_std_default: bool,
-    /// True when the struct provides a userland `hash(*const this) -> uint64`-style API.
-    pub is_std_hashable: bool,
     /// True when this type is explicitly marked as trivially copyable.
     pub is_trivially_copyable: bool,
     /// Marker set when the struct declaration includes `#[std::nullable]`.
@@ -468,6 +461,30 @@ pub struct HirStructMethodSignature<'hir> {
     /// requested by the type checker.
     pub is_instantiated: bool,
     pub docstring: Option<&'hir str>,
+}
+
+impl<'hir> HirStructMethodSignature<'hir> {
+    // TODO: Track and returns where the signature aren't equivalent to get a proper error message
+    fn equivalent_signature(&self, name: &str, (other, other_name): (&Self, &str)) -> bool {
+        if self.modifier != other.modifier {
+            return false;
+        }
+        if name != other_name {
+            return false;
+        }
+        if self.return_ty != other.return_ty {
+            return false;
+        }
+        if self.type_params.len() != other.type_params.len() {
+            return false;
+        }
+        for (arg1, arg2) in self.params.iter().zip(&other.params) {
+            if arg1.ty != arg2.ty {
+                return false;
+            }
+        }
+        true
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize)]

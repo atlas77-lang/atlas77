@@ -10,9 +10,6 @@ use crate::atlas_c::{
         item::{HirEnum, HirFunction, HirStruct, HirStructDestructor, HirStructMethod, HirUnion},
         monomorphization_pass::MonomorphizationPass,
         signature::{ConstantValue, HirOverloadableOperatorKind, HirStructMethodModifier},
-        special_methods::{
-            INTRINSIC_PRIMITIVE_COPY, INTRINSIC_PRIMITIVE_DEFAULT, INTRINSIC_PRIMITIVE_HASH,
-        },
         stmt::HirStatement,
         ty::{HirGenericTy, HirTy, HirTyId},
     },
@@ -1527,132 +1524,6 @@ impl<'hir> HirLoweringPass<'hir> {
                     })?;
                     Ok(dest)
                 }
-                INTRINSIC_PRIMITIVE_DEFAULT => {
-                    let target_ty = intrinsic.args_ty.first().copied().unwrap_or(intrinsic.ty);
-                    let lir_target_ty = self.hir_ty_to_lir_ty(target_ty, intrinsic.span);
-                    let dest = self.new_temp();
-                    match &lir_target_ty {
-                        LirTy::Int8 | LirTy::Int16 | LirTy::Int32 | LirTy::Int64 => {
-                            self.emit(LirInstr::LoadImm {
-                                ty: lir_target_ty,
-                                dst: dest.clone(),
-                                value: LirOperand::ImmInt { val: 0, size: 64 },
-                            })?;
-                        }
-                        LirTy::UInt8 | LirTy::UInt16 | LirTy::UInt32 | LirTy::UInt64 => {
-                            self.emit(LirInstr::LoadImm {
-                                ty: lir_target_ty,
-                                dst: dest.clone(),
-                                value: LirOperand::ImmUInt { val: 0, size: 64 },
-                            })?;
-                        }
-                        LirTy::Float32 | LirTy::Float64 => {
-                            self.emit(LirInstr::LoadImm {
-                                ty: lir_target_ty,
-                                dst: dest.clone(),
-                                value: LirOperand::ImmFloat { val: 0.0, size: 64 },
-                            })?;
-                        }
-                        LirTy::Boolean => {
-                            self.emit(LirInstr::LoadImm {
-                                ty: lir_target_ty,
-                                dst: dest.clone(),
-                                value: LirOperand::ImmBool(false),
-                            })?;
-                        }
-                        LirTy::Char => {
-                            self.emit(LirInstr::LoadImm {
-                                ty: lir_target_ty,
-                                dst: dest.clone(),
-                                value: LirOperand::ImmChar('\0'),
-                            })?;
-                        }
-                        LirTy::Unit => {
-                            self.emit(LirInstr::LoadConst {
-                                dst: dest.clone(),
-                                value: LirOperand::ImmUnit,
-                            })?;
-                        }
-                        LirTy::Str => {
-                            self.emit(LirInstr::LoadConst {
-                                dst: dest.clone(),
-                                value: LirOperand::Const(ConstantValue::String(String::new())),
-                            })?;
-                        }
-                        // Pointer-like defaults are null.
-                        LirTy::Ptr { .. } | LirTy::FnPtr { .. } => {
-                            let zero = self.new_temp();
-                            self.emit(LirInstr::LoadImm {
-                                ty: LirTy::UInt64,
-                                dst: zero.clone(),
-                                value: LirOperand::ImmUInt { val: 0, size: 64 },
-                            })?;
-                            self.emit(LirInstr::Cast {
-                                ty: lir_target_ty,
-                                from: LirTy::UInt64,
-                                dst: dest.clone(),
-                                src: zero,
-                            })?;
-                        }
-                        // This intrinsic is intended for primitive-like targets; keep a safe fallback.
-                        _ => {
-                            let zero = self.new_temp();
-                            self.emit(LirInstr::LoadImm {
-                                ty: LirTy::UInt64,
-                                dst: zero.clone(),
-                                value: LirOperand::ImmUInt { val: 0, size: 64 },
-                            })?;
-                            self.emit(LirInstr::Cast {
-                                ty: lir_target_ty,
-                                from: LirTy::UInt64,
-                                dst: dest.clone(),
-                                src: zero,
-                            })?;
-                        }
-                    }
-                    Ok(dest)
-                }
-                // This purely exists to allow for constraints and use of `primitive.copy()`
-                INTRINSIC_PRIMITIVE_COPY => {
-                    let arg = self.lower_expr(&intrinsic.args[0])?;
-                    Ok(arg)
-                }
-                INTRINSIC_PRIMITIVE_HASH => {
-                    let arg = self.lower_expr(&intrinsic.args[0])?;
-                    let arg_ty = self.hir_ty_to_lir_ty(intrinsic.args[0].ty(), intrinsic.span);
-
-                    let dest = self.new_temp();
-                    match arg_ty {
-                        LirTy::UInt64 => Ok(arg),
-                        LirTy::Unit => {
-                            self.emit(LirInstr::LoadImm {
-                                ty: LirTy::UInt64,
-                                dst: dest.clone(),
-                                value: LirOperand::ImmUInt { val: 0, size: 64 },
-                            })?;
-                            Ok(dest)
-                        }
-                        LirTy::Str => {
-                            self.emit(LirInstr::Call {
-                                ty: LirTy::UInt64,
-                                dst: Some(dest.clone()),
-                                func_name: "atlas77_string_hash".into(),
-                                args: vec![arg],
-                            })?;
-                            Ok(dest)
-                        }
-                        // Default numeric/address-like hashing: cast to uint64.
-                        _ => {
-                            self.emit(LirInstr::Cast {
-                                ty: LirTy::UInt64,
-                                from: arg_ty,
-                                dst: dest.clone(),
-                                src: arg,
-                            })?;
-                            Ok(dest)
-                        }
-                    }
-                }
                 "std::move" => self.lower_expr(&intrinsic.args[0]),
                 "std::ptr::read" => {
                     let ptr = self.lower_expr(&intrinsic.args[0])?;
@@ -1969,7 +1840,6 @@ impl<'hir> HirLoweringPass<'hir> {
         let mut method_names = Vec::new();
         let mut field_count = 0u64;
         let mut field_names = Vec::new();
-        let mut is_default = false;
         let type_name;
         let mangled_name;
 
@@ -1980,7 +1850,6 @@ impl<'hir> HirLoweringPass<'hir> {
                     method_names = sig.methods.keys().copied().collect();
                     field_count = sig.fields.len() as u64;
                     field_names = sig.fields.keys().copied().collect();
-                    is_default = sig.is_std_default;
                     if let Some(c_name) = &sig.c_name {
                         type_name = c_name.to_string();
                         mangled_name = c_name.to_string();
@@ -2027,7 +1896,6 @@ impl<'hir> HirLoweringPass<'hir> {
                     method_names = sig.methods.keys().copied().collect();
                     field_count = sig.fields.len() as u64;
                     field_names = sig.fields.keys().copied().collect();
-                    is_default = sig.is_std_default;
                     if let Some(c_name) = &sig.c_name {
                         type_name = c_name.to_string();
                         mangled_name = c_name.to_string();
@@ -2085,7 +1953,6 @@ impl<'hir> HirLoweringPass<'hir> {
         }
 
         let is_trivially_copyable = ty.is_trivially_copyable(&self.hir_module.signature);
-        let is_copyable = ty.is_copyable(&self.hir_module.signature);
 
         let lir_target_ty = self.hir_ty_to_lir_ty(ty, span);
         let (size, align) = self.lir_type_size_and_align(&lir_target_ty);
@@ -2214,8 +2081,6 @@ impl<'hir> HirLoweringPass<'hir> {
             "is_trivially_copyable".to_string(),
             LirOperand::ImmBool(is_trivially_copyable),
         );
-        field_values.insert("is_copyable".to_string(), LirOperand::ImmBool(is_copyable));
-        field_values.insert("is_default".to_string(), LirOperand::ImmBool(is_default));
 
         let dst = self.new_temp();
         self.emit(LirInstr::ConstructObject {

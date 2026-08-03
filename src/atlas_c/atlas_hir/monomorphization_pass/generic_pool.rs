@@ -15,9 +15,6 @@ use std::fmt::Debug;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StdCapability {
-    Copyable,
-    Default,
-    Hashable,
     TriviallyCopyable,
 }
 
@@ -58,9 +55,6 @@ pub struct HirGenericInstance<'hir> {
 impl<'hir> HirGenericPool<'hir> {
     fn std_capability_from_name(name: &str) -> Option<StdCapability> {
         match name {
-            "copyable" => Some(StdCapability::Copyable),
-            "default" => Some(StdCapability::Default),
-            "hashable" => Some(StdCapability::Hashable),
             "trivially_copyable" => Some(StdCapability::TriviallyCopyable),
             _ => None,
         }
@@ -68,23 +62,7 @@ impl<'hir> HirGenericPool<'hir> {
 
     fn type_is_primitive_capability(ty: &HirTy<'hir>, capability: StdCapability) -> bool {
         match capability {
-            StdCapability::Copyable => matches!(
-                ty,
-                HirTy::Boolean(_)
-                    | HirTy::Integer(_)
-                    | HirTy::Float(_)
-                    | HirTy::Char(_)
-                    | HirTy::String(_)
-                    | HirTy::UnsignedInteger(_)
-                    | HirTy::PtrTy(_)
-                    | HirTy::Function(_)
-                    | HirTy::Slice(_)
-                    | HirTy::Unit(_)
-                    | HirTy::LiteralInteger(_)
-                    | HirTy::LiteralUnsignedInteger(_)
-                    | HirTy::LiteralFloat(_)
-            ),
-            StdCapability::Default | StdCapability::Hashable | StdCapability::TriviallyCopyable => {
+            StdCapability::TriviallyCopyable => {
                 matches!(
                     ty,
                     HirTy::Boolean(_)
@@ -115,9 +93,6 @@ impl<'hir> HirGenericPool<'hir> {
                 .structs
                 .get(name)
                 .is_some_and(|sig| match capability {
-                    StdCapability::Copyable => sig.is_std_copyable,
-                    StdCapability::Default => sig.is_std_default,
-                    StdCapability::Hashable => sig.is_std_hashable,
                     StdCapability::TriviallyCopyable => sig.is_trivially_copyable,
                 })
         };
@@ -135,11 +110,6 @@ impl<'hir> HirGenericPool<'hir> {
         ty: &HirTy<'hir>,
         capability: StdCapability,
     ) -> bool {
-        if matches!(capability, StdCapability::Copyable) {
-            // Keep copyability semantics centralized in HirTy for ownership rules.
-            return ty.is_copyable(module);
-        }
-
         if Self::type_is_primitive_capability(ty, capability) {
             return true;
         }
@@ -526,30 +496,6 @@ impl<'hir> HirGenericPool<'hir> {
         are_constraints_satisfied
     }
 
-    pub fn implements_std_copyable(
-        &self,
-        module: &HirModuleSignature<'hir>,
-        ty: &HirTy<'hir>,
-    ) -> bool {
-        self.implements_std_capability(module, ty, StdCapability::Copyable)
-    }
-
-    pub fn implements_std_hashable(
-        &self,
-        module: &HirModuleSignature<'hir>,
-        ty: &HirTy<'hir>,
-    ) -> bool {
-        self.implements_std_capability(module, ty, StdCapability::Hashable)
-    }
-
-    pub fn implements_std_default(
-        &self,
-        module: &HirModuleSignature<'hir>,
-        ty: &HirTy<'hir>,
-    ) -> bool {
-        self.implements_std_capability(module, ty, StdCapability::Default)
-    }
-
     pub fn implements_std_trivially_copyable(
         &self,
         module: &HirModuleSignature<'hir>,
@@ -636,9 +582,6 @@ mod tests {
             constants: BTreeMap::new(),
             destructor: None,
             had_user_defined_destructor: false,
-            is_std_copyable: false,
-            is_std_default: false,
-            is_std_hashable: false,
             is_trivially_copyable: false,
             nullable_attribute_span: None,
             is_instantiated: false,
