@@ -1,3 +1,5 @@
+import "std/string";
+
 // This file is only there for testing purposes rn
 
 namespace std {
@@ -43,6 +45,16 @@ extend test with std::compare {
     }
 } 
 
+struct test2 extend std::compare {
+    val: int32;
+    #[extend(std::compare)]
+    // Allow for formal verification of signature
+    fun compare(*const this, other: *const test) -> std::ordering {
+        // TODO: Make it possible for boolean
+        return ((a > b) as int32 - (a < b) as int32) as uint64;
+    }
+}
+
 struct test_concept<T: std::compare> {
     val1: T;
     val2: T;
@@ -59,6 +71,12 @@ concept printable {
 
 fun print<T: printable>(val: T) {
     std::printf("%s", val.display().c_str());
+}
+
+extend int32 with printable {
+    fun display(*const this) -> std::string {
+        return std::string::from_chars("5");
+    }
 }
 
 fun main() {

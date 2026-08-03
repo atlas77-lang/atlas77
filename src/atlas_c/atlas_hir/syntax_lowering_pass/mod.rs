@@ -743,13 +743,15 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         node: &'ast AstOperatorOverload,
     ) -> HirResult<(HirStructMethod<'hir>, HirOverloadableOperator)> {
         let type_parameters = node
+            .signature
             .args
             .iter()
             .map(|arg| self.visit_type_param_item(arg))
             .collect::<HirResult<Vec<_>>>();
-        let ret_type_span = node.ret.span();
-        let ret_type = self.visit_ty(node.ret)?.clone();
+        let ret_type_span = node.signature.ret.span();
+        let ret_type = self.visit_ty(node.signature.ret)?.clone();
         let parameters = node
+            .signature
             .args
             .iter()
             .map(|arg| self.visit_func_param(arg))
@@ -757,23 +759,21 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
         let body = self.visit_block(node.body)?;
         let (generics, where_clause) =
-            self.merge_generic_constraints(node.generics, node.where_clause);
+            self.merge_generic_constraints(node.signature.generics, node.signature.where_clause);
 
-        let operator = node
-            .name
-            .name
-            .try_into()
-            .map_err(|_| Self::unknown_overloadable_operator(node.name.name, &node.span))?;
+        let operator = node.signature.name.name.try_into().map_err(|_| {
+            Self::unknown_overloadable_operator(node.signature.name.name, &node.signature.span)
+        })?;
 
         let signature = self.arena.intern(HirStructMethodSignature {
-            modifier: match node.modifier {
+            modifier: match node.signature.modifier {
                 AstMethodModifier::Const => HirStructMethodModifier::Const,
                 AstMethodModifier::Static => HirStructMethodModifier::Static,
                 AstMethodModifier::Mutable => HirStructMethodModifier::Mutable,
                 AstMethodModifier::Consuming => HirStructMethodModifier::Consuming,
             },
-            span: node.span,
-            vis: node.vis.into(),
+            span: node.signature.span,
+            vis: node.signature.vis.into(),
             params: parameters?,
             generics,
             type_params: type_parameters?,
@@ -783,21 +783,22 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             // Sets to true by default; monomorphization pass will update if needed
             is_constraint_satisfied: true,
             attributes: node
+                .signature
                 .attributes
                 .iter()
                 .map(|attr| HirMethodAttribute::from(**attr))
                 .collect(),
             is_instantiated: true,
-            docstring: if let Some(docstring) = node.docstring {
+            docstring: if let Some(docstring) = node.signature.docstring {
                 Some(self.arena.names().get(docstring))
             } else {
                 None
             },
         });
         let method = HirStructMethod {
-            span: node.span,
-            name: self.arena.names().get(node.name.name),
-            name_span: node.name.span,
+            span: node.signature.span,
+            name: self.arena.names().get(node.signature.name.name),
+            name_span: node.signature.name.span,
             signature,
             body,
         };
@@ -805,30 +806,32 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             method,
             HirOverloadableOperator {
                 kind: operator,
-                span: node.span,
+                span: node.signature.span,
             },
         ))
     }
 
     fn visit_method(&mut self, node: &'ast AstMethod<'ast>) -> HirResult<HirStructMethod<'hir>> {
-        if TryInto::<HirOverloadableOperatorKind>::try_into(node.name.name).is_ok() {
-            let path = node.span.path;
+        if TryInto::<HirOverloadableOperatorKind>::try_into(node.signature.name.name).is_ok() {
+            let path = node.signature.span.path;
             let src = utils::get_file_content(path).unwrap();
             let warning = HirWarning::MethodLooksLikeAnOperator(MethodLooksLikeAnOperatorWarning {
-                method_name: node.name.name.into(),
+                method_name: node.signature.name.name.into(),
                 src: NamedSource::new(path, src),
-                span: node.name.span,
+                span: node.signature.name.span,
             });
             self.warnings.push(warning);
         }
         let type_parameters = node
+            .signature
             .args
             .iter()
             .map(|arg| self.visit_type_param_item(arg))
             .collect::<HirResult<Vec<_>>>();
-        let ret_type_span = node.ret.span();
-        let ret_type = self.visit_ty(node.ret)?.clone();
+        let ret_type_span = node.signature.ret.span();
+        let ret_type = self.visit_ty(node.signature.ret)?.clone();
         let parameters = node
+            .signature
             .args
             .iter()
             .map(|arg| self.visit_func_param(arg))
@@ -836,17 +839,17 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
         let body = self.visit_block(node.body)?;
         let (generics, where_clause) =
-            self.merge_generic_constraints(node.generics, node.where_clause);
+            self.merge_generic_constraints(node.signature.generics, node.signature.where_clause);
 
         let signature = self.arena.intern(HirStructMethodSignature {
-            modifier: match node.modifier {
+            modifier: match node.signature.modifier {
                 AstMethodModifier::Const => HirStructMethodModifier::Const,
                 AstMethodModifier::Static => HirStructMethodModifier::Static,
                 AstMethodModifier::Mutable => HirStructMethodModifier::Mutable,
                 AstMethodModifier::Consuming => HirStructMethodModifier::Consuming,
             },
-            span: node.span,
-            vis: node.vis.into(),
+            span: node.signature.span,
+            vis: node.signature.vis.into(),
             params: parameters?,
             generics,
             type_params: type_parameters?,
@@ -856,21 +859,22 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             // Sets to true by default; monomorphization pass will update if needed
             is_constraint_satisfied: true,
             attributes: node
+                .signature
                 .attributes
                 .iter()
                 .map(|attr| HirMethodAttribute::from(**attr))
                 .collect(),
             is_instantiated: true,
-            docstring: if let Some(docstring) = node.docstring {
+            docstring: if let Some(docstring) = node.signature.docstring {
                 Some(self.arena.names().get(docstring))
             } else {
                 None
             },
         });
         let method = HirStructMethod {
-            span: node.span,
-            name: self.arena.names().get(node.name.name),
-            name_span: node.name.span,
+            span: node.signature.span,
+            name: self.arena.names().get(node.signature.name.name),
+            name_span: node.signature.name.span,
             signature,
             body,
         };

@@ -27,6 +27,7 @@ pub enum AstItem<'ast> {
     Enum(AstEnum<'ast>),
     Union(AstUnion<'ast>),
     Constant(AstGlobalConst<'ast>),
+    Concept(AstConcept<'ast>),
 }
 
 impl AstItem<'_> {
@@ -44,6 +45,7 @@ impl AstItem<'_> {
             AstItem::ExternUnion(v) => v.vis = vis,
             AstItem::Constant(v) => v.vis = vis,
             AstItem::ExternConstant(v) => v.vis = vis,
+            AstItem::Concept(v) => v.vis = vis,
         }
     }
     pub fn set_flag(&mut self, flag: AstFlag) {
@@ -69,6 +71,7 @@ impl AstItem<'_> {
             AstItem::ExternUnion(v) => v.span,
             AstItem::Constant(v) => v.span,
             AstItem::ExternConstant(v) => v.span,
+            AstItem::Concept(v) => v.span,
         }
     }
 }
@@ -301,6 +304,23 @@ pub enum AstVisibility {
     #[default]
     Private,
 }
+
+#[derive(Debug, Clone)]
+pub struct AstConcept<'ast> {
+    pub span: Span,
+    pub name: &'ast AstIdentifier<'ast>,
+    pub name_span: Span,
+    pub vis: AstVisibility,
+    /// Signature: `~MyStruct()`
+    pub generics: &'ast [&'ast AstGeneric<'ast>],
+    pub implemented_operators: &'ast [&'ast AstOperatorOverload<'ast>],
+    pub required_operators: &'ast [&'ast AstOperatorOverloadSignature<'ast>],
+    pub implemented_methods: &'ast [&'ast AstMethod<'ast>],
+    pub required_methods: &'ast [&'ast AstMethodSignature<'ast>],
+    pub docstring: Option<&'ast str>,
+    pub is_extern: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct AstStruct<'ast> {
     pub span: Span,
@@ -363,6 +383,12 @@ pub enum AstMethodAttribute {
 
 #[derive(Debug, Clone)]
 pub struct AstOperatorOverload<'ast> {
+    pub signature: AstOperatorOverloadSignature<'ast>,
+    pub body: &'ast AstBlock<'ast>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AstOperatorOverloadSignature<'ast> {
     pub modifier: AstMethodModifier,
     pub vis: AstVisibility,
     pub span: Span,
@@ -370,7 +396,6 @@ pub struct AstOperatorOverload<'ast> {
     pub generics: Option<&'ast [&'ast AstGeneric<'ast>]>,
     pub args: &'ast [&'ast AstArg<'ast>],
     pub ret: &'ast AstType<'ast>,
-    pub body: &'ast AstBlock<'ast>,
     /// Optional where clause containing constraints on struct and method generics.
     /// During syntax lowering, method-level generic constraints are moved into the `generics` field as bounds.
     pub where_clause: Option<&'ast [&'ast AstGeneric<'ast>]>,
@@ -405,6 +430,12 @@ pub struct AstDestructor<'ast> {
 
 #[derive(Debug, Clone)]
 pub struct AstMethod<'ast> {
+    pub signature: AstMethodSignature<'ast>,
+    pub body: &'ast AstBlock<'ast>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AstMethodSignature<'ast> {
     pub modifier: AstMethodModifier,
     pub vis: AstVisibility,
     pub span: Span,
@@ -412,7 +443,6 @@ pub struct AstMethod<'ast> {
     pub generics: Option<&'ast [&'ast AstGeneric<'ast>]>,
     pub args: &'ast [&'ast AstArg<'ast>],
     pub ret: &'ast AstType<'ast>,
-    pub body: &'ast AstBlock<'ast>,
     /// Optional where clause containing constraints on struct and method generics.
     /// During syntax lowering, method-level generic constraints are moved into the `generics` field as bounds.
     pub where_clause: Option<&'ast [&'ast AstGeneric<'ast>]>,

@@ -8,9 +8,10 @@ use miette::NamedSource;
 use crate::atlas_c::{
     atlas_frontend::parser::{
         ast::{
-            AstArg, AstAtomicType, AstEnum, AstEnumVariant, AstFlag, AstGlobalConst,
-            AstInlineArrayType, AstListLiteralWithSize, AstNullLiteral, AstObjLiteralExpr,
-            AstObjLiteralField, AstPtrTy, AstStdGenericConstraint, AstUnion, AstVariadicType,
+            AstArg, AstAtomicType, AstConcept, AstEnum, AstEnumVariant, AstFlag, AstGlobalConst,
+            AstInlineArrayType, AstListLiteralWithSize, AstMethodSignature, AstNullLiteral,
+            AstObjLiteralExpr, AstObjLiteralField, AstOperatorOverloadSignature, AstPtrTy,
+            AstStdGenericConstraint, AstUnion, AstVariadicType,
         },
         error::{
             ConstTypeNotSupportedYetError, DestructorWithParametersError, FlagDoesntExistError,
@@ -329,6 +330,7 @@ impl<'ast> Parser<'ast> {
             }
             TokenKind::KwFunc => Ok(AstItem::Function(self.parse_func()?)),
             TokenKind::KwStruct => Ok(AstItem::Struct(self.parse_struct()?)),
+            TokenKind::KwConcept => Ok(AstItem::Concept(self.parse_concept()?)),
             TokenKind::KwUnion => Ok(AstItem::Union(self.parse_union()?)),
             TokenKind::KwEnum => Ok(AstItem::Enum(self.parse_enum()?)),
             TokenKind::KwConst => {
@@ -722,6 +724,125 @@ impl<'ast> Parser<'ast> {
         Ok(node)
     }
 
+    fn parse_concept(&mut self) -> ParseResult<AstConcept<'ast>> {
+        self.expect(TokenKind::KwConcept)?;
+        let concept_identifier = self.parse_identifier()?;
+
+        let generics = self.eat_if(
+            TokenKind::LAngle,
+            |p| {
+                let value = p.eat_until(TokenKind::RAngle, |parser| {
+                    parser.eat_if(TokenKind::Comma, |_| Ok(()), ())?;
+                    parser.parse_generic()
+                });
+                p.expect(TokenKind::RAngle)?;
+                value
+            },
+            vec![],
+        )?;
+        self.expect(TokenKind::LBrace)?;
+
+        let mut implemented_methods = vec![];
+        let mut required_methods = vec![];
+        let mut implemented_operators = vec![];
+        let mut required_operators = vec![];
+
+        let mut pending_method_attributes: Vec<AstMethodAttribute> = vec![];
+        let mut curr_vis = self.parse_current_vis(AstVisibility::Private)?;
+        // Empty if there is none
+        let mut docs = String::new();
+        while self.current().kind() != TokenKind::RBrace {
+            curr_vis = self.parse_current_vis(curr_vis)?;
+
+            if self.current().kind() == TokenKind::Hash
+                && self.peek() == Some(TokenKind::LBracket)
+                && self.peek_at(2) == Some(TokenKind::Identifier("std".to_string()))
+            {
+                let attr = self.parse_method_attribute()?;
+                pending_method_attributes.push(attr);
+                continue;
+            }
+
+            match self.current().kind() {
+                TokenKind::KwOperator => {
+                    if !pending_method_attributes.is_empty() {
+                        return Err(self.unexpected_token_error(
+                            TokenVec(vec![TokenKind::KwFunc]),
+                            &self.current().span(),
+                        ));
+                    }
+                    let signature = self.parse_operator_signature()?;
+                    if self.current().kind() == TokenKind::LBrace {
+                        let body = self.parse_block()?;
+                        implemented_operators.push(AstOperatorOverload {
+                            signature,
+                            body: self.arena.alloc(body),
+                        });
+                    } else {
+                        self.expect(TokenKind::Semicolon)?;
+                        required_operators.push(signature);
+                    }
+                }
+                TokenKind::KwFunc => {
+                    let mut signature = self.parse_method_signature()?;
+                    signature.vis = curr_vis;
+                    signature.attributes = self.arena.alloc_vec(pending_method_attributes.clone());
+                    pending_method_attributes.clear();
+                    signature.docstring = if !docs.is_empty() {
+                        Some(self.arena.alloc(docs.clone()))
+                    } else {
+                        None
+                    };
+                    docs.clear();
+                    if self.current().kind() == TokenKind::LBrace {
+                        let body = self.parse_block()?;
+                        implemented_methods.push(AstMethod {
+                            signature,
+                            body: self.arena.alloc(body),
+                        });
+                    } else {
+                        self.expect(TokenKind::Semicolon)?;
+                        required_methods.push(signature);
+                    }
+                }
+                TokenKind::Docs(doc) => {
+                    let _ = self.advance();
+                    if docs.is_empty() {
+                        docs = doc;
+                    } else {
+                        docs.push('\n');
+                        docs.push_str(&doc);
+                    }
+                }
+                _ => {
+                    return Err(self.unexpected_token_error(
+                        TokenVec(vec![TokenKind::Identifier(
+                            "Field/Methods/Constant/Operator".to_string(),
+                        )]),
+                        &self.current().span,
+                    ));
+                }
+            }
+        }
+
+        self.expect(TokenKind::RBrace)?;
+
+        let node = AstConcept {
+            span: Span::union_span(&concept_identifier.span, &self.current().span()),
+            name_span: concept_identifier.span,
+            name: self.arena.alloc(concept_identifier),
+            generics: self.arena.alloc_vec(generics),
+            implemented_methods: self.arena.alloc_vec(implemented_methods),
+            required_methods: self.arena.alloc_vec(required_methods),
+            implemented_operators: self.arena.alloc_vec(implemented_operators),
+            required_operators: self.arena.alloc_vec(required_operators),
+            vis: AstVisibility::default(),
+            docstring: None,
+            is_extern: false,
+        };
+        Ok(node)
+    }
+
     fn parse_struct(&mut self) -> ParseResult<AstStruct<'ast>> {
         self.expect(TokenKind::KwStruct)?;
         let struct_identifier = self.parse_identifier()?;
@@ -784,10 +905,11 @@ impl<'ast> Parser<'ast> {
                 }
                 TokenKind::KwFunc => {
                     let mut method = self.parse_method()?;
-                    method.vis = curr_vis;
-                    method.attributes = self.arena.alloc_vec(pending_method_attributes.clone());
+                    method.signature.vis = curr_vis;
+                    method.signature.attributes =
+                        self.arena.alloc_vec(pending_method_attributes.clone());
                     pending_method_attributes.clear();
-                    method.docstring = if !docs.is_empty() {
+                    method.signature.docstring = if !docs.is_empty() {
                         Some(self.arena.alloc(docs.clone()))
                     } else {
                         None
@@ -894,7 +1016,7 @@ impl<'ast> Parser<'ast> {
         Ok(node)
     }
 
-    fn parse_method(&mut self) -> ParseResult<AstMethod<'ast>> {
+    fn parse_method_signature(&mut self) -> ParseResult<AstMethodSignature<'ast>> {
         let _ = self.advance();
         let name = self.parse_identifier()?;
         let generics = self.eat_if(
@@ -966,10 +1088,10 @@ impl<'ast> Parser<'ast> {
         } else {
             None
         };
-        let body = self.parse_block()?;
-        let node = AstMethod {
+
+        let node = AstMethodSignature {
             modifier,
-            span: Span::union_span(&name.span, &body.span),
+            span: Span::union_span(&name.span, &ret_ty.span()),
             name: self.arena.alloc(name),
             generics: if generics.is_empty() {
                 None
@@ -978,11 +1100,21 @@ impl<'ast> Parser<'ast> {
             },
             args: self.arena.alloc_vec(params),
             ret: self.arena.alloc(ret_ty),
-            body: self.arena.alloc(body),
             vis: AstVisibility::default(),
             where_clause,
             attributes: self.arena.alloc_vec(vec![]),
             docstring: None,
+        };
+        Ok(node)
+    }
+
+    fn parse_method(&mut self) -> ParseResult<AstMethod<'ast>> {
+        let signature = self.parse_method_signature()?;
+
+        let body = self.parse_block()?;
+        let node = AstMethod {
+            signature,
+            body: self.arena.alloc(body),
         };
         Ok(node)
     }
@@ -1089,7 +1221,7 @@ impl<'ast> Parser<'ast> {
         })
     }
 
-    fn parse_operator(&mut self) -> ParseResult<AstOperatorOverload<'ast>> {
+    fn parse_operator_signature(&mut self) -> ParseResult<AstOperatorOverloadSignature<'ast>> {
         let _ = self.advance();
         let name = self.parse_identifier()?;
         let generics = self.eat_if(
@@ -1161,10 +1293,10 @@ impl<'ast> Parser<'ast> {
         } else {
             None
         };
-        let body = self.parse_block()?;
-        let node = AstOperatorOverload {
+
+        let node = AstOperatorOverloadSignature {
             modifier,
-            span: Span::union_span(&name.span, &body.span),
+            span: Span::union_span(&name.span, &ret_ty.span()),
             name: self.arena.alloc(name),
             generics: if generics.is_empty() {
                 None
@@ -1173,11 +1305,21 @@ impl<'ast> Parser<'ast> {
             },
             args: self.arena.alloc_vec(params),
             ret: self.arena.alloc(ret_ty),
-            body: self.arena.alloc(body),
             vis: AstVisibility::default(),
             where_clause,
             attributes: self.arena.alloc_vec(vec![]),
             docstring: None,
+        };
+        Ok(node)
+    }
+
+    fn parse_operator(&mut self) -> ParseResult<AstOperatorOverload<'ast>> {
+        let signature = self.parse_operator_signature()?;
+        let body = self.parse_block()?;
+
+        let node = AstOperatorOverload {
+            signature,
+            body: self.arena.alloc(body),
         };
         Ok(node)
     }
