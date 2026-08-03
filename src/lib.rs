@@ -1231,34 +1231,38 @@ pub fn build(
     let hir = if let Some(hir) = frontend_res.hir {
         hir
     } else {
-        // TODO this should absolutely return all the errors instead of just printing and exiting, but this is easier for now
-        eprintln!("Failed to generate HIR for path: {}", path);
-        std::process::exit(1);
-    };
+        if !frontend_res.ast_errors.is_empty() {
+            for err in frontend_res.ast_errors {
+                let report: miette::Report = err.into();
+                eprintln!("{:?}", report);
+            }
+            std::process::exit(1);
+        }
 
-    if !frontend_res.ast_errors.is_empty() {
-        for err in frontend_res.ast_errors {
-            let report: miette::Report = err.into();
-            eprintln!("{:?}", report);
+        if !frontend_res.hir_warnings.is_empty() {
+            for warning in frontend_res.hir_warnings {
+                let report: miette::Report = warning.into();
+                eprintln!("{:?}", report);
+            }
+        }
+
+        if !frontend_res.hir_errors.is_empty() {
+            return Err(
+                HirError::SemanticAnalysisFailed(SemanticAnalysisFailedError {
+                    error_count: frontend_res.hir_errors.len(),
+                    errors: frontend_res.hir_errors,
+                })
+                .into(),
+            );
         }
         std::process::exit(1);
-    }
+    };
 
     if !frontend_res.hir_warnings.is_empty() {
         for warning in frontend_res.hir_warnings {
             let report: miette::Report = warning.into();
             eprintln!("{:?}", report);
         }
-    }
-
-    if !frontend_res.hir_errors.is_empty() {
-        return Err(
-            HirError::SemanticAnalysisFailed(SemanticAnalysisFailedError {
-                error_count: frontend_res.hir_errors.len(),
-                errors: frontend_res.hir_errors,
-            })
-            .into(),
-        );
     }
 
     //Dead code elimination (only in release mode)
