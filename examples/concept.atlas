@@ -6,9 +6,9 @@ namespace std {
     }
     
     enum ordering {
-        LESS;
-        GREATER;
-        EQUAL;
+        LESS = 0xFFFFFFFFFFFFFFFF;
+        GREATER = 1;
+        EQUAL = 0;
     }
     concept compare {
         fun compare(*const this, other: *const This) -> std::ordering;
@@ -32,3 +32,43 @@ namespace std {
     }
 }
 
+struct test {
+    val: int32;
+}
+
+extend test with std::compare {
+    fun compare(*const this, other: *const test) -> std::ordering {
+        // TODO: Make it possible for boolean
+        return ((a > b) as int32 - (a < b) as int32) as uint64;
+    }
+} 
+
+struct test_concept<T: std::compare> {
+    val1: T;
+    val2: T;
+    fun foo(*const this) -> std::ordering {
+        return val1.compare(val2);
+    }
+}
+
+concept printable {
+  public:
+    // Should this really trigger an allocation?
+    fun display(*const this) -> std::string;
+}
+
+fun print<T: printable>(val: T) {
+    std::printf("%s", val.display().c_str());
+}
+
+fun main() {
+    let cpt = test_concept<test>::new(test {.val = 5}, test{.val = 10});
+    let cmp = cpt.foo();
+    if cmp == std::ordering::LESS {
+        std::printf("LESS");
+    } else if cmp == std::ordering::GREATER {
+        std::printf("GREATER");
+    } else {
+        std::printf("EQUAL");
+    }
+}
