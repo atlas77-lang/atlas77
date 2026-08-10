@@ -1252,10 +1252,7 @@ impl<'hir> HirLoweringPass<'hir> {
                                 "struct",
                             ),
                             _ => {
-                                return Err(unsupported_expr(
-                                    expr.span(),
-                                    format!("{:?}", static_access),
-                                ));
+                                &static_access.target.get_valid_c_string()
                             }
                         };
                         (
