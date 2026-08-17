@@ -8,7 +8,7 @@ namespace std {
     }
     
     enum ordering {
-        LESS = 0xFFFFFFFFFFFFFFFF;
+        LESS = 0xFFFFFFFFFFFFFFFFu;
         GREATER = 1;
         EQUAL = 0;
     }
@@ -44,16 +44,6 @@ extend test with std::compare {
         return ((a > b) as int32 - (a < b) as int32) as uint64;
     }
 } 
-
-struct test2 extend std::compare {
-    val: int32;
-    #[extend(std::compare)]
-    // Allow for formal verification of signature
-    fun compare(*const this, other: *const test) -> std::ordering {
-        // TODO: Make it possible for boolean
-        return ((a > b) as int32 - (a < b) as int32) as uint64;
-    }
-}
 
 struct test_concept<T: std::compare> {
     val1: T;
