@@ -97,6 +97,7 @@ declare_error_type! {
         OperatorMustUseConstThisModifier(OperatorMustUseConstThisModifierError),
         OperatorSecondArgumentMustBeConstPointerToSelf(OperatorSecondArgumentMustBeConstPointerToSelfError),
         OperatorOverloadDoesNotHaveRequiredAmountOfArgs(OperatorOverloadDoesNotHaveRequiredAmountOfArgsError),
+        UsedThisTyOutsideOfCorrectContext(UsedThisTyOutsideOfCorrectContextError),
     }
 }
 
@@ -136,6 +137,20 @@ impl HirError {
             _ => HirErrorGravity::Critical,
         }
     }
+}
+
+#[derive(Error, Diagnostic, Debug, Serialize)]
+#[diagnostic(
+    code(sema::this_ty_incorrect_usage),
+    help("The type `This` must only be used in struct/concept/extend block context")
+)]
+#[error("You cannot use the `This` type in this context")]
+pub struct UsedThisTyOutsideOfCorrectContextError {
+    #[label = "Incorrect usage here"]
+    pub span: Span,
+    #[source_code]
+    #[serde(skip_serializing)]
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug, Serialize)]
@@ -1471,6 +1486,11 @@ pub struct OperatorOverloadDoesNotHaveRequiredAmountOfArgsError {
 impl From<HirError> for Vec<CompilerError> {
     fn from(e: HirError) -> Vec<CompilerError> {
         match e {
+            HirError::UsedThisTyOutsideOfCorrectContext(error) => vec![CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Error,
+            }],
             HirError::InvalidListSize(error) => vec![CompilerError {
                 message: error.to_string(),
                 span: error.span,

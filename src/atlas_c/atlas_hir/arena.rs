@@ -7,7 +7,8 @@ use std::{
 
 use super::ty::{
     HirBooleanTy, HirCharTy, HirErrorTy, HirFloatTy, HirGenericTy, HirIntegerTy, HirNamedTy,
-    HirSliceTy, HirStringTy, HirTy, HirTyId, HirUninitializedTy, HirUnitTy, HirUnsignedIntTy,
+    HirSliceTy, HirStringTy, HirThisTy, HirTy, HirTyId, HirUninitializedTy, HirUnitTy,
+    HirUnsignedIntTy,
 };
 use crate::atlas_c::{
     atlas_hir::ty::{
@@ -304,5 +305,13 @@ impl<'arena> TypeArena<'arena> {
             self.allocator
                 .alloc(HirTy::Atomic(HirAtomicTy { inner, span }))
         })
+    }
+
+    pub fn get_this_ty(&'arena self, span: Span) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_this_ty_id();
+        self.intern
+            .borrow_mut()
+            .entry(id)
+            .or_insert_with(|| self.allocator.alloc(HirTy::ThisTy(HirThisTy { span })))
     }
 }

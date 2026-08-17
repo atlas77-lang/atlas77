@@ -8,9 +8,6 @@ use super::{
 };
 
 use crate::atlas_c::atlas_hir::{
-    error::UnknownOverloadableOperatorError, pretty_print::HirPrettyPrinter,
-};
-use crate::atlas_c::atlas_hir::{
     error::{
         AccessingClassFieldOutsideClassError, AccessingPrivateDestructorError,
         AccessingPrivateFieldError, AccessingPrivateFunctionError, AccessingPrivateFunctionOrigin,
@@ -45,6 +42,13 @@ use crate::atlas_c::atlas_hir::{
         HirWarning, TryingToCastToTheSameTypeWarning,
         UnionFieldCannotBeAutomaticallyDeletedWarning, UnsafeRawPointerStructWarning,
     },
+};
+use crate::atlas_c::atlas_hir::{
+    error::{
+        HirError::UsedThisTyOutsideOfCorrectContext, UnknownOverloadableOperatorError,
+        UsedThisTyOutsideOfCorrectContextError,
+    },
+    pretty_print::HirPrettyPrinter,
 };
 use crate::atlas_c::atlas_hir::{
     error::{InvalidSpecialMethodSignatureError, UnknownFunctionError},
@@ -675,6 +679,7 @@ impl<'hir> TypeChecker<'hir> {
 
     fn type_exists(&self, ty: &HirTy) -> bool {
         match ty {
+            HirTy::ThisTy(_) => self.current_this_type.is_some(),
             HirTy::Named(n) => {
                 self.signature.structs.contains_key(n.name)
                     || self.signature.enums.contains_key(n.name)
@@ -3749,6 +3754,34 @@ impl<'hir> TypeChecker<'hir> {
         found_span: Span,
     ) -> HirResult<()> {
         match (expected_ty, found_ty) {
+            (HirTy::ThisTy(_), _) => {
+                if let Some(ty) = self.current_this_type {
+                    self.is_equivalent_ty(ty, expected_span, found_ty, found_span)
+                } else {
+                    let path = expected_span.path;
+                    let src = utils::get_file_content(path).unwrap();
+                    Err(HirError::UsedThisTyOutsideOfCorrectContext(
+                        UsedThisTyOutsideOfCorrectContextError {
+                            span: expected_span,
+                            src: NamedSource::new(path, src),
+                        },
+                    ))
+                }
+            }
+            (_, HirTy::ThisTy(_)) => {
+                if let Some(ty) = self.current_this_type {
+                    self.is_equivalent_ty(expected_ty, expected_span, ty, found_span)
+                } else {
+                    let path = expected_span.path;
+                    let src = utils::get_file_content(path).unwrap();
+                    Err(HirError::UsedThisTyOutsideOfCorrectContext(
+                        UsedThisTyOutsideOfCorrectContextError {
+                            span: found_span,
+                            src: NamedSource::new(path, src),
+                        },
+                    ))
+                }
+            }
             (HirTy::UnsignedInteger(_), HirTy::LiteralInteger(li)) => {
                 // e.g.: If we expect a uint8 but found a `int16 /* 255 */` it should still be accepted because the literal value can fit into the expected type
                 let lu = self

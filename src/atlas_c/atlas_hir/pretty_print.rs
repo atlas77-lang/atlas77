@@ -688,6 +688,7 @@ impl HirPrettyPrinter {
 
     pub fn type_str(ty: &HirTy) -> String {
         match ty {
+            HirTy::ThisTy(_) => "This".to_string(),
             HirTy::Integer(i) => format!("int{}", i.size_in_bits),
             HirTy::LiteralInteger(l) => format!("int{}", l.get_minimal_int_ty().size_in_bits),
             HirTy::Float(f) => format!("float{}", f.size_in_bits),

@@ -25,6 +25,7 @@ const ERROR_TY_ID: u8 = 0x51;
 const NAMED_TY_ID: u8 = 0x60;
 const GENERIC_TY_ID: u8 = 0x70;
 const ATOMIC_TY_ID: u8 = 0x80;
+const THIS_TY_ID: u8 = 0x85;
 const POINTER_TY_ID: u8 = 0x90;
 
 impl HirTyId {
@@ -108,6 +109,12 @@ impl HirTyId {
         let mut hasher = DefaultHasher::new();
 
         (ATOMIC_TY_ID, inner_ty).hash(&mut hasher);
+        Self(hasher.finish())
+    }
+
+    pub fn compute_this_ty_id() -> Self {
+        let mut hasher = DefaultHasher::new();
+        (THIS_TY_ID).hash(&mut hasher);
         Self(hasher.finish())
     }
 
@@ -197,6 +204,7 @@ impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
                 HirTyId::compute_function_ty_id(&ret_ty, &parameters)
             }
             HirTy::Atomic(a) => HirTyId::compute_atomic_ty_id(&HirTyId::from(a.inner)),
+            HirTy::ThisTy(_) => HirTyId::compute_this_ty_id(),
         }
     }
 }
@@ -222,6 +230,7 @@ pub enum HirTy<'hir> {
     Function(HirFunctionTy<'hir>),
     PtrTy(HirPtrTy<'hir>),
     Atomic(HirAtomicTy<'hir>),
+    ThisTy(HirThisTy),
 }
 
 impl HirTy<'_> {
@@ -375,6 +384,10 @@ impl HirTy<'_> {
             HirTy::Atomic(a) => {
                 format!("_Atomic_{}", a.inner.get_valid_c_string())
             }
+            HirTy::ThisTy(_) => {
+                println!("Cannot get a valid C string from This type");
+                std::process::exit(0);
+            }
         }
     }
 }
@@ -447,6 +460,9 @@ impl fmt::Display for HirTy<'_> {
             HirTy::Atomic(a) => {
                 write!(f, "__atomic {}", a.inner)
             }
+            HirTy::ThisTy(_) => {
+                write!(f, "This")
+            }
         }
     }
 }
@@ -464,6 +480,11 @@ pub struct HirPtrTy<'hir> {
 #[derive(Debug, Clone, Eq, Hash, PartialEq, Serialize)]
 pub struct HirAtomicTy<'hir> {
     pub inner: &'hir HirTy<'hir>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Eq, Hash, PartialEq, Serialize)]
+pub struct HirThisTy {
     pub span: Span,
 }
 
