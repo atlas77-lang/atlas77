@@ -74,7 +74,7 @@ impl<'hir> HirLoweringPass<'hir> {
         op: HirOverloadableOperatorKind,
         span: Span,
     ) -> LirResult<LirTy> {
-        let Some(owner_name) = self.class_name_from_receiver_ty(receiver_ty) else {
+        let Some(owner_name) = self.get_name_of_receiver_ty(receiver_ty) else {
             return Err(unsupported_expr(
                 span,
                 format!(
@@ -84,7 +84,7 @@ impl<'hir> HirLoweringPass<'hir> {
             ));
         };
 
-        let Some(struct_sig) = self.hir_module.signature.structs.get(owner_name) else {
+        let Some(struct_sig) = self.hir_module.signature.structs.get(owner_name.as_str()) else {
             return Err(unsupported_expr(
                 span,
                 format!(
@@ -686,9 +686,9 @@ impl<'hir> HirLoweringPass<'hir> {
         }
     }
 
-    fn class_name_from_receiver_ty(&self, ty: &'hir HirTy<'hir>) -> Option<&'hir str> {
+    fn get_name_of_receiver_ty(&self, ty: &'hir HirTy<'hir>) -> Option<String> {
         match ty {
-            HirTy::Named(n) => Some(n.name),
+            HirTy::Named(n) => Some(n.name.to_string()),
             HirTy::Generic(g) => {
                 let mangled_struct =
                     MonomorphizationPass::generate_mangled_name(self.hir_arena, g, "struct");
@@ -698,19 +698,20 @@ impl<'hir> HirLoweringPass<'hir> {
                     .structs
                     .contains_key(mangled_struct)
                 {
-                    Some(mangled_struct)
+                    Some(mangled_struct.to_string())
                 } else {
                     let mangled_union =
                         MonomorphizationPass::generate_mangled_name(self.hir_arena, g, "union");
                     if self.hir_module.signature.unions.contains_key(mangled_union) {
-                        Some(mangled_union)
+                        Some(mangled_union.to_string())
                     } else {
-                        None
+                        Some(ty.get_valid_c_string())
                     }
                 }
             }
-            HirTy::PtrTy(ptr) => self.class_name_from_receiver_ty(ptr.inner),
+            HirTy::PtrTy(ptr) => self.get_name_of_receiver_ty(ptr.inner),
             HirTy::ThisTy(_) => None,
+            _ => Some(ty.get_valid_c_string()),
         }
     }
 
@@ -1251,9 +1252,7 @@ impl<'hir> HirLoweringPass<'hir> {
                                 g,
                                 "struct",
                             ),
-                            _ => {
-                                &static_access.target.get_valid_c_string()
-                            }
+                            _ => &static_access.target.get_valid_c_string(),
                         };
                         (
                             format!("{}_{}", object_name, static_access.field.name),
@@ -1262,7 +1261,7 @@ impl<'hir> HirLoweringPass<'hir> {
                     }
                     HirExpr::FieldAccess(field_access) => {
                         let object_name = match self
-                            .class_name_from_receiver_ty(field_access.target.ty())
+                            .get_name_of_receiver_ty(field_access.target.ty())
                         {
                             Some(name) => name,
                             None => {
@@ -1281,8 +1280,14 @@ impl<'hir> HirLoweringPass<'hir> {
                     if let HirExpr::FieldAccess(field_access) = call.callee.as_ref() {
                         let target_operand = self.lower_expr(&field_access.target)?;
                         let is_consuming_method = self
-                            .class_name_from_receiver_ty(field_access.target.ty())
-                            .and_then(|name| self.hir_module.signature.structs.get(name).copied())
+                            .get_name_of_receiver_ty(field_access.target.ty())
+                            .and_then(|name| {
+                                self.hir_module
+                                    .signature
+                                    .structs
+                                    .get(name.as_str())
+                                    .copied()
+                            })
                             .and_then(|class| class.methods.get(field_access.field.name))
                             .is_some_and(|method| {
                                 method.modifier == HirStructMethodModifier::Consuming
