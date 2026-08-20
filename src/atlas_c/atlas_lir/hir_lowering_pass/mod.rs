@@ -7,6 +7,9 @@ use crate::atlas_c::{
         HirModule,
         arena::HirArena,
         expr::{HirBinaryOperator, HirExpr, HirUnaryOp},
+        intrinsic_methods::{
+            INTRINSIC_ALIGNOF, INTRINSIC_SIZEOF, INTRINSIC_TYPE_ID, INTRINSIC_TYPE_OF,
+        },
         item::{HirEnum, HirFunction, HirStruct, HirStructDestructor, HirStructMethod, HirUnion},
         monomorphization_pass::MonomorphizationPass,
         signature::{ConstantValue, HirOverloadableOperatorKind, HirStructMethodModifier},
@@ -1488,15 +1491,15 @@ impl<'hir> HirLoweringPass<'hir> {
             }
 
             HirExpr::IntrinsicCall(intrinsic) => match intrinsic.name {
-                "type_of" => {
+                INTRINSIC_TYPE_OF => {
                     let target_ty = intrinsic.args_ty.first().copied().unwrap_or(intrinsic.ty);
                     self.construct_type_info_object(target_ty, intrinsic.span)
                 }
-                "type_id" => {
+                INTRINSIC_TYPE_ID => {
                     let target_ty = intrinsic.args_ty.first().copied().unwrap_or(intrinsic.ty);
                     self.construct_type_id(target_ty)
                 }
-                "size_of" => {
+                INTRINSIC_SIZEOF => {
                     let target_ty = intrinsic.args_ty.first().copied().unwrap_or(intrinsic.ty);
                     let lir_target_ty = self.hir_ty_to_lir_ty(target_ty, intrinsic.span);
                     let size = self.lir_type_size_and_align(&lir_target_ty).0;
@@ -1511,7 +1514,7 @@ impl<'hir> HirLoweringPass<'hir> {
                     })?;
                     Ok(dest)
                 }
-                "align_of" => {
+                INTRINSIC_ALIGNOF => {
                     let target_ty = intrinsic.args_ty.first().copied().unwrap_or(intrinsic.ty);
                     let lir_target_ty = self.hir_ty_to_lir_ty(target_ty, intrinsic.span);
                     let align = self.lir_type_size_and_align(&lir_target_ty).1;
@@ -1999,8 +2002,8 @@ impl<'hir> HirLoweringPass<'hir> {
             self.emit(LirInstr::ConstructArray {
                 ty: LirTy::ArrayTy {
                     inner: Box::new(LirTy::Ptr {
-                        is_const: true,
-                        inner: Box::new(LirTy::UInt8),
+                        is_const: false,
+                        inner: Box::new(LirTy::Char),
                     }),
                     size: method_names.len(),
                 },
@@ -2018,8 +2021,8 @@ impl<'hir> HirLoweringPass<'hir> {
                 };
                 self.emit(LirInstr::Assign {
                     ty: LirTy::Ptr {
-                        is_const: true,
-                        inner: Box::new(LirTy::UInt8),
+                        is_const: false,
+                        inner: Box::new(LirTy::Char),
                     },
                     dst: index_operand,
                     src,
@@ -2047,8 +2050,8 @@ impl<'hir> HirLoweringPass<'hir> {
             self.emit(LirInstr::ConstructArray {
                 ty: LirTy::ArrayTy {
                     inner: Box::new(LirTy::Ptr {
-                        is_const: true,
-                        inner: Box::new(LirTy::UInt8),
+                        is_const: false,
+                        inner: Box::new(LirTy::Char),
                     }),
                     size: field_names.len(),
                 },
@@ -2066,8 +2069,8 @@ impl<'hir> HirLoweringPass<'hir> {
                 };
                 self.emit(LirInstr::Assign {
                     ty: LirTy::Ptr {
-                        is_const: true,
-                        inner: Box::new(LirTy::UInt8),
+                        is_const: false,
+                        inner: Box::new(LirTy::Char),
                     },
                     dst: index_operand,
                     src,
