@@ -87,6 +87,7 @@ pub struct TypeChecker<'hir> {
     >,
     pending_method_monomorphization: Vec<MethodMonomorphizationRequest<'hir>>,
     errors: Vec<HirError>,
+    current_this_type: Option<&'hir HirTy<'hir>>,
 }
 
 impl<'hir> TypeChecker<'hir> {
@@ -104,6 +105,7 @@ impl<'hir> TypeChecker<'hir> {
             extern_monomorphized: HashMap::new(),
             pending_method_monomorphization: Vec::new(),
             errors: Vec::new(),
+            current_this_type: None,
         }
     }
 
@@ -346,6 +348,13 @@ impl<'hir> TypeChecker<'hir> {
         requires_drop: &HashMap<&'hir str, bool>,
     ) -> bool {
         match ty {
+            HirTy::ThisTy(_) => {
+                if let Some(ty) = self.current_this_type {
+                    self.type_requires_drop(span, ty, requires_drop)
+                } else {
+                    unreachable!("There shouldn't be any this ty at this point...")
+                }
+            }
             HirTy::PtrTy(_)
             | HirTy::Function(_)
             | HirTy::Slice(_)
