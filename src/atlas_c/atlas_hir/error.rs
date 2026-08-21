@@ -107,8 +107,6 @@ pub enum HirPass {
     Monomorphization = 1,
     TypeCheck = 2,
     OwnershipPass = 3,
-    ConstantFolding = 4,
-    DeadCodeElimination = 5,
 }
 
 pub enum HirErrorGravity {

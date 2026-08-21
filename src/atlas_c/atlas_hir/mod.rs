@@ -7,9 +7,6 @@ use signature::HirModuleSignature;
 //Should try to run even with a faulty AST
 /// Always run
 pub mod arena;
-/// Passes not run in debug mode
-pub mod constant_folding_pass;
-pub mod dead_code_elimination_pass;
 pub mod error;
 pub mod monomorphization_pass;
 /// Ownership analysis pass: implements MOVE/COPY semantics and destructor insertion

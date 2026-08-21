@@ -1265,13 +1265,9 @@ pub fn build(
         }
     }
 
-    //Dead code elimination (only in release mode)
-    // let mut dce_pass = DeadCodeEliminationPass::new(&hir_arena);
-    // hir = dce_pass.eliminate_dead_code(hir)?;
-
     // Write HIR output
     let mut hir_printer = HirPrettyPrinter::new();
-    let hir_output = hir_printer.print_module(hir, "Dead Code Elimination Pass");
+    let hir_output = hir_printer.print_module(hir, "After Semantic Analysis");
     let mut file_hir = std::fs::File::create("./build/output.atlas").unwrap();
     file_hir.write_all(hir_output.as_bytes()).unwrap();
 

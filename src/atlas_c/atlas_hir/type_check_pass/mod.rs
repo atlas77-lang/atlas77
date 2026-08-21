@@ -18,17 +18,18 @@ use crate::atlas_c::atlas_hir::{
         CallingNonConstMethodOnConstReferenceOrigin, CanOnlyConstructStructsError,
         CannotAccessFieldOfPointersError, EmptyListLiteralError, FieldKind, HirError, HirResult,
         IllegalOperationError, IllegalUnaryOperationError, InvalidListSizeError,
-        ListIndexOutOfBoundsError, MethodConstraintNotSatisfiedError, NonConstantListSizeError,
-        NotEnoughArgumentsError, NotEnoughArgumentsOrigin,
-        OperatorIsNotImplementedForThisTypeError,
+        InvalidSpecialMethodSignatureError, ListIndexOutOfBoundsError,
+        MethodConstraintNotSatisfiedError, NonConstantListSizeError, NotEnoughArgumentsError,
+        NotEnoughArgumentsOrigin, OperatorIsNotImplementedForThisTypeError,
         OperatorOverloadDoesNotHaveRequiredAmountOfArgsError, ReturningPointerToLocalVariableError,
         StructCannotHaveAFieldOfItsOwnTypeError, TryingToAccessFieldOnNonObjectTypeError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin, TryingToIndexNonIndexableTypeError,
         TryingToMutateConstPointerError, TypeCheckFailedError, TypeMismatchActual,
         TypeMismatchError, UnionMustHaveAtLeastTwoVariantError,
-        UnionVariantDefinedMultipleTimesError, UnknownFieldError, UnknownIdentifierError,
-        UnknownMethodError, UnknownTypeError, UnsupportedExpr, VariableNameAlreadyDefinedError,
+        UnionVariantDefinedMultipleTimesError, UnknownFieldError, UnknownFunctionError,
+        UnknownIdentifierError, UnknownMethodError, UnknownOverloadableOperatorError,
+        UnknownTypeError, UnsupportedExpr, VariableNameAlreadyDefinedError,
     },
     expr::{
         HirBinaryOperator, HirDeleteExpr, HirExpr, HirFieldAccessExpr, HirIdentExpr,
@@ -36,24 +37,18 @@ use crate::atlas_c::atlas_hir::{
     },
     item::{HirExtendBlock, HirStruct, HirStructDestructor, HirStructMethod, HirUnion},
     monomorphization_pass::{MethodMonomorphizationRequest, MonomorphizationPass},
+    pretty_print::HirPrettyPrinter,
+    signature::{
+        HirFunctionParameterSignature, HirFunctionSignature, HirMethodAttribute,
+        HirOverloadableOperatorKind, HirStructDestructorSignature, HirStructFieldSignature,
+        HirStructMethodModifier, HirStructMethodSignature, HirStructSignature, HirVisibility,
+    },
     ty::{HirGenericTy, HirNamedTy, HirTy, HirTyId},
     type_check_pass::context::{ContextFunction, ContextVariable},
     warning::{
         HirWarning, TryingToCastToTheSameTypeWarning,
         UnionFieldCannotBeAutomaticallyDeletedWarning, UnsafeRawPointerStructWarning,
     },
-};
-use crate::atlas_c::atlas_hir::{
-    error::{InvalidSpecialMethodSignatureError, UnknownFunctionError},
-    signature::{
-        HirFunctionParameterSignature, HirFunctionSignature, HirMethodAttribute,
-        HirOverloadableOperatorKind, HirStructDestructorSignature, HirStructFieldSignature,
-        HirStructMethodModifier, HirStructMethodSignature, HirStructSignature, HirVisibility,
-    },
-};
-use crate::atlas_c::atlas_hir::{
-    error::{UnknownOverloadableOperatorError, UsedThisTyOutsideOfCorrectContextError},
-    pretty_print::HirPrettyPrinter,
 };
 
 use crate::atlas_c::utils;
