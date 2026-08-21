@@ -23,7 +23,7 @@ use crate::atlas_c::{
             IncorrectIntrinsicCallArgumentsError, NonConstantValueError, ReservedVariableNameError,
             StructNameCannotBeOneLetterError, UnknownFileImportError,
             UnknownOverloadableOperatorError, UnknownTypeError, UnsupportedExpr,
-            UnsupportedItemError, UselessError,
+            UnsupportedItemError, UsedThisTyOutsideOfCorrectContextError, UselessError,
         },
         expr::{
             HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr,
@@ -74,6 +74,7 @@ pub struct AstSyntaxLoweringPass<'ast, 'hir> {
     pub using_std: bool,
     temp_counter: usize,
     namespace_stack: Vec<&'hir str>,
+    current_this_ty: Option<AstType<'ast>>,
 }
 
 impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
@@ -95,6 +96,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             using_std,
             temp_counter: 0,
             namespace_stack: Vec::new(),
+            current_this_ty: None,
         }
     }
 }
@@ -186,7 +188,9 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 self.module_body.functions.insert(name, hir_func);
             }
             AstItem::Struct(ast_struct) => {
+                self.current_this_ty = Some(ast_struct.get_struct_ty(self.ast_arena));
                 let class = self.visit_struct(ast_struct)?;
+                self.current_this_ty = None;
                 self.module_signature
                     .structs
                     .insert(class.name, self.arena.intern(class.signature.clone()));
@@ -2154,7 +2158,20 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 }));
             }
             //The "this" ty is replaced during the type checking phase
-            AstType::ThisTy(_) => self.arena.types().get_uninitialized_ty(),
+            AstType::ThisTy(this) => {
+                if let Some(ty) = &self.current_this_ty {
+                    self.visit_ty(self.ast_arena.alloc(ty.clone()))?
+                } else {
+                    let path = this.span.path;
+                    let src = utils::get_file_content(path).unwrap();
+                    return Err(HirError::UsedThisTyOutsideOfCorrectContext(
+                        UsedThisTyOutsideOfCorrectContextError {
+                            span: this.span,
+                            src: NamedSource::new(path, src),
+                        },
+                    ));
+                }
+            }
             AstType::PtrTy(ptr_ty) => {
                 let inner_ty = self.visit_ty(ptr_ty.inner)?;
                 self.arena

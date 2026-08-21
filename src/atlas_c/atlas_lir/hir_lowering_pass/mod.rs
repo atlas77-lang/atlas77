@@ -713,7 +713,6 @@ impl<'hir> HirLoweringPass<'hir> {
                 }
             }
             HirTy::PtrTy(ptr) => self.get_name_of_receiver_ty(ptr.inner),
-            HirTy::ThisTy(_) => None,
             _ => Some(ty.get_valid_c_string()),
         }
     }
@@ -1569,10 +1568,6 @@ impl<'hir> HirLoweringPass<'hir> {
     /// Convert HIR type to Lir type
     fn hir_ty_to_lir_ty(&self, ty: &HirTy, span: Span) -> LirTy {
         match ty {
-            HirTy::ThisTy(_) => {
-                println!("This type should not appear in this stage (LIR) of the compiler");
-                std::process::exit(1)
-            }
             HirTy::Integer(i) => match i.size_in_bits {
                 8 => LirTy::Int8,
                 16 => LirTy::Int16,

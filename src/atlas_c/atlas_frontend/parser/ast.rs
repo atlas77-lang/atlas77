@@ -366,6 +366,33 @@ pub struct AstStruct<'ast> {
     pub c_name: Option<&'ast str>,
 }
 
+impl<'ast> AstStruct<'ast> {
+    pub(crate) fn get_struct_ty(&self, ast_arena: &'ast AstArena<'ast>) -> AstType<'ast> {
+        if !self.generics.is_empty() {
+            AstType::Generic(AstGenericType {
+                span: self.name_span,
+                name: self.name,
+                inner_types: ast_arena.alloc(
+                    self.generics
+                        .iter()
+                        .map(|g| {
+                            AstType::Named(AstNamedType {
+                                span: g.span,
+                                name: g.name,
+                            })
+                        })
+                        .collect::<Vec<_>>(),
+                ),
+            })
+        } else {
+            AstType::Named(AstNamedType {
+                span: self.name_span,
+                name: self.name,
+            })
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Copy)]
 pub enum AstMethodModifier {
     /// Static method - no `this` parameter
