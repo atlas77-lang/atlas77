@@ -367,11 +367,15 @@ pub struct AstStruct<'ast> {
 }
 
 impl<'ast> AstStruct<'ast> {
-    pub(crate) fn get_struct_ty(&self, ast_arena: &'ast AstArena<'ast>) -> AstType<'ast> {
+    pub(crate) fn get_struct_ty(
+        &self,
+        ast_arena: &'ast AstArena<'ast>,
+        qualified_name: &'ast AstIdentifier,
+    ) -> AstType<'ast> {
         if !self.generics.is_empty() {
             AstType::Generic(AstGenericType {
                 span: self.name_span,
-                name: self.name,
+                name: qualified_name,
                 inner_types: ast_arena.alloc(
                     self.generics
                         .iter()
@@ -387,7 +391,7 @@ impl<'ast> AstStruct<'ast> {
         } else {
             AstType::Named(AstNamedType {
                 span: self.name_span,
-                name: self.name,
+                name: qualified_name,
             })
         }
     }

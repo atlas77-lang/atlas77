@@ -188,7 +188,14 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 self.module_body.functions.insert(name, hir_func);
             }
             AstItem::Struct(ast_struct) => {
-                self.current_this_ty = Some(ast_struct.get_struct_ty(self.ast_arena));
+                let qualified_name = self.qualified_name(ast_struct.name.name);
+                self.current_this_ty = Some(ast_struct.get_struct_ty(
+                    self.ast_arena,
+                    self.ast_arena.alloc(AstIdentifier {
+                        name: self.ast_arena.alloc(qualified_name),
+                        span: ast_struct.name_span,
+                    }),
+                ));
                 let class = self.visit_struct(ast_struct)?;
                 self.current_this_ty = None;
                 self.module_signature
