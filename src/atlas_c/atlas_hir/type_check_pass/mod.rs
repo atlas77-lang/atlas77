@@ -43,7 +43,7 @@ use crate::atlas_c::atlas_hir::{
         HirOverloadableOperatorKind, HirStructDestructorSignature, HirStructFieldSignature,
         HirStructMethodModifier, HirStructMethodSignature, HirStructSignature, HirVisibility,
     },
-    ty::{HirGenericTy, HirNamedTy, HirTy, HirTyId},
+    ty::{HirBooleanTy, HirGenericTy, HirNamedTy, HirTy, HirTyId},
     type_check_pass::context::{ContextFunction, ContextVariable},
     warning::{
         HirWarning, TryingToCastToTheSameTypeWarning,
@@ -2941,6 +2941,17 @@ impl<'hir> TypeChecker<'hir> {
                     },
                 ));
             }
+            if matches!(
+                op,
+                HirOverloadableOperatorKind::Eq
+                    | HirOverloadableOperatorKind::NEq
+                    | HirOverloadableOperatorKind::Gt
+                    | HirOverloadableOperatorKind::Gte
+                    | HirOverloadableOperatorKind::Lt
+                    | HirOverloadableOperatorKind::Lte
+            ) {
+                return Ok(&HirTy::Boolean(HirBooleanTy {}));
+            }
             return Ok(lhs_ty);
         } else if let HirTy::Generic(g) = lhs_ty {
             let mangled_name = MonomorphizationPass::generate_mangled_name(self.arena, g, "struct");
@@ -2962,6 +2973,17 @@ impl<'hir> TypeChecker<'hir> {
                             src: NamedSource::new(path, src),
                         },
                     ));
+                }
+                if matches!(
+                    op,
+                    HirOverloadableOperatorKind::Eq
+                        | HirOverloadableOperatorKind::NEq
+                        | HirOverloadableOperatorKind::Gt
+                        | HirOverloadableOperatorKind::Gte
+                        | HirOverloadableOperatorKind::Lt
+                        | HirOverloadableOperatorKind::Lte
+                ) {
+                    return Ok(&HirTy::Boolean(HirBooleanTy {}));
                 }
                 return Ok(lhs_ty);
             }
