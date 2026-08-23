@@ -220,5 +220,19 @@ namespace std {
             std::memcpy(this->data + this->len, s, s_len);
             this->len = new_len;
         }
+
+        operator equal(*const this, other: *const This) -> bool {
+            if this->len != other->len {
+                return false;
+            }
+            let i: uint64 = 0;
+            while i < this->len {
+                if this->data[i] != other->data[i] {
+                    return false;
+                }
+                i = i + 1;
+            }
+            return true;
+        }
     }
 }
