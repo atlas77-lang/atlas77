@@ -102,6 +102,33 @@ namespace std {
             return popped;
         }
 
+        fun insert(*this, i: uint64, val: T) {
+            if i > this->length {
+                std::panic("Index out of bounds");
+            }
+            if this->length >= this->capacity {
+                // Resize the vector if necessary
+                let new_capacity = 1u;
+                if this->capacity != 0u { 
+                    new_capacity = this->capacity * 2u;
+                }
+                let new_data = std::realloc<T>(this->data, size_of<T>() * new_capacity);
+                if new_data == null {
+                    std::panic("Failed to allocate memory for vector resizing");
+                }
+                this->data = new_data;
+                this->capacity = new_capacity;
+            }
+            // Shift elements to the right to make space for the new element
+            let j: uint64 = this->length;
+            while j > i {
+                this->data[j] = this->data[j - 1u];
+                j = j - 1u;
+            }
+            std::ptr::write(&this->data[i], val);
+            this->length = this->length + 1u;
+        }
+
         //! Takes an element out of the vector at the specified index,
         //! shifting subsequent elements to the left.
         fun take(*this, index: uint64) -> T {
