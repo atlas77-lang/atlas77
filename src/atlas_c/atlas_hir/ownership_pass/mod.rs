@@ -682,6 +682,7 @@ impl<'hir> HirOwnershipPass<'hir> {
                 for arg in &call.args {
                     self.validate_expr(arg, scope_stack);
                     self.record_result(self.ensure_identifier_copy_allowed(scope_stack, arg, None));
+                    self.mark_compiler_temp_consumed(scope_stack, arg);
                 }
                 if let Some((name, span, _ty)) = self.consuming_method_receiver(expr, scope_stack) {
                     self.mark_consumed(scope_stack, name, span);
@@ -693,15 +694,21 @@ impl<'hir> HirOwnershipPass<'hir> {
                 }
             }
             HirExpr::ListLiteralWithSize(list) => {
+                self.validate_expr(&list.item, scope_stack);
                 // list.size > 1, we need to ensure the type isn't being moved into the list multiple times.
                 let size = list.size_as_usize().unwrap_or(0);
                 if size > 1 {
-                    self.validate_expr(&list.item, scope_stack);
                     self.record_result(self.ensure_identifier_copy_allowed(
                         scope_stack,
                         &list.item,
                         None,
                     ));
+                    // size > 1 needs N independent copies — do NOT mark the temp consumed here.
+                    // ensure_identifier_copy_allowed's `is_compiler_temp` bypass is itself wrong
+                    // for this branch (a bare move can't produce N copies); that's a second,
+                    // separate bug to fix at some point — not covered by today's patch.
+                } else {
+                    self.mark_compiler_temp_consumed(scope_stack, &list.item);
                 }
             }
             HirExpr::ObjLiteral(obj) => {
@@ -712,6 +719,7 @@ impl<'hir> HirOwnershipPass<'hir> {
                         &field.value,
                         None,
                     ));
+                    self.mark_compiler_temp_consumed(scope_stack, &field.value);
                 }
             }
             HirExpr::FieldAccess(field) => self.validate_expr(&field.target, scope_stack),
@@ -1116,6 +1124,36 @@ impl<'hir> HirOwnershipPass<'hir> {
                 }
             }
         }
+    }
+
+    /// After an argument/field/item expression has passed `ensure_identifier_copy_allowed`,
+    /// if it turned out to be a bare compiler temporary being handed off by value, record
+    /// that hand-off so scope-exit drop insertion doesn't also try to delete it.
+    fn mark_compiler_temp_consumed(
+        &self,
+        scope_stack: &mut [ScopeFrame<'hir>],
+        expr: &HirExpr<'hir>,
+    ) {
+        let (name, span) = match self.strip_noop_unary(expr) {
+            HirExpr::Ident(id) => (id.name, id.span),
+            HirExpr::ThisLiteral(t) => ("this", t.span),
+            _ => return,
+        };
+
+        let Some(local) = self.find_local(scope_stack, name) else {
+            return;
+        };
+        if !local.is_compiler_temp {
+            return;
+        }
+        if !matches!(
+            self.find_state(scope_stack, name),
+            Some(OwnershipState::Alive)
+        ) {
+            return;
+        }
+
+        self.mark_moved(scope_stack, name, span);
     }
 
     fn pre_delete_before_assign(
