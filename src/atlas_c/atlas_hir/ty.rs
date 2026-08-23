@@ -274,6 +274,13 @@ impl HirTy<'_> {
         )
     }
 
+    pub fn is_enum(&self, signatures: &HirModuleSignature) -> bool {
+        match self {
+            HirTy::Named(named_ty) => signatures.enums.contains_key(named_ty.name),
+            _ => false,
+        }
+    }
+
     pub fn is_trivially_copyable(&self, signatures: &HirModuleSignature) -> bool {
         if self.is_primitive() {
             return true;

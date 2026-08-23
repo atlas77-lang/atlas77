@@ -1755,7 +1755,8 @@ impl<'hir> TypeChecker<'hir> {
             HirExpr::HirBinaryOperation(b) => {
                 let lhs = self.check_expr(&mut b.lhs)?;
                 let rhs = self.check_expr(&mut b.rhs)?;
-                if !lhs.is_primitive() {
+                // if an enum we also don't check operator overloading
+                if !lhs.is_primitive() && !lhs.is_enum(&self.signature) {
                     b.ty = self.check_operator_overloading(
                         (lhs, b.lhs.span()),
                         (rhs, b.rhs.span()),
