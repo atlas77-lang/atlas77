@@ -183,6 +183,18 @@ namespace std {
             this->length = 0u;
         }
 
+        fun pairs(*const this) -> std::vector<*const std::map_pair<K, V>> {
+            let vec = std::vector<*const std::map_pair<K, V>>::with_capacity(this->length);
+            let i: uint64 = 0u;
+            while i < this->capacity {
+                if this->buckets[i].occupied {
+                    vec.push(this->buckets[i].pair);
+                }
+                i = i + 1u;
+            }
+            return vec;
+        }
+
       private:
         fun min_capacity(*const this) -> uint64 {
             return 8u;
