@@ -331,7 +331,7 @@ namespace std {
                     return this->capacity;
                 }
 
-                if bucket->hash == hash && bucket->pair->key.eq(key) {
+                if bucket->hash == hash && bucket->pair->key == *key {
                     return index;
                 }
 
