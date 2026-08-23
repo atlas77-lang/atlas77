@@ -856,9 +856,10 @@ impl<'hir> HirLoweringPass<'hir> {
                 };
                 let elem_lir_ty = self.hir_ty_to_lir_ty(elem_hir_ty, list.span);
 
-                // Evaluate the repeated item once and reuse it for each slot.
-                let repeated_item = self.lower_expr(&list.item)?;
+                // Evaluate the item and then assign it to its own slot.
+                // Avoid annoying bug for !trivially_copyable types that need to get their own copies
                 for idx in 0..size {
+                    let repeated_item = self.lower_expr(&list.item)?;
                     let index_operand = LirOperand::Index {
                         src: Box::new(dst.clone()),
                         index: Box::new(LirOperand::ImmUInt {

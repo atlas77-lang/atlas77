@@ -703,13 +703,8 @@ impl<'hir> HirOwnershipPass<'hir> {
                         &list.item,
                         None,
                     ));
-                    // size > 1 needs N independent copies — do NOT mark the temp consumed here.
-                    // ensure_identifier_copy_allowed's `is_compiler_temp` bypass is itself wrong
-                    // for this branch (a bare move can't produce N copies); that's a second,
-                    // separate bug to fix at some point — not covered by today's patch.
-                } else {
-                    self.mark_compiler_temp_consumed(scope_stack, &list.item);
                 }
+                self.mark_compiler_temp_consumed(scope_stack, &list.item);
             }
             HirExpr::ObjLiteral(obj) => {
                 for field in &obj.fields {
