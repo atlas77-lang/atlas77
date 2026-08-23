@@ -1619,10 +1619,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                                     ));
                                 }
                                 let ty = self.arena.types().get_uint_ty(64);
+                                let target_ty = self.visit_ty(c.generics[0])?;
                                 let hir = HirExpr::IntrinsicCall(HirIntrinsicCallExpr {
                                     name: INTRINSIC_SIZEOF,
                                     args: vec![],
-                                    args_ty: vec![ty],
+                                    args_ty: vec![target_ty],
                                     span: node.span(),
                                     ty,
                                 });
