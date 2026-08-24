@@ -21,6 +21,8 @@ namespace std {
     //! Bootiful std::string type
     public struct string {
       private:
+        //! Should always be null terminated
+        //! if it happens to not be null terminated, it's considered UB
         data: *uint8;
         len: uint64;
         capacity: uint64;
@@ -109,26 +111,24 @@ namespace std {
         fun to_chars(*const this) -> *const uint8 {
             return this->data;
         }
+        // TODO: Add that with `extend char {}`
+        fun is_whitespace(c: uint8) -> bool {
+            let is_whitespace = c == ' ' as uint8;
+            let is_tab        = c == ('\t' as uint8);
+            let is_newline    = c == ('\n' as uint8);
+            let is_carriage   = c == ('\r' as uint8);
+            return is_whitespace || is_tab || is_newline || is_carriage;
+        }
         //! Returns a new `std::string` with leading and trailing whitespace removed.
         //! Always an independent allocation -- never a view into `this`,
         //! so it owns its own terminator and its own lifetime.
         fun trim(*const this) -> std::string {
             let start: uint64 = 0;
             let end: uint64 = this->len;
-            while start < end
-            && (
-                this->data[start] == ' ' as uint8
-                    || this->data[start] == '\t' as uint8
-                    || this->data[start] == '\n' as uint8
-            ) {
+            while start < end && std::string::is_whitespace(this->data[start]) {
                 start = start + 1;
             }
-            while end > start
-            && (
-                this->data[end - 1] == ' ' as uint8
-                    || this->data[end - 1] == '\t' as uint8
-                    || this->data[end - 1] == '\n' as uint8
-            ) {
+            while end > start && std::string::is_whitespace(this->data[end - 1]) {
                 end = end - 1;
             }
             let trimmed_len = end - start;
