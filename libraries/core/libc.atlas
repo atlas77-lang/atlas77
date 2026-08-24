@@ -1,0 +1,56 @@
+namespace libc {
+    //! Not really a libc function. Will become a constant later
+    //! on when the feature will be added to the compiler.
+    #[c_name("__EOF")]
+    public extern "C" fun EOF() -> char;
+    
+    #[c_name("getchar")]
+    public extern "C" fun get_char() -> char;
+    #[c_name("fclose")]
+    public extern "C" fun fclose(file: *FILE) -> int32;
+    #[c_name("free")]
+    public extern "C" fun free<T>(val: *T);
+    #[c_name("malloc")]
+    public extern "C" fun malloc<T>(size: uint64) -> *T;
+    #[c_name("realloc")]
+    public extern "C" fun realloc<T>(ptr: *T, size: uint64) -> *T;
+    #[c_name("calloc")]
+    public extern "C" fun calloc<T>(nelem: uint64, elsize: uint64) -> *T;
+    #[c_name("memcpy")]
+    public extern "C" fun memcpy<T>(dest: *T, src: *const T, size: uint64) -> *T;
+
+    // Opaque type
+    // TODO: Add `#[opaque]`
+    #[c_name("File")]
+    public extern "C" struct FILE {}
+
+    #[c_name("fopen")]
+    public extern "C" fun fopen(path: *const uint8, mode: *const uint8) -> *FILE;
+    #[c_name("fread")]
+    public extern "C" fun fread(buf: *uint8, size: uint64, nmemb: uint64, f: *FILE) -> uint64;
+    #[c_name("fwrite")]
+    public extern "C" fun fwrite(buf: *const uint8, size: uint64, nmemb: uint64, f: *FILE) -> uint64;
+    #[c_name("fclose")]
+    public extern "C" fun fclose(f: *FILE) -> int32;
+    #[c_name("fflush")]
+    public extern "C" fun fflush(f: *FILE) -> int32;
+    #[c_name("fseek")]
+    public extern "C" fun fseek(f: *FILE, offset: int64, whence: int32) -> int32;
+    #[c_name("ftell")]
+    public extern "C" fun ftell(f: *FILE) -> int64;
+    #[c_name("feof")]
+    public extern "C" fun feof(f: *FILE) -> int32;
+
+    //! Takes a `*const uint8` and returns its length as `uint64`.
+    #[c_name("strlen")]
+    public extern "C" fun str_len(s: *const uint8) -> uint64;
+    //! Takes a single character and returns its uppercase equivalent if it's a lowercase letter, otherwise returns the character unchanged.
+    #[c_name("toupper")]
+    public extern "C" fun to_upper(c: uint8) -> uint8;
+    //! Takes a single character and returns its lowercase equivalent if it's an uppercase letter, otherwise returns the character unchanged.
+    #[c_name("tolower")]
+    public extern "C" fun to_lower(c: uint8) -> uint8;
+
+    #[c_name("memcmp")]
+    public extern "C" fun mem_cmp(a: *const uint8, b: *const uint8, size: uint64) -> int32;
+}
