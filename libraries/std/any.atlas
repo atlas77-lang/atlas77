@@ -1,6 +1,7 @@
 import "core/reflection";
 import "std/memory";
 import "std/expected";
+import "core/libc";
 
 namespace std {
     enum cast_error {
@@ -18,7 +19,7 @@ namespace std {
         ~any() {
             if this->val != null {
                 this->deleter(this->val);
-                std::free(this->val);
+                libc::free(this->val);
             }
         }
 

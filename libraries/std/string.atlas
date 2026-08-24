@@ -1,20 +1,17 @@
 //! std::string library for Atlas `std::string`
 //!
 //! Provides a std::string struct with various string manipulation functions.
+//!
+//! Invariant: `data` always points to a buffer of `capacity + 1` bytes, and
+//! `data[len] == '\0'` holds after every constructor and every method that
+//! mutates the string. `capacity` counts usable content bytes only -- it
+//! never includes the reserved terminator slot. Because every method that
+//! touches `data`/`len`/`capacity` re-establishes this before returning,
+//! `c_str()` never needs to lazily patch or reallocate anything: it's a
+//! plain, non-mutating accessor.
 
 // import "std/vector";
 // import "std/iter";
-
-//! Takes a `*const uint8` and returns its length as `uint64`.
-#[c_name("strlen")]
-public extern "C" fun strlen(s: *const uint8) -> uint64;
-//! Takes a single character and returns its uppercase equivalent if it's a lowercase letter, otherwise returns the character unchanged.
-#[c_name("toupper")]
-public extern "C" fun toupper(c: uint8) -> uint8;
-//! Takes a single character and returns its lowercase equivalent if it's an uppercase letter, otherwise returns the character unchanged.
-#[c_name("tolower")]
-public extern "C" fun tolower(c: uint8) -> uint8;
-
 
 import "std/memory";
 import "std/io";
@@ -23,216 +20,187 @@ import "std/io";
 namespace std {
     //! Bootiful std::string type
     public struct string {
-    private:
+      private:
         data: *uint8;
         len: uint64;
         capacity: uint64;
 
-    public:
-        fun default() -> std::string
-        {
-            let data = std::malloc<uint8>(1);
-            data[0] = '\0' as uint8;
+        //! Allocates a fresh `content_capacity + 1`-byte buffer, copies
+        //! `copy_len` bytes from `src` into it (pass `null`/0 to skip), and
+        //! terminates it. `content_capacity` must be >= `copy_len`. This is
+        //! the one place that decides the physical allocation size, so every
+        //! constructor below routes through it -- there's only one spot that
+        //! can get the `+1` wrong.
+        fun alloc_terminated(content_capacity: uint64, src: *const uint8, copy_len: uint64) -> std::string {
+            let data = std::zero_alloc<uint8>(content_capacity + 1);
+            if src != null && copy_len > 0 {
+                libc::memcpy(data, src, copy_len);
+            }
+            data[copy_len] = '\0' as uint8;
+            return std::string {
+                .data = data,
+                .len = copy_len,
+                .capacity = content_capacity
+            };
+        }
 
-            return std::string { 
-                .data = data, 
-                .len = 0, 
-                .capacity = 0 
-            };
+        //! Ensures at least `min_capacity` usable content bytes are available,
+        //! growing (2x `min_capacity`, matching the old push_str/push_char
+        //! policy) and reallocating if not. The one place that decides when
+        //! and how much to grow, mirroring how alloc_terminated is the one
+        //! place that decides the initial size.
+        fun grow_to(*this, min_capacity: uint64) {
+            if min_capacity <= this->capacity {
+                return;
+            }
+            let new_capacity = min_capacity * 2;
+            let new_data = libc::malloc<uint8>(new_capacity + 1);
+            libc::memcpy(new_data, this->data, this->len);
+            libc::free(this->data);
+            this->data = new_data;
+            this->capacity = new_capacity;
         }
-        fun new() -> std::string
-        {
-            return std::string { 
-                .data = null, 
-                .len = 0, 
-                .capacity = 0 
-            };
-        }
-        fun copy(*const this) -> std::string
-        {
-            let new_data = std::malloc<uint8>(this->capacity);
-            std::memcpy(new_data, this->data, this->len);
 
-            return std::string { 
-                .data = new_data, 
-                .len = this->len, 
-                .capacity = this->capacity 
-            };
+      public:
+        fun default() -> std::string {
+            return std::string::alloc_terminated(0, null, 0);
         }
-        ~string()
-        {
+        fun new() -> std::string  {
+            // No separate "unallocated" state -- keeping exactly one
+            // representation of "empty" is what makes the invariant provable.
+            return std::string::alloc_terminated(0, null, 0);
+        }
+        fun copy(*const this) -> std::string {
+            return std::string::alloc_terminated(this->capacity, this->data, this->len);
+        }
+        ~string() {
             if this->data != null {
-                std::free(this->data);
+                libc::free(this->data);
             }
         }
         //! Creates a new `std::string` from a null-terminated C string.
-        fun from_chars(s_: *const uint8) -> std::string
-        {
-            let len = strlen(s_);
-            let data = std::zero_alloc<uint8>(len);
-            std::memcpy(data, s_, len);
-            return std::string { 
-                .data = data, 
-                .len = len, 
-                .capacity = len 
-            };
+        fun from_chars(s_: *const uint8) -> std::string {
+            let len = libc::str_len(s_);
+            return std::string::alloc_terminated(len, s_, len);
         }
         //! Creates a new `std::string` with the specified capacity.
-        fun with_capacity(capacity: uint64) -> std::string
-        {
-            let data = std::zero_alloc<uint8>(capacity);
-            return std::string { 
-                .data = data, 
-                .len = 0, 
-                .capacity = capacity 
-            };
+        fun with_capacity(capacity: uint64) -> std::string {
+            return std::string::alloc_terminated(capacity, null, 0);
         }
         //! Returns the length of the string.
-        fun len(*const this) -> uint64
-        {
+        fun len(*const this) -> uint64 {
             return this->len;
         }
-        fun set_len(*this, new_len: uint64)
-        {
-            if new_len > this->capacity {
-                std::panic("New length exceeds string capacity");
-            }
-            this->len = new_len;
-        }
-        //! Returns a pointer to the string's data. Use with caution, as this can lead to undefined behavior if the string's invariants are violated.
-        fun c_str(*this) -> *const uint8
-        {
-            if this->data == null {
-                return null;
-            } else if this->len < this->capacity {
-                this->data[this->len] = '\0' as uint8;
-            } 
-            // We need to reallocate to add a null terminator, since the string is currently at full capacity. 
-            // This is a bit inefficient, but it ensures that we always return a null-terminated string.
-            let new_capacity = this->capacity + 1;
-            let new_data = std::malloc<uint8>(new_capacity);
-            std::memcpy(new_data, this->data, this->len);
-
-            new_data[this->len] = '\0' as uint8;
-            std::free(this->data);
-            this->data = new_data;
-            this->capacity = new_capacity;
+        //! Returns a pointer to the string's data. Always valid, always
+        //! NUL-terminated at `data[len]` -- a plain accessor, nothing more.
+        fun c_str(*const this) -> *const uint8 {
             return this->data;
         }
-        //! Returns a mutable pointer to the string's data. Use with caution, as this
-        // can lead to undefined behavior if the string's invariants are violated.
-        fun data_mut(*const this) -> *uint8
-        {
-            return this->data;
-        }
-        //! Returns the capacity of the string.
-        fun capacity(*const this) -> uint64
-        {
+        //! Returns the capacity of the string, in usable content bytes
+        //! (not counting the reserved terminator slot).
+        fun capacity(*const this) -> uint64 {
             return this->capacity;
         }
         //! Returns true if the string is empty, false otherwise.
-        fun is_empty(*const this) -> bool
-        {
-            return (this->data == null) || (this->len == 0);
+        fun is_empty(*const this) -> bool {
+            return this->len == 0 || this->data == null || this->data[0] == ('\0' as uint8);
         }
         //! Returns a string slice
-        fun to_chars(*const this) -> *const uint8
-        {
+        fun to_chars(*const this) -> *const uint8 {
             return this->data;
         }
         //! Returns a new `std::string` with leading and trailing whitespace removed.
-        fun trim(*const this) -> std::string
-        {
+        //! Always an independent allocation -- never a view into `this`,
+        //! so it owns its own terminator and its own lifetime.
+        fun trim(*const this) -> std::string {
             let start: uint64 = 0;
             let end: uint64 = this->len;
-            while start < end 
+            while start < end
             && (
-                this->data[start] == ' ' as uint8 
-                    || this->data[start] == '\t' as uint8 
+                this->data[start] == ' ' as uint8
+                    || this->data[start] == '\t' as uint8
                     || this->data[start] == '\n' as uint8
             ) {
                 start = start + 1;
             }
-            while end > start 
+            while end > start
             && (
-                this->data[end - 1] == ' ' as uint8 
-                    || this->data[end - 1] == '\t' as uint8 
+                this->data[end - 1] == ' ' as uint8
+                    || this->data[end - 1] == '\t' as uint8
                     || this->data[end - 1] == '\n' as uint8
             ) {
                 end = end - 1;
             }
-            return std::string { 
-                .data = this->data + start, 
-                .len = end - start, 
-                .capacity = end - start 
-            };
+            let trimmed_len = end - start;
+            return std::string::alloc_terminated(trimmed_len, this->data + start, trimmed_len);
         }
         //! Returns a new `std::string` converted to uppercase.
-        fun to_upper(*const this) -> std::string
-        {
+        fun to_upper(*const this) -> std::string {
             let s_ = this->copy();
             let i: uint64 = 0;
             while i < this->len {
                 let c = this->data[i];
-                s_.data[i] = toupper(c);
+                s_.data[i] = libc::to_upper(c);
                 i = i + 1;
             }
             return s_;
         }
         //! Returns a new `std::string` converted to lowercase.
-        fun to_lower(*const this) -> std::string
-        {
+        fun to_lower(*const this) -> std::string {
             let s_ = this->copy();
             let i: uint64 = 0;
             while i < this->len {
                 let c = this->data[i];
-                s_.data[i] = tolower(c);
+                s_.data[i] = libc::to_lower(c);
                 i = i + 1;
             }
             return s_;
         }
         //! Concatenates this string with another string and returns the result as a new `std::string`.
-        fun concat(*const this, other: *const std::string) -> std::string
-        {
+        fun concat(*const this, other: *const std::string) -> std::string {
             let new_len: uint64 = this->len + other->len;
-            let new_data: *uint8 = std::malloc<uint8>(new_len);
-            std::memcpy(new_data, this->data, this->len);
-            std::memcpy(new_data + this->len, other->data, other->len);
-            return std::string { 
-                .data = new_data, 
-                .len = new_len, 
-                .capacity = new_len 
-            };
+            let result = std::string::alloc_terminated(new_len, this->data, this->len);
+            libc::memcpy(result.data + this->len, other->data, other->len);
+            // alloc_terminated already wrote '\0' at `this->len`; the real
+            // end of the combined content is `new_len`, so fix it up.
+            result.data[new_len] = '\0' as uint8;
+            return result;
         }
         //! Appends a string slice to the end of this string.
-        fun push_str(*this, s: *const uint8)
-        {
-            let s_len = strlen(s);
+        fun push_str(*this, s: *const uint8) {
+            let s_len = libc::str_len(s);
             let new_len = this->len + s_len;
-            if new_len > this->capacity {
-                let new_capacity = new_len * 2;
-                let new_data = std::malloc<uint8>(new_capacity);
-                std::memcpy(new_data, this->data, this->len);
-                std::free(this->data);
-                this->data = new_data;
-                this->capacity = new_capacity;
-            }
-            std::memcpy(this->data + this->len, s, s_len);
+            this->grow_to(new_len);
+            libc::memcpy(this->data + this->len, s, s_len);
             this->len = new_len;
+            this->data[new_len] = '\0' as uint8;
+        }
+        //! Appends a single char to the end of this string.
+        fun push_char(*this, ch: char) {
+            let new_len = this->len + 1;
+            this->grow_to(new_len);
+            this->data[this->len] = ch as uint8;
+            this->len = new_len;
+            this->data[new_len] = '\0' as uint8;
         }
 
         operator equal(*const this, other: *const This) -> bool {
             if this->len != other->len {
                 return false;
             }
-            let i: uint64 = 0;
-            while i < this->len {
-                if this->data[i] != other->data[i] {
-                    return false;
-                }
-                i = i + 1;
+            if this->len == 0 {
+                return true;
             }
-            return true;
+            return libc::mem_cmp(this->data, other->data, this->len) == 0;
+        }
+        operator not_equal(*const this, other: *const This) -> bool {
+            if this->len != other->len {
+                return true;
+            }
+            if this->len == 0 {
+                return false;
+            }
+            return libc::mem_cmp(this->data, other->data, this->len) != 0;
         }
     }
 }

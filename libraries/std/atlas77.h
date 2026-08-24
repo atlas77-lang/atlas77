@@ -72,6 +72,10 @@ PANIC_NORETURN static inline void panic(const char *message)
     exit(1);
 }
 
+extern inline char __EOF() {
+    return EOF;
+}
+
 extern inline uint64_t atlas77_input_impl(uint8_t *buf, uint64_t size)
 {
     uint64_t len;

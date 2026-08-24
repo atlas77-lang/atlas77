@@ -1,6 +1,7 @@
 import "std/memory";
 import "std/io";
 import "std/atomic";
+import "core/libc";
 
 namespace std {
     private struct __control_block<T> {
@@ -20,7 +21,7 @@ namespace std {
                 if this->cb->ref_count.fetch_sub(1) == 1 {
                     this->cb->__val_destructor(this->ptr);
 
-                    std::free(this->cb);
+                    libc::free(this->cb);
                 }
             }
         }

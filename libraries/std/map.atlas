@@ -6,13 +6,16 @@
 
 import "std/io";
 import "std/memory";
+import "core/libc";
 
+// TODO: Add back `std::hashable` as contraints
+// I removed it temporarily
 namespace std {
     // concept hashable {
     //     fun hash(*const this) -> uint64;
     // }
 
-    private struct map_pair<K: std::hashable + operator::equal, V> {
+    private struct map_pair<K: operator::equal, V> {
       public:
         key: K;
         value: V;
@@ -24,7 +27,7 @@ namespace std {
     }
 
     #[std::trivially_copyable]
-    private struct map_bucket<K: std::hashable + operator::equal, V> {
+    private struct map_bucket<K: operator::equal, V> {
       public:
         occupied: bool;
         hash: uint64;
@@ -32,7 +35,7 @@ namespace std {
         pair: *std::map_pair<K, V>;
     }
 
-    public struct map<K: std::hashable + operator::equal, V> {
+    public struct map<K: operator::equal, V> {
       private:
         buckets: *std::map_bucket<K, V>;
         length: uint64;
@@ -56,7 +59,7 @@ namespace std {
         ~map() {
             this->destroy_all_pairs();
             if this->buckets != null {
-                std::free(this->buckets);
+                libc::free(this->buckets);
                 this->buckets = null;
             }
             this->length = 0u;
@@ -217,7 +220,7 @@ namespace std {
                 final_cap = this->min_capacity();
             }
 
-            this->buckets = std::malloc<std::map_bucket<K, V>>(
+            this->buckets = libc::malloc<std::map_bucket<K, V>>(
                 size_of<std::map_bucket<K, V>>() * final_cap
             );
             if this->buckets == null {
@@ -240,7 +243,7 @@ namespace std {
         }
 
         fun alloc_pair(*const this, key: K, value: V) -> *std::map_pair<K, V> {
-            let pair_ptr = std::malloc<std::map_pair<K, V>>(size_of<std::map_pair<K, V>>());
+            let pair_ptr = libc::malloc<std::map_pair<K, V>>(size_of<std::map_pair<K, V>>());
             if pair_ptr == null {
                 std::panic("std::map: failed to allocate pair");
             }
@@ -318,7 +321,7 @@ namespace std {
                 i = i + 1u;
             }
 
-            std::free(old_buckets);
+            libc::free(old_buckets);
         }
 
         //! Returns index if found, otherwise `this.capacity` sentinel.
