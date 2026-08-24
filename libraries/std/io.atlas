@@ -29,7 +29,6 @@ namespace std {
 
             ch = libc::get_char();
         }
-        buf.push_char('\0');
         
         return buf;
     }
