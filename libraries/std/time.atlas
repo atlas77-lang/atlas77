@@ -38,5 +38,8 @@ namespace std {
             let elapsed_ns = now.ns - instant.ns;
             return std::duration { .ns = elapsed_ns };
         }
+        fun seconds(*const this) -> float64 {
+            return this->ns as float64 / 1000000000.0;
+        }
     }
 }
