@@ -460,6 +460,11 @@ impl HirPrettyPrinter {
             }
             HirStatement::Let(var) => {
                 self.write_indent();
+                self.write(&format!(
+                    "// type of the value inside of the variable: {}\n",
+                    var.value.ty()
+                ));
+                self.write_indent();
                 self.write(&format!("let {}: {} = ", var.name, Self::type_str(var.ty)));
                 self.print_expr(&var.value);
                 self.write(";\n");

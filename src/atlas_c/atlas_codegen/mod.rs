@@ -1073,15 +1073,15 @@ impl CCodeGen {
             LirOperand::ImmInt { val: i, size } => match size {
                 64 => format!("{}LL", i),
                 32 => format!("{}L", i),
-                16 => format!("(int16_t){}", i),
-                8 => format!("(int8_t){}", i),
+                16 => format!("{}", i),
+                8 => format!("{}", i),
                 _ => panic!("Invalid integer size: {}", size),
             },
             LirOperand::ImmUInt { val: u, size } => match size {
                 64 => format!("{}ULL", u),
                 32 => format!("{}UL", u),
-                16 => format!("(uint16_t){}", u),
-                8 => format!("(uint8_t){}", u),
+                16 => format!("{}", u),
+                8 => format!("{}", u),
                 _ => panic!("Invalid unsigned integer size: {}", size),
             },
             LirOperand::ImmFloat { val: f, size } => match size {

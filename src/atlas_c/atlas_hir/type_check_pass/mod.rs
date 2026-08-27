@@ -1270,9 +1270,12 @@ impl<'hir> TypeChecker<'hir> {
             HirStatement::Let(l) => {
                 // Phase 1: Register the variable early with a fallback type to prevent cascading errors
                 // If a declared type is available, use it; otherwise use an error type
+                let declared_ty;
                 let fallback_ty = if self.type_exists(l.ty) {
+                    declared_ty = true;
                     l.ty
                 } else {
+                    declared_ty = false;
                     self.arena.types().get_error_ty()
                 };
 
@@ -1356,6 +1359,9 @@ impl<'hir> TypeChecker<'hir> {
                             ptrs_to_locals,
                         },
                     );
+                }
+                if declared_ty {
+                    l.value.set_ty(fallback_ty);
                 }
 
                 Ok(())
