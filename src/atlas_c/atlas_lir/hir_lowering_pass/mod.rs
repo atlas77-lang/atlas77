@@ -784,43 +784,12 @@ impl<'hir> HirLoweringPass<'hir> {
             }
 
             HirExpr::ListLiteral(list) => {
-                let dst = self.new_temp();
-                let lir_arr_ty = self.hir_ty_to_lir_ty(list.ty, list.span);
-                self.emit(LirInstr::ConstructArray {
-                    ty: lir_arr_ty,
-                    dst: dst.clone(),
-                    size: list.items.len(),
-                })?;
-
-                let elem_hir_ty = match list.ty {
-                    HirTy::InlineArray(arr) => arr.inner,
-                    _ => {
-                        if let Some(first) = list.items.first() {
-                            first.ty()
-                        } else {
-                            return Ok(dst);
-                        }
-                    }
-                };
-                let elem_lir_ty = self.hir_ty_to_lir_ty(elem_hir_ty, list.span);
-
-                for (idx, item) in list.items.iter().enumerate() {
-                    let src = self.lower_expr(item)?;
-                    let index_operand = LirOperand::Index {
-                        src: Box::new(dst.clone()),
-                        index: Box::new(LirOperand::ImmUInt {
-                            val: idx as u64,
-                            size: 64,
-                        }),
-                    };
-                    self.emit(LirInstr::Assign {
-                        ty: elem_lir_ty.clone(),
-                        dst: index_operand,
-                        src,
-                    })?;
+                let mut elements = Vec::with_capacity(list.items.len());
+                for item in &list.items {
+                    elements.push(self.lower_expr(item)?);
                 }
 
-                Ok(dst)
+                Ok(LirOperand::LiteralArray { elements })
             }
             HirExpr::ListLiteralWithSize(list) => {
                 fn const_list_size(expr: &HirExpr<'_>) -> Option<usize> {
@@ -839,43 +808,11 @@ impl<'hir> HirLoweringPass<'hir> {
                     )
                 })?;
 
-                let dst = self.new_temp();
-                let lir_arr_ty = self.hir_ty_to_lir_ty(list.ty, list.span);
-                self.emit(LirInstr::ConstructArray {
-                    ty: lir_arr_ty,
-                    dst: dst.clone(),
-                    size,
-                })?;
-
-                if size == 0 {
-                    return Ok(dst);
+                let mut elements = Vec::with_capacity(size);
+                for _ in 0..size {
+                    elements.push(self.lower_expr(&list.item)?);
                 }
-
-                let elem_hir_ty = match list.ty {
-                    HirTy::InlineArray(arr) => arr.inner,
-                    _ => list.item.ty(),
-                };
-                let elem_lir_ty = self.hir_ty_to_lir_ty(elem_hir_ty, list.span);
-
-                // Evaluate the item and then assign it to its own slot.
-                // Avoid annoying bug for !trivially_copyable types that need to get their own copies
-                for idx in 0..size {
-                    let repeated_item = self.lower_expr(&list.item)?;
-                    let index_operand = LirOperand::Index {
-                        src: Box::new(dst.clone()),
-                        index: Box::new(LirOperand::ImmUInt {
-                            val: idx as u64,
-                            size: 64,
-                        }),
-                    };
-                    self.emit(LirInstr::Assign {
-                        ty: elem_lir_ty.clone(),
-                        dst: index_operand,
-                        src: repeated_item.clone(),
-                    })?;
-                }
-
-                Ok(dst)
+                Ok(LirOperand::LiteralArray { elements })
             }
 
             // === Casting ===
@@ -1129,20 +1066,15 @@ impl<'hir> HirLoweringPass<'hir> {
 
             // === ObjLiteral ===
             HirExpr::ObjLiteral(obj_lit) => {
-                let mut args = Vec::new();
+                let mut field_values = BTreeMap::new();
                 for field_value in &obj_lit.fields {
                     let value_operand = self.lower_expr(&field_value.value)?;
-                    args.push((field_value.name.to_string(), value_operand));
+                    field_values.insert(field_value.name.to_string(), value_operand);
                 }
-
-                let dest = self.new_temp();
-
-                self.emit(LirInstr::ConstructObject {
+                Ok(LirOperand::LiteralObj {
+                    field_values,
                     ty: self.hir_ty_to_lir_ty(obj_lit.ty, obj_lit.span),
-                    dst: dest.clone(),
-                    field_values: args.into_iter().collect(),
-                })?;
-                Ok(dest)
+                })
             }
 
             // === Function calls ===
@@ -1990,42 +1922,7 @@ impl<'hir> HirLoweringPass<'hir> {
         let method_names_array = if method_names.is_empty() {
             LirOperand::ImmUnit
         } else {
-            let array_dst = self.new_temp();
-            self.emit(LirInstr::LoadConst {
-                dst: array_dst.clone(),
-                value: LirOperand::ImmUnit, // Placeholder for the actual array data
-            })?;
-            let dst = self.new_temp();
-            self.emit(LirInstr::ConstructArray {
-                ty: LirTy::ArrayTy {
-                    inner: Box::new(LirTy::Ptr {
-                        is_const: false,
-                        inner: Box::new(LirTy::Char),
-                    }),
-                    size: method_names.len(),
-                },
-                dst: dst.clone(),
-                size,
-            })?;
-            for (idx, item) in method_names.iter().enumerate() {
-                let src = LirOperand::Const(ConstantValue::String(item.to_string()));
-                let index_operand = LirOperand::Index {
-                    src: Box::new(dst.clone()),
-                    index: Box::new(LirOperand::ImmUInt {
-                        val: idx as u64,
-                        size: 64,
-                    }),
-                };
-                self.emit(LirInstr::Assign {
-                    ty: LirTy::Ptr {
-                        is_const: false,
-                        inner: Box::new(LirTy::Char),
-                    },
-                    dst: index_operand,
-                    src,
-                })?;
-            }
-            dst
+            LirOperand::ImmUnit
         };
         field_values.insert("method_names".to_string(), method_names_array);
         field_values.insert(
@@ -2038,42 +1935,7 @@ impl<'hir> HirLoweringPass<'hir> {
         let field_names_array = if field_names.is_empty() {
             LirOperand::ImmUnit
         } else {
-            let array_dst = self.new_temp();
-            self.emit(LirInstr::LoadConst {
-                dst: array_dst.clone(),
-                value: LirOperand::ImmUnit, // Placeholder for the actual array data
-            })?;
-            let dst = self.new_temp();
-            self.emit(LirInstr::ConstructArray {
-                ty: LirTy::ArrayTy {
-                    inner: Box::new(LirTy::Ptr {
-                        is_const: false,
-                        inner: Box::new(LirTy::Char),
-                    }),
-                    size: field_names.len(),
-                },
-                dst: dst.clone(),
-                size,
-            })?;
-            for (idx, item) in field_names.iter().enumerate() {
-                let src = LirOperand::Const(ConstantValue::String(item.to_string()));
-                let index_operand = LirOperand::Index {
-                    src: Box::new(dst.clone()),
-                    index: Box::new(LirOperand::ImmUInt {
-                        val: idx as u64,
-                        size: 64,
-                    }),
-                };
-                self.emit(LirInstr::Assign {
-                    ty: LirTy::Ptr {
-                        is_const: false,
-                        inner: Box::new(LirTy::Char),
-                    },
-                    dst: index_operand,
-                    src,
-                })?;
-            }
-            dst
+            LirOperand::ImmUnit
         };
         field_values.insert("field_names".to_string(), field_names_array);
         field_values.insert(
@@ -2089,10 +1951,13 @@ impl<'hir> HirLoweringPass<'hir> {
         );
 
         let dst = self.new_temp();
-        self.emit(LirInstr::ConstructObject {
+        self.emit(LirInstr::LoadImm {
             ty: LirTy::StructType("core::type_info".to_string()),
+            value: LirOperand::LiteralObj {
+                field_values,
+                ty: LirTy::StructType("core::type_info".to_string()),
+            },
             dst: dst.clone(),
-            field_values,
         })?;
 
         Ok(dst)
@@ -2334,21 +2199,6 @@ impl std::fmt::Display for LirInstr {
                     write!(f, "call_ptr {}({})", callee, args_str)
                 }
             }
-            LirInstr::ConstructArray { ty, dst, size } => {
-                write!(f, "{} = new_array {}[{}]", dst, ty, size)
-            }
-            LirInstr::ConstructObject {
-                ty,
-                dst,
-                field_values,
-            } => {
-                let fields_str = field_values
-                    .iter()
-                    .map(|(name, value)| format!("{}: {}", name, value))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "{} = raw_obj {} {{ {} }}", dst, ty, fields_str)
-            }
             LirInstr::Delete {
                 ty,
                 src,
@@ -2392,6 +2242,26 @@ impl std::fmt::Display for LirOperand {
             LirOperand::ImmUnit => write!(f, "%imm()"),
             LirOperand::Deref(d) => write!(f, "*{}", d),
             LirOperand::AsRef(a) => write!(f, "&{}", a),
+            LirOperand::LiteralArray { elements } => write!(
+                f,
+                "[{}]",
+                elements
+                    .iter()
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            LirOperand::LiteralObj { field_values, ty } => write!(
+                f,
+                "({}) {{ {} }}",
+                ty,
+                field_values
+                    .iter()
+                    .map(|(k, v)| format!(".{} = {}", k, v))
+                    .collect::<Vec<_>>()
+                    .join(" ,")
+            ),
+
             LirOperand::FieldAccess {
                 src,
                 field_name,

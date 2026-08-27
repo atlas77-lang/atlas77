@@ -415,16 +415,6 @@ pub enum LirInstr {
         dst: LirOperand,
         src: LirOperand,
     },
-    ConstructArray {
-        ty: LirTy,
-        dst: LirOperand,
-        size: usize,
-    },
-    ConstructObject {
-        ty: LirTy,
-        dst: LirOperand,
-        field_values: BTreeMap<String, LirOperand>,
-    },
     /// Delete semantics for a value of the given type.
     ///
     /// - `should_free = true`: delete pointer-like storage (may also run destructor)
@@ -474,6 +464,13 @@ pub enum LirOperand {
     Index {
         src: Box<LirOperand>,
         index: Box<LirOperand>,
+    },
+    LiteralObj {
+        field_values: BTreeMap<String, LirOperand>,
+        ty: LirTy,
+    },
+    LiteralArray {
+        elements: Vec<LirOperand>,
     },
     /// Immediate values
     ImmInt {

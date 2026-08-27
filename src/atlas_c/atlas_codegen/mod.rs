@@ -958,79 +958,6 @@ impl CCodeGen {
                 );
                 Self::write_to_file(&mut self.c_file, &line, self.indent_level);
             }
-            // Creates an array on the stack.
-            // C equivalent to T dest[size] = {0};
-            LirInstr::ConstructArray { ty, dst, size: _ } => {
-                let dest_str = self.codegen_operand(dst);
-                // In C, arrays are defined as T name[size];
-                // This will probably not work for multi-dimensional arrays yet
-                let line = match ty {
-                    LirTy::ArrayTy { .. } => {
-                        format!("{} = {{0}};", self.codegen_array_decl(ty, &dest_str))
-                    }
-                    _ => panic!("ConstructArray expected ArrayTy"),
-                };
-                Self::write_to_file(&mut self.c_file, &line, self.indent_level);
-            }
-            // Similar to {foo: bar, baz: qux}
-            // It DOES NOT allocate memory, just creates a raw object on the stack
-            LirInstr::ConstructObject {
-                ty,
-                dst,
-                field_values,
-            } => {
-                let dest_str = self.codegen_operand(dst);
-                let type_str = self.codegen_type(ty);
-                let type_name_str = type_str.trim_end_matches('*').to_string();
-
-                // Use assignment-style construction so array fields can be copied safely.
-                // Compound literals with `.field = temp_array` are invalid C for array members.
-                let decl_line = format!("{} {} = ({}) {{0}};", type_name_str, dest_str, type_str);
-                Self::write_to_file(&mut self.c_file, &decl_line, self.indent_level);
-
-                if field_values.is_empty() {
-                    let dummy_line = format!("{}._dummy = 'A';", dest_str);
-                    Self::write_to_file(&mut self.c_file, &dummy_line, self.indent_level);
-                    return;
-                }
-
-                let mut fields: Vec<(&String, &LirOperand)> = field_values.iter().collect();
-                fields.sort_by_key(|(a, _)| *a);
-
-                let array_fields: HashSet<String> = if let LirTy::StructType(struct_name) = ty {
-                    self.struct_field_tys
-                        .get(struct_name)
-                        .map(|m| {
-                            m.iter()
-                                .filter_map(|(k, v)| {
-                                    if matches!(v, LirTy::ArrayTy { .. }) {
-                                        Some(k.clone())
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default()
-                } else {
-                    HashSet::new()
-                };
-
-                for (field_name, field_value) in fields {
-                    let value_str = self.codegen_operand(field_value);
-                    let is_array_field = array_fields.contains(field_name);
-
-                    let line = if is_array_field {
-                        format!(
-                            "memcpy({0}.{1}, {2}, sizeof({0}.{1}));",
-                            dest_str, field_name, value_str
-                        )
-                    } else {
-                        format!("{}.{} = {};", dest_str, field_name, value_str)
-                    };
-                    Self::write_to_file(&mut self.c_file, &line, self.indent_level);
-                }
-            }
             LirInstr::Cast { ty, from, dst, src } => {
                 if !(ty == from) {
                     let dest_str = self.codegen_operand(dst);
@@ -1102,6 +1029,25 @@ impl CCodeGen {
                 } else {
                     format!("(&{})", self.codegen_operand(a))
                 }
+            }
+            LirOperand::LiteralObj { field_values, ty } => format!(
+                "({}) {{ {} }}",
+                self.codegen_type(ty),
+                field_values
+                    .iter()
+                    .map(|(k, v)| format!(".{} = {}", k, self.codegen_operand(v)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            LirOperand::LiteralArray { elements } => {
+                format!(
+                    "{{ {} }}",
+                    elements
+                        .iter()
+                        .map(|i| self.codegen_operand(i))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             }
             LirOperand::FieldAccess {
                 src,
