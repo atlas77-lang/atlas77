@@ -133,6 +133,9 @@ impl CCodeGen {
 
     fn emit_type_forward_declarations(&mut self, program: &LirProgram) {
         for union in program.unions.iter() {
+            if union.is_extern {
+                continue;
+            }
             let union_name = Self::c_ident(&union.name);
             Self::write_to_top(
                 &mut self.c_header,
@@ -208,7 +211,8 @@ impl CCodeGen {
     fn codegen_type_definitions_dependency_order(&mut self, program: &LirProgram) {
         let mut remaining_structs: Vec<&LirStruct> =
             program.structs.iter().filter(|s| !s.is_extern).collect();
-        let mut remaining_unions: Vec<&LirUnion> = program.unions.iter().collect();
+        let mut remaining_unions: Vec<&LirUnion> =
+            program.unions.iter().filter(|s| !s.is_extern).collect();
 
         let mut defined_structs: HashSet<String> = HashSet::new();
         let mut defined_unions: HashSet<String> = HashSet::new();

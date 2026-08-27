@@ -270,6 +270,7 @@ impl<'hir> HirLoweringPass<'hir> {
         let lir_union = LirUnion {
             name: union_body.name.to_string(),
             c_name: union_body.signature.c_name.map(|s| s.to_string()),
+            is_extern: union_body.signature.is_extern,
             variants,
         };
 

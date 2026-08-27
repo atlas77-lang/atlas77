@@ -124,6 +124,7 @@ pub struct LirExternFunction {
 pub struct LirUnion {
     pub name: String,
     pub c_name: Option<String>,
+    pub is_extern: bool,
     pub variants: BTreeMap<String, LirTy>,
 }
 
