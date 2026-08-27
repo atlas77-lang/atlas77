@@ -74,7 +74,6 @@ declare_error_type! {
         UnknownField(UnknownFieldError),
         UnknownMethod(UnknownMethodError),
         StructCannotHaveAFieldOfItsOwnType(StructCannotHaveAFieldOfItsOwnTypeError),
-        UnionMustHaveAtLeastTwoVariant(UnionMustHaveAtLeastTwoVariantError),
         UnionVariantDefinedMultipleTimes(UnionVariantDefinedMultipleTimesError),
         LifetimeDependencyViolation(LifetimeDependencyViolationError),
         ReturningValueWithLocalLifetimeDependency(ReturningValueWithLocalLifetimeDependencyError),
@@ -1171,22 +1170,6 @@ pub struct StructCannotHaveAFieldOfItsOwnTypeError {
 
 #[derive(Error, Diagnostic, Debug, Serialize)]
 #[diagnostic(
-    code(sema::union_must_have_at_least_two_variant),
-    help(
-        "A union must have at least two variants to be valid, add a `std::empty` variant if you need a nullable state."
-    )
-)]
-#[error("{union_name} must have at least two variants")]
-pub struct UnionMustHaveAtLeastTwoVariantError {
-    pub union_name: String,
-    #[label = "{union_name} must have at least two variants"]
-    pub span: Span,
-    #[source_code]
-    #[serde(skip_serializing)]
-    pub src: NamedSource<String>,
-}
-#[derive(Error, Diagnostic, Debug, Serialize)]
-#[diagnostic(
     code(sema::union_variant_defined_multiple_times),
     help(
         "Each variant in a union must have a unique name. Rename one of the variants to resolve the conflict."
@@ -1913,13 +1896,6 @@ impl From<HirError> for Vec<CompilerError> {
                     errors.push(err);
                 }
                 errors
-            }
-            HirError::UnionMustHaveAtLeastTwoVariant(error) => {
-                vec![CompilerError {
-                    message: error.to_string(),
-                    span: error.span,
-                    kind: CompilerErrorKind::Error,
-                }]
             }
             HirError::UnionVariantDefinedMultipleTimes(error) => {
                 vec![

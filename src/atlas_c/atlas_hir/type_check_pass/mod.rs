@@ -26,10 +26,10 @@ use crate::atlas_c::atlas_hir::{
         TryingToCreateAnUnionWithMoreThanOneActiveFieldError,
         TryingToCreateAnUnionWithMoreThanOneActiveFieldOrigin, TryingToIndexNonIndexableTypeError,
         TryingToMutateConstPointerError, TypeCheckFailedError, TypeMismatchActual,
-        TypeMismatchError, UnionMustHaveAtLeastTwoVariantError,
-        UnionVariantDefinedMultipleTimesError, UnknownFieldError, UnknownFunctionError,
-        UnknownIdentifierError, UnknownMethodError, UnknownOverloadableOperatorError,
-        UnknownTypeError, UnsupportedExpr, VariableNameAlreadyDefinedError,
+        TypeMismatchError, UnionVariantDefinedMultipleTimesError, UnknownFieldError,
+        UnknownFunctionError, UnknownIdentifierError, UnknownMethodError,
+        UnknownOverloadableOperatorError, UnknownTypeError, UnsupportedExpr,
+        VariableNameAlreadyDefinedError,
     },
     expr::{
         HirBinaryOperator, HirDeleteExpr, HirExpr, HirFieldAccessExpr, HirIdentExpr,
@@ -524,37 +524,25 @@ impl<'hir> TypeChecker<'hir> {
     }
 
     fn check_union(&mut self, hir_union: &HirUnion<'hir>) -> HirResult<()> {
-        if hir_union.variants.len() <= 1 {
-            let path = hir_union.span.path;
-            let src = utils::get_file_content(path).unwrap();
-            Err(HirError::UnionMustHaveAtLeastTwoVariant(
-                UnionMustHaveAtLeastTwoVariantError {
-                    union_name: hir_union.name.to_string(),
-                    span: hir_union.name_span,
-                    src: NamedSource::new(path, src),
-                },
-            ))
-        } else {
-            let mut variants = HashMap::new();
-            for variant in &hir_union.variants {
-                if let Some((_, v_span)) = variants.get_key_value(variant.ty) {
-                    let path = hir_union.span.path;
-                    let src = utils::get_file_content(path).unwrap();
-                    return Err(HirError::UnionVariantDefinedMultipleTimes(
-                        UnionVariantDefinedMultipleTimesError {
-                            union_name: hir_union.name.to_string(),
-                            variant_ty: format!("{}", variant.ty),
-                            first_span: *v_span,
-                            second_span: variant.span,
-                            src: NamedSource::new(path, src),
-                        },
-                    ));
-                } else {
-                    variants.insert(variant.ty, variant.span);
-                }
+        let mut variants = HashMap::new();
+        for variant in &hir_union.variants {
+            if let Some((_, v_span)) = variants.get_key_value(variant.ty) {
+                let path = hir_union.span.path;
+                let src = utils::get_file_content(path).unwrap();
+                return Err(HirError::UnionVariantDefinedMultipleTimes(
+                    UnionVariantDefinedMultipleTimesError {
+                        union_name: hir_union.name.to_string(),
+                        variant_ty: format!("{}", variant.ty),
+                        first_span: *v_span,
+                        second_span: variant.span,
+                        src: NamedSource::new(path, src),
+                    },
+                ));
+            } else {
+                variants.insert(variant.ty, variant.span);
             }
-            Ok(())
         }
+        Ok(())
     }
 
     pub fn check_class(&mut self, class: &mut HirStruct<'hir>) -> HirResult<()> {
