@@ -1,0 +1,152 @@
+import "std/optional";
+import "std/expected";
+import "std/memory";
+import "std/string";
+import "core/libc";
+
+namespace std {
+    public enum FILE_MODE {
+        READ;
+        WRITE;
+        APPEND;
+        READ_WRITE;
+    }
+
+    public struct file {
+    private:
+        handle: *libc::FILE;
+
+    public:
+        ~file() {
+            if this->handle != null {
+                libc::fclose(this->handle);
+                this->handle = null;
+            }
+        }
+
+        //! Open file with explicit mode flag.
+        fun open_with_mode(path: *const uint8, mode: std::FILE_MODE) -> std::expected<std::file, std::string> {
+            let mode_str: *const uint8 = "r";
+            if mode == std::FILE_MODE::WRITE {
+                mode_str = "w";
+            } else if mode == std::FILE_MODE::APPEND {
+                mode_str = "a";
+            } else if mode == std::FILE_MODE::READ_WRITE {
+                mode_str = "r+";
+            }
+
+            let fs = libc::fopen(path, mode_str);
+            if fs == null {
+                return std::expected<std::file, std::string>::unexpected(
+                    std::string::from_chars(libc::str_error(libc::errno()))
+                );
+            }
+            return std::expected<std::file, std::string>::expect(std::file {
+                .handle = fs
+            });
+        }
+
+        //! Open file in read-only mode.
+        fun open(path: *const uint8) -> std::expected<std::file, std::string> {
+            return std::file::open_with_mode(path, std::FILE_MODE::READ);
+        }
+
+        //! Open file in write-only mode (truncating existing content).
+        fun create(path: *const uint8) -> std::expected<std::file, std::string> {
+            return std::file::open_with_mode(path, std::FILE_MODE::WRITE);
+        }
+
+        //! One-shot convenience function to read an entire file into a std::string.
+        fun read_to_string(path: *const uint8) -> std::expected<std::string, std::string> {
+            let file_res = std::file::open(path);
+            if file_res.is_unexpected() {
+                return std::expected<std::string, std::string>::unexpected(file_res.unexpected_value());
+            }
+            let f = file_res.expected_value();
+            let content = f.read_all();
+            return content;
+        }
+
+        //! Read the full content of an opened file handle into a std::string.
+        fun read_all(*this) -> std::expected<std::string, std::string> {
+            if this->handle == null {
+                return std::expected<std::string, std::string>::unexpected(
+                    std::string::from_chars("Invalid file handle")
+                );
+            }
+
+            // Seek to EOF to measure byte length
+            if libc::fseek(this->handle, 0, 2) != 0 {
+                return std::expected<std::string, std::string>::unexpected(
+                    std::string::from_chars("Failed to seek to end of file")
+                );
+            }
+
+            let file_size = libc::ftell(this->handle);
+            if file_size < 0 {
+                return std::expected<std::string, std::string>::unexpected(
+                    std::string::from_chars("Failed to determine file size")
+                );
+            }
+
+            // Seek back to start
+            if libc::fseek(this->handle, 0, 0) != 0 {
+                return std::expected<std::string, std::string>::unexpected(
+                    std::string::from_chars("Failed to seek to start of file")
+                );
+            }
+
+            let size_u = file_size as uint64;
+            let buffer = libc::malloc<uint8>(size_u + 1u);
+            if buffer == null {
+                return std::expected<std::string, std::string>::unexpected(
+                    std::string::from_chars("Allocation failed for file buffer")
+                );
+            }
+
+            let read_bytes = libc::fread(buffer, 1u, size_u, this->handle);
+            buffer[read_bytes] = '\0' as uint8;
+
+            let res_str = std::string::from_chars(buffer);
+            libc::free(buffer);
+
+            return std::expected<std::string, std::string>::expect(std::move(res_str));
+        }
+
+        //! Write raw byte buffer to file.
+        fun write(*this, buf: *const uint8, size: uint64) -> std::expected<uint64, std::string> {
+            if this->handle == null {
+                return std::expected<uint64, std::string>::unexpected(
+                    std::string::from_chars("Invalid file handle")
+                );
+            }
+
+            let written = libc::fwrite(buf, 1u, size, this->handle);
+            if written < size {
+                return std::expected<uint64, std::string>::unexpected(
+                    std::string::from_chars(libc::str_error(libc::errno()))
+                );
+            }
+
+            return std::expected<uint64, std::string>::expect(written);
+        }
+
+        //! Write an entire string to file.
+        fun write_all(*this, str_val: *const std::string) -> std::expected<uint64, std::string> {
+            return this->write(str_val->c_str(), str_val->len());
+        }
+
+        //! Flush buffered file streams.
+        fun flush(*this) -> bool {
+            if this->handle == null {
+                return false;
+            }
+            return libc::fflush(this->handle) == 0;
+        }
+
+        //! Obtain direct access to underlying opaque C file handle.
+        fun get_handle(*this) -> *libc::FILE {
+            return this->handle;
+        }
+    }
+}

@@ -21,25 +21,25 @@ namespace libc {
 
     // Opaque type
     // TODO: Add `#[opaque]`
-    #[c_name("File")]
+    #[c_name("FILE")]
     public extern "C" struct FILE {}
 
     #[c_name("fopen")]
-    public extern "C" fun fopen(path: *const uint8, mode: *const uint8) -> *FILE;
+    public extern "C" fun fopen(path: *const uint8, mode: *const uint8) -> *libc::FILE;
     #[c_name("fread")]
-    public extern "C" fun fread(buf: *uint8, size: uint64, nmemb: uint64, f: *FILE) -> uint64;
+    public extern "C" fun fread(buf: *uint8, size: uint64, nmemb: uint64, f: *libc::FILE) -> uint64;
     #[c_name("fwrite")]
-    public extern "C" fun fwrite(buf: *const uint8, size: uint64, nmemb: uint64, f: *FILE) -> uint64;
+    public extern "C" fun fwrite(buf: *const uint8, size: uint64, nmemb: uint64, f: *libc::FILE) -> uint64;
     #[c_name("fclose")]
-    public extern "C" fun fclose(f: *FILE) -> int32;
+    public extern "C" fun fclose(f: *libc::FILE) -> int32;
     #[c_name("fflush")]
-    public extern "C" fun fflush(f: *FILE) -> int32;
+    public extern "C" fun fflush(f: *libc::FILE) -> int32;
     #[c_name("fseek")]
-    public extern "C" fun fseek(f: *FILE, offset: int64, whence: int32) -> int32;
+    public extern "C" fun fseek(f: *libc::FILE, offset: int64, whence: int32) -> int32;
     #[c_name("ftell")]
-    public extern "C" fun ftell(f: *FILE) -> int64;
+    public extern "C" fun ftell(f: *libc::FILE) -> int64;
     #[c_name("feof")]
-    public extern "C" fun feof(f: *FILE) -> int32;
+    public extern "C" fun feof(f: *libc::FILE) -> int32;
 
     //! Takes a `*const uint8` and returns its length as `uint64`.
     #[c_name("strlen")]
@@ -53,4 +53,11 @@ namespace libc {
 
     #[c_name("memcmp")]
     public extern "C" fun mem_cmp(a: *const uint8, b: *const uint8, size: uint64) -> int32;
+
+    // I can't use C macro, so I have a small wrapper around it
+    // Named c_errno inside of atlas77.h
+    #[c_name("c_errno")]
+    public extern "C" fun errno() -> int32;
+    #[c_name("strerror")]
+    public extern "C" fun str_error(errno: int32) -> *const uint8;
 }
