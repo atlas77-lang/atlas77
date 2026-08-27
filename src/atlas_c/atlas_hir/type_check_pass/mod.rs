@@ -2757,11 +2757,18 @@ impl<'hir> TypeChecker<'hir> {
                                         HirUnsignedIntegerLiteralExpr {
                                             value: var.value,
                                             span: static_access.span,
-                                            ty: self.arena.types().get_uint_ty(64),
+                                            ty: self.arena.types().get_literal_int_ty(
+                                                var.value as i64,
+                                                static_access.span,
+                                            ),
                                         },
                                     );
+                                    let span = static_access.span;
                                     *expr = replaced_expr;
-                                    return Ok(self.arena.types().get_uint_ty(64));
+                                    return Ok(self
+                                        .arena
+                                        .types()
+                                        .get_literal_int_ty(var.value as i64, span));
                                 }
                                 None => {
                                     return Err(Self::unknown_field_err(
@@ -3784,8 +3791,16 @@ impl<'hir> TypeChecker<'hir> {
                 }
             }
             //Check for enums
+            // Lowkey this is bad practice, but after learnOpenGL.com
+            // I'll bootstrap the compiler, so I am doing whatever to make it runs
             (HirTy::Named(n), HirTy::UnsignedInteger(_))
-            | (HirTy::UnsignedInteger(_), HirTy::Named(n)) => {
+            | (HirTy::UnsignedInteger(_), HirTy::Named(n))
+            | (HirTy::Named(n), HirTy::Integer(_))
+            | (HirTy::Integer(_), HirTy::Named(n))
+            | (HirTy::Named(n), HirTy::LiteralInteger(_))
+            | (HirTy::LiteralInteger(_), HirTy::Named(n))
+            | (HirTy::Named(n), HirTy::LiteralUnsignedInteger(_))
+            | (HirTy::LiteralUnsignedInteger(_), HirTy::Named(n)) => {
                 if self.signature.enums.contains_key(n.name) {
                     Ok(())
                 } else {

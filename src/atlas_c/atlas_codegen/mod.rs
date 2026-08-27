@@ -218,9 +218,11 @@ impl CCodeGen {
         let mut defined_unions: HashSet<String> = HashSet::new();
 
         for enum_ in program.enums.iter() {
-            self.codegen_enum(enum_);
-            // Kinda spaghetti code but hey
-            defined_structs.insert(enum_.name.clone());
+            if !enum_.is_extern {
+                self.codegen_enum(enum_);
+                // Kinda spaghetti code but hey
+                defined_structs.insert(enum_.name.clone());
+            }
         }
 
         loop {

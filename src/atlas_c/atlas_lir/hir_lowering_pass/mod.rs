@@ -726,8 +726,10 @@ impl<'hir> HirLoweringPass<'hir> {
                 let size = match lit.ty {
                     HirTy::Integer(i) => i.size_in_bits,
                     HirTy::LiteralInteger(i) => i.get_minimal_int_ty().size_in_bits,
+                    HirTy::LiteralUnsignedInteger(u) => u.get_minimal_uint_ty().size_in_bits,
+                    HirTy::UnsignedInteger(u) => u.size_in_bits,
                     _ => {
-                        return Err(unsupported_expr(lit.span, format!("{:?}", expr)));
+                        return Err(unsupported_expr(lit.span, format!("[HERE1] {:?}", expr)));
                     }
                 };
                 Ok(LirOperand::ImmInt {
@@ -740,8 +742,10 @@ impl<'hir> HirLoweringPass<'hir> {
                 let size = match lit.ty {
                     HirTy::UnsignedInteger(u) => u.size_in_bits,
                     HirTy::LiteralUnsignedInteger(u) => u.get_minimal_uint_ty().size_in_bits,
+                    HirTy::LiteralInteger(i) => i.get_minimal_int_ty().size_in_bits,
+                    HirTy::Integer(i) => i.size_in_bits,
                     _ => {
-                        return Err(unsupported_expr(lit.span, format!("{:?}", expr)));
+                        return Err(unsupported_expr(lit.span, format!("[HERE2] {:?}", expr)));
                     }
                 };
                 Ok(LirOperand::ImmUInt {
