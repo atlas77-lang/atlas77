@@ -465,6 +465,80 @@ fn collect_string_array(table: &toml::value::Table, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn splice_headers_at_anchor(
+    existing: &mut Vec<String>,
+    new_headers: Vec<String>,
+    anchor_before: Option<&str>,
+    anchor_after: Option<&str>,
+) {
+    if new_headers.is_empty() {
+        return;
+    }
+
+    let anchor_pos = anchor_before
+        .map(|anchor| (anchor, 0))
+        .or_else(|| anchor_after.map(|anchor| (anchor, 1)))
+        .and_then(|(anchor, offset)| {
+            existing
+                .iter()
+                .position(|h| h == anchor)
+                .map(|pos| pos + offset)
+        });
+
+    match anchor_pos {
+        Some(pos) => {
+            existing.splice(pos..pos, new_headers);
+        }
+        None => existing.extend(new_headers),
+    }
+}
+
+fn merge_dependencies_table_into_config(config: &mut AtlasBuildConfig, table: &toml::value::Table) {
+    let new_headers = collect_string_array(table, "headers");
+    let anchor_before = table.get("headers_before").and_then(|v| v.as_str());
+    let anchor_after = table.get("headers_after").and_then(|v| v.as_str());
+    splice_headers_at_anchor(
+        &mut config.headers,
+        new_headers,
+        anchor_before,
+        anchor_after,
+    );
+
+    config
+        .include_dirs
+        .extend(collect_string_array(table, "include_dirs"));
+}
+
+fn merge_c_table_into_config(config: &mut AtlasBuildConfig, table: &toml::value::Table) {
+    config
+        .compiler_args
+        .extend(collect_string_array(table, "args"));
+    config
+        .compiler_args
+        .extend(collect_string_array(table, "c_args"));
+    config
+        .include_dirs
+        .extend(collect_string_array(table, "include_dirs"));
+    config
+        .library_dirs
+        .extend(collect_string_array(table, "lib_dirs"));
+    config
+        .library_dirs
+        .extend(collect_string_array(table, "library_dirs"));
+    config
+        .c_sources
+        .extend(collect_string_array(table, "sources"));
+    config
+        .c_sources
+        .extend(collect_string_array(table, "source_files"));
+    config
+        .c_sources
+        .extend(collect_string_array(table, "c_sources"));
+    config
+        .source_dirs
+        .extend(collect_string_array(table, "source_dirs"));
+}
+
 fn merge_link_table_into_config(config: &mut AtlasBuildConfig, table: &toml::value::Table) {
     config
         .compiler_args
@@ -546,12 +620,13 @@ fn load_build_config(project_dir: &Path) -> miette::Result<AtlasBuildConfig> {
     let mut config = AtlasBuildConfig::default();
 
     if let Some(dependencies) = root.get("dependencies").and_then(|v| v.as_table()) {
-        config
-            .headers
-            .extend(collect_string_array(dependencies, "headers"));
-        config
-            .include_dirs
-            .extend(collect_string_array(dependencies, "include_dirs"));
+        merge_dependencies_table_into_config(&mut config, dependencies);
+        if let Some(platform_table) = dependencies
+            .get(current_platform_config_key())
+            .and_then(|v| v.as_table())
+        {
+            merge_dependencies_table_into_config(&mut config, platform_table);
+        }
     }
 
     // Backward compatibility: older atlas.toml files used [package].compiler/args.
@@ -590,33 +665,20 @@ fn load_build_config(project_dir: &Path) -> miette::Result<AtlasBuildConfig> {
                 .and_then(|v| v.as_str())
                 .and_then(parse_supported_compiler);
         }
-        config
-            .compiler_args
-            .extend(collect_string_array(c_table, "args"));
-        config
-            .compiler_args
-            .extend(collect_string_array(c_table, "c_args"));
-        config
-            .include_dirs
-            .extend(collect_string_array(c_table, "include_dirs"));
-        config
-            .library_dirs
-            .extend(collect_string_array(c_table, "lib_dirs"));
-        config
-            .library_dirs
-            .extend(collect_string_array(c_table, "library_dirs"));
-        config
-            .c_sources
-            .extend(collect_string_array(c_table, "sources"));
-        config
-            .c_sources
-            .extend(collect_string_array(c_table, "source_files"));
-        config
-            .c_sources
-            .extend(collect_string_array(c_table, "c_sources"));
-        config
-            .source_dirs
-            .extend(collect_string_array(c_table, "source_dirs"));
+        merge_c_table_into_config(&mut config, c_table);
+
+        if let Some(platform_table) = c_table
+            .get(current_platform_config_key())
+            .and_then(|v| v.as_table())
+        {
+            if config.preferred_compiler.is_none() {
+                config.preferred_compiler = platform_table
+                    .get("compiler")
+                    .and_then(|v| v.as_str())
+                    .and_then(parse_supported_compiler);
+            }
+            merge_c_table_into_config(&mut config, platform_table);
+        }
     }
 
     if let Some(link_table) = root.get("link").and_then(|v| v.as_table()) {
