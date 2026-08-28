@@ -33,6 +33,10 @@ pub struct CCodeGen {
     pub union_names: Vec<String>,
     struct_field_tys: HashMap<String, BTreeMap<String, LirTy>>,
     indent_level: usize,
+    // Semantic LIR name -> exact C spelling
+    struct_c_names: HashMap<String, String>,
+    union_c_names: HashMap<String, String>,
+    enum_c_names: HashMap<String, String>,
 }
 
 impl CCodeGen {
@@ -94,14 +98,39 @@ impl CCodeGen {
             union_names: vec![],
             struct_field_tys: HashMap::new(),
             indent_level: 0,
+            enum_c_names: HashMap::new(),
+            struct_c_names: HashMap::new(),
+            union_c_names: HashMap::new(),
         }
     }
 
     pub fn emit_c(&mut self, program: &LirProgram, extra_headers: &[String]) -> Result<(), String> {
         self.struct_field_tys.clear();
+        self.struct_c_names.clear();
+        self.union_c_names.clear();
+        self.enum_c_names.clear();
+
         for strukt in program.structs.iter() {
             self.struct_field_tys
                 .insert(strukt.name.clone(), strukt.fields.clone());
+
+            if let Some(c_name) = &strukt.c_name {
+                self.struct_c_names
+                    .insert(strukt.name.clone(), c_name.clone());
+            }
+        }
+
+        for union in &program.unions {
+            if let Some(c_name) = &union.c_name {
+                self.union_c_names
+                    .insert(union.name.clone(), c_name.clone());
+            }
+        }
+
+        for enum_ in &program.enums {
+            if let Some(c_name) = &enum_.c_name {
+                self.enum_c_names.insert(enum_.name.clone(), c_name.clone());
+            }
         }
 
         self.emit_type_forward_declarations(program);
@@ -136,7 +165,7 @@ impl CCodeGen {
             if union.is_extern {
                 continue;
             }
-            let union_name = Self::c_ident(&union.name);
+            let union_name = self.codegen_union_name(&union.name);
             Self::write_to_top(
                 &mut self.c_header,
                 &format!("typedef union {} {};", union_name, union_name),
@@ -146,7 +175,7 @@ impl CCodeGen {
             if strukt.is_extern {
                 continue;
             }
-            let struct_name = Self::c_ident(&strukt.name);
+            let struct_name = self.codegen_struct_name(&strukt.name);
             Self::write_to_top(
                 &mut self.c_header,
                 &format!("typedef struct {} {};", struct_name, struct_name),
@@ -156,12 +185,33 @@ impl CCodeGen {
             if enum_.is_extern {
                 continue;
             }
-            let enum_name = Self::c_ident(&enum_.name);
+            let enum_name = self.codegen_enum_name(&enum_.name);
             Self::write_to_top(
                 &mut self.c_header,
                 &format!("typedef enum {} {};", enum_name, enum_name),
             );
         }
+    }
+
+    fn codegen_struct_name(&self, name: &str) -> String {
+        self.struct_c_names
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| Self::c_ident(name))
+    }
+
+    fn codegen_union_name(&self, name: &str) -> String {
+        self.union_c_names
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| Self::c_ident(name))
+    }
+
+    fn codegen_enum_name(&self, name: &str) -> String {
+        self.enum_c_names
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| Self::c_ident(name))
     }
 
     fn type_dependencies_for_ty(ty: &LirTy, deps: &mut HashSet<TypeDependency>) {
@@ -284,7 +334,7 @@ impl CCodeGen {
     }
 
     fn codegen_enum(&mut self, enum_: &LirEnum) {
-        let enum_name = Self::c_ident(&enum_.name);
+        let enum_name = self.codegen_enum_name(&enum_.name);
         let mut enum_def = format!("enum {} {{\n", enum_name);
         for (variant_name, variant_value) in enum_.variants.iter() {
             enum_def.push_str(&format!("\t{} = {},\n", variant_name, variant_value));
@@ -294,7 +344,7 @@ impl CCodeGen {
     }
 
     fn codegen_union(&mut self, union: &LirUnion) {
-        let union_name = Self::c_ident(&union.name);
+        let union_name = self.codegen_union_name(&union.name);
         let mut union_def = format!("union {} {{\n", union_name);
         let mut variants: Vec<(&String, &LirTy)> = union.variants.iter().collect();
         variants.sort_by_key(|(a, _)| *a);
@@ -308,7 +358,7 @@ impl CCodeGen {
     }
 
     fn codegen_struct(&mut self, strukt: &LirStruct) {
-        let struct_name = Self::c_ident(&strukt.name);
+        let struct_name = self.codegen_struct_name(&strukt.name);
         let mut struct_def = format!("struct {} {{\n", struct_name);
         if strukt.fields.is_empty() {
             // C doesn't allow empty structs, so we add a dummy field if there are no fields
@@ -467,9 +517,9 @@ impl CCodeGen {
                 format!("{}{}*", if *is_const { "const " } else { "" }, inner_type)
             }
             // Struct type is a value type in LIR. Pointer semantics are represented by LirTy::Ptr.
-            LirTy::StructType(name) => Self::c_ident(name),
+            LirTy::StructType(name) => self.codegen_struct_name(name),
             // For union types, we don't use pointers for now
-            LirTy::UnionType(name) => Self::c_ident(name),
+            LirTy::UnionType(name) => self.codegen_union_name(name),
             LirTy::ArrayTy { inner, size } => format!("{}[{}]", self.codegen_type(inner), size),
             LirTy::AtomicTy { inner } => format!("_Atomic {}", self.codegen_type(inner)),
             /* _ => unimplemented!("Type codegen not implemented for {:?}", ty), */

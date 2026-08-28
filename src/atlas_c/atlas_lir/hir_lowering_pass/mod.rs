@@ -1194,10 +1194,9 @@ impl<'hir> HirLoweringPass<'hir> {
                             ),
                             _ => &static_access.target.get_valid_c_string(),
                         };
-                        (
-                            format!("{}_{}", object_name, static_access.field.name),
-                            false,
-                        )
+                        let func_name = format!("{}_{}", object_name, static_access.field.name);
+
+                        (func_name, false)
                     }
                     HirExpr::FieldAccess(field_access) => {
                         let object_name = match self
@@ -1597,23 +1596,10 @@ impl<'hir> HirLoweringPass<'hir> {
                 size: arr.size,
             },
             HirTy::Named(n) => {
-                if let Some(sig) = self.hir_module.signature.unions.get(n.name) {
-                    if sig.is_extern {
-                        let name = sig.c_name.unwrap_or(n.name);
-                        LirTy::UnionType(name.to_string())
-                    } else {
-                        LirTy::UnionType(n.name.to_string())
-                    }
+                if self.hir_module.signature.unions.contains_key(n.name) {
+                    LirTy::UnionType(n.name.to_string())
                 } else {
-                    let name = self
-                        .hir_module
-                        .signature
-                        .structs
-                        .get(n.name)
-                        .filter(|sig| sig.is_extern)
-                        .and_then(|sig| sig.c_name)
-                        .unwrap_or(n.name);
-                    LirTy::StructType(name.to_string())
+                    LirTy::StructType(n.name.to_string())
                 }
             }
             HirTy::Generic(g) => {
