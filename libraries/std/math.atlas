@@ -1,38 +1,212 @@
 namespace std {
-    //! Math utilities for common numeric operations.
-    //!
-    //! Provides a small set of helpers and wrappers around platform math functions.
-    //! Example: `let r = math::round(3.7)`
+    //! Math utilities backed by the C standard math library.
+
+    // ============================ rounding =============================
+
     #[c_name("round")]
-    public extern "C" fun round(x: float64) -> int64;
-    #[c_name("random")]
-    public extern "C" fun random(min: int64, max: int64) -> int64;
-    #[c_name("sinf")]
-    public extern "C" fun sinf(x: float64) -> float64;
-    #[c_name("cosf")]
-    public extern "C" fun cosf(x: float64) -> float64;
+    public extern "C" fun round(x: float64) -> float64;
+
+    #[c_name("roundf")]
+    public extern "C" fun roundf(x: float32) -> float32;
+
+    #[c_name("llround")]
+    public extern "C" fun round_i64(x: float64) -> int64;
+
+    #[c_name("floor")]
+    public extern "C" fun floor(x: float64) -> float64;
+
+    #[c_name("floorf")]
+    public extern "C" fun floorf(x: float32) -> float32;
+
+    #[c_name("ceil")]
+    public extern "C" fun ceil(x: float64) -> float64;
+
+    #[c_name("ceilf")]
+    public extern "C" fun ceilf(x: float32) -> float32;
+
+    #[c_name("trunc")]
+    public extern "C" fun trunc(x: float64) -> float64;
+
+    #[c_name("truncf")]
+    public extern "C" fun truncf(x: float32) -> float32;
+
+
+    // ============================= basic ===============================
+
+    #[c_name("abs")]
+    public extern "C" fun abs(x: int32) -> int32;
+
+    #[c_name("llabs")]
+    public extern "C" fun abs_i64(x: int64) -> int64;
+
+    #[c_name("fabs")]
+    public extern "C" fun absf64(x: float64) -> float64;
+
+    #[c_name("fabsf")]
+    public extern "C" fun absf(x: float32) -> float32;
+
+    #[c_name("fmin")]
+    public extern "C" fun minf64(x: float64, y: float64) -> float64;
+
+    #[c_name("fminf")]
+    public extern "C" fun minf(x: float32, y: float32) -> float32;
+
+    #[c_name("fmax")]
+    public extern "C" fun maxf64(x: float64, y: float64) -> float64;
+
+    #[c_name("fmaxf")]
+    public extern "C" fun maxf(x: float32, y: float32) -> float32;
+
+    #[c_name("fmod")]
+    public extern "C" fun modf64(x: float64, y: float64) -> float64;
+
+    #[c_name("fmodf")]
+    public extern "C" fun modf(x: float32, y: float32) -> float32;
+
+    #[c_name("hypot")]
+    public extern "C" fun hypotf64(x: float64, y: float64) -> float64;
+
+    #[c_name("hypotf")]
+    public extern "C" fun hypotf(x: float32, y: float32) -> float32;
+
+    #[c_name("copysign")]
+    public extern "C" fun copysignf64(x: float64, y: float64) -> float64;
+
+    #[c_name("copysignf")]
+    public extern "C" fun copysign(x: float32, y: float32) -> float32;
+
+
+    // ========================= powers / roots ==========================
+
+    #[c_name("sqrt")]
+    public extern "C" fun sqrt(x: float64) -> float64;
+
+    #[c_name("sqrtf")]
+    public extern "C" fun sqrtf(x: float32) -> float32;
+
+    #[c_name("cbrt")]
+    public extern "C" fun cbrt(x: float64) -> float64;
+
+    #[c_name("cbrtf")]
+    public extern "C" fun cbrtf(x: float32) -> float32;
+
+    #[c_name("pow")]
+    public extern "C" fun pow(x: float64, y: float64) -> float64;
+
+    #[c_name("powf")]
+    public extern "C" fun powf(x: float32, y: float32) -> float32;
+
+
+    // ========================= exponential / log =======================
+
+    #[c_name("exp")]
+    public extern "C" fun exp(x: float64) -> float64;
+
     #[c_name("expf")]
     public extern "C" fun expf(x: float32) -> float32;
+
+    #[c_name("exp2")]
+    public extern "C" fun exp2(x: float64) -> float64;
+
+    #[c_name("exp2f")]
+    public extern "C" fun exp2f(x: float32) -> float32;
+
+    #[c_name("log")]
+    public extern "C" fun log(x: float64) -> float64;
+
     #[c_name("logf")]
     public extern "C" fun logf(x: float32) -> float32;
 
-    #[c_name("abs")]
-    public extern "C" fun abs(x: int64) -> int64;
-    #[c_name("fabs")]
-    public extern "C" fun absf(x: float64) -> float64;
+    #[c_name("log10")]
+    public extern "C" fun log10(x: float64) -> float64;
 
-    #[c_name("fmin")]
-    public extern "C" fun min(x: int64, y: int64) -> int64;
-    #[c_name("fminf")]
-    public extern "C" fun minf(x: float64, y: float64) -> float64;
+    #[c_name("log10f")]
+    public extern "C" fun log10f(x: float32) -> float32;
 
-    #[c_name("fmax")]
-    public extern "C" fun max(x: int64, y: int64) -> int64;
-    #[c_name("fmaxf")]
-    public extern "C" fun maxf(x: float64, y: float64) -> float64;
+    #[c_name("log2")]
+    public extern "C" fun log2(x: float64) -> float64;
 
-    #[c_name("pow")]
-    public extern "C" fun pow(x: int64, y: int64) -> int64;
-    #[c_name("powf")]
-    public extern "C" fun powf(x: float64, y: int64) -> float64;
+    #[c_name("log2f")]
+    public extern "C" fun log2f(x: float32) -> float32;
+
+
+    // =========================== trigonometry ===========================
+
+    #[c_name("sinf")]
+    public extern "C" fun sin(x: float32) -> float32;
+
+    #[c_name("cosf")]
+    public extern "C" fun cos(x: float32) -> float32;
+
+    #[c_name("tanf")]
+    public extern "C" fun tan(x: float32) -> float32;
+
+    #[c_name("asinf")]
+    public extern "C" fun asin(x: float32) -> float32;
+
+    #[c_name("acosf")]
+    public extern "C" fun acos(x: float32) -> float32;
+
+    #[c_name("atanf")]
+    public extern "C" fun atan(x: float32) -> float32;
+
+    #[c_name("atan2f")]
+    public extern "C" fun atan2(y: float32, x: float32) -> float32;
+
+
+    // =========================== hyperbolic ============================
+
+    #[c_name("sinhf")]
+    public extern "C" fun sinh(x: float32) -> float32;
+
+    #[c_name("coshf")]
+    public extern "C" fun cosh(x: float32) -> float32;
+
+    #[c_name("tanhf")]
+    public extern "C" fun tanh(x: float32) -> float32;
+
+    #[c_name("asinhf")]
+    public extern "C" fun asinh(x: float32) -> float32;
+
+    #[c_name("acoshf")]
+    public extern "C" fun acosh(x: float32) -> float32;
+
+    #[c_name("atanhf")]
+    public extern "C" fun atanh(x: float32) -> float32;
+
+
+    // ============================= helpers =============================
+
+    //! Integer minimum. C has no standard fmin-like integer function.
+    public fun min(x: int64, y: int64) -> int64 {
+        if x < y {
+            return x;
+        }
+
+        return y;
+    }
+
+    //! Integer maximum. C has no standard fmax-like integer function.
+    public fun max(x: int64, y: int64) -> int64 {
+        if x > y {
+            return x;
+        }
+
+        return y;
+    }
+
+    //! Integer power.
+    //! This intentionally uses repeated multiplication instead of C `pow`,
+    //! since `pow` is a floating-point operation.
+    public fun pow_i64(x: int64, exponent: uint64) -> int64 {
+        let result: int64 = 1;
+        let i: uint64 = 0u;
+
+        while i < exponent {
+            result = result * x;
+            i = i + 1u;
+        }
+
+        return result;
+    }
 }
