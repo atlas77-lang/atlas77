@@ -110,6 +110,12 @@ namespace std {
                 return default;
             }
         }
+        fun get(*const this) -> *const T {
+            return &this->data.value;
+        }
+        fun get_value(*const this) -> *const T {
+            return &this->data.value;
+        }
         operator not(*const this) -> bool {
             return this->has_value();
         }
