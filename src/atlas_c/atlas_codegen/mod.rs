@@ -111,9 +111,13 @@ impl CCodeGen {
         self.enum_c_names.clear();
 
         for strukt in program.structs.iter() {
+            let mut map = BTreeMap::new();
+            for (field, ty) in strukt.fields.iter() {
+                map.insert(field.clone(), ty.clone());
+            }
             self.struct_field_tys
-                .insert(strukt.name.clone(), strukt.fields.clone());
-
+                .insert(strukt.name.clone(), map);
+            
             if let Some(c_name) = &strukt.c_name {
                 self.struct_c_names
                     .insert(strukt.name.clone(), c_name.clone());
@@ -231,7 +235,7 @@ impl CCodeGen {
 
     fn type_dependencies_for_struct(strukt: &LirStruct) -> HashSet<TypeDependency> {
         let mut deps = HashSet::new();
-        for ty in strukt.fields.values() {
+        for (_, ty) in strukt.fields.iter() {
             Self::type_dependencies_for_ty(ty, &mut deps);
         }
         deps.remove(&TypeDependency::Struct(strukt.name.clone()));
@@ -240,7 +244,7 @@ impl CCodeGen {
 
     fn type_dependencies_for_union(union: &LirUnion) -> HashSet<TypeDependency> {
         let mut deps = HashSet::new();
-        for ty in union.variants.values() {
+        for (_, ty) in union.variants.iter() {
             Self::type_dependencies_for_ty(ty, &mut deps);
         }
         deps.remove(&TypeDependency::Union(union.name.clone()));
@@ -346,9 +350,8 @@ impl CCodeGen {
     fn codegen_union(&mut self, union: &LirUnion) {
         let union_name = self.codegen_union_name(&union.name);
         let mut union_def = format!("union {} {{\n", union_name);
-        let mut variants: Vec<(&String, &LirTy)> = union.variants.iter().collect();
-        variants.sort_by_key(|(a, _)| *a);
-        for (variant_name, variant_type) in variants {
+        // variants.sort_by_key(|(a, _)| *a);
+        for (variant_name, variant_type) in union.variants.iter() {
             let variant_type_str = self.codegen_type(variant_type);
             union_def.push_str(&format!("\t{} {};\n", variant_type_str, variant_name));
         }
@@ -364,9 +367,8 @@ impl CCodeGen {
             // C doesn't allow empty structs, so we add a dummy field if there are no fields
             struct_def.push_str("\tuint8_t _dummy;\n");
         }
-        let mut fields: Vec<(&String, &LirTy)> = strukt.fields.iter().collect();
-        fields.sort_by_key(|(a, _)| *a);
-        for (field_name, field_type) in fields {
+        // fields.sort_by_key(|(a, _)| *a);
+        for (field_name, field_type) in strukt.fields.iter() {
             let field_sig = match field_type {
                 LirTy::ArrayTy { .. } => {
                     format!("\t{};\n", self.codegen_array_decl(field_type, field_name))

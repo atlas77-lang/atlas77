@@ -259,12 +259,12 @@ impl<'hir> HirLoweringPass<'hir> {
     }
 
     fn lower_union(&mut self, union_body: &'hir HirUnion<'hir>) -> LirResult<LirUnion> {
-        let mut variants = BTreeMap::new();
+        let mut variants = Vec::new();
         for variant in union_body.variants.iter() {
-            variants.insert(
+            variants.push((
                 variant.name.to_string(),
                 self.hir_ty_to_lir_ty(variant.ty, variant.span),
-            );
+            ));
         }
 
         let lir_union = LirUnion {
@@ -282,12 +282,12 @@ impl<'hir> HirLoweringPass<'hir> {
         struct_body: &'hir HirStruct<'hir>,
         functions: &mut Vec<LirFunction>,
     ) -> LirResult<LirStruct> {
-        let mut fields = BTreeMap::new();
+        let mut fields = Vec::new();
         for field in struct_body.fields.iter() {
-            fields.insert(
+            fields.push((
                 field.name.to_string(),
                 self.hir_ty_to_lir_ty(field.ty, field.span),
-            );
+            ));
         }
 
         let lir_struct = LirStruct {
