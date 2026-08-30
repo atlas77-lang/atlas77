@@ -183,6 +183,13 @@ namespace std {
             this->len = new_len;
             this->data[new_len] = '\0' as uint8;
         }
+        fun substr(*const this, start: uint64, end: uint64) -> std::string {
+            if start > end || end > this->len {
+                std::panic("Invalid substring range");
+            }
+            let sub_len = end - start;
+            return std::string::alloc_terminated(sub_len, this->data + start, sub_len);
+        }
 
         operator equal(*const this, other: *const This) -> bool {
             if this->len != other->len {
