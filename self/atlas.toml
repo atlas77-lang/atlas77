@@ -1,0 +1,35 @@
+[package]
+name = "my_awesome_project"
+version = "0.1.0"
+entry = "src/main.atlas"
+compiler = "gcc"
+args = ["-std=c2y"]
+
+[dependencies]
+headers = []
+
+[dependencies.windows]
+headers = ["minwindef.h"]
+headers_before = "glad/glad.h"
+
+[link]
+shared = ["assimp"]
+
+[link.windows]
+libs = ["glfw3", "gdi32"]
+
+[link.linux]
+libs = ["glfw", "GL", "dl", "m"]
+
+[c]
+include_dirs = ["include/"]
+source_dirs = ["include/", "include/glad/"]
+lib_dirs = ["lib/"]
+
+[c.windows]
+include_dirs = [
+    "C:/msys64/ucrt64/include/",
+]
+
+[c.linux]
+lib_dirs = []
