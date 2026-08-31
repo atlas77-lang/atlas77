@@ -27,7 +27,9 @@ namespace std {
                 delete this->data[i];
                 i = i + 1u;
             }
-            libc::free(this->data);
+            if this->data != null {
+                libc::free(this->data);
+            }
         }
         //! Creates a new std::vector with the specified capacity.
         fun with_capacity(capacity: uint64) -> std::vector<T> {
@@ -91,7 +93,49 @@ namespace std {
             std::ptr::write(&this->data[this->length], val);
             this->length = this->length + 1u;
         }
-        
+        //! Appends all elements from `vec` to the end of this vector, resizing if necessary.
+        fun append(*this, vec: std::vector<T>) {
+            let old_length: uint64 = this->length;
+            let vec_length: uint64 = vec.length;
+            let new_length: uint64 = old_length + vec_length;
+
+            if new_length == 0u {
+                return;
+            }
+
+            let new_data = libc::malloc<T>(size_of<T>() * new_length);
+            if new_data == null {
+                std::panic("Failed to allocate memory for vector extension");
+            }
+
+            // Move existing elements.
+            let i: uint64 = 0u;
+            while i < old_length {
+                let value: T = std::ptr::read(&this->data[i]);
+                std::ptr::write(&new_data[i], std::move(value));
+                i = i + 1u;
+            }
+
+            // Move appended elements.
+            i = 0u;
+            while i < vec_length {
+                let value: T = std::ptr::read(&vec.data[i]);
+                std::ptr::write(&new_data[old_length + i], std::move(value));
+                i = i + 1u;
+            }
+
+            libc::free(this->data);
+            libc::free(vec.data);
+
+            vec.data = null;
+            vec.length = 0u;
+            vec.capacity = 0u;
+
+            this->data = new_data;
+            this->length = new_length;
+            this->capacity = new_length;
+        }
+
         //! Removes and returns the last element of the vector.
         //! Panics when the vector is empty.
         fun pop(*this) -> T {
