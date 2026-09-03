@@ -7,9 +7,11 @@ use crate::atlas_c::{
         HirModule,
         arena::HirArena,
         error::{
-            CannotMoveFromRvalueError, HirError, HirResult, OwnershipAnalysisFailedError,
-            TryingToAccessAConsumedValueError, TryingToAccessADeletedValueError,
-            TryingToAccessAMovedValueError, TryingToAccessAPotentiallyConsumedValueError,
+            CannotMoveFromRvalueError, CannotMoveGlobalConstantsError,
+            HirError::{self, CannotMoveGlobalConstants},
+            HirResult, OwnershipAnalysisFailedError, TryingToAccessAConsumedValueError,
+            TryingToAccessADeletedValueError, TryingToAccessAMovedValueError,
+            TryingToAccessAPotentiallyConsumedValueError,
             TryingToAccessAPotentiallyDeletedValueError, TryingToAccessAPotentiallyMovedValueError,
             TypeIsNotTriviallyCopyableError,
         },
@@ -824,7 +826,20 @@ impl<'hir> HirOwnershipPass<'hir> {
     ) -> HirResult<()> {
         let stripped = self.strip_noop_unary(arg);
         let (id_name, id_span) = match stripped {
-            HirExpr::Ident(id) => (id.name, id.span),
+            HirExpr::Ident(id) => {
+                if let Some(c) = self.signature.global_consts.get(id.name) {
+                    let path = id.span.path;
+                    let src = utils::get_file_content(path).expect("Didn't work lil bro");
+                    return Err(HirError::CannotMoveGlobalConstants(
+                        CannotMoveGlobalConstantsError {
+                            definition_span: c.span,
+                            moved_span: id.span,
+                            src: NamedSource::new(path, src),
+                        },
+                    ));
+                }
+                (id.name, id.span)
+            }
             HirExpr::ThisLiteral(t) => ("this", t.span),
             _ => {
                 let path = arg.span().path;

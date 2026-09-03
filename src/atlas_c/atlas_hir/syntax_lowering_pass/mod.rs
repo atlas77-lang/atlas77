@@ -9,9 +9,9 @@ use crate::atlas_c::{
             ast::{
                 AstArg, AstBinaryOp, AstBlock, AstDestructor, AstEnum, AstExpr, AstExtendBlock,
                 AstExternFunction, AstFlag, AstFunction, AstGeneric, AstGenericConstraint,
-                AstIdentifier, AstImport, AstItem, AstLiteral, AstMethod, AstMethodModifier,
-                AstNamespace, AstOperatorOverload, AstProgram, AstStatement, AstStruct, AstType,
-                AstUnaryOp, AstUnion,
+                AstGlobalConst, AstIdentifier, AstImport, AstItem, AstLiteral, AstMethod,
+                AstMethodModifier, AstNamespace, AstOperatorOverload, AstProgram, AstStatement,
+                AstStruct, AstType, AstUnaryOp, AstUnaryOpExpr, AstUnion,
             },
         },
     },
@@ -38,8 +38,8 @@ use crate::atlas_c::{
             INTRINSIC_ALIGNOF, INTRINSIC_SIZEOF, INTRINSIC_TYPE_ID, INTRINSIC_TYPE_OF,
         },
         item::{
-            HirEnum, HirEnumVariant, HirExtendBlock, HirFunction, HirStruct, HirStructDestructor,
-            HirStructMethod, HirUnion,
+            HirEnum, HirEnumVariant, HirExtendBlock, HirFunction, HirGlobalConst, HirStruct,
+            HirStructDestructor, HirStructMethod, HirUnion,
         },
         monomorphization_pass::generic_pool::HirGenericPool,
         signature::{
@@ -171,11 +171,10 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         })
                     )
                 }
-                return Err(HirError::UnsupportedItem(UnsupportedItemError {
-                    span: ast_item.span(),
-                    item: "Global constants".to_string(),
-                    src: NamedSource::new(path, src),
-                }));
+                let global = self.visit_global_const(c)?;
+                self.module_signature
+                    .global_consts
+                    .insert(global.name, self.arena.intern(global));
             }
             AstItem::Function(ast_function) => {
                 let hir_func = self.visit_func(ast_function)?;
@@ -243,6 +242,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     }
                     for (name, signature) in allocated_hir.signature.unions.iter() {
                         self.module_signature.unions.insert(name, signature);
+                    }
+                    for (name, global_const) in allocated_hir.signature.global_consts.iter() {
+                        self.module_signature
+                            .global_consts
+                            .insert(name, global_const);
                     }
                     self.generic_pool.structs.append(&mut generic_pool.structs);
                 }
@@ -2007,6 +2011,45 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             AstBinaryOp::BinXor => HirBinaryOperator::BinXor,
         };
         Ok(op)
+    }
+
+    fn visit_global_const(
+        &mut self,
+        node: &'ast AstGlobalConst<'ast>,
+    ) -> HirResult<HirGlobalConst<'hir>> {
+        match node.value {
+            // Temporary restriction until we get const functions/methods
+            AstExpr::FieldAccess(_)
+            | AstExpr::Assign(_)
+            | AstExpr::Call(_)
+            | AstExpr::Delete(_)
+            | AstExpr::IfElse(_)
+            | AstExpr::StaticAccess(_)
+            | AstExpr::ObjLiteral(_)
+            | AstExpr::UnaryOp(AstUnaryOpExpr {
+                op: Some(AstUnaryOp::Deref) | Some(AstUnaryOp::AsRef),
+                ..
+            }) => {
+                let path = node.span.path;
+                let src = utils::get_file_content(path)
+                    .unwrap_or_else(|_| panic!("Failed to open file {path}"));
+                return Err(HirError::UnsupportedItem(UnsupportedItemError {
+                    span: node.span,
+                    item: "Global constants with that kind of value".to_string(),
+                    src: NamedSource::new(path, src),
+                }));
+            }
+            _ => Ok(HirGlobalConst {
+                span: node.span,
+                name: self.arena.names().get(node.name.name),
+                name_span: node.name.span,
+                ty: self.visit_ty(node.ty)?,
+                ty_span: node.ty.span(),
+                value: self.arena.intern(self.visit_expr(node.value)?),
+                value_span: node.value.span(),
+                vis: node.vis.into(),
+            }),
+        }
     }
 
     fn visit_func(&mut self, node: &'ast AstFunction<'ast>) -> HirResult<HirFunction<'hir>> {

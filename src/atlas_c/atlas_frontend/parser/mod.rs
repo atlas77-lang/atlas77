@@ -336,6 +336,9 @@ impl<'ast> Parser<'ast> {
             TokenKind::KwEnum => Ok(AstItem::Enum(self.parse_enum()?)),
             TokenKind::KwConst => {
                 let c = self.parse_const()?;
+                /*if !matches!(c.ty, AstType::Const(_)) {
+                    c.ty = self.arena.alloc(AstType::Const(c.ty))
+                }*/
                 self.expect(TokenKind::Semicolon)?;
                 let c = AstItem::Constant(AstGlobalConst {
                     span: c.span,

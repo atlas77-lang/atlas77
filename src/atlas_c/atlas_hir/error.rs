@@ -97,6 +97,7 @@ declare_error_type! {
         OperatorSecondArgumentMustBeConstPointerToSelf(OperatorSecondArgumentMustBeConstPointerToSelfError),
         OperatorOverloadDoesNotHaveRequiredAmountOfArgs(OperatorOverloadDoesNotHaveRequiredAmountOfArgsError),
         UsedThisTyOutsideOfCorrectContext(UsedThisTyOutsideOfCorrectContextError),
+        CannotMoveGlobalConstants(CannotMoveGlobalConstantsError),
     }
 }
 
@@ -1464,6 +1465,22 @@ pub struct OperatorOverloadDoesNotHaveRequiredAmountOfArgsError {
     pub context: String,
 }
 
+#[derive(Error, Diagnostic, Debug, Serialize)]
+#[diagnostic(
+    code(sema::cannot_move_globals),
+    help("Global Constants cannot be moved as they have to stay in the same place :)")
+)]
+#[error("Trying to move a static global constant")]
+pub struct CannotMoveGlobalConstantsError {
+    #[label = "Trying to move the constant here"]
+    pub moved_span: Span,
+    #[label = "Constant defined here"]
+    pub definition_span: Span,
+    #[source_code]
+    #[serde(skip_serializing)]
+    pub src: NamedSource<String>,
+}
+
 impl From<HirError> for Vec<CompilerError> {
     fn from(e: HirError) -> Vec<CompilerError> {
         match e {
@@ -2069,6 +2086,13 @@ impl From<HirError> for Vec<CompilerError> {
                 vec![CompilerError {
                     message: error.to_string(),
                     span: error.span,
+                    kind: CompilerErrorKind::Error,
+                }]
+            }
+            HirError::CannotMoveGlobalConstants(error) => {
+                vec![CompilerError {
+                    message: error.to_string(),
+                    span: error.moved_span,
                     kind: CompilerErrorKind::Error,
                 }]
             }

@@ -115,9 +115,8 @@ impl CCodeGen {
             for (field, ty) in strukt.fields.iter() {
                 map.insert(field.clone(), ty.clone());
             }
-            self.struct_field_tys
-                .insert(strukt.name.clone(), map);
-            
+            self.struct_field_tys.insert(strukt.name.clone(), map);
+
             if let Some(c_name) = &strukt.c_name {
                 self.struct_c_names
                     .insert(strukt.name.clone(), c_name.clone());

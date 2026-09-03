@@ -79,7 +79,6 @@ impl LirProgram {
                 let mut max_align = 1usize;
 
                 if let Some(union) = self.unions.iter().find(|u| u.name == *name) {
-
                     for (_, variant_ty) in union.variants.iter() {
                         let (variant_size, variant_align) = self.layout_of_ty(variant_ty, visiting);
                         max_size = max_size.max(variant_size);

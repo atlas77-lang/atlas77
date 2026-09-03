@@ -854,6 +854,8 @@ impl<'hir> HirLoweringPass<'hir> {
                         .unwrap_or(ident.name)
                         .to_string();
                     Ok(LirOperand::GlobalFn(function_name))
+                } else if let Some(c) = self.hir_module.signature.global_consts.get(ident.name) {
+                    self.lower_expr(c.value)
                 } else {
                     // Unknown identifier - shouldn't happen after type checking
                     panic!("Unknown identifier: {}", ident.name);

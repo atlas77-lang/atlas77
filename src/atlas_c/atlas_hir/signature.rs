@@ -5,7 +5,7 @@ use crate::atlas_c::atlas_frontend::parser::ast::{
     AstFlag, AstMethodAttribute, AstNullablePredicateSemantics, AstVisibility,
 };
 use crate::atlas_c::atlas_hir::expr::{HirBinaryOperator, HirExpr, HirUnaryOp};
-use crate::atlas_c::atlas_hir::item::HirEnum;
+use crate::atlas_c::atlas_hir::item::{HirEnum, HirGlobalConst};
 use crate::atlas_c::atlas_hir::ty::HirGenericTy;
 use crate::atlas_c::utils::Span;
 use std::collections::BTreeMap;
@@ -21,6 +21,7 @@ pub struct HirModuleSignature<'hir> {
     //No need for enum signatures for now
     pub enums: BTreeMap<&'hir str, &'hir HirEnum<'hir>>,
     pub unions: BTreeMap<&'hir str, &'hir HirUnionSignature<'hir>>,
+    pub global_consts: BTreeMap<&'hir str, &'hir HirGlobalConst<'hir>>,
     pub docstring: Option<&'hir str>,
     /// Name of the module (e.g.: `package name;`)
     pub module_name: &'hir str,

@@ -1,6 +1,7 @@
 use serde::Serialize;
 
 use super::{signature::HirFunctionSignature, stmt::HirBlock};
+use crate::atlas_c::atlas_hir::expr::HirExpr;
 use crate::atlas_c::atlas_hir::signature::{
     HirFlag, HirStructDestructorSignature, HirStructFieldSignature, HirStructMethodSignature,
     HirStructSignature, HirUnionSignature, HirVisibility,
@@ -14,9 +15,9 @@ pub struct HirGlobalConst<'hir> {
     pub span: Span,
     pub name: &'hir str,
     pub name_span: Span,
-    pub ty: &'hir str,
+    pub ty: &'hir HirTy<'hir>,
     pub ty_span: Span,
-    pub value: &'hir str,
+    pub value: &'hir HirExpr<'hir>,
     pub value_span: Span,
     pub vis: HirVisibility,
 }

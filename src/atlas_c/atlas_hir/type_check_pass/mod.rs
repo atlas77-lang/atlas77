@@ -1904,7 +1904,7 @@ impl<'hir> TypeChecker<'hir> {
                 let ty = self.check_expr(&mut l.items[0])?;
                 for e in &mut l.items {
                     let e_ty = self.check_expr(e)?;
-                    self.is_equivalent_ty(e_ty, e.span(), ty, l.span)?;
+                    self.is_equivalent_ty(ty, l.span, e_ty, e.span())?;
                 }
                 l.ty = self.arena.types().get_inline_arr_ty(ty, l.items.len());
                 Ok(l.ty)
@@ -3685,6 +3685,16 @@ impl<'hir> TypeChecker<'hir> {
         {
             i.ty = ctx_var.ty;
             Ok(ctx_var.clone())
+        } else if let Some(val) = self.signature.global_consts.get(i.name) {
+            Ok(ContextVariable {
+                _is_mut: false,
+                is_param: false,
+                name: val.name,
+                name_span: val.name_span,
+                ty: val.ty,
+                _ty_span: val.ty_span,
+                ptrs_to_locals: vec![],
+            })
         } else {
             // Then it might just be a function name (e.g. `foo` instead of `foo()`)
             if let Some(func_signature) = self.signature.functions.get(i.name) {
