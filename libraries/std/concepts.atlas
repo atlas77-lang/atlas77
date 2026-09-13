@@ -1,0 +1,16 @@
+// DISCLAIMER: This is not the final version of any concepts. 
+// Most of them are subject to change once I allow for generic concepts.
+// e.g. extendable will probably also become generic to allow checks 
+// about the kind of type that This can be extended with
+
+import "std/concepts/primitive";
+import "std/concepts/number";
+import "std/concepts/comparable";
+import "std/concepts/iterator";
+import "std/concepts/indexable";
+import "std/concepts/default";
+import "std/concepts/copyable";
+import "std/concepts/hashable";
+import "std/concepts/extendable";
+import "std/concepts/to_string";
+

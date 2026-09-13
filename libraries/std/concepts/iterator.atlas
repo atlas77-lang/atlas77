@@ -1,0 +1,19 @@
+import "std/optional";
+
+namespace std {
+    // TODO: Split this into two iterators:
+    // iterator & peekable_iterator that is "super concept" of iterator and allow peek()
+    public concept iterator {
+        type iter_item_t;
+        fun next(*this) -> std::optional<This::iter_item_t>;
+        fun peek(*const this) -> std::optional<*const This::iter_item_t>;
+        // Potentially useless function somewhat.
+        // .next().is_empty() check could be enough
+        fun has_next(*const this) -> bool;
+    }
+    // TODO: Add a way to differentiate between iter/iter_mut/into_iter like Rust does
+    public concept iterable {
+        type iterator_t;
+        fun iter(*this) -> This::iterator_t;
+    }
+}

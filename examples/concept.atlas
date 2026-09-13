@@ -1,57 +1,23 @@
 import "std/io";
 import "std/map";
+import "std/vector";
+import "std/concepts";
+import "std/optional";
 
 // This file is only there for testing purposes rn
-
-namespace std {
-    public concept equal {
-        operator equal(*const this, other: *const This) -> This;
-    }
-    
-    public enum ordering {
-        LESS = 0xFFFFFFFFFFFFFFFFu;
-        GREATER = 1;
-        EQUAL = 0;
-    }
-    concept compare {
-        type Result;
-        fun my_compare(*const this, other: *const This) -> This::Result;
-    }
-}
 
 public struct test {
   public:
     val: int32;
 }
 
-extend test with std::compare {
-    type Result = std::ordering;
-    fun my_compare(*const this, other: *const test) -> This::Result {
-        // TODO: Make it possible for boolean
-        return ((this->val > other->val) as int32 - (this->val < other->val) as int32) as uint64;
-    }
-} 
-
-extend int32 with std::compare {
-    type Result = std::ordering;
-    fun my_compare(*const this, other: *const int32) -> This::Result {
-        // TODO: Make it possible for boolean
-        return ((*this > *other) as int32 - (*this < *other) as int32) as uint64;
+extend test with std::hashable {
+    fun hash(*const this) -> uint64 {
+        return this->val as uint64;
     }
 }
 
-concept HEHE {
-    fun foo(*this) -> test;
-}
-
-extend int32 with HEHE {
-    fun foo(*this) -> test {
-        return test {.val = 5};
-    }
-}
-
-
-struct test_concept<T: std::compare> {
+struct test_concept<T> {
   public:
     val1: T;
     val2: T;
@@ -61,10 +27,10 @@ struct test_concept<T: std::compare> {
             .val2 = val2
         };
     }
-    fun foo(*const this) -> std::ordering {
-        let res = this->val1.my_compare(&this->val2);
-        return res;
-    }
+}
+
+fun foo<T: std::default>() -> T {
+    return T::std::default();
 }
 
 extend test_concept<T> with std::hashable where T: std::hashable {
@@ -75,26 +41,14 @@ extend test_concept<T> with std::hashable where T: std::hashable {
 
 fun main() {
     let cpt = test_concept<test>::new(test {.val = 5}, test{.val = 10});
-    let cmp = cpt.foo();
     let hashed = cpt.hash();
-    if cmp == std::ordering::LESS {
-        std::println("LESS");
-    } else if cmp == std::ordering::GREATER {
-        std::println("GREATER");
-    } else {
-        std::println("EQUAL");
+    std::printf("%llu\n", hashed);
+    foo<*int32>();
+    let s = foo<[int32]>();
+    if s as *int32 == null {
+        std::println("s is null");
     }
-
-    let a: int32 = 5;
-    let b: int32 = 10;
-    cmp = a.my_compare(&b);
-    if cmp == std::ordering::LESS {
-        std::println("LESS");
-    } else if cmp == std::ordering::GREATER {
-        std::println("GREATER");
-    } else {
-        std::println("EQUAL");
-    }
-
-    let hehe: test = a.foo();
+    let vec = std::vector<int32>::with_capacity(6);
+    vec.push(5);
+    vec.get(0);
 }

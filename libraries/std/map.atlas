@@ -7,74 +7,11 @@
 import "std/io";
 import "std/memory";
 import "core/libc";
+import "std/concepts/hashable";
 
 // TODO: Add back `std::hashable` as contraints
 // I removed it temporarily
 namespace std {
-    concept hashable {
-        fun hash(*const this) -> uint64;
-    }
-    extend int8 with std::hashable {
-        fun hash(*const this) -> uint64 {
-            return *this as uint64;
-        }
-    }
-    extend int16 with std::hashable {
-        fun hash(*const this) -> uint64 {
-            return *this as uint64;
-        }
-    }
-    extend int32 with std::hashable {
-        fun hash(*const this) -> uint64 {
-            return *this as uint64;
-        }
-    }
-    extend int64 with std::hashable {
-        fun hash(*const this) -> uint64 {
-            return *this as uint64;
-        }
-    }
-    extend uint8 with std::hashable {
-        fun hash(*const this) -> uint64 {
-            return *this as uint64;
-        }
-    }
-    extend uint16 with std::hashable {
-        fun hash(*const this) -> uint64 {
-            return *this as uint64;
-        }
-    }
-    extend uint32 with std::hashable {
-        fun hash(*const this) -> uint64 {
-            return *this as uint64;
-        }
-    }
-    extend uint64 with std::hashable {
-        fun hash(*const this) -> uint64 {
-            return *this as uint64;
-        }
-    }
-    extend float32 with std::hashable {
-        fun hash(*const this) -> uint64 {
-            return *this as uint64;
-        }
-    }
-    extend float64 with std::hashable {
-        fun hash(*const this) -> uint64 {
-            return *this as uint64;
-        }
-    }
-    extend bool with std::hashable {
-        fun hash(*const this) -> uint64 {
-            return *this as uint64;
-        }
-    }
-    extend char with std::hashable {
-        fun hash(*const this) -> uint64 {
-            return *this as uint64;
-        }
-    }
-
     private struct map_pair<K: operator::equal + std::hashable, V> {
       public:
         key: K;
@@ -143,34 +80,6 @@ namespace std {
                 return false;
             }
             return this->find_index(key, (*key).hash()) != this->capacity;
-        }
-
-        //! Return nullable pointer to value.
-        fun get_ptr(*const this, key: *const K) -> *const V {
-            if this->capacity == 0u {
-                return null;
-            }
-
-            let index = this->find_index(key, (*key).hash());
-            if index == this->capacity {
-                return null;
-            }
-
-            return &this->buckets[index].pair->value;
-        }
-
-        //! Return nullable mutable pointer to value.
-        fun get_mut_ptr(*this, key: *const K) -> *V {
-            if this->capacity == 0u {
-                return null;
-            }
-
-            let index = this->find_index(key, (*key).hash());
-            if index == this->capacity {
-                return null;
-            }
-
-            return &this->buckets[index].pair->value;
         }
 
         //! Insert key/value. If key exists, replaces value.
@@ -433,6 +342,38 @@ namespace std {
                 }
                 i = i + 1u;
             }
+        }
+    }
+
+    extend std::map<K, V> with std::indexable {
+        type index_t = K;
+        type index_val_t = V;
+
+        // Return nullable pointer to value.
+        fun get(*const this, idx: This::index_t) -> *const This::index_val_t {
+            if this->capacity == 0u {
+                return null;
+            }
+
+            let index = this->find_index(key, (*key).hash());
+            if index == this->capacity {
+                return null;
+            }
+
+            return &this->buckets[index].pair->value;
+        }
+        // Return nullable mutable pointer to value.
+        fun get_mut(*this, idx: This::index_t) -> *This::index_val_t {
+            if this->capacity == 0u {
+                return null;
+            }
+
+            let index = this->find_index(key, (*key).hash());
+            if index == this->capacity {
+                return null;
+            }
+
+            return &this->buckets[index].pair->value;
         }
     }
 }

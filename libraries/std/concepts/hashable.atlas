@@ -1,0 +1,68 @@
+namespace std {
+    // TODO: The result of a hash might be something different than uint64
+    // Might be worth introducing `type hashed_val_t`
+    public concept hashable {
+        fun hash(*const this) -> uint64;
+    }
+    extend int8 with std::hashable {
+        fun hash(*const this) -> uint64 {
+            return *this as uint64;
+        }
+    }
+    extend int16 with std::hashable {
+        fun hash(*const this) -> uint64 {
+            return *this as uint64;
+        }
+    }
+    extend int32 with std::hashable {
+        fun hash(*const this) -> uint64 {
+            return *this as uint64;
+        }
+    }
+    extend int64 with std::hashable {
+        fun hash(*const this) -> uint64 {
+            return *this as uint64;
+        }
+    }
+    extend uint8 with std::hashable {
+        fun hash(*const this) -> uint64 {
+            return *this as uint64;
+        }
+    }
+    extend uint16 with std::hashable {
+        fun hash(*const this) -> uint64 {
+            return *this as uint64;
+        }
+    }
+    extend uint32 with std::hashable {
+        fun hash(*const this) -> uint64 {
+            return *this as uint64;
+        }
+    }
+    extend uint64 with std::hashable {
+        fun hash(*const this) -> uint64 {
+            return *this;
+        }
+    }
+    extend float32 with std::hashable {
+        fun hash(*const this) -> uint64 {
+            return *this as uint64;
+        }
+    }
+    extend float64 with std::hashable {
+        fun hash(*const this) -> uint64 {
+            return *this as uint64;
+        }
+    }
+    extend bool with std::hashable {
+        fun hash(*const this) -> uint64 {
+            return *this as uint64;
+        }
+    }
+    extend char with std::hashable {
+        fun hash(*const this) -> uint64 {
+            return *this as uint64;
+        }
+    }
+    // TODO: str should be std::hashable too
+}

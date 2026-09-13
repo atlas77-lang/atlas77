@@ -1,0 +1,10 @@
+namespace std {
+    public concept indexable {
+        type index_t;
+        type index_val_t;
+        fun get(*const this, idx: This::index_t) -> *const This::index_val_t;
+        fun get_mut(*this, idx: This::index_t) -> *This::index_val_t;
+        // TODO: Add operator index(*this, idx: This::index_t) -> *This::index_val_t
+        // TODO: Add operator index_equal(*this, idx: This::index_t, val: This::index_val_t)
+    }
+}

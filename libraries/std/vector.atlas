@@ -47,22 +47,6 @@ namespace std {
         fun capacity(*const this) -> uint64 {
             return this->capacity;
         }
-        //! Returns a const reference to the element at `index`.
-        //! Panics on out-of-bounds access.
-        fun get(*const this, index: uint64) -> *const T {
-            if index >= this->length {
-                std::panic("Index out of bounds");
-            }
-            return &this->data[index];
-        }
-        //! Returns a mutable reference to the element at `index`.
-        //! Panics on out-of-bounds access.
-        fun get_mut(*this, index: uint64) -> *T {
-            if index >= this->length {
-                std::panic("Index out of bounds");
-            }
-            return &(this->data[index]);
-        }
         //! Sets the element at `index` to `val`.
         //! Panics on out-of-bounds access.
         fun set(*this, index: uint64, val: T) {
@@ -200,6 +184,27 @@ namespace std {
             }
             this->length = this->length - 1u;
             return std::optional<T>::of(item);
+        }
+    }
+
+    extend std::vector<T> with std::indexable {
+        type index_t = uint64;
+        type index_val_t = T;
+        // Returns a const reference to the element at `index`.
+        // Panics on out-of-bounds access.
+        fun get(*const this, index: This::index_t) -> *const This::index_val_t {
+            if index >= this->length {
+                std::panic("Index out of bounds");
+            }
+            return &this->data[index];
+        }
+        // Returns a mutable reference to the element at `index`.
+        // Panics on out-of-bounds access.
+        fun get_mut(*this, index: This::index_t) -> *This::index_val_t {
+            if index >= this->length {
+                std::panic("Index out of bounds");
+            }
+            return &(this->data[index]);
         }
     }
 }

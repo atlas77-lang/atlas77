@@ -1,0 +1,85 @@
+namespace std {
+    public concept default {
+        fun default() -> This;
+    }
+    extend *T with std::default {
+        fun default() -> This {
+            return null;
+        }
+    }
+    extend *const T with std::default {
+        fun default() -> This {
+            return null;
+        }
+    }
+    extend [T] with std::default {
+        fun default() -> This {
+            return null;
+        }
+    }
+    extend int8 with std::default {
+        fun default() -> This {
+            return 0;
+        }
+    }
+    extend int16 with std::default {
+        fun default() -> This {
+            return 0;
+        }
+    }
+    extend int32 with std::default {
+        fun default() -> This {
+            return 0;
+        }
+    }
+    extend int64 with std::default {
+        fun default() -> This {
+            return 0;
+        }
+    }
+    extend uint8 with std::default {
+        fun default() -> This {
+            return 0;
+        }
+    }
+    extend uint16 with std::default {
+        fun default() -> This {
+            return 0;
+        }
+    }
+    extend uint32 with std::default {
+        fun default() -> This {
+            return 0;
+        }
+    }
+    extend uint64 with std::default {
+        fun default() -> This {
+            return 0;
+        }
+    }
+    extend float32 with std::default {
+        fun default() -> This {
+            return 0.0;
+        }
+    }
+    extend float64 with std::default {
+        fun default() -> This {
+            return 0.0;
+        }
+    }
+    extend bool with std::default {
+        fun default() -> This {
+            return false;
+        }
+    }
+    extend char with std::default {
+        fun default() -> This {
+            return 0 as char;
+        }
+    }
+    extend str with std::default {
+        fun default() -> This {
+            return "";
+        }
+    }
+}

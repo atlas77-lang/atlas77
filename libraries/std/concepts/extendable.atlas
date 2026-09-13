@@ -1,0 +1,8 @@
+namespace std {
+    // TODO: extendable should be extendable<T>
+    // And only accepts I where I: std::iterator_of<T> 
+    // Or some shit, to ensure the type the iterator yields is the type you require
+    public concept extendable {
+        fun append<I>(*this, iter: I) where I: std::iterable;
+    }
+}

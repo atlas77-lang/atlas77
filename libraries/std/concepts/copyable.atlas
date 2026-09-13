@@ -1,0 +1,56 @@
+namespace std {
+    public concept copyable {
+        fun copy(*const this) -> This;
+    }
+    
+    extend int8 with std::copyable {
+        fun copy(*const this) -> This {
+            return *this;
+        }
+    }
+    extend int16 with std::copyable {
+        fun copy(*const this) -> This {
+            return *this;
+        }
+    }
+    extend int32 with std::copyable {
+        fun copy(*const this) -> This {
+            return *this;
+        }
+    }
+    extend int64 with std::copyable {
+        fun copy(*const this) -> This {
+            return *this;
+        }
+    }
+    extend uint8 with std::copyable {
+        fun copy(*const this) -> This {
+            return *this;
+        }
+    }
+    extend uint16 with std::copyable {
+        fun copy(*const this) -> This {
+            return *this;
+        }
+    }
+    extend uint32 with std::copyable {
+        fun copy(*const this) -> This {
+            return *this;
+        }
+    }
+    extend uint64 with std::copyable {
+        fun copy(*const this) -> This {
+            return *this;
+        }
+    }
+    extend float32 with std::copyable {
+        fun copy(*const this) -> This {
+            return *this;
+        }
+    }
+    extend float64 with std::copyable {
+        fun copy(*const this) -> This {
+            return *this;
+        }
+    }
+}

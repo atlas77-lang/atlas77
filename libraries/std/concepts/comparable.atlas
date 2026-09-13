@@ -1,0 +1,86 @@
+namespace std {
+    public enum ordering {
+        // -1
+        LESS = 0xFFFFFFFFFFFFFFFFu;
+        EQUAL = 0;
+        GREATER = 1;
+    }
+    // TODO: Make all primitive type actually use those overloaded operators, 
+    // but using some kind of __intrinsic_add(a, b)/__intrinsic_equal(a, b)
+    // So that EVERY operators are just a function call, up until a primitive type
+    public concept comparable {
+        fun compare(*const this, other: *const This) -> std::ordering;
+        operator equal(*const this, other: *const This) -> bool {
+            return this.compare(other) == std::ordering::EQUAL;
+        }
+        operator less(*const this, other: *const This) -> bool {
+            return this.compare(other) == std::ordering::LESS;
+        }
+        operator less_equal(*const this, other: *const This) -> bool {
+            let res = this.compare(other);
+            return res == std::ordering::LESS || res == std::ordering::EQUAL;
+        }
+        operator greater(*const this, other: *const This) -> bool {
+            return this.compare(other) == std::ordering::GREATER;
+        }
+        operator greater_equal(*const this, other: *const This) -> bool {
+            let res = this.compare(other);
+            return res == std::ordering::GREATER || res == std::ordering::EQUAL;
+        }
+    }
+    extend int8 with std::comparable {
+        fun compare(*const this, other: *const This) -> std::ordering {
+            return ((*this > *other) as int32 - (*this < *other) as int32) as uint64;
+        }
+    }
+    extend int16 with std::comparable {
+        fun compare(*const this, other: *const This) -> std::ordering {
+            return ((*this > *other) as int32 - (*this < *other) as int32) as uint64;
+        }
+    }
+    extend int32 with std::comparable {
+        fun compare(*const this, other: *const This) -> std::ordering {
+            return ((*this > *other) as int32 - (*this < *other) as int32) as uint64;
+        }
+    }
+    extend int64 with std::comparable {
+        fun compare(*const this, other: *const This) -> std::ordering {
+            return ((*this > *other) as int32 - (*this < *other) as int32) as uint64;
+        }
+    }
+    extend uint8 with std::comparable {
+        fun compare(*const this, other: *const This) -> std::ordering {
+            return ((*this > *other) as int32 - (*this < *other) as int32) as uint64;
+        }
+    }
+    extend uint16 with std::comparable {
+        fun compare(*const this, other: *const This) -> std::ordering {
+            return ((*this > *other) as int32 - (*this < *other) as int32) as uint64;
+        }
+    }
+    extend uint32 with std::comparable {
+        fun compare(*const this, other: *const This) -> std::ordering {
+            return ((*this > *other) as int32 - (*this < *other) as int32) as uint64;
+        }
+    }
+    extend uint64 with std::comparable {
+        fun compare(*const this, other: *const This) -> std::ordering {
+            return ((*this > *other) as int32 - (*this < *other) as int32) as uint64;
+        }
+    }
+    extend float32 with std::comparable {
+        fun compare(*const this, other: *const This) -> std::ordering {
+            return ((*this > *other) as int32 - (*this < *other) as int32) as uint64;
+        }
+    }
+    extend float64 with std::comparable {
+        fun compare(*const this, other: *const This) -> std::ordering {
+            return ((*this > *other) as int32 - (*this < *other) as int32) as uint64;
+        }
+    }
+    extend char with std::comparable {
+        fun compare(*const this, other: *const This) -> std::ordering {
+            return ((*this > *other) as int32 - (*this < *other) as int32) as uint64;
+        }
+    }
+}

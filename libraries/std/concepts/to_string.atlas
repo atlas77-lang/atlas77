@@ -1,0 +1,67 @@
+import "std/string";
+
+namespace std {
+    public concept to_string {
+        fun to_string(*const this) -> std::string;
+    }
+    extend int8 with std::to_string {
+        fun to_string(*const this) -> std::string {
+            return std::string::to_string<int8>(*this);
+        }
+    }
+    extend int16 with std::to_string {
+        fun to_string(*const this) -> std::string {
+            return std::string::to_string<int16>(*this);
+        }
+    }
+    extend int32 with std::to_string {
+        fun to_string(*const this) -> std::string {
+            return std::string::to_string<int32>(*this);
+        }
+    }
+    extend int64 with std::to_string {
+        fun to_string(*const this) -> std::string {
+            return std::string::to_string<int64>(*this);
+        }
+    }
+    extend uint8 with std::to_string {
+        fun to_string(*const this) -> std::string {
+            return std::string::to_string<uint8>(*this);
+        }
+    }
+    extend uint16 with std::to_string {
+        fun to_string(*const this) -> std::string {
+            return std::string::to_string<uint16>(*this);
+        }
+    }
+    extend uint32 with std::to_string {
+        fun to_string(*const this) -> std::string {
+            return std::string::to_string<uint32>(*this);
+        }
+    }
+    extend uint64 with std::to_string {
+        fun to_string(*const this) -> std::string {
+            return std::string::to_string<uint64>(*this);
+        }
+    }
+    extend float32 with std::to_string {
+        fun to_string(*const this) -> std::string {
+            return std::string::to_string<float32>(*this);
+        }
+    }
+    extend float64 with std::to_string {
+        fun to_string(*const this) -> std::string {
+            return std::string::to_string<float64>(*this);
+        }
+    }
+    extend char with std::to_string {
+        fun to_string(*const this) -> std::string {
+            return std::string::to_string<char>(*this);
+        }
+    }
+    extend str with std::to_string {
+        fun to_string(*const this) -> std::string {
+            return std::string::from_chars(*this as *const uint8);
+        }
+    }
+}

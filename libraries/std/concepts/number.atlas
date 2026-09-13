@@ -1,0 +1,87 @@
+namespace std {
+    public concept number {
+        // TODO: Make this into constants attached to a type in the refactor
+        fun MAX() -> This;
+        fun MIN() -> This;
+    }
+    extend int8 with std::number {
+        fun MAX() -> This {
+            return 127;
+        }
+        fun MIN() -> This {
+            return 0x80 as int8;
+        }
+    }
+    extend int16 with std::number {
+        fun MAX() -> This {
+            return 32767;
+        }
+        fun MIN() -> This {
+            return 0x8000u as int16;
+        }
+    }
+    extend int32 with std::number {
+        fun MAX() -> This {
+            return 2147483647;
+        }
+        fun MIN() -> This {
+            return 0x80000000u as int32;
+        }
+    }
+    extend int64 with std::number {
+        fun MAX() -> This {
+            return 9223372036854775807;
+        }
+        fun MIN() -> This {
+            return 0x8000000000000000u as int64;
+        }
+    }
+    extend uint8 with std::number {
+        fun MAX() -> This {
+            return 255u;
+        }
+        fun MIN() -> This {
+            return 0;
+        }
+    }
+    extend uint16 with std::number {
+        fun MAX() -> This {
+            return 65535u;
+        }
+        fun MIN() -> This {
+            return 0;
+        }
+    }
+    extend uint32 with std::number {
+        fun MAX() -> This {
+            return 4294967295u;
+        }
+        fun MIN() -> This {
+            return 0;
+        }
+    }
+    extend uint64 with std::number {
+        fun MAX() -> This {
+            return 18446744073709551615u;
+        }
+        fun MIN() -> This {
+            return 0;
+        }
+    }
+    extend float32 with std::number {
+        fun MAX() -> This {
+            return 0x7F7FFFFFu as float32;
+        }
+        fun MIN() -> This {
+            return 0x00000001u as float32;
+        }
+    }
+    extend float64 with std::number {
+        fun MAX() -> This {
+            return 0x7FEFFFFFFFFFFFFFu as float64;
+        }
+        fun MIN() -> This {
+            return 0x0000000000000001u as float64;
+        }
+    }
+}
