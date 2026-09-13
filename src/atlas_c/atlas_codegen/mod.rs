@@ -340,7 +340,16 @@ impl CCodeGen {
         let enum_name = self.codegen_enum_name(&enum_.name);
         let mut enum_def = format!("enum {} {{\n", enum_name);
         for (variant_name, variant_value) in enum_.variants.iter() {
-            enum_def.push_str(&format!("\t{} = {},\n", variant_name, variant_value));
+            // Prefix each enumerator with its own enum's mangled name (mirroring the
+            // `{struct}_{method}` convention used for methods) so that two different
+            // enums sharing a variant name (e.g. both declaring `EQUAL`) don't collide
+            // in C's flat, unscoped enumerator namespace. Enum variant accesses are
+            // always const-folded to integer literals during type checking, so nothing
+            // downstream ever references this identifier by name.
+            enum_def.push_str(&format!(
+                "\t{}_{} = {},\n",
+                enum_name, variant_name, variant_value
+            ));
         }
         enum_def.push_str("};\n\n");
         Self::write_to_file(&mut self.c_header, &enum_def, self.indent_level);
