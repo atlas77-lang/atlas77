@@ -15,7 +15,6 @@ use crate::atlas_c::{
         signature::{ConstantValue, HirOverloadableOperatorKind, HirStructMethodModifier},
         stmt::HirStatement,
         ty::{HirGenericTy, HirTy, HirTyId},
-        type_check_pass::primitive_bypass::primitive_type_name,
     },
     atlas_lir::{
         error::{
@@ -64,6 +63,24 @@ impl<'hir> HirLoweringPass<'hir> {
             local_types: HashMap::new(),
             current_struct_name: None,
             hir_arena,
+        }
+    }
+
+    fn ty_contains_placeholder(&self, ty: &HirTy<'hir>) -> bool {
+        match ty {
+            HirTy::Named(n) => {
+                n.name == "This"
+                    || (n.name.len() == 1
+                        && !self.hir_module.signature.structs.contains_key(n.name)
+                        && !self.hir_module.signature.unions.contains_key(n.name))
+            }
+            HirTy::PtrTy(p) => self.ty_contains_placeholder(p.inner),
+            HirTy::Generic(g) => g.inner.iter().any(|t| self.ty_contains_placeholder(t)),
+            HirTy::Slice(s) => self.ty_contains_placeholder(s.inner),
+            HirTy::InlineArray(a) => self.ty_contains_placeholder(a.inner),
+            HirTy::Atomic(a) => self.ty_contains_placeholder(a.inner),
+            HirTy::Associated(a) => self.ty_contains_placeholder(a.base),
+            _ => false,
         }
     }
 
@@ -161,21 +178,14 @@ impl<'hir> HirLoweringPass<'hir> {
         }
         for blocks in self.hir_module.body.extends.values() {
             for block in blocks {
-                if block.where_clause.as_ref().is_some_and(|w| !w.is_empty()) {
+                if self.ty_contains_placeholder(block.ty) {
                     continue;
                 }
-                let target_name = match block.ty {
-                    HirTy::Named(n) => n.name,
-                    other => match primitive_type_name(other) {
-                        Some(name) => name,
-                        None => continue,
-                    },
-                };
                 for method in block.methods.iter() {
-                    functions.push(self.lower_method(target_name, method)?);
+                    functions.push(self.lower_method(block.ty, method)?);
                 }
                 for operator in block.operators.iter() {
-                    functions.push(self.lower_method(target_name, operator)?);
+                    functions.push(self.lower_method(block.ty, operator)?);
                 }
             }
         }
@@ -323,13 +333,17 @@ impl<'hir> HirLoweringPass<'hir> {
             c_name: struct_body.signature.c_name.map(|s| s.to_string()),
         };
 
+        let self_ty = self
+            .hir_arena
+            .types()
+            .get_named_ty(struct_body.name, struct_body.name_span);
         for method in struct_body.methods.iter() {
-            let lir_method = self.lower_method(struct_body.name, method)?;
+            let lir_method = self.lower_method(self_ty, method)?;
             functions.push(lir_method);
         }
 
         for operator in struct_body.operators.iter() {
-            let lir_operator = self.lower_method(struct_body.name, operator)?;
+            let lir_operator = self.lower_method(self_ty, operator)?;
             functions.push(lir_operator);
         }
 
@@ -386,7 +400,7 @@ impl<'hir> HirLoweringPass<'hir> {
 
     fn lower_method(
         &mut self,
-        struct_name: &str,
+        self_ty: &'hir HirTy<'hir>,
         method: &'hir HirStructMethod<'hir>,
     ) -> LirResult<LirFunction> {
         // Reset state for new function
@@ -395,12 +409,12 @@ impl<'hir> HirLoweringPass<'hir> {
         self.param_map.clear();
         self.local_map.clear();
         self.local_types.clear();
-        self.current_struct_name = Some(struct_name.to_string());
+        let struct_name = self_ty.get_valid_c_string();
+        self.current_struct_name = Some(struct_name.clone());
 
         let mut args = Vec::new();
 
-        let self_lir_ty = Self::primitive_lir_ty(struct_name)
-            .unwrap_or_else(|| LirTy::StructType(struct_name.to_string()));
+        let self_lir_ty = self.hir_ty_to_lir_ty(self_ty, method.signature.span);
 
         if matches!(
             method.signature.modifier,
@@ -1742,24 +1756,6 @@ impl<'hir> HirLoweringPass<'hir> {
                 }
             }
         }
-    }
-
-    fn primitive_lir_ty(name: &str) -> Option<LirTy> {
-        Some(match name {
-            "int8" => LirTy::Int8,
-            "int16" => LirTy::Int16,
-            "int32" => LirTy::Int32,
-            "int64" => LirTy::Int64,
-            "uint8" => LirTy::UInt8,
-            "uint16" => LirTy::UInt16,
-            "uint32" => LirTy::UInt32,
-            "uint64" => LirTy::UInt64,
-            "float32" => LirTy::Float32,
-            "float64" => LirTy::Float64,
-            "char" => LirTy::Char,
-            "bool" => LirTy::Boolean,
-            _ => return None,
-        })
     }
 
     fn lir_type_size_and_align(&self, ty: &LirTy) -> (usize, usize) {

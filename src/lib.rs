@@ -1113,21 +1113,40 @@ pub fn run_frontend<'ast, 'hir>(
         typecheck_result = type_checker.check(hir);
 
         let requests = type_checker.take_method_monomorphization_requests();
-        if requests.is_empty() {
+        let extend_requests = type_checker.take_extend_method_monomorphization_requests();
+        if requests.is_empty() && extend_requests.is_empty() {
             break;
         }
 
-        let changed = match monomorphizer.monomorphize_requested_methods(hir, requests) {
-            Err(e) => {
-                return FrontendResult {
-                    hir: Some(&*hir),
-                    hir_errors: vec![e],
-                    hir_warnings: warnings,
-                    ast_errors: Vec::new(),
-                };
-            }
-            Ok(changed) => changed,
-        };
+        let mut changed = false;
+        if !requests.is_empty() {
+            changed |= match monomorphizer.monomorphize_requested_methods(hir, requests) {
+                Err(e) => {
+                    return FrontendResult {
+                        hir: Some(&*hir),
+                        hir_errors: vec![e],
+                        hir_warnings: warnings,
+                        ast_errors: Vec::new(),
+                    };
+                }
+                Ok(changed) => changed,
+            };
+        }
+        if !extend_requests.is_empty() {
+            changed |= match monomorphizer
+                .monomorphize_requested_extend_methods(hir, extend_requests)
+            {
+                Err(e) => {
+                    return FrontendResult {
+                        hir: Some(&*hir),
+                        hir_errors: vec![e],
+                        hir_warnings: warnings,
+                        ast_errors: Vec::new(),
+                    };
+                }
+                Ok(changed) => changed,
+            };
+        }
         if !changed {
             break;
         }

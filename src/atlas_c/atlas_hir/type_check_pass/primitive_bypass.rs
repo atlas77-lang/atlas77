@@ -43,6 +43,7 @@ pub(crate) fn synthetic_primitive_signature(name: &'static str) -> HirStructSign
         //  remap those names to actual C primitives
         //  default to int, thought shouldn't be a worry
         c_name: Some(primitive_to_c_primitive(name).unwrap_or("int")),
+        represents_ty: None,
     }
 }
 

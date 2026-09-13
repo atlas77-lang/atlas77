@@ -37,11 +37,12 @@ use crate::atlas_c::atlas_hir::{
     },
     item::{HirConcept, HirExtendBlock, HirStruct, HirStructDestructor, HirStructMethod},
     monomorphization_pass::{
-        MethodMonomorphizationRequest, MonomorphizationPass, generic_pool::HirGenericPool,
+        ExtendMethodMonomorphizationRequest, MethodMonomorphizationRequest, MonomorphizationPass,
+        generic_pool::HirGenericPool,
     },
     pretty_print::HirPrettyPrinter,
     signature::{
-        HirFunctionParameterSignature, HirFunctionSignature, HirMethodAttribute,
+        HirFlag, HirFunctionParameterSignature, HirFunctionSignature, HirMethodAttribute,
         HirOverloadableOperatorKind, HirStructDestructorSignature, HirStructFieldSignature,
         HirStructMethodModifier, HirStructMethodSignature, HirStructSignature, HirVisibility,
     },
@@ -76,6 +77,8 @@ pub struct TypeChecker<'hir> {
     signature: HirModuleSignature<'hir>,
     current_func_name: Option<&'hir str>,
     current_class_name: Option<&'hir str>,
+    current_extend_self_ty: Option<&'hir HirTy<'hir>>,
+    current_extend_method_sig: Option<&'hir HirStructMethodSignature<'hir>>,
     module_extends: BTreeMap<HirTyId, Vec<HirExtendBlock<'hir>>>,
     module_concepts: BTreeMap<&'hir str, HirConcept<'hir>>,
     //TODO: Move this to the MonomorphizationPass in the future
@@ -84,8 +87,8 @@ pub struct TypeChecker<'hir> {
         &'hir HirFunctionSignature<'hir>,
     >,
     pending_method_monomorphization: Vec<MethodMonomorphizationRequest<'hir>>,
+    pending_extend_method_monomorphization: Vec<ExtendMethodMonomorphizationRequest<'hir>>,
     errors: Vec<HirError>,
-    materialization_allowed: bool,
 }
 
 impl<'hir> TypeChecker<'hir> {
@@ -99,12 +102,14 @@ impl<'hir> TypeChecker<'hir> {
             signature: HirModuleSignature::default(),
             current_func_name: None,
             current_class_name: None,
+            current_extend_self_ty: None,
+            current_extend_method_sig: None,
             module_extends: BTreeMap::new(),
             module_concepts: BTreeMap::new(),
             extern_monomorphized: HashMap::new(),
             pending_method_monomorphization: Vec::new(),
+            pending_extend_method_monomorphization: Vec::new(),
             errors: Vec::new(),
-            materialization_allowed: true,
         }
     }
 
@@ -139,6 +144,37 @@ impl<'hir> TypeChecker<'hir> {
                 owner_name,
                 method_name,
                 generic_args,
+                span,
+            });
+    }
+
+    pub fn take_extend_method_monomorphization_requests(
+        &mut self,
+    ) -> Vec<ExtendMethodMonomorphizationRequest<'hir>> {
+        std::mem::take(&mut self.pending_extend_method_monomorphization)
+    }
+
+    fn enqueue_extend_method_monomorphization_request(
+        &mut self,
+        concrete_ty: &'hir HirTy<'hir>,
+        method_name: &'hir str,
+        span: Span,
+    ) {
+        if self
+            .pending_extend_method_monomorphization
+            .iter()
+            .any(|req| {
+                req.method_name == method_name
+                    && req.concrete_ty.type_key() == concrete_ty.type_key()
+            })
+        {
+            return;
+        }
+
+        self.pending_extend_method_monomorphization
+            .push(ExtendMethodMonomorphizationRequest {
+                concrete_ty,
+                method_name,
                 span,
             });
     }
@@ -218,8 +254,15 @@ impl<'hir> TypeChecker<'hir> {
         }
 
         self.module_extends.values().flatten().find_map(|block| {
-            if !Self::type_pattern_matches(block.ty, ty) {
+            if !self.type_pattern_matches(block.ty, ty) {
                 return None;
+            }
+            if let Some(method) = block
+                .methods
+                .iter()
+                .find(|method| method.name == method_name)
+            {
+                return Some(method.signature.clone());
             }
             let HirTy::Named(concept_name) = block.concept else {
                 return None;
@@ -236,21 +279,216 @@ impl<'hir> TypeChecker<'hir> {
         })
     }
 
-    fn type_pattern_matches(pattern: &HirTy<'hir>, actual: &HirTy<'hir>) -> bool {
+    fn is_placeholder_name(&self, name: &str) -> bool {
+        if name == "This" {
+            return true;
+        }
+        name.len() == 1
+            && !self.signature.structs.contains_key(name)
+            && !self.signature.unions.contains_key(name)
+    }
+
+    fn ty_contains_placeholder(&self, ty: &HirTy<'hir>) -> bool {
+        match ty {
+            HirTy::Named(n) => self.is_placeholder_name(n.name),
+            HirTy::PtrTy(p) => self.ty_contains_placeholder(p.inner),
+            HirTy::Generic(g) => g.inner.iter().any(|t| self.ty_contains_placeholder(t)),
+            HirTy::Slice(s) => self.ty_contains_placeholder(s.inner),
+            HirTy::InlineArray(a) => self.ty_contains_placeholder(a.inner),
+            HirTy::Atomic(a) => self.ty_contains_placeholder(a.inner),
+            HirTy::Associated(a) => self.ty_contains_placeholder(a.base),
+            _ => false,
+        }
+    }
+
+    fn type_pattern_matches(&self, pattern: &HirTy<'hir>, actual: &HirTy<'hir>) -> bool {
         match (pattern, actual) {
             (HirTy::Generic(generic), _) if generic.inner.is_empty() => true,
+            (HirTy::Named(left), _) if self.is_placeholder_name(left.name) => true,
             (HirTy::Named(left), HirTy::Named(right)) => left.name == right.name,
             (HirTy::Generic(left), HirTy::Generic(right)) => {
-                left.name == right.name
-                    && left.inner.len() == right.inner.len()
-                    && left
-                        .inner
-                        .iter()
-                        .zip(&right.inner)
-                        .all(|(left, right)| Self::type_pattern_matches(left, right))
+                if left.name != right.name || left.inner.len() != right.inner.len() {
+                    return false;
+                }
+                let struct_generics = self
+                    .signature
+                    .structs
+                    .get(left.name)
+                    .map(|s| s.generics.as_slice())
+                    .unwrap_or(&[]);
+                left.inner
+                    .iter()
+                    .enumerate()
+                    .zip(&right.inner)
+                    .all(|((i, l), r)| {
+                        let is_placeholder = struct_generics
+                            .get(i)
+                            .map(|g| matches!(l, HirTy::Named(n) if n.name == g.generic_name))
+                            .unwrap_or(false);
+                        is_placeholder || self.type_pattern_matches(l, r)
+                    })
+            }
+            (HirTy::PtrTy(left), HirTy::PtrTy(right)) => {
+                left.is_const == right.is_const
+                    && self.type_pattern_matches(left.inner, right.inner)
+            }
+            (HirTy::Slice(left), HirTy::Slice(right)) => {
+                self.type_pattern_matches(left.inner, right.inner)
             }
             _ => pattern.type_key() == actual.type_key(),
         }
+    }
+
+    fn find_static_extend_method(
+        &self,
+        ty: &'hir HirTy<'hir>,
+        method_name: &str,
+    ) -> Option<(
+        HirStructMethodSignature<'hir>,
+        Vec<(&'hir str, &'hir HirTy<'hir>)>,
+    )> {
+        self.module_extends.values().flatten().find_map(|block| {
+            if !self.type_pattern_matches(block.ty, ty) {
+                return None;
+            }
+            let method_sig =
+                if let Some(method) = block.methods.iter().find(|m| m.name == method_name) {
+                    method.signature.clone()
+                } else {
+                    let HirTy::Named(concept_name) = block.concept else {
+                        return None;
+                    };
+                    self.module_concepts
+                        .get(concept_name.name)?
+                        .default_methods
+                        .iter()
+                        .find(|method| method.name == method_name)?
+                        .signature
+                        .clone()
+                };
+            let mut bindings = Vec::new();
+            self.collect_extend_placeholder_bindings(block.ty, ty, &mut bindings);
+            Some((method_sig, bindings))
+        })
+    }
+
+    fn collect_extend_placeholder_bindings(
+        &self,
+        pattern: &HirTy<'hir>,
+        actual: &'hir HirTy<'hir>,
+        bindings: &mut Vec<(&'hir str, &'hir HirTy<'hir>)>,
+    ) {
+        match (pattern, actual) {
+            (HirTy::Named(left), _) if self.is_placeholder_name(left.name) => {
+                bindings.push((left.name, actual));
+            }
+            (HirTy::PtrTy(left), HirTy::PtrTy(right)) => {
+                self.collect_extend_placeholder_bindings(left.inner, right.inner, bindings);
+            }
+            (HirTy::Slice(left), HirTy::Slice(right)) => {
+                self.collect_extend_placeholder_bindings(left.inner, right.inner, bindings);
+            }
+            (HirTy::Generic(left), HirTy::Generic(right))
+                if left.inner.len() == right.inner.len() =>
+            {
+                for (l, r) in left.inner.iter().zip(right.inner.iter()) {
+                    self.collect_extend_placeholder_bindings(l, r, bindings);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn substitute_extend_placeholders(
+        &self,
+        ty: &HirTy<'hir>,
+        bindings: &[(&'hir str, &'hir HirTy<'hir>)],
+    ) -> &'hir HirTy<'hir> {
+        match ty {
+            HirTy::Named(n) => bindings
+                .iter()
+                .find(|(name, _)| *name == n.name)
+                .map(|(_, replacement)| *replacement)
+                .unwrap_or_else(|| self.arena.types().get_named_ty(n.name, n.span)),
+            HirTy::PtrTy(p) => {
+                let inner = self.substitute_extend_placeholders(p.inner, bindings);
+                self.arena.types().get_ptr_ty(inner, p.is_const, p.span)
+            }
+            HirTy::Slice(s) => {
+                let inner = self.substitute_extend_placeholders(s.inner, bindings);
+                self.arena.types().get_slice_ty(inner)
+            }
+            HirTy::Generic(g) => {
+                let inner = g
+                    .inner
+                    .iter()
+                    .map(|t| self.substitute_extend_placeholders(t, bindings))
+                    .collect::<Vec<_>>();
+                self.arena.types().get_generic_ty(g.name, inner, g.span)
+            }
+            _ => self.arena.intern(ty.clone()),
+        }
+    }
+
+    fn apply_static_extend_call(
+        &mut self,
+        static_access: &mut expr::HirStaticAccessExpr<'hir>,
+        method_name: &'hir str,
+        method_signature: &HirStructMethodSignature<'hir>,
+        bindings: &[(&'hir str, &'hir HirTy<'hir>)],
+        call_args: &mut Vec<HirExpr<'hir>>,
+        call_args_ty: &mut Vec<&'hir HirTy<'hir>>,
+        call_span: Span,
+    ) -> HirResult<&'hir HirTy<'hir>> {
+        static_access.field.name = method_name;
+
+        if !method_signature.is_constraint_satisfied {
+            let path = static_access.span.path;
+            let src = utils::get_file_content(path).unwrap();
+            return Err(HirError::MethodConstraintNotSatisfied(
+                MethodConstraintNotSatisfiedError {
+                    member_kind: "method".to_string(),
+                    member_name: method_name.to_string(),
+                    ty_name: format!("{}", static_access.target),
+                    span: static_access.span,
+                    src: NamedSource::new(path, src),
+                },
+            ));
+        }
+
+        if method_signature.modifier != HirStructMethodModifier::Static {
+            let path = static_access.span.path;
+            let src = utils::get_file_content(path).unwrap();
+            return Err(HirError::UnsupportedExpr(UnsupportedExpr {
+                span: static_access.span,
+                expr: "Instance method call".to_string(),
+                src: NamedSource::new(path, src),
+            }));
+        }
+
+        if method_signature.params.len() != call_args.len() {
+            return Err(Self::not_enough_arguments_err(
+                "static method".to_string(),
+                method_signature.params.len(),
+                &method_signature.span,
+                call_args.len(),
+                &call_span,
+            ));
+        }
+
+        for (param, arg) in method_signature.params.iter().zip(call_args.iter_mut()) {
+            let param_ty = self.substitute_extend_placeholders(param.ty, bindings);
+            self.retag_integer_literal_for_expected_ty(param_ty, arg);
+            let arg_ty = self.check_expr(arg)?;
+            self.is_equivalent_ty(param_ty, param.span, arg_ty, arg.span())?;
+            call_args_ty.push(param_ty);
+        }
+
+        let return_ty = self.substitute_extend_placeholders(&method_signature.return_ty, bindings);
+        static_access.ty = return_ty;
+        static_access.field.ty = return_ty;
+
+        Ok(return_ty)
     }
 
     fn validate_and_apply_method_call(
@@ -387,23 +625,26 @@ impl<'hir> TypeChecker<'hir> {
             }
 
             for block in blocks.iter_mut() {
-                if block.where_clause.as_ref().is_some_and(|w| !w.is_empty()) {
+                if self.ty_contains_placeholder(block.ty) {
                     continue;
                 }
                 let (target_name, target_span) = match block.ty {
                     HirTy::Named(n) => (n.name, n.span),
-                    other => match primitive_type_name(other) {
-                        Some(name) => (name, Span::default()),
-                        None => continue,
-                    },
+                    other => (
+                        self.arena.names().get(&other.get_valid_c_string()),
+                        block.ty_span,
+                    ),
                 };
                 self.current_class_name = Some(target_name);
+                self.current_extend_self_ty = Some(block.ty);
 
                 for method in block.methods.iter_mut() {
                     if method.signature.generics.is_some() || !method.signature.is_instantiated {
                         continue;
                     }
                     self.current_class_name = Some(target_name);
+                    self.current_extend_self_ty = Some(block.ty);
+                    self.current_extend_method_sig = Some(method.signature);
                     self.current_func_name = Some(method.name);
                     self.context_functions.push(HashMap::new());
                     let result = self.check_method(method, false);
@@ -416,11 +657,21 @@ impl<'hir> TypeChecker<'hir> {
                         continue;
                     }
                     self.current_class_name = Some(target_name);
+                    self.current_extend_self_ty = Some(block.ty);
+                    self.current_extend_method_sig = Some(operator.signature);
                     self.current_func_name = Some(operator.name);
                     self.context_functions.push(HashMap::new());
                     let result = self.check_operator((target_name, target_span), operator);
                     self.record_result(result);
                 }
+            }
+        }
+        self.current_extend_self_ty = None;
+        self.current_extend_method_sig = None;
+
+        for (name, sig) in self.signature.structs.iter() {
+            if !hir.signature.structs.contains_key(name) {
+                hir.signature.structs.insert(name, *sig);
             }
         }
 
@@ -1160,7 +1411,12 @@ impl<'hir> TypeChecker<'hir> {
                 Ok(())
             }
             HirStatement::Return(ret) => {
-                let (expected_ret_ty, span) = if let Some(name) = self.current_class_name {
+                let (expected_ret_ty, span) = if let Some(sig) = self.current_extend_method_sig {
+                    (
+                        self.arena.intern(sig.return_ty.clone()) as &_,
+                        sig.return_ty_span.unwrap_or(ret.span),
+                    )
+                } else if let Some(name) = self.current_class_name {
                     let class = self.signature.structs.get(name).unwrap();
                     let func_name = self.current_func_name.unwrap();
                     if let Some(method) = class.methods.get(func_name) {
@@ -1176,11 +1432,17 @@ impl<'hir> TypeChecker<'hir> {
                             op.return_ty_span.unwrap_or(ret.span),
                         )
                     } else {
-                        let self_ty = self.primitive_ty_for_name(name).unwrap_or_else(|| {
-                            self.arena
-                                .types()
-                                .get_named_ty(name, class.declaration_span)
-                        });
+                        let self_ty = self
+                            .signature
+                            .structs
+                            .get(class.name)
+                            .and_then(|sig| sig.represents_ty)
+                            .or_else(|| self.primitive_ty_for_name(class.name))
+                            .unwrap_or_else(|| {
+                                self.arena
+                                    .types()
+                                    .get_named_ty(class.name, class.declaration_span)
+                            });
                         if let Some(ext_method) = self.find_extend_method(self_ty, func_name) {
                             (
                                 self.arena.intern(ext_method.return_ty) as &_,
@@ -1587,6 +1849,42 @@ impl<'hir> TypeChecker<'hir> {
                 }
             }
             HirExpr::ThisLiteral(s) => {
+                if let Some(self_ty) = self.current_extend_self_ty {
+                    let modifier = self
+                        .current_extend_method_sig
+                        .map(|sig| sig.modifier.clone())
+                        .unwrap_or_default();
+                    let this_span = s.span;
+                    return match modifier {
+                        HirStructMethodModifier::Const => {
+                            let readonly_self_ty =
+                                self.arena.types().get_ptr_ty(self_ty, true, this_span);
+                            s.ty = readonly_self_ty;
+                            Ok(readonly_self_ty)
+                        }
+                        HirStructMethodModifier::Mutable => {
+                            let mutable_self_ty =
+                                self.arena.types().get_ptr_ty(self_ty, false, this_span);
+                            s.ty = mutable_self_ty;
+                            Ok(mutable_self_ty)
+                        }
+                        HirStructMethodModifier::Consuming => {
+                            s.ty = self_ty;
+                            Ok(self_ty)
+                        }
+                        HirStructMethodModifier::Static => {
+                            let path = expr.span().path;
+                            let src = utils::get_file_content(path).unwrap();
+                            Err(HirError::AccessingClassFieldOutsideClass(
+                                AccessingClassFieldOutsideClassError {
+                                    span: expr.span(),
+                                    src: NamedSource::new(path, src),
+                                },
+                            ))
+                        }
+                    };
+                }
+
                 let class_name = match self.current_class_name {
                     Some(class_name) => class_name,
                     None => {
@@ -1601,11 +1899,17 @@ impl<'hir> TypeChecker<'hir> {
                     }
                 };
                 let class = self.signature.structs.get(class_name).unwrap();
-                let self_ty = self.primitive_ty_for_name(class.name).unwrap_or_else(|| {
-                    self.arena
-                        .types()
-                        .get_named_ty(class.name, class.declaration_span)
-                });
+                let self_ty = self
+                    .signature
+                    .structs
+                    .get(class.name)
+                    .and_then(|sig| sig.represents_ty)
+                    .or_else(|| self.primitive_ty_for_name(class.name))
+                    .unwrap_or_else(|| {
+                        self.arena
+                            .types()
+                            .get_named_ty(class.name, class.declaration_span)
+                    });
                 let function_name = match self.current_func_name {
                     Some(func_name) => func_name,
                     None => {
@@ -2656,6 +2960,12 @@ impl<'hir> TypeChecker<'hir> {
                         } else if let Some(method_sig) =
                             self.find_extend_method(target_ty, lookup_method_name)
                         {
+                            self.enqueue_method_monomorphization_request(
+                                name,
+                                lookup_method_name,
+                                vec![],
+                                field_access.span,
+                            );
                             field_access.field.name = lookup_method_name;
                             let call_span = func_expr.span;
                             let call_args = &mut func_expr.args;
@@ -2860,18 +3170,25 @@ impl<'hir> TypeChecker<'hir> {
                 }
             }
             HirExpr::StaticAccess(static_access) => {
-                let name = match self.get_class_name_of_type(static_access.target) {
-                    Some(n) => n,
-                    None => {
-                        let path = static_access.span.path;
-                        let src = utils::get_file_content(path).unwrap();
-                        return Err(HirError::TryingToAccessFieldOnNonObjectType(
-                            TryingToAccessFieldOnNonObjectTypeError {
-                                span: static_access.span,
-                                ty: format!("{}", static_access.target),
-                                src: NamedSource::new(path, src),
-                            },
-                        ));
+                let name = if matches!(static_access.target, HirTy::PtrTy(_)) {
+                    self.get_or_create_ptr_signature(static_access.target)
+                } else {
+                    match self.get_class_name_of_type(static_access.target) {
+                        Some(n) => n,
+                        None => match primitive_type_name(static_access.target) {
+                            Some(n) => n,
+                            None => {
+                                let path = static_access.span.path;
+                                let src = utils::get_file_content(path).unwrap();
+                                return Err(HirError::TryingToAccessFieldOnNonObjectType(
+                                    TryingToAccessFieldOnNonObjectTypeError {
+                                        span: static_access.span,
+                                        ty: format!("{}", static_access.target),
+                                        src: NamedSource::new(path, src),
+                                    },
+                                ));
+                            }
+                        },
                     }
                 };
 
@@ -3626,26 +3943,57 @@ impl<'hir> TypeChecker<'hir> {
         call_generics: &mut Vec<&'hir HirTy<'hir>>,
         call_span: Span,
     ) -> HirResult<&'hir HirTy<'hir>> {
-        let name = match static_access.target {
-            HirTy::Named(n) => n.name,
-            HirTy::Generic(g) => {
-                MonomorphizationPass::generate_mangled_name(self.arena, g, "struct")
-            }
-            _ => {
-                let path = static_access.span.path;
-                let src = utils::get_file_content(path).unwrap();
-                return Err(HirError::CanOnlyConstructStructs(
-                    CanOnlyConstructStructsError {
-                        span: static_access.span,
-                        src: NamedSource::new(path, src),
-                    },
-                ));
-            }
+        let struct_name = match static_access.target {
+            HirTy::Named(n) => Some(n.name),
+            HirTy::Generic(g) => Some(MonomorphizationPass::generate_mangled_name(
+                self.arena, g, "struct",
+            )),
+            _ => None,
         };
-        let class = match self.signature.structs.get(name) {
-            Some(c) => *c,
+
+        let (name, class) = match struct_name.and_then(|n| self.signature.structs.get(n).copied()) {
+            Some(class) => (struct_name.unwrap(), class),
             None => {
-                return Err(Self::unknown_type_err(name, &static_access.span));
+                let method_name = static_access
+                    .field
+                    .name
+                    .rsplit_once("::")
+                    .map_or(static_access.field.name, |(_, m)| m);
+
+                if let Some((method_sig, bindings)) =
+                    self.find_static_extend_method(static_access.target, method_name)
+                {
+                    if !bindings.is_empty() {
+                        self.enqueue_extend_method_monomorphization_request(
+                            static_access.target,
+                            method_name,
+                            static_access.span,
+                        );
+                    }
+                    return self.apply_static_extend_call(
+                        static_access,
+                        method_name,
+                        &method_sig,
+                        &bindings,
+                        call_args,
+                        call_args_ty,
+                        call_span,
+                    );
+                }
+
+                return match struct_name {
+                    Some(n) => Err(Self::unknown_type_err(n, &static_access.span)),
+                    None => {
+                        let path = static_access.span.path;
+                        let src = utils::get_file_content(path).unwrap();
+                        Err(HirError::CanOnlyConstructStructs(
+                            CanOnlyConstructStructsError {
+                                span: static_access.span,
+                                src: NamedSource::new(path, src),
+                            },
+                        ))
+                    }
+                };
             }
         };
         let lookup_method_name = if call_generics.is_empty() {
@@ -4172,6 +4520,9 @@ impl<'hir> TypeChecker<'hir> {
             // TODO: Replace Unit type with a proper nullptr_t type
             (HirTy::PtrTy(_), HirTy::Unit(_)) => Ok(()),
             (HirTy::String(_), HirTy::Unit(_)) | (HirTy::Unit(_), HirTy::String(_)) => Ok(()),
+            // Slices lower to a plain pointer (see `hir_ty_to_lir_ty`), so `null`
+            // is a representable (empty) slice value just like it is for `*T`.
+            (HirTy::Slice(_), HirTy::Unit(_)) => Ok(()),
             // We silently ignore those errors, because they arise from earlier issues. e.g. if a variable
             // is uninitialized, it will have type `!uninitialized` and any operation on it will be invalid,
             // but we don't want to flood the user with type mismatch errors in that case.
@@ -4232,6 +4583,39 @@ impl<'hir> TypeChecker<'hir> {
         })
     }
 
+    fn get_or_create_ptr_signature(&mut self, ptr_ty: &'hir HirTy<'hir>) -> &'hir str {
+        let mangled = format!("{}", ptr_ty);
+        let interned: &'hir str = self.arena.names().get(&mangled);
+
+        if !self.signature.structs.contains_key(interned) {
+            self.signature.structs.insert(
+                interned,
+                self.arena.intern(HirStructSignature {
+                    declaration_span: Span::default(),
+                    vis: HirVisibility::Public,
+                    flag: HirFlag::None,
+                    name: interned,
+                    pre_mangled_ty: None,
+                    represents_ty: Some(ptr_ty),
+                    name_span: Span::default(),
+                    methods: BTreeMap::new(),
+                    fields: BTreeMap::new(),
+                    generics: Vec::new(),
+                    operators: BTreeMap::new(),
+                    constants: BTreeMap::new(),
+                    destructor: None,
+                    had_user_defined_destructor: false,
+                    is_trivially_copyable: true,
+                    nullable_attribute_span: None,
+                    is_instantiated: true,
+                    docstring: None,
+                    is_extern: false,
+                    c_name: None,
+                }),
+            );
+        }
+        interned
+    }
     fn get_class_name_of_type(&self, ty: &HirTy<'hir>) -> Option<&'hir str> {
         match ty {
             HirTy::Named(n) => Some(n.name),

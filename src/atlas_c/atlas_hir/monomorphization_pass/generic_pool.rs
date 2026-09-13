@@ -292,6 +292,7 @@ impl<'hir> HirGenericPool<'hir> {
     ) -> bool {
         match (pattern, actual) {
             (HirTy::Generic(g), _) if g.inner.is_empty() => true,
+            (HirTy::Named(left), _) if Self::is_placeholder_name(left.name, module) => true,
             (HirTy::Named(left), HirTy::Named(right)) => left.name == right.name,
             (HirTy::Generic(left), HirTy::Generic(right)) => {
                 if left.name != right.name || left.inner.len() != right.inner.len() {
@@ -313,6 +314,14 @@ impl<'hir> HirGenericPool<'hir> {
                             .unwrap_or(false);
                         is_placeholder || Self::type_pattern_matches(module, l, r)
                     })
+            }
+            (HirTy::PtrTy(left), HirTy::PtrTy(right)) => {
+                // Check if they have the same constness
+                left.is_const == right.is_const
+                    && Self::type_pattern_matches(module, left.inner, right.inner)
+            }
+            (HirTy::Slice(left), HirTy::Slice(right)) => {
+                Self::type_pattern_matches(module, left.inner, right.inner)
             }
             _ => pattern.type_key() == actual.type_key(),
         }
@@ -656,6 +665,7 @@ mod tests {
             docstring: None,
             is_extern: false,
             c_name: None,
+            represents_ty: None,
         };
         sig.operators.insert(
             HirOverloadableOperatorKind::Add,

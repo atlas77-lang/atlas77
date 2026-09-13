@@ -7,9 +7,8 @@ use crate::atlas_c::{
         HirModule,
         arena::HirArena,
         error::{
-            CannotMoveFromRvalueError, CannotMoveGlobalConstantsError,
-            HirError::{self, CannotMoveGlobalConstants},
-            HirResult, OwnershipAnalysisFailedError, TryingToAccessAConsumedValueError,
+            CannotMoveFromRvalueError, CannotMoveGlobalConstantsError, HirError, HirResult,
+            OwnershipAnalysisFailedError, TryingToAccessAConsumedValueError,
             TryingToAccessADeletedValueError, TryingToAccessAMovedValueError,
             TryingToAccessAPotentiallyConsumedValueError,
             TryingToAccessAPotentiallyDeletedValueError, TryingToAccessAPotentiallyMovedValueError,

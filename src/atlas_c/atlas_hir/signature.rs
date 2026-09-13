@@ -100,6 +100,7 @@ pub struct HirStructSignature<'hir> {
     pub is_extern: bool,
     /// Optional C type name override for extern structs.
     pub c_name: Option<&'hir str>,
+    pub represents_ty: Option<&'hir HirTy<'hir>>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -503,30 +504,6 @@ pub struct HirStructMethodSignature<'hir> {
     /// requested by the type checker.
     pub is_instantiated: bool,
     pub docstring: Option<&'hir str>,
-}
-
-impl<'hir> HirStructMethodSignature<'hir> {
-    // TODO: Track and returns where the signature aren't equivalent to get a proper error message
-    fn equivalent_signature(&self, name: &str, (other, other_name): (&Self, &str)) -> bool {
-        if self.modifier != other.modifier {
-            return false;
-        }
-        if name != other_name {
-            return false;
-        }
-        if self.return_ty != other.return_ty {
-            return false;
-        }
-        if self.type_params.len() != other.type_params.len() {
-            return false;
-        }
-        for (arg1, arg2) in self.params.iter().zip(&other.params) {
-            if arg1.ty != arg2.ty {
-                return false;
-            }
-        }
-        true
-    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize)]

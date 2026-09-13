@@ -580,6 +580,16 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         Ok(())
     }
 
+    fn force_public_vis(
+        arena: &'hir HirArena<'hir>,
+        mut method: HirStructMethod<'hir>,
+    ) -> HirStructMethod<'hir> {
+        let mut signature = method.signature.clone();
+        signature.vis = HirVisibility::Public;
+        method.signature = arena.intern(signature);
+        method
+    }
+
     fn visit_extend_block(
         &mut self,
         ast_extend: &'ast AstExtendBlock<'ast>,
@@ -588,15 +598,19 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         let concept = self.visit_ty(ast_extend.concept)?;
         let previous_this = self.current_this_ty.replace(ast_extend.ty.clone());
 
+        // Methods and operators in an extend block are always public
         let mut methods = Vec::new();
         for method in ast_extend.methods.iter() {
-            methods.push(self.visit_method(method)?);
+            methods.push(Self::force_public_vis(
+                self.arena,
+                self.visit_method(method)?,
+            ));
         }
 
         let mut operators = Vec::new();
         for operator in ast_extend.operators.iter() {
             let (method, _op_kind) = self.visit_operator_overload(operator)?;
-            operators.push(method);
+            operators.push(Self::force_public_vis(self.arena, method));
         }
         self.current_this_ty = previous_this;
 
@@ -1074,6 +1088,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             },
             is_extern: node.is_extern,
             c_name: node.c_name.map(|name| self.arena.names().get(name)),
+            represents_ty: None,
         };
 
         Ok(HirStruct {
