@@ -240,9 +240,12 @@ impl<'hir> TypeChecker<'hir> {
 
     fn find_extend_method(
         &self,
-        ty: &HirTy<'hir>,
+        ty: &'hir HirTy<'hir>,
         method_name: &'hir str,
-    ) -> Option<HirStructMethodSignature<'hir>> {
+    ) -> Option<(
+        HirStructMethodSignature<'hir>,
+        Vec<(&'hir str, &'hir HirTy<'hir>)>,
+    )> {
         if let Some(method) = self.module_extends.get(&ty.type_key()).and_then(|blocks| {
             blocks
                 .iter()
@@ -250,19 +253,21 @@ impl<'hir> TypeChecker<'hir> {
                 .find(|method| method.name == method_name)
                 .map(|method| method.signature.clone())
         }) {
-            return Some(method);
+            return Some((method, Vec::new()));
         }
 
         self.module_extends.values().flatten().find_map(|block| {
             if !self.type_pattern_matches(block.ty, ty) {
                 return None;
             }
+            let mut bindings = Vec::new();
+            self.collect_extend_placeholder_bindings(block.ty, ty, &mut bindings);
             if let Some(method) = block
                 .methods
                 .iter()
                 .find(|method| method.name == method_name)
             {
-                return Some(method.signature.clone());
+                return Some((method.signature.clone(), bindings));
             }
             let HirTy::Named(concept_name) = block.concept else {
                 return None;
@@ -274,7 +279,7 @@ impl<'hir> TypeChecker<'hir> {
                         .default_methods
                         .iter()
                         .find(|method| method.name == method_name)
-                        .map(|method| method.signature.clone())
+                        .map(|method| (method.signature.clone(), bindings.clone()))
                 })
         })
     }
@@ -426,6 +431,22 @@ impl<'hir> TypeChecker<'hir> {
                     .collect::<Vec<_>>();
                 self.arena.types().get_generic_ty(g.name, inner, g.span)
             }
+            HirTy::Associated(a) => {
+                let ty_id = HirTyId::from(a.base);
+                if let Some(extend) = self.module_extends.get(&ty_id) {
+                    for e in extend.iter() {
+                        for t in e.associated_types.iter() {
+                            if t.name == a.name {
+                                if let Some(resolved) = t.ty {
+                                    return self.substitute_extend_placeholders(resolved, bindings);
+                                }
+                            }
+                        }
+                    }
+                }
+                let new_base = self.substitute_extend_placeholders(a.base, bindings);
+                self.arena.types().get_associated_ty(new_base, a.name, a.span)
+            }
             _ => self.arena.intern(ty.clone()),
         }
     }
@@ -496,6 +517,7 @@ impl<'hir> TypeChecker<'hir> {
         target_ty: &'hir HirTy<'hir>,
         ty_name: String,
         method_signature: &HirStructMethodSignature<'hir>,
+        bindings: &[(&'hir str, &'hir HirTy<'hir>)],
         field_access: &mut HirFieldAccessExpr<'hir>,
         call_args: &mut Vec<expr::HirExpr<'hir>>,
         call_args_ty: &mut Vec<&'hir HirTy<'hir>>,
@@ -554,17 +576,19 @@ impl<'hir> TypeChecker<'hir> {
         }
 
         for (param, arg) in method_signature.params.iter().zip(call_args.iter_mut()) {
-            self.retag_integer_literal_for_expected_ty(param.ty, arg);
+            let param_ty = self.substitute_extend_placeholders(param.ty, bindings);
+            self.retag_integer_literal_for_expected_ty(param_ty, arg);
             let arg_ty = self.check_expr(arg)?;
-            self.is_equivalent_ty(param.ty, param.span, arg_ty, arg.span())?;
-            call_args_ty.push(param.ty);
+            self.is_equivalent_ty(param_ty, param.span, arg_ty, arg.span())?;
+            call_args_ty.push(param_ty);
         }
 
-        field_access.ty = self.arena.intern(method_signature.return_ty.clone());
+        let return_ty = self.substitute_extend_placeholders(&method_signature.return_ty, bindings);
+        field_access.ty = return_ty;
         call_generics.clear();
-        field_access.field.ty = self.arena.intern(method_signature.return_ty.clone());
+        field_access.field.ty = return_ty;
 
-        Ok(self.arena.intern(method_signature.return_ty.clone()))
+        Ok(return_ty)
     }
 
     pub fn check(&mut self, hir: &mut HirModule<'hir>) -> HirResult<()> {
@@ -1443,9 +1467,14 @@ impl<'hir> TypeChecker<'hir> {
                                     .types()
                                     .get_named_ty(class.name, class.declaration_span)
                             });
-                        if let Some(ext_method) = self.find_extend_method(self_ty, func_name) {
+                        if let Some((ext_method, bindings)) =
+                            self.find_extend_method(self_ty, func_name)
+                        {
                             (
-                                self.arena.intern(ext_method.return_ty) as &_,
+                                self.substitute_extend_placeholders(
+                                    &ext_method.return_ty,
+                                    &bindings,
+                                ),
                                 ext_method.return_ty_span.unwrap_or(ret.span),
                             )
                         } else {
@@ -1942,9 +1971,10 @@ impl<'hir> TypeChecker<'hir> {
                             .ok()
                             .and_then(|op_name| class.operators.get(&op_name).cloned());
 
-                        match via_operator
-                            .or_else(|| self.find_extend_method(self_ty, function_name))
-                        {
+                        match via_operator.or_else(|| {
+                            self.find_extend_method(self_ty, function_name)
+                                .map(|(sig, _bindings)| sig)
+                        }) {
                             Some(sig) => sig,
                             None => {
                                 let path = expr.span().path;
@@ -2739,7 +2769,7 @@ impl<'hir> TypeChecker<'hir> {
                         let name = match self.get_class_name_of_type(target_ty) {
                             Some(n) => n,
                             None => {
-                                if let Some(method_sig) =
+                                if let Some((method_sig, bindings)) =
                                     self.find_extend_method(target_ty, lookup_method_name)
                                 {
                                     field_access.field.name = lookup_method_name;
@@ -2751,6 +2781,7 @@ impl<'hir> TypeChecker<'hir> {
                                         target_ty,
                                         format!("{}", target_ty),
                                         &method_sig,
+                                        &bindings,
                                         field_access,
                                         call_args,
                                         call_args_ty,
@@ -2957,7 +2988,7 @@ impl<'hir> TypeChecker<'hir> {
                                 "function pointer field",
                                 func_expr,
                             )
-                        } else if let Some(method_sig) =
+                        } else if let Some((method_sig, bindings)) =
                             self.find_extend_method(target_ty, lookup_method_name)
                         {
                             self.enqueue_method_monomorphization_request(
@@ -2975,6 +3006,7 @@ impl<'hir> TypeChecker<'hir> {
                                 target_ty,
                                 format!("{}", target_ty),
                                 &method_sig,
+                                &bindings,
                                 field_access,
                                 call_args,
                                 call_args_ty,
