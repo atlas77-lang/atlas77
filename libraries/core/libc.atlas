@@ -60,4 +60,7 @@ namespace libc {
     public extern "C" fun errno() -> int32;
     #[c_name("strerror")]
     public extern "C" fun str_error(errno: int32) -> *const uint8;
+
+    #[c_name("snprintf")]
+    public extern "C" fun snprintf<T>(s: *uint8, size: uint64, format: *const uint8, val: T) -> int32;
 }
