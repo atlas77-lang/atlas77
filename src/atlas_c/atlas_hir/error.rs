@@ -20,6 +20,7 @@ declare_error_type! {
         InvalidListSize(InvalidListSizeError),
         NonConstantListSize(NonConstantListSizeError),
         UnknownFileImport(UnknownFileImportError),
+        FileNotFoundInDependency(FileNotFoundInDependencyError),
         NotEnoughGenerics(NotEnoughGenericsError),
         NotEnoughArguments(NotEnoughArgumentsError),
         UnknownType(UnknownTypeError),
@@ -133,6 +134,9 @@ impl HirError {
             }
             HirError::UnsupportedItem(_) => HirErrorGravity::CanFinishCurrentPassButNotContinue,
             HirError::UnknownFileImport(_) => HirErrorGravity::CanGoUpTo(HirPass::SyntaxLowering),
+            HirError::FileNotFoundInDependency(_) => {
+                HirErrorGravity::CanGoUpTo(HirPass::SyntaxLowering)
+            }
             HirError::TypeCheckFailed(_) => HirErrorGravity::CanGoUpTo(HirPass::OwnershipPass),
             HirError::OwnershipAnalysisFailed(_) => {
                 HirErrorGravity::CanFinishCurrentPassButNotContinue
@@ -807,6 +811,21 @@ pub struct UnknownFileImportError {
     pub file_name: String,
     #[label = "could not find import file {file_name}"]
     pub span: Span,
+    #[source_code]
+    #[serde(skip_serializing)]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug, Serialize)]
+#[diagnostic(code(sema::file_not_found_in_dependency))]
+#[error("dependency '{dependency_name}' does not contain '{requested_file}'")]
+pub struct FileNotFoundInDependencyError {
+    pub dependency_name: String,
+    pub requested_file: String,
+    #[label = "'{dependency_name}' has no '{requested_file}'"]
+    pub span: Span,
+    #[help]
+    pub help: String,
     #[source_code]
     #[serde(skip_serializing)]
     pub src: NamedSource<String>,
@@ -1567,6 +1586,11 @@ impl From<HirError> for Vec<CompilerError> {
                 kind: CompilerErrorKind::Error,
             }],
             HirError::UnknownFileImport(error) => vec![CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Error,
+            }],
+            HirError::FileNotFoundInDependency(error) => vec![CompilerError {
                 message: error.to_string(),
                 span: error.span,
                 kind: CompilerErrorKind::Error,

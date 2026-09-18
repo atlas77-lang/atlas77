@@ -21,9 +21,9 @@ use crate::atlas_c::{
         arena::HirArena,
         error::{
             AssignmentCannotBeAnExpressionError, ConceptMissingMemberError, ConceptOrphanError,
-            ConceptOverlapError, ConceptSignatureMismatchError, HirError, HirResult,
-            IncorrectIntrinsicCallArgumentsError, NonConstantValueError, ReservedVariableNameError,
-            StructNameCannotBeOneLetterError, UnknownFileImportError,
+            ConceptOverlapError, ConceptSignatureMismatchError, FileNotFoundInDependencyError,
+            HirError, HirResult, IncorrectIntrinsicCallArgumentsError, NonConstantValueError,
+            ReservedVariableNameError, StructNameCannotBeOneLetterError, UnknownFileImportError,
             UnknownOverloadableOperatorError, UnknownTypeError, UnsupportedExpr,
             UnsupportedItemError, UsedThisTyOutsideOfCorrectContextError, UselessError,
         },
@@ -1508,15 +1508,44 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             let src = match crate::atlas_c::utils::get_file_content(node.path) {
                 Ok(src) => src,
                 Err(_) => {
-                    let report: ErrReport = HirError::UnknownFileImport(UnknownFileImportError {
-                        span: node.span,
-                        src: NamedSource::new(
-                            node.span.path,
-                            utils::get_file_content(node.span.path).unwrap(),
-                        ),
-                        file_name: node.path.to_string(),
-                    })
-                    .into();
+                    let report: ErrReport = match utils::missing_dependency_file(node.path) {
+                        Some((dependency_name, requested_file)) => {
+                            let help = if node.path.contains('/') {
+                                format!(
+                                    "'{dependency_name}' was fetched into build/libs/{dependency_name}, \
+                                     but that doesn't include '{requested_file}' check the spelling, \
+                                     or that this matches the dependency's actual layout."
+                                )
+                            } else {
+                                format!(
+                                    "'{dependency_name}' was fetched into build/libs/{dependency_name}, \
+                                     but it has no default entry file ('{requested_file}') import a \
+                                     specific file from it instead, e.g. \
+                                     \"{dependency_name}/some_file.atlas\"."
+                                )
+                            };
+                            HirError::FileNotFoundInDependency(FileNotFoundInDependencyError {
+                                span: node.span,
+                                src: NamedSource::new(
+                                    node.span.path,
+                                    utils::get_file_content(node.span.path).unwrap(),
+                                ),
+                                help,
+                                dependency_name,
+                                requested_file,
+                            })
+                            .into()
+                        }
+                        None => HirError::UnknownFileImport(UnknownFileImportError {
+                            span: node.span,
+                            src: NamedSource::new(
+                                node.span.path,
+                                utils::get_file_content(node.span.path).unwrap(),
+                            ),
+                            file_name: node.path.to_string(),
+                        })
+                        .into(),
+                    };
                     eprintln!("{:?}", report);
                     std::process::exit(1);
                 }

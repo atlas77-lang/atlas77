@@ -47,6 +47,14 @@ pub fn resolve_import_path(path: &str) -> String {
         return normalized;
     }
 
+    if let Some(first_segment) = normalized.split('/').next()
+        && std::path::Path::new("build/libs")
+            .join(first_segment)
+            .is_dir()
+    {
+        return normalized;
+    }
+
     let direct = std::path::Path::new(&normalized);
     let candidate = if direct.exists() {
         direct.to_path_buf()
@@ -116,6 +124,27 @@ pub fn get_file_content(path: &str) -> Result<String, std::io::Error> {
             )),
         };
     }
+    if let Some(slash_pos) = path.find('/') {
+        let first_segment = &path[..slash_pos];
+        let rest = &path[slash_pos + 1..];
+        let dependency_root = std::path::Path::new("build/libs").join(first_segment);
+        if dependency_root.is_dir() {
+            if let Ok(content) = std::fs::read_to_string(dependency_root.join(rest)) {
+                return Ok(content);
+            }
+            if let Ok(content) = std::fs::read_to_string(dependency_root.join("src").join(rest)) {
+                return Ok(content);
+            }
+        }
+    } else if let Some(dependency_name) = path.strip_suffix(".atlas") {
+        let dependency_root = std::path::Path::new("build/libs").join(dependency_name);
+        if dependency_root.is_dir()
+            && let Ok(content) = std::fs::read_to_string(dependency_root.join("src/lib.atlas"))
+        {
+            return Ok(content);
+        }
+    }
+
     match std::fs::read_to_string(&path) {
         Ok(s) => Ok(s),
         Err(err) => {
@@ -127,6 +156,37 @@ pub fn get_file_content(path: &str) -> Result<String, std::io::Error> {
             }
         }
     }
+}
+
+pub fn missing_dependency_file(path: &str) -> Option<(String, String)> {
+    let normalized = if path.ends_with(".atlas") {
+        path.to_string()
+    } else {
+        format!("{}.atlas", path)
+    };
+
+    if normalized.starts_with("std/") || normalized.starts_with("core/") {
+        return None;
+    }
+
+    if let Some(slash_pos) = normalized.find('/') {
+        let first_segment = &normalized[..slash_pos];
+        let rest = &normalized[slash_pos + 1..];
+        if std::path::Path::new("build/libs")
+            .join(first_segment)
+            .is_dir()
+        {
+            return Some((first_segment.to_string(), rest.to_string()));
+        }
+    } else if let Some(dependency_name) = normalized.strip_suffix(".atlas")
+        && std::path::Path::new("build/libs")
+            .join(dependency_name)
+            .is_dir()
+    {
+        return Some((dependency_name.to_string(), "src/lib.atlas".to_string()));
+    }
+
+    None
 }
 
 /// Yeah, we shouldn't be doing this but oh well

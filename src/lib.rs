@@ -16,6 +16,7 @@
 pub mod atlas_c;
 pub mod atlas_docs;
 pub mod atlas_lib;
+pub mod deps;
 pub mod package;
 #[cfg(all(feature = "embedded-tinycc", not(tinycc_unavailable)))]
 pub mod tcc;
@@ -356,6 +357,7 @@ struct AtlasBuildConfig {
     c_sources: Vec<String>,
     source_dirs: Vec<String>,
     compiler_args: Vec<String>,
+    dependencies: Vec<deps::AtlasPackageDependency>,
 }
 
 fn parse_supported_compiler(name: &str) -> Option<SupportedCompiler> {
@@ -493,7 +495,10 @@ fn splice_headers_at_anchor(
     }
 }
 
-fn merge_dependencies_table_into_config(config: &mut AtlasBuildConfig, table: &toml::value::Table) {
+fn merge_c_table_into_config(config: &mut AtlasBuildConfig, table: &toml::value::Table) {
+    // `headers`/`headers_before`/`headers_after` used to live under `[dependencies]`;
+    // `[dependencies]` is now package dependencies (see `deps::parse_dependencies_table`),
+    // so header include-ordering config lives here under `[c]` instead.
     let new_headers = collect_string_array(table, "headers");
     let anchor_before = table.get("headers_before").and_then(|v| v.as_str());
     let anchor_after = table.get("headers_after").and_then(|v| v.as_str());
@@ -504,12 +509,6 @@ fn merge_dependencies_table_into_config(config: &mut AtlasBuildConfig, table: &t
         anchor_after,
     );
 
-    config
-        .include_dirs
-        .extend(collect_string_array(table, "include_dirs"));
-}
-
-fn merge_c_table_into_config(config: &mut AtlasBuildConfig, table: &toml::value::Table) {
     config
         .compiler_args
         .extend(collect_string_array(table, "args"));
@@ -620,13 +619,7 @@ fn load_build_config(project_dir: &Path) -> miette::Result<AtlasBuildConfig> {
     let mut config = AtlasBuildConfig::default();
 
     if let Some(dependencies) = root.get("dependencies").and_then(|v| v.as_table()) {
-        merge_dependencies_table_into_config(&mut config, dependencies);
-        if let Some(platform_table) = dependencies
-            .get(current_platform_config_key())
-            .and_then(|v| v.as_table())
-        {
-            merge_dependencies_table_into_config(&mut config, platform_table);
-        }
+        config.dependencies = deps::parse_dependencies_table(dependencies)?;
     }
 
     // Backward compatibility: older atlas.toml files used [package].compiler/args.
@@ -1133,19 +1126,18 @@ pub fn run_frontend<'ast, 'hir>(
             };
         }
         if !extend_requests.is_empty() {
-            changed |= match monomorphizer
-                .monomorphize_requested_extend_methods(hir, extend_requests)
-            {
-                Err(e) => {
-                    return FrontendResult {
-                        hir: Some(&*hir),
-                        hir_errors: vec![e],
-                        hir_warnings: warnings,
-                        ast_errors: Vec::new(),
-                    };
-                }
-                Ok(changed) => changed,
-            };
+            changed |=
+                match monomorphizer.monomorphize_requested_extend_methods(hir, extend_requests) {
+                    Err(e) => {
+                        return FrontendResult {
+                            hir: Some(&*hir),
+                            hir_errors: vec![e],
+                            hir_warnings: warnings,
+                            ast_errors: Vec::new(),
+                        };
+                    }
+                    Ok(changed) => changed,
+                };
         }
         if !changed {
             break;
@@ -1273,6 +1265,71 @@ pub fn to_json(path: String, output_file: Option<String>) -> miette::Result<()> 
     }
 }
 
+type ClaimedDependencies =
+    std::collections::HashMap<String, (deps::AtlasPackageDependency, String)>;
+
+fn resolve_dependency_tree(
+    config: &mut AtlasBuildConfig,
+    requested_by: &str,
+    dependencies: &[deps::AtlasPackageDependency],
+    claimed: &mut ClaimedDependencies,
+) -> miette::Result<()> {
+    for dependency in dependencies {
+        if let Some((existing_request, existing_owner)) = claimed.get(&dependency.name) {
+            let same_request = existing_request.git == dependency.git
+                && existing_request.version == dependency.version
+                && existing_request.commit == dependency.commit;
+            if same_request {
+                continue; // already fetched and merged via another path through the graph
+            }
+            return Err(miette::miette!(
+                "Dependency name '{}' is claimed by two different requests: {} (required by {}) \
+                 and {} (required by {}). Atlas77 doesn't resolve two different versions of the \
+                 same dependency name yet. Pick one, or give one of them a different name.",
+                dependency.name,
+                describe_dependency_request(existing_request),
+                existing_owner,
+                describe_dependency_request(dependency),
+                requested_by,
+            ));
+        }
+
+        claimed.insert(
+            dependency.name.clone(),
+            (dependency.clone(), requested_by.to_owned()),
+        );
+
+        let target = deps::fetch_dependency(dependency)?;
+
+        let sub_config = load_build_config(&target)?;
+        merge_dependency_config_into(config, &sub_config);
+
+        resolve_dependency_tree(config, &dependency.name, &sub_config.dependencies, claimed)?;
+    }
+
+    Ok(())
+}
+
+fn describe_dependency_request(dependency: &deps::AtlasPackageDependency) -> String {
+    match (&dependency.version, &dependency.commit) {
+        (Some(version), _) => format!("{} @ version {version}", dependency.git),
+        (_, Some(commit)) => format!("{} @ commit {commit}", dependency.git),
+        (None, None) => dependency.git.clone(),
+    }
+}
+
+fn merge_dependency_config_into(config: &mut AtlasBuildConfig, sub: &AtlasBuildConfig) {
+    config.headers.extend(sub.headers.iter().cloned());
+    config.include_dirs.extend(sub.include_dirs.iter().cloned());
+    config.library_dirs.extend(sub.library_dirs.iter().cloned());
+    config.libraries.extend(sub.libraries.iter().cloned());
+    config.c_sources.extend(sub.c_sources.iter().cloned());
+    config.source_dirs.extend(sub.source_dirs.iter().cloned());
+    config
+        .compiler_args
+        .extend(sub.compiler_args.iter().cloned());
+}
+
 pub fn build(
     path: String,
     _flag: CompilationFlag,
@@ -1291,6 +1348,21 @@ pub fn build(
         .map_err(|err| miette::miette!("Failed to get current directory: {}", err))?;
     let project_dir = find_project_dir_for_source(&path_buf, &cwd);
     let mut atlas_build_config = load_build_config(&project_dir)?;
+    let top_level_dependencies = take(&mut atlas_build_config.dependencies);
+    let mut claimed_dependencies = std::collections::HashMap::new();
+    resolve_dependency_tree(
+        &mut atlas_build_config,
+        "your project's atlas.toml",
+        &top_level_dependencies,
+        &mut claimed_dependencies,
+    )?;
+    dedup_preserve_order(&mut atlas_build_config.headers);
+    dedup_preserve_order(&mut atlas_build_config.include_dirs);
+    dedup_preserve_order(&mut atlas_build_config.library_dirs);
+    dedup_preserve_order(&mut atlas_build_config.libraries);
+    dedup_preserve_order(&mut atlas_build_config.c_sources);
+    dedup_preserve_order(&mut atlas_build_config.source_dirs);
+    dedup_preserve_order(&mut atlas_build_config.compiler_args);
     let compiler = compiler
         .or(atlas_build_config.preferred_compiler)
         .unwrap_or(SupportedCompiler::TinyCC);
