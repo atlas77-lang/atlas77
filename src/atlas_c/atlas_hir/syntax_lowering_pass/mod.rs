@@ -1498,17 +1498,20 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         &mut self,
         node: &'ast AstImport<'ast>,
     ) -> HirResult<(&'hir HirModule<'hir>, HirGenericPool<'hir>)> {
-        let dedup_key = utils::resolve_import_path(node.path);
+        let dedup_key = utils::resolve_import_path(node.path, Some(node.span.path));
         let canonical_key: &'hir str = self.arena.intern(dedup_key);
 
         //TODO: Handle errors properly
         if !self.already_imported.contains_key(canonical_key) {
             self.already_imported
                 .insert(self.arena.intern(canonical_key.to_owned()), ());
-            let src = match crate::atlas_c::utils::get_file_content(node.path) {
+            let src =
+                match crate::atlas_c::utils::get_file_content_for_import(node.path, node.span.path)
+                {
                 Ok(src) => src,
                 Err(_) => {
-                    let report: ErrReport = match utils::missing_dependency_file(node.path) {
+                    let report: ErrReport =
+                        match utils::missing_dependency_file(node.path, Some(node.span.path)) {
                         Some((dependency_name, requested_file)) => {
                             let help = if node.path.contains('/') {
                                 format!(
@@ -1550,7 +1553,12 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     std::process::exit(1);
                 }
             };
-            let path = crate::atlas_c::utils::string_to_static_str(node.path.to_owned());
+            // Use the already-scoped dedup key (e.g. `std/libc.atlas`, not the raw
+            // `libc.atlas` as written) as this file's logical path, so that further
+            // relative imports written *inside* it can still tell which dependency
+            // they belong to, however deep the import chain goes (see
+            // `utils::dependency_root_of_file`).
+            let path = crate::atlas_c::utils::string_to_static_str(canonical_key.to_owned());
             let ast: AstProgram<'ast> = match parse(path, self.ast_arena, src) {
                 Ok(ast) => ast,
                 Err(e) => {

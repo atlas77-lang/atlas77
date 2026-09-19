@@ -16,7 +16,13 @@ use crate::atlas_c::{
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub const HEADER_NAME: &str = "atlas77.h";
-pub const PORTABLE_ATLAS77_HEADER: &str = include_str!("../../.././libraries/std/atlas77.h");
+/// A minimal, `std`-independent C compat shim (fixed-width int typedefs for pre-C99
+/// compilers) vendored directly in the compiler, so it's available even for builds that
+/// don't use `std` at all and never touch the network. The bulk of what a full Atlas77
+/// runtime needs (panic, I/O, time, directory listing, ...) is a `std` concern and lives
+/// in the `std` package's own `include/atlas77.h` (see `atlas77-lang/std`), pulled in via
+/// its `[c]` config only for projects that actually depend on `std`.
+pub const PORTABLE_ATLAS77_HEADER: &str = include_str!("atlas77_runtime.h");
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum TypeDependency {

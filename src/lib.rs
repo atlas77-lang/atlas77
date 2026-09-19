@@ -15,7 +15,6 @@
 
 pub mod atlas_c;
 pub mod atlas_docs;
-pub mod atlas_lib;
 pub mod deps;
 pub mod package;
 #[cfg(all(feature = "embedded-tinycc", not(tinycc_unavailable)))]
@@ -36,7 +35,7 @@ use crate::atlas_c::{
     utils::Span,
 };
 use atlas_c::{
-    atlas_frontend::{parse, parser::arena::AstArena},
+    atlas_frontend::{parse, parser::arena::AstArena, parser::ast::AstItem},
     atlas_hir::{
         arena::HirArena, monomorphization_pass::MonomorphizationPass,
         syntax_lowering_pass::AstSyntaxLoweringPass, type_check_pass::TypeChecker,
@@ -1265,6 +1264,85 @@ pub fn to_json(path: String, output_file: Option<String>) -> miette::Result<()> 
     }
 }
 
+/// The Atlas77 standard library isn't embedded in the compiler; it's fetched from its own
+/// git repository the same way any other `[dependencies]` entry would be, except the user
+/// doesn't have to declare it themselves. The compiler adds it implicitly the moment a
+/// project's own source actually imports it (`import "std";` / `import "std/...";`), and
+/// never touches the network otherwise.
+const STD_DEPENDENCY_NAME: &str = "std";
+const STD_DEPENDENCY_GIT: &str = "https://github.com/atlas77-lang/std";
+
+/// Whether an import path names (or reaches into) the dependency `name`: either the bare
+/// default-entry form (e.g. `"std"`) or anything under its namespace (e.g. `"std/io"`).
+fn import_references_dependency(import_path: &str, name: &str) -> bool {
+    import_path == name || import_path.starts_with(&format!("{name}/"))
+}
+
+/// Resolves a local, in-project import path the same way `get_file_content`'s final
+/// fallback does (relative to the current directory, or under `src/`), without involving
+/// any fetched dependency. Returns `None` for anything that isn't a local project file,
+/// which includes every dependency-rooted import.
+fn resolve_local_import_file(import_path: &str) -> Option<PathBuf> {
+    let normalized = if import_path.ends_with(".atlas") {
+        import_path.to_string()
+    } else {
+        format!("{import_path}.atlas")
+    };
+
+    let direct = PathBuf::from(&normalized);
+    if direct.is_file() {
+        return Some(direct);
+    }
+    let in_src = PathBuf::from("src").join(&normalized);
+    if in_src.is_file() {
+        return Some(in_src);
+    }
+    None
+}
+
+/// Recursively scans `entry_path` and every local file it (transitively) imports for an
+/// import naming `dependency_name`, so `build()` can decide whether to implicitly add that
+/// dependency before fetching anything. Only follows local, in-project imports: an import
+/// that already names a git dependency stops the recursion there, since that dependency's
+/// own needs (std included) are that dependency's own `[dependencies]`' responsibility,
+/// handled by the existing recursion in `resolve_dependency_tree`.
+fn project_references_dependency(
+    entry_path: &Path,
+    dependency_name: &str,
+    visited: &mut std::collections::HashSet<PathBuf>,
+) -> bool {
+    let canonical = std::fs::canonicalize(entry_path).unwrap_or_else(|_| entry_path.to_path_buf());
+    if !visited.insert(canonical) {
+        return false;
+    }
+
+    let Ok(source) = std::fs::read_to_string(entry_path) else {
+        return false;
+    };
+    let bump = Bump::new();
+    let ast_arena = AstArena::new(&bump);
+    let file_path = atlas_c::utils::string_to_static_str(entry_path.to_string_lossy().into_owned());
+    let Ok(program) = parse(file_path, &ast_arena, source) else {
+        return false;
+    };
+
+    for item in program.items {
+        let AstItem::Import(import) = item else {
+            continue;
+        };
+        if import_references_dependency(import.path, dependency_name) {
+            return true;
+        }
+        if let Some(local_path) = resolve_local_import_file(import.path)
+            && project_references_dependency(&local_path, dependency_name, visited)
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
 type ClaimedDependencies =
     std::collections::HashMap<String, (deps::AtlasPackageDependency, String)>;
 
@@ -1333,8 +1411,7 @@ fn merge_dependency_config_into(config: &mut AtlasBuildConfig, sub: &AtlasBuildC
 pub fn build(
     path: String,
     _flag: CompilationFlag,
-    //TODO: `using_std` is currently unused
-    _using_std: bool,
+    no_std: bool,
     compiler: Option<SupportedCompiler>,
     compiler_binary_override: Option<String>,
     output_dir: String,
@@ -1348,7 +1425,28 @@ pub fn build(
         .map_err(|err| miette::miette!("Failed to get current directory: {}", err))?;
     let project_dir = find_project_dir_for_source(&path_buf, &cwd);
     let mut atlas_build_config = load_build_config(&project_dir)?;
-    let top_level_dependencies = take(&mut atlas_build_config.dependencies);
+    let mut top_level_dependencies = take(&mut atlas_build_config.dependencies);
+    let std_explicitly_declared = top_level_dependencies
+        .iter()
+        .any(|dependency| dependency.name == STD_DEPENDENCY_NAME);
+
+    let std_dir_is_official = match deps::lockfile_git_for(STD_DEPENDENCY_NAME) {
+        Some(git) => git == STD_DEPENDENCY_GIT,
+        None => true,
+    };
+    atlas_c::utils::set_no_std(no_std && !std_explicitly_declared && std_dir_is_official);
+
+    if !no_std && !std_explicitly_declared {
+        let mut visited = std::collections::HashSet::new();
+        if project_references_dependency(&path_buf, STD_DEPENDENCY_NAME, &mut visited) {
+            top_level_dependencies.push(deps::AtlasPackageDependency {
+                name: STD_DEPENDENCY_NAME.to_string(),
+                git: STD_DEPENDENCY_GIT.to_string(),
+                version: None,
+                commit: None,
+            });
+        }
+    }
     let mut claimed_dependencies = std::collections::HashMap::new();
     resolve_dependency_tree(
         &mut atlas_build_config,

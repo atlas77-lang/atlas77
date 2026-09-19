@@ -47,11 +47,55 @@ fn load_lockfile() -> Lockfile {
         .unwrap_or_default()
 }
 
+pub fn lockfile_git_for(name: &str) -> Option<String> {
+    load_lockfile().get(name).map(|entry| entry.git.clone())
+}
+
 fn save_lockfile(lockfile: &Lockfile) -> miette::Result<()> {
     let content = toml::to_string_pretty(lockfile)
         .map_err(|err| miette::miette!("Failed to serialize {LOCKFILE_PATH}: {err}"))?;
     std::fs::write(LOCKFILE_PATH, content)
         .map_err(|err| miette::miette!("Failed to write {LOCKFILE_PATH}: {err}"))
+}
+
+const MOVED_TO_C_TABLE_KEYS: &[&str] = &[
+    "headers",
+    "headers_before",
+    "headers_after",
+    "include_dirs",
+    "lib_dirs",
+    "library_dirs",
+    "source_dirs",
+    "sources",
+    "source_files",
+    "c_sources",
+    "args",
+    "c_args",
+];
+
+fn warn_ignored_dependencies_entry(name: &str, is_table: bool) {
+    if MOVED_TO_C_TABLE_KEYS.contains(&name) {
+        eprintln!(
+            "Warning: ignoring `[dependencies].{name}` — `[dependencies]` now declares git \
+             packages (`<name> = {{ git = \"...\" }}`), and C interop configuration moved to \
+             `[c]`. Move this to `[c].{name}` (or `[c.<platform>].{name}`), otherwise it has no \
+             effect at all."
+        );
+        return;
+    }
+
+    if is_table {
+        eprintln!(
+            "Warning: ignoring `[dependencies.{name}]` — it declares no `git = \"...\"`, so it \
+             isn't a package. If this is per-platform C interop configuration, it moved to \
+             `[c.{name}]`."
+        );
+    } else {
+        eprintln!(
+            "Warning: ignoring `[dependencies].{name}` — a package entry must be a table, like \
+             `{name} = {{ git = \"...\" }}`."
+        );
+    }
 }
 
 pub fn parse_dependencies_table(
@@ -61,9 +105,11 @@ pub fn parse_dependencies_table(
 
     for (name, value) in table {
         let Some(entry) = value.as_table() else {
+            warn_ignored_dependencies_entry(name, false);
             continue;
         };
         let Some(git) = entry.get("git").and_then(|v| v.as_str()) else {
+            warn_ignored_dependencies_entry(name, true);
             continue;
         };
 
@@ -93,12 +139,6 @@ pub fn parse_dependencies_table(
     Ok(dependencies)
 }
 
-/// Fetches a single dependency into `build/libs/<name>/` (relative to the current
-/// working directory, matching the existing `./build` convention), consulting and
-/// updating `atlas-lock.toml` (see the module docs above for the skip/reclone
-/// policy). Returns the directory it was fetched into, so the caller can look for
-/// that dependency's own `atlas.toml` (recursive dependencies, its own `[c]`/
-/// `[link]` config) without having to reconstruct the path itself.
 pub fn fetch_dependency(dependency: &AtlasPackageDependency) -> miette::Result<std::path::PathBuf> {
     let libs_dir = Path::new("build/libs");
     std::fs::create_dir_all(libs_dir)
@@ -113,16 +153,10 @@ pub fn fetch_dependency(dependency: &AtlasPackageDependency) -> miette::Result<s
         .is_some_and(|entry| entry.matches_request(dependency));
 
     if target.is_dir() && request_matches_lock {
-        // Nothing about this dependency's request has changed since it was last
-        // successfully fetched. Skip it entirely, no network access at all.
         return Ok(target);
     }
 
     if target.exists() {
-        // Delete-then-reclone rather than trying to reconcile an existing clone in
-        // place: a changed `git` URL, a moved tag, or a manually-edited checkout
-        // all need different in-place fixes, and this handles every one of them
-        // the same simple way.
         std::fs::remove_dir_all(&target).map_err(|err| {
             miette::miette!(
                 "Failed to remove stale dependency directory {}: {err}",
@@ -191,7 +225,7 @@ fn fetch_one(
     } else if let Some(version) = &dependency.version {
         Some(resolve_version_ref(target, version, &dependency.name)?)
     } else {
-        None // no version/commit requested. Stay on the clone's default branch
+        None
     };
 
     if let Some(reference) = reference {
@@ -201,8 +235,6 @@ fn fetch_one(
     current_commit(target, &dependency.name)
 }
 
-/// Tries tag `v{version}` then tag `{version}`, in that order. No semver-range
-/// resolution, an exact tag match only.
 fn resolve_version_ref(repo: &Path, version: &str, name: &str) -> miette::Result<String> {
     for candidate in [format!("v{version}"), version.to_owned()] {
         let status = Command::new("git")
