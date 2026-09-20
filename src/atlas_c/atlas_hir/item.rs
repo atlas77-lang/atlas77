@@ -20,6 +20,7 @@ pub struct HirGlobalConst<'hir> {
     pub value: &'hir HirExpr<'hir>,
     pub value_span: Span,
     pub vis: HirVisibility,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -90,6 +91,7 @@ pub struct HirEnumVariant<'hir> {
     pub name_span: Span,
     //Only supporting discriminant values for now
     pub value: u64,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -116,6 +118,7 @@ pub struct HirExtendBlock<'hir> {
     pub associated_types: Vec<HirAssociatedType<'hir>>,
     pub where_clause:
         Option<Vec<&'hir crate::atlas_c::atlas_hir::signature::HirGenericConstraint<'hir>>>,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -124,6 +127,7 @@ pub struct HirAssociatedType<'hir> {
     pub name: &'hir str,
     pub name_span: Span,
     pub ty: Option<&'hir HirTy<'hir>>,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -6,6 +6,9 @@ use crate::atlas_c::utils::Span;
 #[derive(Debug, Clone, Copy)]
 pub struct AstProgram<'ast> {
     pub items: &'ast [&'ast AstItem<'ast>],
+    /// Docs for the file itself: a `//!` block at the top, separated from the first item
+    /// by a blank line. Adjacent to an item, a `//!` block documents that item instead.
+    pub docstring: Option<&'ast str>,
 }
 
 /// An `Item` is anything that can be declared at the top-level scope of a program.
@@ -99,90 +102,35 @@ impl<'ast> AstItem<'ast> {
 
     // If there is already a docstring, we need to push the new one before it
     pub fn set_docstring(&mut self, docstring: &'ast str, arena: &'ast AstArena<'ast>) {
-        match self {
-            AstItem::Struct(v) => match v.docstring {
-                Some(existing) => {
-                    let combined = format!("{}\n{}", docstring, existing);
-                    v.docstring = Some(arena.alloc(combined));
-                }
-                None => {
-                    v.docstring = Some(docstring);
-                }
-            },
-            AstItem::Namespace(v) => match v.docstring {
-                Some(existing) => {
-                    let combined = format!("{}\n{}", docstring, existing);
-                    v.docstring = Some(arena.alloc(combined));
-                }
-                None => {
-                    v.docstring = Some(docstring);
-                }
-            },
-            AstItem::ExternStruct(v) => match v.docstring {
-                Some(existing) => {
-                    let combined = format!("{}\n{}", docstring, existing);
-                    v.docstring = Some(arena.alloc(combined));
-                }
-                None => {
-                    v.docstring = Some(docstring);
-                }
-            },
-            AstItem::Function(v) => match v.docstring {
-                Some(existing) => {
-                    let combined = format!("{}\n{}", docstring, existing);
-                    v.docstring = Some(arena.alloc(combined));
-                }
-                None => {
-                    v.docstring = Some(docstring);
-                }
-            },
-            AstItem::ExternFunction(v) => match v.docstring {
-                Some(existing) => {
-                    let combined = format!("{}\n{}", docstring, existing);
-                    v.docstring = Some(arena.alloc(combined));
-                }
-                None => {
-                    v.docstring = Some(docstring);
-                }
-            },
-            AstItem::Enum(e) => match e.docstring {
-                Some(existing) => {
-                    let combined = format!("{}\n{}", docstring, existing);
-                    e.docstring = Some(arena.alloc(combined));
-                }
-                None => {
-                    e.docstring = Some(docstring);
-                }
-            },
-            AstItem::Union(u) => match u.docstring {
-                Some(existing) => {
-                    let combined = format!("{}\n{}", docstring, existing);
-                    u.docstring = Some(arena.alloc(combined));
-                }
-                None => {
-                    u.docstring = Some(docstring);
-                }
-            },
-            AstItem::Constant(c) => match c.docstring {
-                Some(existing) => {
-                    let combined = format!("{}\n{}", docstring, existing);
-                    c.docstring = Some(arena.alloc(combined));
-                }
-                None => {
-                    c.docstring = Some(docstring);
-                }
-            },
-            AstItem::Concept(c) => match c.docstring {
-                Some(existing) => {
-                    let combined = format!("{}\n{}", docstring, existing);
-                    c.docstring = Some(arena.alloc(combined));
-                }
-                None => {
-                    c.docstring = Some(docstring);
-                }
-            },
-            _ => {}
+        let slot = match self {
+            AstItem::Struct(v) | AstItem::ExternStruct(v) => &mut v.docstring,
+            AstItem::Namespace(v) => &mut v.docstring,
+            AstItem::Function(v) => &mut v.docstring,
+            AstItem::ExternFunction(v) => &mut v.docstring,
+            AstItem::Enum(e) | AstItem::ExternEnum(e) => &mut e.docstring,
+            AstItem::Union(u) | AstItem::ExternUnion(u) => &mut u.docstring,
+            AstItem::Constant(c) | AstItem::ExternConstant(c) => &mut c.docstring,
+            AstItem::Concept(c) => &mut c.docstring,
+            AstItem::Extend(e) => &mut e.docstring,
+            AstItem::Import(_) => return,
+        };
+        prepend_docstring(slot, docstring, arena);
+    }
+}
+
+/// Doc comments are parsed one line at a time, outermost line last, so a new line is
+/// prepended to whatever has already been collected for the same item.
+pub fn prepend_docstring<'ast>(
+    slot: &mut Option<&'ast str>,
+    docstring: &'ast str,
+    arena: &'ast AstArena<'ast>,
+) {
+    match *slot {
+        Some(existing) => {
+            let combined = format!("{}\n{}", docstring, existing);
+            *slot = Some(arena.alloc(combined));
         }
+        None => *slot = Some(docstring),
     }
 }
 
@@ -343,6 +291,10 @@ pub struct AstExtendBlock<'ast> {
     pub methods: &'ast [&'ast AstMethod<'ast>],
     pub associated_types: &'ast [&'ast AstAssociatedType<'ast>],
     pub where_clause: Option<&'ast [&'ast AstGeneric<'ast>]>,
+    /// Documents this specific conformance, overriding the concept's own docs for the
+    /// same target — `extend vector<T> with indexable` can explain itself differently
+    /// from `extend map<K, V> with indexable`.
+    pub docstring: Option<&'ast str>,
 }
 
 #[derive(Debug, Clone)]
@@ -351,6 +303,7 @@ pub struct AstAssociatedType<'ast> {
     pub name: &'ast AstIdentifier<'ast>,
     pub name_span: Span,
     pub ty: Option<&'ast AstType<'ast>>,
+    pub docstring: Option<&'ast str>,
 }
 
 #[derive(Debug, Clone)]

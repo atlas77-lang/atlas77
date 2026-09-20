@@ -15,6 +15,6 @@ pub fn parse<'ast>(
         Ok(tokens) => tokens,
         Err(e) => return Err(Box::new(e.into())),
     };
-    let mut parser = parser::Parser::new(arena, tokens, path);
+    let mut parser = parser::Parser::new(arena, tokens, path, source);
     parser.parse()
 }

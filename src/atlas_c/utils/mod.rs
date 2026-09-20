@@ -42,6 +42,15 @@ pub fn set_no_std(value: bool) {
 }
 
 fn dependency_dir_usable(name: &str) -> bool {
+    if name.is_empty()
+        || name == "."
+        || name == ".."
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains(':')
+    {
+        return false;
+    }
     if name == "std" && NO_STD.load(std::sync::atomic::Ordering::Relaxed) {
         return false;
     }
@@ -49,7 +58,8 @@ fn dependency_dir_usable(name: &str) -> bool {
 }
 
 fn dependency_root_of_file(importer: &str) -> Option<std::path::PathBuf> {
-    let first_segment = importer.split('/').next()?;
+    let normalized = importer.replace('\\', "/");
+    let first_segment = normalized.split('/').next()?;
     if !dependency_dir_usable(first_segment) {
         return None;
     }

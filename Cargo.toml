@@ -44,8 +44,6 @@ logos = "0.16.1"
 
 # For documentation
 pulldown-cmark = { version = "0.13.3", optional = true } # markdown parsing(optional)
-tera = { version = "1.20", optional = true } # HTML templating
-syntect = { version = "5.3", optional = true } # code highlighting 
 serde = { version = "1.0", features = [
     "derive",
 ], optional = true } # for serializing the table of contents
@@ -55,8 +53,8 @@ toml = "1.1.2"
 lang-c = "0.15.1"
 
 [features]
-default = ["embedded-tinycc", "serde", "serde_json"]
-docs = ["pulldown-cmark", "tera", "syntect", "serde", "serde_json"]
+default = ["embedded-tinycc", "serde", "serde_json", "docs"]
+docs = ["pulldown-cmark", "serde", "serde_json"]
 embedded-tinycc = []
 
 [build-dependencies]

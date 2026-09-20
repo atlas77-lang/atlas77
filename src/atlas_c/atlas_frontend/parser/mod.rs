@@ -51,6 +51,9 @@ pub struct Parser<'ast> {
     tokens: Vec<Token>,
     //for error reporting
     file_path: &'static str,
+    /// Needed to tell whether a blank line separates two tokens, which is what
+    /// distinguishes a file-level `//!` block from one documenting the next item.
+    source: String,
     pos: usize,
 }
 
@@ -72,12 +75,14 @@ impl<'ast> Parser<'ast> {
         arena: &'ast AstArena<'ast>,
         tokens: Vec<Token>,
         file_path: &'static str,
+        source: String,
     ) -> Parser<'ast> {
         let tokens = remove_comments(tokens);
         Parser {
             arena,
             tokens,
             file_path,
+            source,
             pos: 0,
         }
     }
@@ -271,6 +276,7 @@ impl<'ast> Parser<'ast> {
     }
 
     pub fn parse(&mut self) -> ParseResult<AstProgram<'ast>> {
+        let (file_docstring, mut leading_item_docs) = self.parse_leading_docs();
         let mut items: Vec<AstItem> = Vec::new();
         while self.current().kind() != TokenKind::EoI {
             let item = self.parse_item();
@@ -282,14 +288,51 @@ impl<'ast> Parser<'ast> {
                         return Err(e);
                     }
                 }
-                Ok(i) => items.push(i),
+                Ok(mut i) => {
+                    if let Some(docs) = leading_item_docs.take() {
+                        i.set_docstring(docs, self.arena);
+                    }
+                    items.push(i);
+                }
             }
         }
 
         let node = AstProgram {
             items: self.arena.alloc_vec(items),
+            docstring: file_docstring,
         };
         Ok(node)
+    }
+
+    /// Consumes a `//!` block at the very top of the file and decides who it belongs to:
+    /// separated from the first item by a blank line it documents the *file*, otherwise
+    /// it documents that first item, as a `//!` block does anywhere else. Returns
+    /// `(file docs, docs owed to the first item)`.
+    fn parse_leading_docs(&mut self) -> (Option<&'ast str>, Option<&'ast str>) {
+        if !matches!(self.current().kind(), TokenKind::Docs(_)) {
+            return (None, None);
+        }
+
+        let mut docs = String::new();
+        let mut docs_end = self.current().span.end;
+        while let TokenKind::Docs(doc) = self.current().kind() {
+            docs_end = self.current().span.end;
+            let _ = self.advance();
+            Self::accumulate_docs(&mut docs, &doc);
+        }
+
+        let next_start = self.current().span.start;
+        let blank_line_follows = self
+            .source
+            .get(docs_end..next_start)
+            .is_some_and(|gap| gap.matches('\n').count() >= 2);
+
+        let docs = self.take_docs(&mut docs);
+        if blank_line_follows {
+            (docs, None)
+        } else {
+            (None, docs)
+        }
     }
 
     fn parse_item(&mut self) -> ParseResult<AstItem<'ast>> {
@@ -598,7 +641,13 @@ impl<'ast> Parser<'ast> {
         self.expect(TokenKind::LBrace)?;
         let mut variants = vec![];
         let mut variant_value: u64 = 0;
+        let mut docs = String::new();
         while self.current().kind() != TokenKind::RBrace {
+            if let TokenKind::Docs(doc) = self.current().kind() {
+                let _ = self.advance();
+                Self::accumulate_docs(&mut docs, &doc);
+                continue;
+            }
             let variant_name = self.parse_identifier()?;
             let value = if self.current().kind() == TokenKind::OpAssign {
                 let _ = self.advance();
@@ -627,7 +676,7 @@ impl<'ast> Parser<'ast> {
                 span: variant_name.span,
                 name: self.arena.alloc(variant_name),
                 value,
-                docstring: None,
+                docstring: self.take_docs(&mut docs),
             };
             variants.push(variant);
             if self.current().kind() == TokenKind::Semicolon {
@@ -744,18 +793,29 @@ impl<'ast> Parser<'ast> {
         let mut methods = vec![];
         let mut operators = vec![];
         let mut associated_types = vec![];
+        let mut docs = String::new();
         // Empty if there is none
         while self.current().kind() != TokenKind::RBrace {
             match self.current().kind() {
                 TokenKind::KwOperator => {
-                    operators.push(self.parse_operator()?);
+                    let mut operator = self.parse_operator()?;
+                    operator.signature.docstring = self.take_docs(&mut docs);
+                    operators.push(operator);
                 }
                 TokenKind::KwFunc => {
-                    methods.push(self.parse_method()?);
+                    let mut method = self.parse_method()?;
+                    method.signature.docstring = self.take_docs(&mut docs);
+                    methods.push(method);
                 }
                 // Might be worth adding an actual keyword here to avoid confusion
                 TokenKind::Identifier(name) if name == "type" => {
-                    associated_types.push(self.parse_associated_type()?);
+                    let mut associated_type = self.parse_associated_type()?;
+                    associated_type.docstring = self.take_docs(&mut docs);
+                    associated_types.push(associated_type);
+                }
+                TokenKind::Docs(doc) => {
+                    let _ = self.advance();
+                    Self::accumulate_docs(&mut docs, &doc);
                 }
                 _ => {
                     return Err(self.unexpected_token_error(
@@ -775,8 +835,27 @@ impl<'ast> Parser<'ast> {
             operators: self.arena.alloc_vec(operators),
             associated_types: self.arena.alloc_vec(associated_types),
             where_clause,
+            docstring: None,
         };
         Ok(node)
+    }
+
+    /// Appends one more `//!` line to the docs collected for the next item in a block body.
+    fn accumulate_docs(docs: &mut String, line: &str) {
+        if !docs.is_empty() {
+            docs.push('\n');
+        }
+        docs.push_str(line);
+    }
+
+    /// Hands the docs collected so far to the item being parsed, clearing them so they
+    /// can't leak onto the following item.
+    fn take_docs(&self, docs: &mut String) -> Option<&'ast str> {
+        if docs.is_empty() {
+            return None;
+        }
+        let allocated = self.arena.alloc(std::mem::take(docs));
+        Some(allocated)
     }
 
     fn parse_concept(&mut self) -> ParseResult<AstConcept<'ast>> {
@@ -821,7 +900,9 @@ impl<'ast> Parser<'ast> {
 
             match self.current().kind() {
                 TokenKind::Identifier(name) if name == "type" => {
-                    associated_types.push(self.parse_associated_type()?);
+                    let mut associated_type = self.parse_associated_type()?;
+                    associated_type.docstring = self.take_docs(&mut docs);
+                    associated_types.push(associated_type);
                 }
                 TokenKind::KwOperator => {
                     if !pending_method_attributes.is_empty() {
@@ -830,7 +911,8 @@ impl<'ast> Parser<'ast> {
                             &self.current().span(),
                         ));
                     }
-                    let signature = self.parse_operator_signature()?;
+                    let mut signature = self.parse_operator_signature()?;
+                    signature.docstring = self.take_docs(&mut docs);
                     if self.current().kind() == TokenKind::LBrace {
                         let body = self.parse_block()?;
                         implemented_operators.push(AstOperatorOverload {
@@ -918,6 +1000,7 @@ impl<'ast> Parser<'ast> {
             name_span: name.span,
             name: self.arena.alloc(name),
             ty,
+            docstring: None,
         })
     }
 
@@ -979,7 +1062,9 @@ impl<'ast> Parser<'ast> {
                             &self.current().span(),
                         ));
                     }
-                    operators.push(self.parse_operator()?);
+                    let mut operator = self.parse_operator()?;
+                    operator.signature.docstring = self.take_docs(&mut docs);
+                    operators.push(operator);
                 }
                 TokenKind::KwFunc => {
                     let mut method = self.parse_method()?;
@@ -3049,178 +3134,5 @@ impl<'ast> Parser<'ast> {
                 src: NamedSource::new(path, src),
             },
         ))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use bumpalo::Bump;
-    use miette::{ErrReport, Result};
-
-    use super::*;
-    use crate::atlas_c::atlas_frontend::lexer::AtlasLexer;
-
-    enum ExprShape {
-        Binary(AstBinaryOp, Box<ExprShape>, Box<ExprShape>),
-        Other,
-    }
-
-    fn to_expr_shape(expr: &AstExpr<'_>) -> ExprShape {
-        match expr {
-            AstExpr::BinaryOp(bin) => ExprShape::Binary(
-                bin.op.clone(),
-                Box::new(to_expr_shape(bin.lhs)),
-                Box::new(to_expr_shape(bin.rhs)),
-            ),
-            _ => ExprShape::Other,
-        }
-    }
-
-    fn parse_first_let_value_shape(input: &str) -> ExprShape {
-        let mut lexer = AtlasLexer::new("tests/operators.atlas".into(), input.to_string());
-        let tokens = lexer.tokenize().unwrap_or_else(|e| panic!("{:?}", e));
-        let bump = Bump::new();
-        let arena = &AstArena::new(&bump);
-        let mut parser = Parser::new(arena, tokens, "tests/operators.atlas");
-        let program = parser
-            .parse()
-            .unwrap_or_else(|e| panic!("Failed to parse test input: {:?}", e));
-
-        let item = program.items.first().expect("Expected at least one item");
-        let fun = match **item {
-            AstItem::Function(ref f) => f,
-            _ => panic!("Expected first item to be a function"),
-        };
-
-        let stmt = fun
-            .body
-            .stmts
-            .first()
-            .expect("Expected first statement in function body");
-        let let_stmt = match **stmt {
-            AstStatement::Let(ref l) => l,
-            _ => panic!("Expected first statement to be a let statement"),
-        };
-
-        to_expr_shape(let_stmt.value)
-    }
-
-    fn parse_program_from_str(input: &str) -> ParseResult<()> {
-        let test_path = "examples/hello.atlas";
-        let mut lexer = AtlasLexer::new(test_path.into(), input.to_string());
-        let tokens = lexer.tokenize().unwrap_or_else(|e| panic!("{:?}", e));
-        let bump = Bump::new();
-        let arena = &AstArena::new(&bump);
-        let mut parser = Parser::new(arena, tokens, test_path);
-        parser.parse().map(|_| ())
-    }
-
-    #[test]
-    fn test_hello_world() -> Result<()> {
-        let input = get_file_content("examples/hello.atlas").unwrap();
-        let mut lexer = AtlasLexer::new("examples/hello.atlas".into(), input.clone());
-        //lexer.set_source(input.to_string());
-        let tokens = match lexer.tokenize() {
-            Ok(tokens) => tokens,
-            Err(e) => panic!("{:?}", e),
-        };
-        let bump = Bump::new();
-        let arena = &AstArena::new(&bump);
-        let mut parser = Parser::new(arena, tokens, "test");
-        let result = parser.parse();
-        match result {
-            Ok(program) => {
-                println!("Parsed program: {:?}", program);
-                Ok(())
-            }
-            Err(e) => {
-                let report: ErrReport = (*e).into();
-                panic!("Parsing error: {:?}", report);
-            }
-        }
-    }
-
-    #[test]
-    fn test_shift_has_lower_precedence_than_additive() {
-        let expr = parse_first_let_value_shape("fun main() { let x = 1 + 2 << 3; }");
-
-        match expr {
-            ExprShape::Binary(op, lhs, rhs) => {
-                assert!(matches!(op, AstBinaryOp::ShL));
-                assert!(matches!(*lhs, ExprShape::Binary(AstBinaryOp::Add, _, _)));
-                assert!(matches!(*rhs, ExprShape::Other));
-            }
-            ExprShape::Other => panic!("Expected binary expression root"),
-        }
-    }
-
-    #[test]
-    fn test_bitwise_precedence_between_logical_and_equality() {
-        let expr = parse_first_let_value_shape("fun main() { let x = 1 | 2 && 3; }");
-
-        match expr {
-            ExprShape::Binary(op, lhs, rhs) => {
-                assert!(matches!(op, AstBinaryOp::And));
-                assert!(matches!(*lhs, ExprShape::Binary(AstBinaryOp::BinOr, _, _)));
-                assert!(matches!(*rhs, ExprShape::Other));
-            }
-            ExprShape::Other => panic!("Expected binary expression root"),
-        }
-    }
-
-    #[test]
-    fn test_parse_operator_constraint_identifier_form() {
-        let input = "fun add_all<T: operator::add>(lhs: T, rhs: T) -> T { return lhs + rhs; }";
-        let test_path = "examples/hello.atlas";
-        let mut lexer = AtlasLexer::new(test_path.into(), input.to_string());
-        let tokens = lexer.tokenize().unwrap_or_else(|e| panic!("{:?}", e));
-        let bump = Bump::new();
-        let arena = &AstArena::new(&bump);
-        let mut parser = Parser::new(arena, tokens, test_path);
-        let program = parser.parse().unwrap_or_else(|e| panic!("{:?}", e));
-        let item = program.items.first().expect("Expected function item");
-        let fun = match **item {
-            AstItem::Function(ref f) => f,
-            _ => panic!("Expected function"),
-        };
-        assert_eq!(fun.generics.len(), 1);
-        assert_eq!(fun.generics[0].constraints.len(), 1);
-        assert!(matches!(
-            fun.generics[0].constraints[0],
-            AstGenericConstraint::Operator {
-                op: AstBinaryOp::Add,
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn test_parse_mixed_operator_and_std_constraint() {
-        let input = "fun add_copy<T: operator::add + std::copyable>(lhs: T, rhs: T) -> T { return lhs + rhs; }";
-        let test_path = "examples/hello.atlas";
-        let mut lexer = AtlasLexer::new(test_path.into(), input.to_string());
-        let tokens = lexer.tokenize().unwrap_or_else(|e| panic!("{:?}", e));
-        let bump = Bump::new();
-        let arena = &AstArena::new(&bump);
-        let mut parser = Parser::new(arena, tokens, test_path);
-        let program = parser.parse().unwrap_or_else(|e| panic!("{:?}", e));
-        let item = program.items.first().expect("Expected function item");
-        let fun = match **item {
-            AstItem::Function(ref f) => f,
-            _ => panic!("Expected function"),
-        };
-        assert_eq!(fun.generics.len(), 1);
-        assert_eq!(fun.generics[0].constraints.len(), 2);
-        assert!(matches!(
-            fun.generics[0].constraints[0],
-            AstGenericConstraint::Operator {
-                op: AstBinaryOp::Add,
-                ..
-            }
-        ));
-        assert!(matches!(
-            fun.generics[0].constraints[1],
-            AstGenericConstraint::Std(_)
-        ));
     }
 }

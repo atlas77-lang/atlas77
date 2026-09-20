@@ -48,7 +48,7 @@ use crate::atlas_c::{
             ConstantValue, HirAssociatedTypeAssignment, HirAssociatedTypeSignature,
             HirConceptSignature, HirConformanceSignature, HirFunctionParameterSignature,
             HirFunctionSignature, HirGenericConstraint, HirGenericConstraintKind,
-            HirMethodAttribute, HirModuleSignature, HirOverloadableOperator,
+            HirMethodAttribute, HirModuleSignature, HirNamespaceSignature, HirOverloadableOperator,
             HirOverloadableOperatorKind, HirStructConstantSignature, HirStructDestructorSignature,
             HirStructFieldSignature, HirStructMethodModifier, HirStructMethodSignature,
             HirStructSignature, HirTypeParameterItemSignature, HirUnionSignature, HirVisibility,
@@ -139,6 +139,25 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     fn visit_namespace(&mut self, node: &'ast AstNamespace<'ast>) -> HirResult<()> {
         let ns_name = self.arena.names().get(node.name.name);
         self.enter_namespace(ns_name);
+        // Recorded under the fully-qualified name so nested namespaces stay distinct;
+        // HIR keeps no namespace tree of its own, only qualified item names.
+        let qualified = self.arena.names().get(&self.namespace_stack.join("::"));
+        let entry =
+            self.module_signature
+                .namespaces
+                .entry(qualified)
+                .or_insert(HirNamespaceSignature {
+                    name: qualified,
+                    span: node.span,
+                    docstring: None,
+                });
+        if let Some(doc) = node.docstring {
+            // A namespace can be reopened in several places; keep every block's docs.
+            entry.docstring = Some(match entry.docstring {
+                Some(existing) => self.arena.names().get(&format!("{existing}\n\n{doc}")),
+                None => self.arena.names().get(doc),
+            });
+        }
         for item in node.items {
             self.visit_item(item)?;
         }
@@ -147,6 +166,15 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     }
 
     pub fn lower(&mut self) -> HirResult<&'hir mut HirModule<'hir>> {
+        if let Some(docs) = self.ast.docstring
+            && let Some(first) = self.ast.items.first()
+        {
+            let path = self.arena.names().get(first.span().path);
+            let docs = self.arena.names().get(docs);
+            self.module_signature.file_docs.insert(path, docs);
+            self.module_signature.docstring = Some(docs);
+        }
+
         for item in self.ast.items {
             self.visit_item(item)?;
         }
@@ -488,6 +516,30 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                             .global_consts
                             .insert(name, global_const);
                     }
+                    for (path, docs) in allocated_hir.signature.file_docs.iter() {
+                        self.module_signature.file_docs.insert(path, docs);
+                    }
+                    // A namespace is one logical entity even when several files reopen it,
+                    // so their docs are combined rather than one file's winning.
+                    for (name, namespace) in allocated_hir.signature.namespaces.iter() {
+                        match self.module_signature.namespaces.get_mut(name) {
+                            Some(existing) => {
+                                existing.docstring = match (existing.docstring, namespace.docstring)
+                                {
+                                    (Some(kept), Some(added)) if kept != added => {
+                                        Some(self.arena.names().get(&format!("{kept}\n\n{added}")))
+                                    }
+                                    (Some(kept), _) => Some(kept),
+                                    (None, added) => added,
+                                };
+                            }
+                            None => {
+                                self.module_signature
+                                    .namespaces
+                                    .insert(name, namespace.clone());
+                            }
+                        }
+                    }
                     self.generic_pool.structs.append(&mut generic_pool.structs);
                 }
                 Err(e) => match e {
@@ -555,10 +607,12 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                                 span: associated.span,
                                 name: associated.name,
                                 ty,
+                                docstring: associated.docstring,
                             })
                         })
                         .collect(),
                     is_local: true,
+                    docstring: extend.docstring,
                 };
                 self.module_body
                     .extends
@@ -623,6 +677,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     name: self.arena.names().get(associated.name.name),
                     name_span: associated.name_span,
                     ty: associated.ty.map(|ty| self.visit_ty(ty)).transpose()?,
+                    docstring: associated.docstring.map(|doc| self.arena.names().get(doc)),
                 })
             })
             .collect::<HirResult<Vec<_>>>()?;
@@ -660,6 +715,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             operators,
             associated_types,
             where_clause,
+            docstring: ast_extend.docstring.map(|doc| self.arena.names().get(doc)),
         })
     }
 
@@ -709,6 +765,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         name: self.arena.names().get(associated.name.name),
                         name_span: associated.name_span,
                         ty: associated.ty.map(|ty| self.visit_ty(ty)).transpose()?,
+                        docstring: associated.docstring.map(|doc| self.arena.names().get(doc)),
                     },
                 ))
             })
@@ -752,6 +809,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 .iter()
                 .map(|operator| self.arena.names().get(operator.name.name))
                 .collect(),
+            docstring: node.docstring.map(|doc| self.arena.names().get(doc)),
         };
         Ok(HirConcept {
             span: node.span,
@@ -853,6 +911,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 name: self.arena.names().get(variant.name.name),
                 name_span: variant.name.span,
                 value: variant.value,
+                docstring: variant.docstring.map(|doc| self.arena.names().get(doc)),
             };
             variants.push(variant);
         }
@@ -1505,13 +1564,16 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         if !self.already_imported.contains_key(canonical_key) {
             self.already_imported
                 .insert(self.arena.intern(canonical_key.to_owned()), ());
-            let src =
-                match crate::atlas_c::utils::get_file_content_for_import(node.path, node.span.path)
-                {
+            let src = match crate::atlas_c::utils::get_file_content_for_import(
+                node.path,
+                node.span.path,
+            ) {
                 Ok(src) => src,
                 Err(_) => {
-                    let report: ErrReport =
-                        match utils::missing_dependency_file(node.path, Some(node.span.path)) {
+                    let report: ErrReport = match utils::missing_dependency_file(
+                        node.path,
+                        Some(node.span.path),
+                    ) {
                         Some((dependency_name, requested_file)) => {
                             let help = if node.path.contains('/') {
                                 format!(
@@ -2548,6 +2610,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 value: self.arena.intern(self.visit_expr(node.value)?),
                 value_span: node.value.span(),
                 vis: node.vis.into(),
+                docstring: node.docstring.map(|doc| self.arena.names().get(doc)),
             }),
         }
     }

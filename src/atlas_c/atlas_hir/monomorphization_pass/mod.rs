@@ -363,6 +363,7 @@ impl<'hir> MonomorphizationPass<'hir> {
             operators: vec![],
             associated_types: block.associated_types.clone(),
             where_clause: None,
+            docstring: block.docstring,
         };
         module
             .body

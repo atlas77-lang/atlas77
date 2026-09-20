@@ -952,14 +952,56 @@ pub fn init(name: String) {
     }
 }
 
+/// The file `docs` starts from when none was given. A library has no `main.atlas` to
+/// document, so `src/lib.atlas` is preferred, then `[package].entry`, then `src/main.atlas`.
+fn default_docs_entry(project_dir: &Path) -> String {
+    for candidate in ["src/lib.atlas", "lib.atlas"] {
+        if project_dir.join(candidate).is_file() {
+            return candidate.to_string();
+        }
+    }
+
+    let config_path = project_dir.join("atlas.toml");
+    if let Ok(content) = std::fs::read_to_string(&config_path)
+        && let Ok(root) = toml::from_str::<toml::value::Table>(&content)
+        && let Some(entry) = root
+            .get("package")
+            .and_then(|package| package.as_table())
+            .and_then(|package| package.get("entry"))
+            .and_then(|entry| entry.as_str())
+        && project_dir.join(entry).is_file()
+    {
+        return entry.to_string();
+    }
+
+    "src/main.atlas".to_string()
+}
+
+/// `[package].name` from the project's `atlas.toml`, used to title the generated site.
+fn package_name(project_dir: &Path) -> Option<String> {
+    let content = std::fs::read_to_string(project_dir.join("atlas.toml")).ok()?;
+    let root = toml::from_str::<toml::value::Table>(&content).ok()?;
+    let name = root
+        .get("package")?
+        .as_table()?
+        .get("name")?
+        .as_str()?
+        .to_owned();
+    (!name.is_empty()).then_some(name)
+}
+
 /// Compile up to the AST, then generate documentation in the specified output directory.
 pub fn generate_docs(output_dir: String, path: Option<&str>) {
     // Ensure output directory exists
     let output_path = get_path(&output_dir);
     std::fs::create_dir_all(&output_path).unwrap();
 
-    // This should find and do it for every .atlas file in the project, but for now we just do src/main.atlas
-    let source_path = get_path(path.unwrap_or("src/main.atlas"));
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let entry = match path {
+        Some(path) => path.to_string(),
+        None => default_docs_entry(&cwd),
+    };
+    let source_path = get_path(&entry);
     let source = std::fs::read_to_string(&source_path).unwrap_or_else(|_| {
         eprintln!(
             "Failed to read source file at path: {}",
@@ -993,7 +1035,9 @@ pub fn generate_docs(output_dir: String, path: Option<&str>) {
     let out_path = output_path.clone();
     #[allow(clippy::unit_arg)]
     {
-        if let Err(e) = crate::atlas_docs::generate_docs(&hir.signature, &out_path) {
+        if let Err(e) =
+            crate::atlas_docs::generate_docs(hir, &out_path, package_name(&cwd).as_deref())
+        {
             eprintln!("atlas_docs error: {}", e);
         }
     }

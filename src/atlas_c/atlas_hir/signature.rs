@@ -24,11 +24,27 @@ pub struct HirModuleSignature<'hir> {
     pub concepts: BTreeMap<&'hir str, &'hir HirConceptSignature<'hir>>,
     pub conformances: Vec<HirConformanceSignature<'hir>>,
     pub global_consts: BTreeMap<&'hir str, &'hir HirGlobalConst<'hir>>,
+    /// Namespaces declared in this module, keyed by fully-qualified name (`std::io`).
+    /// HIR itself doesn't nest by namespace, item names are qualified instead, so this
+    /// exists purely so a namespace's own `//!` docs survive lowering and can be shown
+    /// against the namespace in generated documentation.
+    pub namespaces: BTreeMap<&'hir str, HirNamespaceSignature<'hir>>,
+    /// Per-source-file docs (the `//!` block at the top of a file), keyed by that file's
+    /// path. Kept as a map rather than a single field because signatures of imported
+    /// modules are merged into their importer, so one signature covers many files.
+    pub file_docs: BTreeMap<&'hir str, &'hir str>,
     pub docstring: Option<&'hir str>,
     /// Name of the module (e.g.: `package name;`)
     pub module_name: &'hir str,
     /// Imported modules and their signatures
     pub imported_modules: BTreeMap<&'hir str, &'hir HirModuleSignature<'hir>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HirNamespaceSignature<'hir> {
+    pub name: &'hir str,
+    pub span: Span,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -39,6 +55,9 @@ pub struct HirConformanceSignature<'hir> {
     pub where_clause: Option<Vec<&'hir HirGenericConstraint<'hir>>>,
     pub associated_types: Vec<HirAssociatedTypeAssignment<'hir>>,
     pub is_local: bool,
+    /// Docs written on this specific `extend T with C` block. Takes precedence over the
+    /// concept's own docs when rendering this conformance.
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -46,6 +65,7 @@ pub struct HirAssociatedTypeAssignment<'hir> {
     pub span: Span,
     pub name: &'hir str,
     pub ty: &'hir HirTy<'hir>,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -60,6 +80,9 @@ pub struct HirConceptSignature<'hir> {
     pub required_method_names: Vec<&'hir str>,
     pub required_operators: BTreeMap<HirOverloadableOperatorKind, HirStructMethodSignature<'hir>>,
     pub required_operator_names: Vec<&'hir str>,
+    /// The concept's own docs. The default explanation of how conformances are expected
+    /// to behave, shown when an `extend` block doesn't document itself.
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -68,6 +91,7 @@ pub struct HirAssociatedTypeSignature<'hir> {
     pub name: &'hir str,
     pub name_span: Span,
     pub ty: Option<&'hir HirTy<'hir>>,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone, Serialize)]
