@@ -7,9 +7,8 @@ This is the compiler for the atlas77 language. Here's a list of all the modules 
 - `atlas_frontend`: The frontend for the atlas77 language. It takes in a string and outputs the AST.
 - `atlas_hir`: The high-level intermediate representation for the atlas77 language. It does, in order:
   - Lowering from AST to HIR
-  - Import resolution
   - Monomorphization
   - Type Checking
-  - Dead code elimination (WIP)
-  - Constant folding (WIP)
+- `atlas_lir`: The low level intermediate representation for the atlas77 language. Can be thought of as a CFG
+- `atlas_codegen`: The C codegen. Well, it codegen C code...
 - `atlas_macro`: Utilities macros for the atlas77 language.

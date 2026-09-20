@@ -7,7 +7,7 @@ use crate::atlas_c::{
             HirResult, NotEnoughGenericsError, NotEnoughGenericsOrigin, UnknownTypeError,
         },
         expr::HirExpr,
-        item::{HirStruct, HirStructDestructor, HirUnion},
+        item::{HirExtendBlock, HirStruct, HirStructDestructor, HirUnion},
         monomorphization_pass::generic_pool::HirGenericPool,
         signature::{HirGenericConstraint, HirModuleSignature, HirOverloadableOperatorKind},
         stmt::HirStatement,
@@ -25,6 +25,13 @@ pub struct MethodMonomorphizationRequest<'hir> {
     pub owner_name: &'hir str,
     pub method_name: &'hir str,
     pub generic_args: Vec<&'hir HirTy<'hir>>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExtendMethodMonomorphizationRequest<'hir> {
+    pub concrete_ty: &'hir HirTy<'hir>,
+    pub method_name: &'hir str,
     pub span: Span,
 }
 
@@ -115,14 +122,78 @@ impl<'hir> MonomorphizationPass<'hir> {
         &mut self,
         module: &'hir mut HirModule<'hir>,
     ) -> HirResult<&'hir mut HirModule<'hir>> {
-        //1. Generate only the signatures of the generic structs and functions
         while !self.process_pending_generics(module)? {}
-        //2. If you encounter a generic struct or function instantiation (e.g. in the return type), register it to the pool
-        //3. Generate the actual bodies of the structs & functions in the pool, if you encounter new instantiations while generating, register them too
-        //4. Generic template cleanup is deferred until the caller finishes any
-        //   on-demand monomorphization rounds.
+        self.materialize_concrete_defaults(module)?;
 
         Ok(module)
+    }
+
+    fn materialize_concrete_defaults(&mut self, module: &mut HirModule<'hir>) -> HirResult<()> {
+        let owners: Vec<&'hir str> = module
+            .body
+            .structs
+            .iter()
+            .filter_map(|(name, structure)| structure.pre_mangled_ty.is_none().then_some(*name))
+            .collect();
+        for owner_name in owners {
+            let owner_ty = self.arena.types().get_named_ty(owner_name, Span::default());
+            let conformances: Vec<_> = module
+                .signature
+                .conformances
+                .iter()
+                .filter(|conformance| {
+                    HirGenericPool::type_pattern_matches(
+                        &module.signature,
+                        conformance.target,
+                        owner_ty,
+                    )
+                })
+                .cloned()
+                .collect();
+            let mut owner = module.body.structs.get(owner_name).cloned().unwrap();
+            for conformance in conformances {
+                let HirTy::Named(concept_name) = conformance.concept else {
+                    continue;
+                };
+                let Some(concept) = module.body.concepts.get(concept_name.name).cloned() else {
+                    continue;
+                };
+                for default_method in concept.default_methods {
+                    if owner
+                        .methods
+                        .iter()
+                        .any(|method| method.name == default_method.name)
+                        || owner.signature.methods.contains_key(default_method.name)
+                    {
+                        continue;
+                    }
+                    let mut method = default_method;
+                    let mut signature = method.signature.clone();
+                    for parameter in signature.params.iter_mut() {
+                        parameter.ty =
+                            self.swap_generic_types_in_ty(parameter.ty, vec![("This", owner_ty)]);
+                    }
+                    signature.return_ty = self
+                        .swap_generic_types_in_ty(
+                            self.arena.intern(signature.return_ty.clone()),
+                            vec![("This", owner_ty)],
+                        )
+                        .clone();
+                    method.signature = self.arena.intern(signature.clone());
+                    for statement in method.body.statements.iter_mut() {
+                        self.monomorphize_statement(statement, vec![("This", owner_ty)], module)?;
+                    }
+                    owner.signature.methods.insert(method.name, signature);
+                    owner.methods.push(method);
+                }
+            }
+            module
+                .signature
+                .structs
+                .insert(owner_name, self.arena.intern(owner.signature.clone()));
+            module.body.structs.insert(owner_name, owner);
+        }
+        Ok(())
     }
 
     pub fn monomorphize_requested_methods(
@@ -142,6 +213,166 @@ impl<'hir> MonomorphizationPass<'hir> {
         }
 
         Ok(changed)
+    }
+
+    pub fn monomorphize_requested_extend_methods(
+        &mut self,
+        module: &mut HirModule<'hir>,
+        requests: Vec<ExtendMethodMonomorphizationRequest<'hir>>,
+    ) -> HirResult<bool> {
+        let mut changed = false;
+        for request in requests.iter() {
+            if self.instantiate_extend_method_from_request(module, request)? {
+                changed = true;
+            }
+        }
+
+        if changed {
+            while !self.process_pending_generics(module)? {}
+        }
+
+        Ok(changed)
+    }
+
+    fn ty_contains_placeholder(ty: &HirTy<'hir>, module: &HirModuleSignature<'hir>) -> bool {
+        match ty {
+            HirTy::Named(n) => {
+                n.name == "This"
+                    || (n.name.len() == 1
+                        && !module.structs.contains_key(n.name)
+                        && !module.unions.contains_key(n.name))
+            }
+            HirTy::PtrTy(p) => Self::ty_contains_placeholder(p.inner, module),
+            HirTy::Generic(g) => g
+                .inner
+                .iter()
+                .any(|t| Self::ty_contains_placeholder(t, module)),
+            HirTy::Slice(s) => Self::ty_contains_placeholder(s.inner, module),
+            HirTy::InlineArray(a) => Self::ty_contains_placeholder(a.inner, module),
+            HirTy::Atomic(a) => Self::ty_contains_placeholder(a.inner, module),
+            HirTy::Associated(a) => Self::ty_contains_placeholder(a.base, module),
+            _ => false,
+        }
+    }
+
+    fn collect_placeholder_bindings(
+        pattern: &HirTy<'hir>,
+        actual: &'hir HirTy<'hir>,
+        module: &HirModuleSignature<'hir>,
+        bindings: &mut Vec<(&'hir str, &'hir HirTy<'hir>)>,
+    ) {
+        match (pattern, actual) {
+            (HirTy::Named(left), _) if Self::ty_contains_placeholder(pattern, module) => {
+                bindings.push((left.name, actual));
+            }
+            (HirTy::PtrTy(left), HirTy::PtrTy(right)) => {
+                Self::collect_placeholder_bindings(left.inner, right.inner, module, bindings);
+            }
+            (HirTy::Slice(left), HirTy::Slice(right)) => {
+                Self::collect_placeholder_bindings(left.inner, right.inner, module, bindings);
+            }
+            (HirTy::Generic(left), HirTy::Generic(right))
+                if left.inner.len() == right.inner.len() =>
+            {
+                for (l, r) in left.inner.iter().zip(right.inner.iter()) {
+                    Self::collect_placeholder_bindings(l, r, module, bindings);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn instantiate_extend_method_from_request(
+        &mut self,
+        module: &mut HirModule<'hir>,
+        request: &ExtendMethodMonomorphizationRequest<'hir>,
+    ) -> HirResult<bool> {
+        let concrete_key = request.concrete_ty.type_key();
+
+        if module
+            .body
+            .extends
+            .get(&concrete_key)
+            .is_some_and(|blocks| {
+                blocks
+                    .iter()
+                    .any(|b| b.methods.iter().any(|m| m.name == request.method_name))
+            })
+        {
+            return Ok(false);
+        }
+
+        let Some((block, template_method)) =
+            module.body.extends.values().flatten().find_map(|block| {
+                if !HirGenericPool::type_pattern_matches(
+                    &module.signature,
+                    block.ty,
+                    request.concrete_ty,
+                ) {
+                    return None;
+                }
+                block
+                    .methods
+                    .iter()
+                    .find(|m| m.name == request.method_name)
+                    .map(|m| (block.clone(), m.clone()))
+            })
+        else {
+            return Ok(false);
+        };
+
+        if !Self::ty_contains_placeholder(block.ty, &module.signature) {
+            return Ok(false);
+        }
+
+        let mut bindings = Vec::new();
+        Self::collect_placeholder_bindings(
+            block.ty,
+            request.concrete_ty,
+            &module.signature,
+            &mut bindings,
+        );
+
+        let mut new_sig = template_method.signature.clone();
+        for param in new_sig.params.iter_mut() {
+            param.ty = self.swap_generic_types_in_ty(param.ty, bindings.clone());
+        }
+        let return_ty = self.swap_generic_types_in_ty(
+            self.arena.intern(new_sig.return_ty.clone()),
+            bindings.clone(),
+        );
+        new_sig.return_ty = return_ty.clone();
+        new_sig.is_constraint_satisfied = true;
+        new_sig.is_instantiated = true;
+
+        let mut new_method = template_method.clone();
+        new_method.signature = self.arena.intern(new_sig);
+        for statement in new_method.body.statements.iter_mut() {
+            self.monomorphize_statement(statement, bindings.clone(), module)?;
+        }
+
+        let new_block = HirExtendBlock {
+            span: block.span,
+            ty: request.concrete_ty,
+            ty_key: concrete_key,
+            ty_span: block.ty_span,
+            concept: block.concept,
+            concept_key: block.concept_key,
+            concept_span: block.concept_span,
+            methods: vec![new_method],
+            operators: vec![],
+            associated_types: block.associated_types.clone(),
+            where_clause: None,
+            docstring: block.docstring,
+        };
+        module
+            .body
+            .extends
+            .entry(concrete_key)
+            .or_default()
+            .push(new_block);
+
+        Ok(true)
     }
 
     fn instantiate_method_from_request(
@@ -187,7 +418,14 @@ impl<'hir> MonomorphizationPass<'hir> {
 
         let template_sig = match template_owner.signature.methods.get(request.method_name) {
             Some(s) => s.clone(),
-            None => return Ok(false),
+            None => {
+                return self.instantiate_extend_method_for_struct(
+                    module,
+                    owner,
+                    request,
+                    struct_types_to_change,
+                );
+            }
         };
         let template_method = match template_owner
             .methods
@@ -288,6 +526,103 @@ impl<'hir> MonomorphizationPass<'hir> {
 
             for statement in new_method.body.statements.iter_mut() {
                 self.monomorphize_statement(statement, all_types_to_change.clone(), module)?;
+            }
+
+            owner.methods.push(new_method);
+        }
+
+        module.signature.structs.insert(
+            request.owner_name,
+            self.arena.intern(owner.signature.clone()),
+        );
+        module.body.structs.insert(request.owner_name, owner);
+
+        Ok(true)
+    }
+
+    fn instantiate_extend_method_for_struct(
+        &mut self,
+        module: &mut HirModule<'hir>,
+        mut owner: HirStruct<'hir>,
+        request: &MethodMonomorphizationRequest<'hir>,
+        struct_types_to_change: Vec<(&'hir str, &'hir HirTy<'hir>)>,
+    ) -> HirResult<bool> {
+        // Extend methods with their own extra generics aren't supported yet.
+        if !request.generic_args.is_empty() {
+            return Ok(false);
+        }
+
+        let Some(pre_mangled_ty) = owner.signature.pre_mangled_ty else {
+            return Ok(false);
+        };
+
+        let already_instantiated = owner
+            .signature
+            .methods
+            .get(request.method_name)
+            .map(|sig| sig.is_instantiated)
+            .unwrap_or(false)
+            || owner.methods.iter().any(|m| m.name == request.method_name);
+        if already_instantiated {
+            return Ok(false);
+        }
+
+        let actual_ty = self.arena.intern(HirTy::Generic(pre_mangled_ty.clone()));
+        let Some((block, template_method)) =
+            module.body.extends.values().flatten().find_map(|block| {
+                if !HirGenericPool::type_pattern_matches(&module.signature, block.ty, actual_ty) {
+                    return None;
+                }
+                block
+                    .methods
+                    .iter()
+                    .find(|m| m.name == request.method_name)
+                    .map(|m| (block.clone(), m.clone()))
+            })
+        else {
+            return Ok(false);
+        };
+
+        let mut new_sig = template_method.signature.clone();
+        for param in new_sig.params.iter_mut() {
+            let normalized = self.normalize_projection(param.ty, module);
+            param.ty = self.swap_generic_types_in_ty(normalized, struct_types_to_change.clone());
+        }
+        let normalized_return_ty = self.normalize_projection(&new_sig.return_ty, module);
+        new_sig.return_ty = self
+            .swap_generic_types_in_ty(normalized_return_ty, struct_types_to_change.clone())
+            .clone();
+
+        let is_constraint_satisfied = if let Some(where_clause) = block.where_clause.as_ref() {
+            let struct_generics = module
+                .signature
+                .structs
+                .get(pre_mangled_ty.name)
+                .map(|s| s.generics.clone())
+                .unwrap_or_default();
+            self.check_where_constraints_on_method(
+                where_clause,
+                &struct_generics,
+                pre_mangled_ty,
+                &module.signature,
+            )
+        } else {
+            true
+        };
+        new_sig.is_constraint_satisfied = is_constraint_satisfied;
+        new_sig.is_instantiated = is_constraint_satisfied;
+
+        owner
+            .signature
+            .methods
+            .insert(request.method_name, new_sig.clone());
+
+        if is_constraint_satisfied {
+            let mut new_method = template_method.clone();
+            new_method.signature = self.arena.intern(new_sig.clone());
+
+            for statement in new_method.body.statements.iter_mut() {
+                self.monomorphize_statement(statement, struct_types_to_change.clone(), module)?;
             }
 
             owner.methods.push(new_method);
@@ -602,6 +937,12 @@ impl<'hir> MonomorphizationPass<'hir> {
                 )
             })
             .collect::<Vec<(&'hir str, &'hir HirTy<'hir>)>>();
+        let concrete_owner = self
+            .arena
+            .types()
+            .get_named_ty(mangled_name, actual_type.span);
+        let mut types_to_change = types_to_change;
+        types_to_change.push(("This", concrete_owner));
 
         self.monomorphize_fields(&mut new_struct, &generics, actual_type, module)?;
 
@@ -712,9 +1053,78 @@ impl<'hir> MonomorphizationPass<'hir> {
         }
         new_struct.operators = materialized_operators;
 
-        // Methods on concrete generic structs are materialized lazily on demand.
-        // Keep signatures for type checking/diagnostics, but defer body creation.
+        for signature in new_struct.signature.methods.values_mut() {
+            for parameter in signature.params.iter_mut() {
+                parameter.ty = self.normalize_projection(parameter.ty, module);
+            }
+            signature.return_ty = self
+                .normalize_projection(&signature.return_ty, module)
+                .clone();
+        }
+        for signature in new_struct.signature.operators.values_mut() {
+            for parameter in signature.params.iter_mut() {
+                parameter.ty = self.normalize_projection(parameter.ty, module);
+            }
+            signature.return_ty = self
+                .normalize_projection(&signature.return_ty, module)
+                .clone();
+        }
+
+        // Materialize concept defaults into the concrete owner. Implementations in
+        // an extension take precedence over a default member with the same name.
         new_struct.methods.clear();
+        let actual_ty = self.arena.intern(HirTy::Generic(actual_type.clone()));
+        for conformance in module.signature.conformances.iter() {
+            if !HirGenericPool::type_pattern_matches(
+                &module.signature,
+                conformance.target,
+                actual_ty,
+            ) {
+                continue;
+            }
+            let HirTy::Named(concept_name) = conformance.concept else {
+                continue;
+            };
+            let Some(concept) = module.body.concepts.get(concept_name.name) else {
+                continue;
+            };
+            for default_method in &concept.default_methods {
+                let overridden = module
+                    .body
+                    .extends
+                    .values()
+                    .flatten()
+                    .filter(|block| {
+                        HirGenericPool::type_pattern_matches(&module.signature, block.ty, actual_ty)
+                    })
+                    .any(|block| {
+                        block
+                            .methods
+                            .iter()
+                            .any(|method| method.name == default_method.name)
+                    });
+                if overridden {
+                    continue;
+                }
+                let mut method = default_method.clone();
+                let mut signature = method.signature.clone();
+                for parameter in signature.params.iter_mut() {
+                    parameter.ty =
+                        self.swap_generic_types_in_ty(parameter.ty, types_to_change.clone());
+                }
+                signature.return_ty = self
+                    .swap_generic_types_in_ty(
+                        self.arena.intern(signature.return_ty.clone()),
+                        types_to_change.clone(),
+                    )
+                    .clone();
+                method.signature = self.arena.intern(signature);
+                for statement in method.body.statements.iter_mut() {
+                    self.monomorphize_statement(statement, types_to_change.clone(), module)?;
+                }
+                new_struct.methods.push(method);
+            }
+        }
 
         for (i, field) in new_struct.fields.clone().iter().enumerate() {
             new_struct.fields[i] = new_struct.signature.fields.get(field.name).unwrap().clone();
@@ -955,8 +1365,10 @@ impl<'hir> MonomorphizationPass<'hir> {
             | HirExpr::BooleanLiteral(_)
             | HirExpr::ThisLiteral(_)
             | HirExpr::StringLiteral(_)
-            | HirExpr::NullLiteral(_)
-            | HirExpr::FieldAccess(_) => {}
+            | HirExpr::NullLiteral(_) => {}
+            HirExpr::FieldAccess(field_access) => {
+                self.monomorphize_expression(&mut field_access.target, types_to_change, module)?;
+            }
             HirExpr::ObjLiteral(obj_lit_expr) => {
                 if let HirTy::Generic(_g) = obj_lit_expr.ty {
                     let monomorphized_ty =
@@ -1096,7 +1508,7 @@ impl<'hir> MonomorphizationPass<'hir> {
         Ok(())
     }
 
-    fn not_enough_generics_err(
+    pub fn not_enough_generics_err(
         ty_name: &str,
         found: usize,
         error_span: Span,
@@ -1179,6 +1591,12 @@ impl<'hir> MonomorphizationPass<'hir> {
                     inner: new_inner,
                     span: a.span,
                 }))
+            }
+            HirTy::Associated(a) => {
+                let new_base = self.swap_generic_types_in_ty(a.base, types_to_change);
+                self.arena
+                    .types()
+                    .get_associated_ty(new_base, a.name, a.span)
             }
             HirTy::Function(fn_ty) => {
                 let new_ret = self.swap_generic_types_in_ty(fn_ty.ret_ty, types_to_change.clone());
@@ -1338,7 +1756,55 @@ impl<'hir> MonomorphizationPass<'hir> {
                 inner: self.change_inner_type(a.inner, generic_name, new_type, module),
                 span: a.span,
             })),
+            HirTy::Associated(a) => {
+                let new_base =
+                    self.change_inner_type(a.base, generic_name, new_type.clone(), module);
+                if let Some(resolved) =
+                    HirGenericPool::resolve_projection(&module.signature, new_base, a.name)
+                {
+                    self.change_inner_type(resolved, generic_name, new_type, module)
+                } else {
+                    self.arena
+                        .types()
+                        .get_associated_ty(new_base, a.name, a.span)
+                }
+            }
             _ => type_to_change,
+        }
+    }
+
+    fn normalize_projection(
+        &self,
+        ty: &HirTy<'hir>,
+        module: &HirModule<'hir>,
+    ) -> &'hir HirTy<'hir> {
+        match ty {
+            HirTy::Associated(associated) => {
+                if let Some(resolved) = HirGenericPool::resolve_projection(
+                    &module.signature,
+                    associated.base,
+                    associated.name,
+                ) {
+                    self.normalize_projection(resolved, module)
+                } else {
+                    self.arena.intern(ty.clone())
+                }
+            }
+            HirTy::PtrTy(pointer) => self.arena.types().get_ptr_ty(
+                self.normalize_projection(pointer.inner, module),
+                pointer.is_const,
+                pointer.span,
+            ),
+            HirTy::Generic(generic) => self.arena.types().get_generic_ty(
+                generic.name,
+                generic
+                    .inner
+                    .iter()
+                    .map(|inner| self.normalize_projection(inner, module))
+                    .collect(),
+                generic.span,
+            ),
+            _ => self.arena.intern(ty.clone()),
         }
     }
 }

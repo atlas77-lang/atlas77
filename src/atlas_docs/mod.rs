@@ -13,12 +13,34 @@ pub use inner::generate_docs;
 
 #[cfg(feature = "docs")]
 pub mod inner {
+    use crate::atlas_c::atlas_hir::HirModule;
+    use crate::atlas_c::atlas_hir::item::HirExtendBlock;
     use crate::atlas_c::atlas_hir::pretty_print::HirPrettyPrinter;
-    use crate::atlas_c::atlas_hir::signature::{HirModuleSignature, HirVisibility};
+    use crate::atlas_c::atlas_hir::signature::{
+        HirConceptSignature, HirStructMethodSignature, HirVisibility,
+    };
     use pulldown_cmark::{Options, Parser as MdParser, html};
+    use std::collections::BTreeMap;
     use std::error::Error;
     use std::path::Path;
-    use tera::escape_html;
+
+    fn escape_html(value: &str) -> String {
+        let mut out = String::with_capacity(value.len());
+        for ch in value.chars() {
+            match ch {
+                '&' => out.push_str("&amp;"),
+                '<' => out.push_str("&lt;"),
+                '>' => out.push_str("&gt;"),
+                '"' => out.push_str("&quot;"),
+                '\'' => out.push_str("&#39;"),
+                _ => out.push(ch),
+            }
+        }
+        out
+    }
+
+    const STYLE: &str = include_str!("templates/style.css");
+    const ROOT: &str = "{{ROOT}}";
 
     fn md_to_html(md: &str) -> String {
         let parser = MdParser::new_ext(md, Options::all());
@@ -27,298 +49,887 @@ pub mod inner {
         html_out
     }
 
-    pub fn generate_docs(hir: &HirModuleSignature, out_dir: &Path) -> Result<(), Box<dyn Error>> {
-        std::fs::create_dir_all(out_dir)?;
+    fn docs_html(docs: Option<&str>) -> String {
+        docs.map(md_to_html).unwrap_or_default()
+    }
 
-        use std::collections::HashMap;
-
-        let mut files_md: HashMap<String, String> = HashMap::new();
-        let mut files_toc: HashMap<String, Vec<(String, String)>> = HashMap::new();
-        let mut all_paths: Vec<String> = Vec::new();
-
-        fn slugify(kind: &str, name: &str) -> String {
-            let mut s = format!("{}-{}", kind.to_lowercase(), name.to_lowercase());
-            s = s
-                .chars()
-                .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-                .collect();
-            while s.contains("--") {
-                s = s.replace("--", "-");
-            }
-            s.trim_matches('-').to_string()
-        }
-
-        // Functions
-        for (name, f) in hir.functions.iter() {
-            // Skip private functions
-            if f.vis == HirVisibility::Private {
-                continue;
-            }
-            let path = f.span.path;
-            all_paths.push(path.to_string());
-            let entry = files_md
-                .entry(path.to_string())
-                .or_insert_with(|| String::from("# Documentation\n\n"));
-            let toc: &mut Vec<(String, String)> = files_toc.entry(path.to_string()).or_default();
-            let kind = "Function";
-            let id = slugify(kind, name);
-            toc.push((id.clone(), format!("{}: {}", kind, name)));
-            entry.push_str(&format!("<a id=\"{}\"></a>\n", id));
-            entry.push_str(&format!("## {}: {}\n\n", kind, name));
-            let args = f
-                .params
-                .iter()
-                .map(|a| format!("{}: {}", a.name, a.ty))
-                .collect::<Vec<_>>()
-                .join(", ");
-            entry.push_str(&format!(
-                "```\nfun {}({}) -> {} \n```\n\n",
-                name, args, f.return_ty
-            ));
-            if let Some(d) = f.docstring {
-                entry.push_str(d);
-                entry.push_str("\n\n");
-            }
-        }
-
-        // Structs
-        for (name, s) in hir.structs.iter() {
-            // Skip private structs
-            if s.vis == HirVisibility::Private {
-                continue;
-            }
-            let path = s.declaration_span.path;
-            all_paths.push(path.to_string());
-            let entry = files_md
-                .entry(path.to_string())
-                .or_insert_with(|| String::from("# Documentation\n\n"));
-            let toc = files_toc.entry(path.to_string()).or_default();
-            let kind = "Struct";
-            let id = slugify(kind, name);
-            toc.push((id.clone(), format!("{}: {}", kind, name)));
-            entry.push_str(&format!("<a id=\"{}\"></a>\n", id));
-            entry.push_str(&format!("## {}: {}\n\n", kind, name));
-            if let Some(d) = s.docstring {
-                entry.push_str(d);
-                entry.push_str("\n\n");
-            }
-            if !s.fields.is_empty() {
-                entry.push_str("**Fields**\n\n");
-                for (_k, f) in s.fields.iter() {
-                    entry.push_str(&format!("- {}: {}\n", f.name, f.ty));
-                }
-                entry.push('\n');
-            }
-
-            // Methods (render signatures using HirPrettyPrinter)
-            if !s.methods.is_empty() {
-                entry.push_str("**Methods**\n\n");
-                for (mname, msig) in s.methods.iter() {
-                    if msig.vis == HirVisibility::Private {
-                        continue;
-                    }
-                    let mut pp = HirPrettyPrinter::new();
-                    pp.print_method_signature(mname, msig);
-                    let sig = pp.get_output();
-                    entry.push_str(&format!("```\n{}\n```\n\n", sig));
-                    // Docstring
-                    if let Some(d) = msig.docstring {
-                        entry.push_str(d);
-                        entry.push_str("\n\n");
-                    }
-                }
-            }
-        }
-
-        // Enums
-        for (name, e) in hir.enums.iter() {
-            // Skip private enums
-            if e.vis == HirVisibility::Private {
-                continue;
-            }
-            let path = e.span.path;
-            all_paths.push(path.to_string());
-            let entry = files_md
-                .entry(path.to_string())
-                .or_insert_with(|| String::from("# Documentation\n\n"));
-            let toc = files_toc.entry(path.to_string()).or_default();
-            let kind = "Enum";
-            let id = slugify(kind, name);
-            toc.push((id.clone(), format!("{}: {}", kind, name)));
-            entry.push_str(&format!("<a id=\"{}\"></a>\n", id));
-            entry.push_str(&format!("## {}: {}\n\n", kind, name));
-            if let Some(d) = e.docstring {
-                entry.push_str(d);
-                entry.push_str("\n\n");
-            }
-            if !e.variants.is_empty() {
-                entry.push_str("**Variants**\n\n");
-                for v in e.variants.iter() {
-                    entry.push_str(&format!("- {} = {}\n", v.name, v.value));
-                }
-                entry.push('\n');
-            }
-        }
-
-        // Unions
-        for (name, u) in hir.unions.iter() {
-            if u.vis == HirVisibility::Private {
-                continue;
-            }
-            let path = u.declaration_span.path;
-            all_paths.push(path.to_string());
-            let entry = files_md
-                .entry(path.to_string())
-                .or_insert_with(|| String::from("# Documentation\n\n"));
-            let toc = files_toc.entry(path.to_string()).or_default();
-            let kind = "Union";
-            let id = slugify(kind, name);
-            toc.push((id.clone(), format!("{}: {}", kind, name)));
-            entry.push_str(&format!("<a id=\"{}\"></a>\n", id));
-            entry.push_str(&format!("## {}: {}\n\n", kind, name));
-            if let Some(d) = u.docstring {
-                entry.push_str(d);
-                entry.push_str("\n\n");
-            }
-        }
-
-        if files_md.is_empty() {
-            let md_file = out_dir.join("documentation.md");
-            std::fs::write(&md_file, "# Documentation\n\n(No items)")?;
-            let content_html = md_to_html("# Documentation\n\n(No items)");
-            let out_file = out_dir.join("documentation.html");
-            std::fs::write(&out_file, content_html)?;
-            println!("[atlas_docs] wrote {}", out_file.display());
-            return Ok(());
-        }
-
-        // compute common prefix to preserve directory layout
-        let norm_paths: Vec<String> = all_paths.iter().map(|p| p.replace('\\', "/")).collect();
-        let comps: Vec<Vec<&str>> = norm_paths.iter().map(|p| p.split('/').collect()).collect();
-        let min_len = comps.iter().map(|c| c.len()).min().unwrap_or(0);
-        let mut common_idx = 0usize;
-        'outer: for i in 0..min_len {
-            let v = comps[0][i];
-            for c in &comps[1..] {
-                if c[i] != v {
-                    break 'outer;
-                }
-            }
-            common_idx += 1;
-        }
-        let common_prefix = if common_idx > 0 {
-            comps[0][..common_idx].join("/")
-        } else {
-            String::new()
+    fn summary(docs: Option<&str>) -> String {
+        let Some(docs) = docs else {
+            return String::new();
         };
+        let line = docs.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
+        escape_html(line.trim())
+    }
 
-        let mut generated_files: Vec<(String, String)> = Vec::new();
-        for (src_path, md) in files_md.iter() {
-            let norm = src_path.replace('\\', "/");
-            let rel = if !common_prefix.is_empty() && norm.starts_with(&common_prefix) {
-                norm[common_prefix.len() + 1..].to_string()
-            } else {
-                norm.clone()
-            };
-            // Use the source-relative parent directory to preserve layout, and the file stem for name.
-            let rel_path = Path::new(&rel);
-            let parent_dir = rel_path.parent().and_then(|p| p.to_str()).unwrap_or("");
-            let base_name = rel_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("doc")
-                .replace(':', "_");
-            // Create destination subdirectory under the output dir mirroring source layout.
-            let dst_dir = if parent_dir.is_empty() {
-                out_dir.to_path_buf()
-            } else {
-                out_dir.join(parent_dir)
-            };
-            std::fs::create_dir_all(&dst_dir)?;
-            let md_file = dst_dir.join(format!("{}.md", base_name));
-            std::fs::write(&md_file, md)?;
-            println!("[atlas_docs] wrote {}", md_file.display());
+    fn split_qualified(qualified: &str) -> (Vec<String>, String) {
+        let mut parts: Vec<String> = qualified.split("::").map(str::to_owned).collect();
+        let name = parts.pop().unwrap_or_else(|| qualified.to_owned());
+        (parts, name)
+    }
 
-            let content_html = md_to_html(md);
+    fn slug(value: &str) -> String {
+        let mut out: String = value
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .collect();
+        while out.contains("--") {
+            out = out.replace("--", "-");
+        }
+        out.trim_matches('-').to_lowercase()
+    }
 
-            let toc = files_toc.get(src_path).cloned().unwrap_or_default();
-            let mut html = String::new();
-            html.push_str("<!doctype html><html><head><meta charset=\"utf-8\">\n");
-            html.push_str(&format!("<title>{}</title>\n", base_name));
-            if Path::new("src/atlas_docs/templates/style.css").exists() {
-                html.push_str("<link rel=\"stylesheet\" href=\"style.css\">\n");
-            } else {
-                html.push_str("<style>body{font-family:Arial,Helvetica,sans-serif;margin:0}#wrap{display:flex}#toc{width:260px;padding:16px;border-right:1px solid #eee;overflow:auto;height:100vh}#main{flex:1;padding:24px;overflow:auto}pre{background:#f6f8fa;padding:12px;border-radius:6px}</style>\n");
+    fn forward_slashes(path: &str) -> String {
+        let path = path.replace('\\', "/");
+        path.strip_prefix("//?/").unwrap_or(&path).to_string()
+    }
+
+    fn project_root() -> Option<String> {
+        let cwd = std::env::current_dir().ok()?;
+        let canonical = std::fs::canonicalize(cwd).ok()?;
+        Some(forward_slashes(&canonical.to_string_lossy()))
+    }
+
+    fn display_path(raw: &str, root: Option<&str>) -> String {
+        let normalized = forward_slashes(raw);
+        if let Some(root) = root
+            && let Some(rest) = normalized.strip_prefix(root)
+        {
+            return rest.trim_start_matches('/').to_string();
+        }
+        normalized
+    }
+
+    fn is_dependency_file(path: &str) -> bool {
+        let normalized = path.replace('\\', "/");
+        let Some(first) = normalized.split('/').next() else {
+            return false;
+        };
+        if first.is_empty() || first == "." || first == ".." || first.contains(':') {
+            return false;
+        }
+        Path::new("build/libs").join(first).is_dir()
+    }
+
+    fn is_synthetic_file(path: &str) -> bool {
+        path.is_empty() || path == "<stdin>"
+    }
+
+    fn base_type_name(displayed: &str) -> String {
+        displayed
+            .split('<')
+            .next()
+            .unwrap_or(displayed)
+            .trim()
+            .trim_start_matches('*')
+            .trim()
+            .to_owned()
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Kind {
+        Struct,
+        Concept,
+        Enum,
+        Union,
+        Function,
+        Constant,
+    }
+
+    impl Kind {
+        fn prefix(self) -> &'static str {
+            match self {
+                Kind::Struct => "struct",
+                Kind::Concept => "concept",
+                Kind::Enum => "enum",
+                Kind::Union => "union",
+                Kind::Function => "fn",
+                Kind::Constant => "const",
             }
-            html.push_str("</head><body>\n");
-            html.push_str(&format!(
-                "<h1 style=\"margin:16px\">Documentation for {}</h1>\n",
-                src_path
-            ));
-            html.push_str("<div id=\"wrap\">\n");
-            html.push_str("<nav id=\"toc\">\n<h3>Contents</h3>\n<ul>\n");
-            for (id, title) in &toc {
-                html.push_str(&format!(
-                    "<li><a href=\"#{}\">{}</a></li>\n",
-                    escape_html(id),
-                    escape_html(title)
+        }
+
+        fn label(self) -> &'static str {
+            match self {
+                Kind::Struct => "Struct",
+                Kind::Concept => "Concept",
+                Kind::Enum => "Enum",
+                Kind::Union => "Union",
+                Kind::Function => "Function",
+                Kind::Constant => "Constant",
+            }
+        }
+
+        fn section(self) -> &'static str {
+            match self {
+                Kind::Struct => "Structs",
+                Kind::Concept => "Concepts",
+                Kind::Enum => "Enums",
+                Kind::Union => "Unions",
+                Kind::Function => "Functions",
+                Kind::Constant => "Constants",
+            }
+        }
+
+        fn all() -> [Kind; 6] {
+            [
+                Kind::Struct,
+                Kind::Concept,
+                Kind::Enum,
+                Kind::Union,
+                Kind::Function,
+                Kind::Constant,
+            ]
+        }
+    }
+
+    struct Entry {
+        kind: Kind,
+        name: String,
+        qualified: String,
+        namespace: Vec<String>,
+        file: String,
+        docs: Option<String>,
+        /// Declaration rendered as code, shown at the top of the item's page.
+        signature: String,
+        /// Everything below the signature: fields, variants, methods, conformances...
+        detail: String,
+    }
+
+    impl Entry {
+        fn file_name(&self) -> String {
+            format!("{}.{}.html", self.kind.prefix(), slug(&self.name))
+        }
+
+        fn href(&self) -> String {
+            let mut segments: Vec<String> = self.namespace.iter().map(|s| slug(s)).collect();
+            segments.push(self.file_name());
+            segments.join("/")
+        }
+    }
+
+    fn code_block(code: &str) -> String {
+        format!("<pre class=\"code\">{}</pre>\n", escape_html(code))
+    }
+
+    fn section(title: &str, body: &str) -> String {
+        let trimmed = body.trim();
+        if trimmed.is_empty() || !trimmed.contains("<li") && trimmed.starts_with("<ul") {
+            return String::new();
+        }
+        format!("<section>\n<h2>{}</h2>\n{}</section>\n", title, body)
+    }
+
+    fn method_signature(name: &str, sig: &HirStructMethodSignature<'_>) -> String {
+        let mut printer = HirPrettyPrinter::new();
+        printer.print_method_signature(name, sig);
+        printer.get_output()
+    }
+
+    fn member(anchor: &str, signature: &str, own: Option<&str>, inherited: Option<&str>) -> String {
+        let mut out = String::new();
+        out.push_str(&format!(
+            "<div class=\"member\" id=\"{}\">\n",
+            escape_html(anchor)
+        ));
+        out.push_str(&code_block(signature));
+        match (own, inherited) {
+            (Some(docs), _) => out.push_str(&md_to_html(docs)),
+            (None, Some(docs)) => {
+                out.push_str(
+                    "<p class=\"inherited\">Documentation inherited from the concept:</p>\n",
+                );
+                out.push_str(&md_to_html(docs));
+            }
+            (None, None) => {}
+        }
+        out.push_str("</div>\n");
+        out
+    }
+
+    pub fn generate_docs(
+        module: &HirModule,
+        out_dir: &Path,
+        package: Option<&str>,
+    ) -> Result<(), Box<dyn Error>> {
+        std::fs::create_dir_all(out_dir)?;
+        let signature = &module.signature;
+        let root = project_root();
+        let root = root.as_deref();
+        let file_docs: BTreeMap<String, &str> = signature
+            .file_docs
+            .iter()
+            .map(|(path, docs)| (display_path(path, root), *docs))
+            .collect();
+
+        let mut extends_by_type: BTreeMap<String, Vec<&HirExtendBlock<'_>>> = BTreeMap::new();
+        for blocks in module.body.extends.values() {
+            for block in blocks {
+                extends_by_type
+                    .entry(base_type_name(&format!("{}", block.ty)))
+                    .or_default()
+                    .push(block);
+            }
+        }
+
+        let mut entries: Vec<Entry> = Vec::new();
+
+        for (qualified, strukt) in signature.structs.iter() {
+            if strukt.vis == HirVisibility::Private
+                || strukt.pre_mangled_ty.is_some()
+                || is_dependency_file(strukt.declaration_span.path)
+                || is_synthetic_file(strukt.declaration_span.path)
+            {
+                continue;
+            }
+            let (namespace, name) = split_qualified(qualified);
+            let generics = render_generics(&strukt.generics);
+            let mut detail = String::new();
+
+            let fields = strukt
+                .fields
+                .values()
+                .filter(|f| f.vis != HirVisibility::Private)
+                .map(|f| {
+                    member(
+                        &format!("field.{}", slug(f.name)),
+                        &format!("{}: {}", f.name, f.ty),
+                        f.docstring,
+                        None,
+                    )
+                })
+                .collect::<String>();
+            detail.push_str(&section("Fields", &fields));
+
+            let constants = strukt
+                .constants
+                .iter()
+                .map(|(cname, c)| {
+                    member(
+                        &format!("const.{}", slug(cname)),
+                        &format!("const {}: {}", cname, c.ty),
+                        c.docstring,
+                        None,
+                    )
+                })
+                .collect::<String>();
+            detail.push_str(&section("Constants", &constants));
+
+            let methods = strukt
+                .methods
+                .iter()
+                .filter(|(_, m)| m.vis != HirVisibility::Private)
+                .map(|(mname, m)| {
+                    member(
+                        &format!("method.{}", slug(mname)),
+                        &method_signature(mname, m),
+                        m.docstring,
+                        None,
+                    )
+                })
+                .collect::<String>();
+            detail.push_str(&section("Methods", &methods));
+
+            if let Some(destructor) = &strukt.destructor
+                && strukt.had_user_defined_destructor
+            {
+                detail.push_str(&section(
+                    "Destructor",
+                    &member(
+                        "destructor",
+                        &format!("~{}()", name),
+                        destructor.docstring,
+                        None,
+                    ),
                 ));
             }
-            html.push_str("</ul>\n</nav>\n");
-            html.push_str("<main id=\"main\">\n");
-            html.push_str(&content_html);
-            html.push_str("</main>\n");
-            html.push_str("</div>\n");
-            html.push_str("</body></html>");
 
-            let out_file = dst_dir.join(format!("{}.html", base_name));
-            std::fs::write(&out_file, html)?;
-            println!("[atlas_docs] wrote {}", out_file.display());
+            detail.push_str(&render_conformances(
+                qualified,
+                &extends_by_type,
+                &signature.concepts,
+            ));
 
-            // Build a relative link from the output dir root to the generated HTML file.
-            let rel_link = if parent_dir.is_empty() {
-                format!("{}.html", base_name)
+            entries.push(Entry {
+                kind: Kind::Struct,
+                signature: format!("struct {}{}", qualified, generics),
+                name,
+                qualified: qualified.to_string(),
+                namespace,
+                file: display_path(strukt.declaration_span.path, root),
+                docs: strukt.docstring.map(str::to_owned),
+                detail,
+            });
+        }
+
+        for (qualified, concept) in signature.concepts.iter() {
+            if concept.vis == HirVisibility::Private
+                || is_synthetic_file(concept.declaration_span.path)
+                || is_dependency_file(concept.declaration_span.path)
+            {
+                continue;
+            }
+            let (namespace, name) = split_qualified(qualified);
+            let generics = render_generics(&concept.generics);
+            let mut detail = String::new();
+
+            let associated = concept
+                .associated_types
+                .values()
+                .map(|assoc| {
+                    let rendered = match assoc.ty {
+                        Some(ty) => format!("type {} = {}", assoc.name, ty),
+                        None => format!("type {}", assoc.name),
+                    };
+                    member(
+                        &format!("type.{}", slug(assoc.name)),
+                        &rendered,
+                        assoc.docstring,
+                        None,
+                    )
+                })
+                .collect::<String>();
+            detail.push_str(&section("Associated types", &associated));
+
+            let required = concept
+                .required_method_names
+                .iter()
+                .zip(concept.required_methods.iter())
+                .map(|(mname, m)| {
+                    member(
+                        &format!("method.{}", slug(mname)),
+                        &method_signature(mname, m),
+                        m.docstring,
+                        None,
+                    )
+                })
+                .collect::<String>();
+            detail.push_str(&section("Required methods", &required));
+
+            let operators = concept
+                .required_operators
+                .iter()
+                .map(|(kind, m)| {
+                    let label = format!("operator {:?}", kind).to_lowercase();
+                    member(
+                        &slug(&label),
+                        &method_signature(&label, m),
+                        m.docstring,
+                        None,
+                    )
+                })
+                .collect::<String>();
+            detail.push_str(&section("Required operators", &operators));
+
+            detail.push_str(&render_implementors(qualified, &extends_by_type));
+
+            entries.push(Entry {
+                kind: Kind::Concept,
+                signature: format!("concept {}{}", qualified, generics),
+                name,
+                qualified: qualified.to_string(),
+                namespace,
+                file: display_path(concept.declaration_span.path, root),
+                docs: concept.docstring.map(str::to_owned),
+                detail,
+            });
+        }
+
+        for (qualified, hir_enum) in signature.enums.iter() {
+            if hir_enum.vis == HirVisibility::Private
+                || is_synthetic_file(hir_enum.span.path)
+                || is_dependency_file(hir_enum.span.path)
+            {
+                continue;
+            }
+            let (namespace, name) = split_qualified(qualified);
+            let variants = hir_enum
+                .variants
+                .iter()
+                .map(|v| {
+                    member(
+                        &format!("variant.{}", slug(v.name)),
+                        &format!("{} = {}", v.name, v.value),
+                        v.docstring,
+                        None,
+                    )
+                })
+                .collect::<String>();
+
+            entries.push(Entry {
+                kind: Kind::Enum,
+                signature: format!("enum {}", qualified),
+                name,
+                qualified: qualified.to_string(),
+                namespace,
+                file: display_path(hir_enum.span.path, root),
+                docs: hir_enum.docstring.map(str::to_owned),
+                detail: section("Variants", &variants),
+            });
+        }
+
+        for (qualified, union) in signature.unions.iter() {
+            if union.vis == HirVisibility::Private
+                || is_synthetic_file(union.declaration_span.path)
+                || is_dependency_file(union.declaration_span.path)
+            {
+                continue;
+            }
+            let (namespace, name) = split_qualified(qualified);
+            entries.push(Entry {
+                kind: Kind::Union,
+                signature: format!("union {}", qualified),
+                name,
+                qualified: qualified.to_string(),
+                namespace,
+                file: display_path(union.declaration_span.path, root),
+                docs: union.docstring.map(str::to_owned),
+                detail: String::new(),
+            });
+        }
+
+        for (qualified, function) in signature.functions.iter() {
+            if function.vis == HirVisibility::Private
+                || function.pre_mangled_ty.is_some()
+                || function.is_intrinsic
+                || is_synthetic_file(function.span.path)
+                || is_dependency_file(function.span.path)
+            {
+                continue;
+            }
+            let (namespace, name) = split_qualified(qualified);
+            let params = function
+                .params
+                .iter()
+                .map(|p| format!("{}: {}", p.name, p.ty))
+                .collect::<Vec<_>>()
+                .join(", ");
+            entries.push(Entry {
+                kind: Kind::Function,
+                signature: format!(
+                    "fun {}{}({}) -> {}",
+                    qualified,
+                    render_generics(&function.generics),
+                    params,
+                    function.return_ty
+                ),
+                name,
+                qualified: qualified.to_string(),
+                namespace,
+                file: display_path(function.span.path, root),
+                docs: function.docstring.map(str::to_owned),
+                detail: String::new(),
+            });
+        }
+
+        for (qualified, constant) in signature.global_consts.iter() {
+            if constant.vis == HirVisibility::Private
+                || is_synthetic_file(constant.span.path)
+                || is_dependency_file(constant.span.path)
+            {
+                continue;
+            }
+            let (namespace, name) = split_qualified(qualified);
+            entries.push(Entry {
+                kind: Kind::Constant,
+                signature: format!("const {}: {}", qualified, constant.ty),
+                name,
+                qualified: qualified.to_string(),
+                namespace,
+                file: display_path(constant.span.path, root),
+                docs: constant.docstring.map(str::to_owned),
+                detail: String::new(),
+            });
+        }
+
+        entries.sort_by(|a, b| a.qualified.cmp(&b.qualified));
+
+        let mut namespaces: BTreeMap<Vec<String>, Option<String>> = BTreeMap::new();
+        for entry in &entries {
+            for depth in 0..=entry.namespace.len() {
+                namespaces
+                    .entry(entry.namespace[..depth].to_vec())
+                    .or_insert(None);
+            }
+        }
+        for (qualified, namespace) in signature.namespaces.iter() {
+            let path: Vec<String> = qualified.split("::").map(str::to_owned).collect();
+            if let Some(slot) = namespaces.get_mut(&path) {
+                *slot = namespace.docstring.map(str::to_owned);
+            }
+        }
+
+        let nav = render_nav(&namespaces, &entries);
+
+        for entry in &entries {
+            let depth = entry.namespace.len();
+            let mut body = String::new();
+            body.push_str(&format!(
+                "<h1><span class=\"kind\">{}</span> {}</h1>\n",
+                entry.kind.label(),
+                escape_html(&entry.qualified)
+            ));
+            body.push_str(&code_block(&entry.signature));
+            body.push_str(&format!(
+                "<p class=\"source\">Declared in <a href=\"{ROOT}files/{}\">{}</a></p>\n",
+                file_page_name(&entry.file),
+                escape_html(&entry.file)
+            ));
+            body.push_str(&docs_html(entry.docs.as_deref()));
+            body.push_str(&entry.detail);
+            write_page(out_dir, &entry.href(), &entry.qualified, &nav, &body, depth)?;
+        }
+
+        for (path, docs) in &namespaces {
+            let title = if path.is_empty() {
+                package_title(package.unwrap_or(signature.module_name))
             } else {
-                format!("{}/{}.html", parent_dir, base_name)
+                path.join("::")
             };
-            generated_files.push((rel_link, base_name.to_string()));
-        }
+            let mut body = String::new();
+            body.push_str(&format!("<h1>{}</h1>\n", escape_html(&title)));
+            if path.is_empty() {
+                body.push_str("<p class=\"lead\">API documentation.</p>\n");
+            }
+            body.push_str(&docs_html(docs.as_deref()));
 
-        use std::collections::BTreeMap;
+            let children: Vec<&Vec<String>> = namespaces
+                .keys()
+                .filter(|candidate| {
+                    candidate.len() == path.len() + 1 && candidate.starts_with(path.as_slice())
+                })
+                .collect();
+            if !children.is_empty() {
+                let list = children
+                    .iter()
+                    .map(|child| {
+                        let href = format!(
+                            "{}/index.html",
+                            child.iter().map(|s| slug(s)).collect::<Vec<_>>().join("/")
+                        );
+                        format!(
+                            "<li><a href=\"{ROOT}{}\">{}</a></li>\n",
+                            href,
+                            escape_html(child.join("::").as_str())
+                        )
+                    })
+                    .collect::<String>();
+                body.push_str(&section(
+                    "Namespaces",
+                    &format!("<ul class=\"listing\">{list}</ul>"),
+                ));
+            }
 
-        // Group generated files by their parent directory so the index reflects layout.
-        let mut groups: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
-        for (rel, title) in &generated_files {
-            let parent = std::path::Path::new(rel)
-                .parent()
-                .and_then(|p| p.to_str())
-                .unwrap_or("")
-                .to_string();
-            groups
-                .entry(parent)
-                .or_default()
-                .push((rel.clone(), title.clone()));
-        }
+            for kind in Kind::all() {
+                let list = entries
+                    .iter()
+                    .filter(|entry| entry.kind == kind && &entry.namespace == path)
+                    .map(|entry| {
+                        format!(
+                            "<li><a href=\"{ROOT}{}\"><code>{}</code></a> <span class=\"blurb\">{}</span></li>\n",
+                            entry.href(),
+                            escape_html(&entry.name),
+                            summary(entry.docs.as_deref())
+                        )
+                    })
+                    .collect::<String>();
+                body.push_str(&section(
+                    kind.section(),
+                    &format!("<ul class=\"listing\">{list}</ul>"),
+                ));
+            }
 
-        let mut index_md = String::new();
-        index_md.push_str("# Index\n\n");
-        for (dir, items) in &groups {
-            if dir.is_empty() {
-                index_md.push_str("## Root\n\n");
+            if path.is_empty() {
+                let files = file_docs
+                    .keys()
+                    .cloned()
+                    .chain(entries.iter().map(|entry| entry.file.clone()))
+                    .filter(|path| !is_dependency_file(path) && !is_synthetic_file(path))
+                    .collect::<std::collections::BTreeSet<_>>();
+                let list = files
+                    .iter()
+                    .map(|file| {
+                        format!(
+                            "<li><a href=\"{ROOT}files/{}\"><code>{}</code></a> <span class=\"blurb\">{}</span></li>\n",
+                            file_page_name(file),
+                            escape_html(file),
+                            summary(file_docs.get(file.as_str()).copied())
+                        )
+                    })
+                    .collect::<String>();
+                body.push_str(&section(
+                    "Source files",
+                    &format!("<ul class=\"listing\">{list}</ul>"),
+                ));
+            }
+
+            let href = if path.is_empty() {
+                "index.html".to_string()
             } else {
-                index_md.push_str(&format!("## {}/\n\n", dir));
-            }
-            for (rel, title) in items {
-                index_md.push_str(&format!("- [{}]({})\n", title, rel));
-            }
-            index_md.push('\n');
+                format!(
+                    "{}/index.html",
+                    path.iter().map(|s| slug(s)).collect::<Vec<_>>().join("/")
+                )
+            };
+            write_page(out_dir, &href, &title, &nav, &body, path.len())?;
         }
-        let index_md_file = out_dir.join("index.md");
-        std::fs::write(&index_md_file, &index_md)?;
-        let index_html = md_to_html(&index_md);
-        let index_out = out_dir.join("index.html");
-        std::fs::write(&index_out, index_html)?;
-        println!("[atlas_docs] wrote {}", index_out.display());
+
+        let files = file_docs
+            .keys()
+            .cloned()
+            .chain(entries.iter().map(|entry| entry.file.clone()))
+            .filter(|path| !is_dependency_file(path) && !is_synthetic_file(path))
+            .collect::<std::collections::BTreeSet<_>>();
+        for file in &files {
+            let mut body = String::new();
+            body.push_str(&format!("<h1>{}</h1>\n", escape_html(file)));
+            body.push_str(&docs_html(file_docs.get(file.as_str()).copied()));
+            for kind in Kind::all() {
+                let list = entries
+                    .iter()
+                    .filter(|entry| entry.kind == kind && &entry.file == file)
+                    .map(|entry| {
+                        format!(
+                            "<li><a href=\"{ROOT}{}\"><code>{}</code></a> <span class=\"blurb\">{}</span></li>\n",
+                            entry.href(),
+                            escape_html(&entry.qualified),
+                            summary(entry.docs.as_deref())
+                        )
+                    })
+                    .collect::<String>();
+                body.push_str(&section(
+                    kind.section(),
+                    &format!("<ul class=\"listing\">{list}</ul>"),
+                ));
+            }
+            write_page(
+                out_dir,
+                &format!("files/{}", file_page_name(file)),
+                file,
+                &nav,
+                &body,
+                1,
+            )?;
+        }
+
+        std::fs::write(out_dir.join("style.css"), STYLE)?;
+        println!(
+            "[atlas_docs] wrote {} item pages, {} namespace pages and {} file pages to {}",
+            entries.len(),
+            namespaces.len(),
+            files.len(),
+            out_dir.display()
+        );
+        Ok(())
+    }
+
+    fn package_title(module_name: &str) -> String {
+        if module_name.is_empty() {
+            "Documentation".to_string()
+        } else {
+            module_name.to_string()
+        }
+    }
+
+    fn file_page_name(path: &str) -> String {
+        format!("{}.html", slug(&path.replace('\\', "/")))
+    }
+
+    fn render_generics(
+        generics: &[&crate::atlas_c::atlas_hir::signature::HirGenericConstraint<'_>],
+    ) -> String {
+        if generics.is_empty() {
+            return String::new();
+        }
+        let names = generics
+            .iter()
+            .map(|g| g.generic_name.to_string())
+            .collect::<Vec<_>>();
+        format!("<{}>", names.join(", "))
+    }
+
+    fn render_conformances(
+        type_name: &str,
+        extends_by_type: &BTreeMap<String, Vec<&HirExtendBlock<'_>>>,
+        concepts: &BTreeMap<&str, &HirConceptSignature<'_>>,
+    ) -> String {
+        let Some(blocks) = extends_by_type.get(type_name) else {
+            return String::new();
+        };
+
+        let mut out = String::new();
+        for block in blocks {
+            let concept_name = base_type_name(&format!("{}", block.concept));
+            let concept = concepts.get(concept_name.as_str()).copied();
+            out.push_str(&format!(
+                "<div class=\"member\" id=\"conformance.{}\">\n",
+                slug(&concept_name)
+            ));
+            out.push_str(&code_block(&format!(
+                "extend {} with {}",
+                block.ty, block.concept
+            )));
+            match (block.docstring, concept.and_then(|c| c.docstring)) {
+                (Some(docs), _) => out.push_str(&md_to_html(docs)),
+                (None, Some(docs)) => {
+                    out.push_str(
+                        "<p class=\"inherited\">Documentation inherited from the concept:</p>\n",
+                    );
+                    out.push_str(&md_to_html(docs));
+                }
+                (None, None) => {}
+            }
+
+            for associated in &block.associated_types {
+                let rendered = match associated.ty {
+                    Some(ty) => format!("type {} = {}", associated.name, ty),
+                    None => format!("type {}", associated.name),
+                };
+                let inherited = concept
+                    .and_then(|c| c.associated_types.get(associated.name))
+                    .and_then(|assoc| assoc.docstring);
+                out.push_str(&member(
+                    &format!(
+                        "conformance.{}.type.{}",
+                        slug(&concept_name),
+                        slug(associated.name)
+                    ),
+                    &rendered,
+                    associated.docstring,
+                    inherited,
+                ));
+            }
+
+            for method in &block.methods {
+                let inherited = concept.and_then(|c| {
+                    c.required_method_names
+                        .iter()
+                        .position(|name| *name == method.name)
+                        .and_then(|index| c.required_methods.get(index))
+                        .and_then(|required| required.docstring)
+                });
+                out.push_str(&member(
+                    &format!(
+                        "conformance.{}.method.{}",
+                        slug(&concept_name),
+                        slug(method.name)
+                    ),
+                    &method_signature(method.name, method.signature),
+                    method.signature.docstring,
+                    inherited,
+                ));
+            }
+
+            out.push_str("</div>\n");
+        }
+        section("Conformances", &out)
+    }
+
+    fn render_implementors(
+        concept_name: &str,
+        extends_by_type: &BTreeMap<String, Vec<&HirExtendBlock<'_>>>,
+    ) -> String {
+        let mut out = String::new();
+        for blocks in extends_by_type.values() {
+            for block in blocks {
+                if base_type_name(&format!("{}", block.concept)) != concept_name {
+                    continue;
+                }
+                out.push_str("<div class=\"member\">\n");
+                out.push_str(&code_block(&format!(
+                    "extend {} with {}",
+                    block.ty, block.concept
+                )));
+                if let Some(docs) = block.docstring {
+                    out.push_str(&md_to_html(docs));
+                }
+                out.push_str("</div>\n");
+            }
+        }
+        section("Implementors", &out)
+    }
+
+    fn render_nav(namespaces: &BTreeMap<Vec<String>, Option<String>>, entries: &[Entry]) -> String {
+        let mut nav = String::new();
+        nav.push_str(&format!(
+            "<a class=\"home\" href=\"{ROOT}index.html\">Index</a>\n"
+        ));
+        for path in namespaces.keys() {
+            if path.is_empty() {
+                continue;
+            }
+            let href = format!(
+                "{}/index.html",
+                path.iter().map(|s| slug(s)).collect::<Vec<_>>().join("/")
+            );
+            nav.push_str(&format!(
+                "<div class=\"ns\" style=\"padding-left:{}px\"><a href=\"{ROOT}{}\">{}</a></div>\n",
+                (path.len() - 1) * 12,
+                href,
+                escape_html(path.last().map(String::as_str).unwrap_or_default())
+            ));
+            let mut listed = entries
+                .iter()
+                .filter(|entry| &entry.namespace == path)
+                .collect::<Vec<_>>();
+            listed.sort_by(|a, b| a.name.cmp(&b.name));
+            for entry in listed {
+                nav.push_str(&format!(
+                    "<div class=\"item\" style=\"padding-left:{}px\"><a href=\"{ROOT}{}\">{}</a></div>\n",
+                    path.len() * 12 + 4,
+                    entry.href(),
+                    escape_html(&entry.name)
+                ));
+            }
+        }
+        for entry in entries.iter().filter(|entry| entry.namespace.is_empty()) {
+            nav.push_str(&format!(
+                "<div class=\"item\"><a href=\"{ROOT}{}\">{}</a></div>\n",
+                entry.href(),
+                escape_html(&entry.name)
+            ));
+        }
+        nav
+    }
+
+    fn write_page(
+        out_dir: &Path,
+        href: &str,
+        title: &str,
+        nav: &str,
+        body: &str,
+        depth: usize,
+    ) -> Result<(), Box<dyn Error>> {
+        let root_rel = if depth == 0 {
+            String::new()
+        } else {
+            "../".repeat(depth)
+        };
+        let page = format!(
+            "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
+             <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
+             <title>{title}</title>\n\
+             <link rel=\"stylesheet\" href=\"{root}style.css\">\n\
+             </head>\n<body>\n\
+             <nav id=\"sidebar\">\n{nav}</nav>\n\
+             <main id=\"content\">\n{body}</main>\n\
+             <footer>Generated by <code>atlas77 docs</code></footer>\n\
+             </body>\n</html>\n",
+            title = escape_html(title),
+            root = root_rel,
+            nav = nav.replace(ROOT, &root_rel),
+            body = body.replace(ROOT, &root_rel),
+        );
+
+        let target = out_dir.join(href);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(target, page)?;
         Ok(())
     }
 }

@@ -20,6 +20,7 @@ declare_error_type! {
         InvalidListSize(InvalidListSizeError),
         NonConstantListSize(NonConstantListSizeError),
         UnknownFileImport(UnknownFileImportError),
+        FileNotFoundInDependency(FileNotFoundInDependencyError),
         NotEnoughGenerics(NotEnoughGenericsError),
         NotEnoughArguments(NotEnoughArgumentsError),
         UnknownType(UnknownTypeError),
@@ -52,6 +53,12 @@ declare_error_type! {
         IllegalUnaryOperation(IllegalUnaryOperationError),
         AccessingPrivateFunction(AccessingPrivateFunctionError),
         UnsupportedItem(UnsupportedItemError),
+        ConceptUnknown(ConceptUnknownError),
+        ConceptMissingMember(ConceptMissingMemberError),
+        ConceptSignatureMismatch(ConceptSignatureMismatchError),
+        ConceptOverlap(ConceptOverlapError),
+        ConceptOrphan(ConceptOrphanError),
+        CompetingExtendMember(CompetingExtendMemberError),
         TryingToAccessFieldOnNonObjectType(TryingToAccessFieldOnNonObjectTypeError),
         TryingToAccessAMovedValue(TryingToAccessAMovedValueError),
         TryingToAccessAConsumedValue(TryingToAccessAConsumedValueError),
@@ -74,8 +81,6 @@ declare_error_type! {
         UnknownField(UnknownFieldError),
         UnknownMethod(UnknownMethodError),
         StructCannotHaveAFieldOfItsOwnType(StructCannotHaveAFieldOfItsOwnTypeError),
-        UnionMustHaveAtLeastTwoVariant(UnionMustHaveAtLeastTwoVariantError),
-        UnionVariantDefinedMultipleTimes(UnionVariantDefinedMultipleTimesError),
         LifetimeDependencyViolation(LifetimeDependencyViolationError),
         ReturningValueWithLocalLifetimeDependency(ReturningValueWithLocalLifetimeDependencyError),
         MethodConstraintNotSatisfied(MethodConstraintNotSatisfiedError),
@@ -97,6 +102,8 @@ declare_error_type! {
         OperatorMustUseConstThisModifier(OperatorMustUseConstThisModifierError),
         OperatorSecondArgumentMustBeConstPointerToSelf(OperatorSecondArgumentMustBeConstPointerToSelfError),
         OperatorOverloadDoesNotHaveRequiredAmountOfArgs(OperatorOverloadDoesNotHaveRequiredAmountOfArgsError),
+        UsedThisTyOutsideOfCorrectContext(UsedThisTyOutsideOfCorrectContextError),
+        CannotMoveGlobalConstants(CannotMoveGlobalConstantsError),
     }
 }
 
@@ -106,8 +113,6 @@ pub enum HirPass {
     Monomorphization = 1,
     TypeCheck = 2,
     OwnershipPass = 3,
-    ConstantFolding = 4,
-    DeadCodeElimination = 5,
 }
 
 pub enum HirErrorGravity {
@@ -129,6 +134,9 @@ impl HirError {
             }
             HirError::UnsupportedItem(_) => HirErrorGravity::CanFinishCurrentPassButNotContinue,
             HirError::UnknownFileImport(_) => HirErrorGravity::CanGoUpTo(HirPass::SyntaxLowering),
+            HirError::FileNotFoundInDependency(_) => {
+                HirErrorGravity::CanGoUpTo(HirPass::SyntaxLowering)
+            }
             HirError::TypeCheckFailed(_) => HirErrorGravity::CanGoUpTo(HirPass::OwnershipPass),
             HirError::OwnershipAnalysisFailed(_) => {
                 HirErrorGravity::CanFinishCurrentPassButNotContinue
@@ -136,6 +144,20 @@ impl HirError {
             _ => HirErrorGravity::Critical,
         }
     }
+}
+
+#[derive(Error, Diagnostic, Debug, Serialize)]
+#[diagnostic(
+    code(sema::this_ty_incorrect_usage),
+    help("The type `This` must only be used in struct/concept/extend block context")
+)]
+#[error("You cannot use the `This` type in this context")]
+pub struct UsedThisTyOutsideOfCorrectContextError {
+    #[label = "Incorrect usage here"]
+    pub span: Span,
+    #[source_code]
+    #[serde(skip_serializing)]
+    pub src: NamedSource<String>,
 }
 
 #[derive(Error, Diagnostic, Debug, Serialize)]
@@ -496,6 +518,70 @@ pub struct UnsupportedItemError {
 }
 
 #[derive(Error, Diagnostic, Debug, Serialize)]
+#[diagnostic(code(sema::concept_unknown))]
+#[error("unknown concept `{concept}`")]
+pub struct ConceptUnknownError {
+    #[label = "unknown concept"]
+    pub span: Span,
+    pub concept: String,
+    #[source_code]
+    #[serde(skip_serializing)]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug, Serialize)]
+#[diagnostic(code(sema::concept_missing_member))]
+#[error("concept `{concept}` is missing required member `{member}`")]
+pub struct ConceptMissingMemberError {
+    #[label = "required member is missing"]
+    pub span: Span,
+    pub concept: String,
+    pub member: String,
+    #[source_code]
+    #[serde(skip_serializing)]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug, Serialize)]
+#[diagnostic(code(sema::concept_signature_mismatch))]
+#[error("member `{member}` does not match concept `{concept}`")]
+pub struct ConceptSignatureMismatchError {
+    #[label = "signature does not match the requirement"]
+    pub span: Span,
+    pub concept: String,
+    pub member: String,
+    pub expected: String,
+    pub actual: String,
+    #[source_code]
+    #[serde(skip_serializing)]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug, Serialize)]
+#[diagnostic(code(sema::concept_overlap))]
+#[error("overlapping conformances for concept `{concept}`")]
+pub struct ConceptOverlapError {
+    #[label = "overlapping conformance"]
+    pub span: Span,
+    pub concept: String,
+    #[source_code]
+    #[serde(skip_serializing)]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug, Serialize)]
+#[diagnostic(code(sema::concept_orphan))]
+#[error("orphan conformance for concept `{concept}`")]
+pub struct ConceptOrphanError {
+    #[label = "neither the target type nor concept is local"]
+    pub span: Span,
+    pub concept: String,
+    #[source_code]
+    #[serde(skip_serializing)]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug, Serialize)]
 #[diagnostic(
     code(sema::not_enough_arguments),
     help("Provide the required number of arguments")
@@ -725,6 +811,21 @@ pub struct UnknownFileImportError {
     pub file_name: String,
     #[label = "could not find import file {file_name}"]
     pub span: Span,
+    #[source_code]
+    #[serde(skip_serializing)]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug, Serialize)]
+#[diagnostic(code(sema::file_not_found_in_dependency))]
+#[error("dependency '{dependency_name}' does not contain '{requested_file}'")]
+pub struct FileNotFoundInDependencyError {
+    pub dependency_name: String,
+    pub requested_file: String,
+    #[label = "'{dependency_name}' has no '{requested_file}'"]
+    pub span: Span,
+    #[help]
+    pub help: String,
     #[source_code]
     #[serde(skip_serializing)]
     pub src: NamedSource<String>,
@@ -1158,42 +1259,6 @@ pub struct StructCannotHaveAFieldOfItsOwnTypeError {
 
 #[derive(Error, Diagnostic, Debug, Serialize)]
 #[diagnostic(
-    code(sema::union_must_have_at_least_two_variant),
-    help(
-        "A union must have at least two variants to be valid, add a `std::empty` variant if you need a nullable state."
-    )
-)]
-#[error("{union_name} must have at least two variants")]
-pub struct UnionMustHaveAtLeastTwoVariantError {
-    pub union_name: String,
-    #[label = "{union_name} must have at least two variants"]
-    pub span: Span,
-    #[source_code]
-    #[serde(skip_serializing)]
-    pub src: NamedSource<String>,
-}
-#[derive(Error, Diagnostic, Debug, Serialize)]
-#[diagnostic(
-    code(sema::union_variant_defined_multiple_times),
-    help(
-        "Each variant in a union must have a unique name. Rename one of the variants to resolve the conflict."
-    )
-)]
-#[error("union `{union_name}` has a variant of type `{variant_ty}` defined multiple times")]
-pub struct UnionVariantDefinedMultipleTimesError {
-    pub union_name: String,
-    pub variant_ty: String,
-    #[label = "first definition of variant of type `{variant_ty}`"]
-    pub first_span: Span,
-    #[label = "second definition of variant of type `{variant_ty}`"]
-    pub second_span: Span,
-    #[source_code]
-    #[serde(skip_serializing)]
-    pub src: NamedSource<String>,
-}
-
-#[derive(Error, Diagnostic, Debug, Serialize)]
-#[diagnostic(
     code(sema::lifetime_dependency_violation),
     help(
         "The value `{value_name}` depends on `{origin_name}` which has been deleted or moved. \
@@ -1468,9 +1533,48 @@ pub struct OperatorOverloadDoesNotHaveRequiredAmountOfArgsError {
     pub context: String,
 }
 
+#[derive(Error, Diagnostic, Debug, Serialize)]
+#[diagnostic(
+    code(sema::cannot_move_globals),
+    help("Global Constants cannot be moved as they have to stay in the same place :)")
+)]
+#[error("Trying to move a static global constant")]
+pub struct CannotMoveGlobalConstantsError {
+    #[label = "Trying to move the constant here"]
+    pub moved_span: Span,
+    #[label = "Constant defined here"]
+    pub definition_span: Span,
+    #[source_code]
+    #[serde(skip_serializing)]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug, Serialize)]
+#[diagnostic(
+    code(sema::competing_extend_member),
+    help("rename one of the conflicting members, or merge the two concepts")
+)]
+#[error("`{kind}` `{name}` is declared by more than one concept extending this type")]
+pub struct CompetingExtendMemberError {
+    pub kind: String,
+    pub name: String,
+    #[label = "first declared here"]
+    pub first_span: Span,
+    #[label = "also declared here"]
+    pub second_span: Span,
+    #[source_code]
+    #[serde(skip_serializing)]
+    pub src: NamedSource<String>,
+}
+
 impl From<HirError> for Vec<CompilerError> {
     fn from(e: HirError) -> Vec<CompilerError> {
         match e {
+            HirError::UsedThisTyOutsideOfCorrectContext(error) => vec![CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Error,
+            }],
             HirError::InvalidListSize(error) => vec![CompilerError {
                 message: error.to_string(),
                 span: error.span,
@@ -1482,6 +1586,11 @@ impl From<HirError> for Vec<CompilerError> {
                 kind: CompilerErrorKind::Error,
             }],
             HirError::UnknownFileImport(error) => vec![CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Error,
+            }],
+            HirError::FileNotFoundInDependency(error) => vec![CompilerError {
                 message: error.to_string(),
                 span: error.span,
                 kind: CompilerErrorKind::Error,
@@ -1896,27 +2005,6 @@ impl From<HirError> for Vec<CompilerError> {
                 }
                 errors
             }
-            HirError::UnionMustHaveAtLeastTwoVariant(error) => {
-                vec![CompilerError {
-                    message: error.to_string(),
-                    span: error.span,
-                    kind: CompilerErrorKind::Error,
-                }]
-            }
-            HirError::UnionVariantDefinedMultipleTimes(error) => {
-                vec![
-                    CompilerError {
-                        message: error.to_string(),
-                        span: error.first_span,
-                        kind: CompilerErrorKind::Note,
-                    },
-                    CompilerError {
-                        message: error.to_string(),
-                        span: error.second_span,
-                        kind: CompilerErrorKind::Error,
-                    },
-                ]
-            }
             HirError::LifetimeDependencyViolation(error) => {
                 vec![
                     CompilerError {
@@ -2078,6 +2166,50 @@ impl From<HirError> for Vec<CompilerError> {
                     kind: CompilerErrorKind::Error,
                 }]
             }
+            HirError::CannotMoveGlobalConstants(error) => {
+                vec![CompilerError {
+                    message: error.to_string(),
+                    span: error.moved_span,
+                    kind: CompilerErrorKind::Error,
+                }]
+            }
+            HirError::ConceptUnknown(error) => vec![CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Error,
+            }],
+            HirError::ConceptMissingMember(error) => vec![CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Error,
+            }],
+            HirError::ConceptSignatureMismatch(error) => vec![CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Error,
+            }],
+            HirError::ConceptOverlap(error) => vec![CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Error,
+            }],
+            HirError::ConceptOrphan(error) => vec![CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Error,
+            }],
+            HirError::CompetingExtendMember(error) => vec![
+                CompilerError {
+                    message: error.to_string(),
+                    span: error.first_span,
+                    kind: CompilerErrorKind::Note,
+                },
+                CompilerError {
+                    message: error.to_string(),
+                    span: error.second_span,
+                    kind: CompilerErrorKind::Error,
+                },
+            ],
         }
     }
 }

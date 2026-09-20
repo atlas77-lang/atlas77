@@ -11,7 +11,7 @@ use super::ty::{
 };
 use crate::atlas_c::{
     atlas_hir::ty::{
-        HirAtomicTy, HirFunctionTy, HirLiteralFloatTy, HirLiteralIntegerTy,
+        HirAssociatedTypeTy, HirAtomicTy, HirFunctionTy, HirLiteralFloatTy, HirLiteralIntegerTy,
         HirLiteralUnsignedIntegerTy, HirPtrTy,
     },
     utils::Span,
@@ -303,6 +303,19 @@ impl<'arena> TypeArena<'arena> {
         self.intern.borrow_mut().entry(id).or_insert_with(|| {
             self.allocator
                 .alloc(HirTy::Atomic(HirAtomicTy { inner, span }))
+        })
+    }
+
+    pub fn get_associated_ty(
+        &'arena self,
+        base: &'arena HirTy<'arena>,
+        name: &'arena str,
+        span: Span,
+    ) -> &'arena HirTy<'arena> {
+        let id = HirTyId::compute_associated_ty_id(&HirTyId::from(base), name);
+        self.intern.borrow_mut().entry(id).or_insert_with(|| {
+            self.allocator
+                .alloc(HirTy::Associated(HirAssociatedTypeTy { base, name, span }))
         })
     }
 }

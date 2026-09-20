@@ -1,0 +1,31 @@
+[package]
+name = "atlas77"
+version = "0.1.0"
+entry = "src/main.atlas"
+compiler = "gcc"
+args = ["-std=c2y"]
+
+[dependencies]
+
+[link]
+shared = []
+
+[link.windows]
+libs = []
+
+[link.linux]
+libs = []
+
+[c]
+include_dirs = []
+source_dirs = []
+lib_dirs = []
+headers = []
+
+[c.windows]
+include_dirs = []
+headers = []
+# headers_before  = ""
+
+[c.linux]
+lib_dirs = []

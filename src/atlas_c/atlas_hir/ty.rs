@@ -6,7 +6,7 @@ use std::fmt;
 use std::fmt::Formatter;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Copy, Serialize)]
 pub struct HirTyId(pub u64);
 
 const INTEGER_TY_ID: u8 = 0x01;
@@ -26,6 +26,7 @@ const NAMED_TY_ID: u8 = 0x60;
 const GENERIC_TY_ID: u8 = 0x70;
 const ATOMIC_TY_ID: u8 = 0x80;
 const POINTER_TY_ID: u8 = 0x90;
+const ASSOCIATED_TY_ID: u8 = 0xA0;
 
 impl HirTyId {
     pub fn compute_int_ty_id(size_in_bits: u8) -> Self {
@@ -158,6 +159,12 @@ impl HirTyId {
         (POINTER_TY_ID, is_const, inner).hash(&mut hasher);
         Self(hasher.finish())
     }
+
+    pub fn compute_associated_ty_id(base: &HirTyId, name: &str) -> Self {
+        let mut hasher = DefaultHasher::new();
+        (ASSOCIATED_TY_ID, base, name).hash(&mut hasher);
+        Self(hasher.finish())
+    }
 }
 
 impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
@@ -197,6 +204,9 @@ impl<'hir> From<&'hir HirTy<'hir>> for HirTyId {
                 HirTyId::compute_function_ty_id(&ret_ty, &parameters)
             }
             HirTy::Atomic(a) => HirTyId::compute_atomic_ty_id(&HirTyId::from(a.inner)),
+            HirTy::Associated(a) => {
+                HirTyId::compute_associated_ty_id(&HirTyId::from(a.base), a.name)
+            }
         }
     }
 }
@@ -222,9 +232,14 @@ pub enum HirTy<'hir> {
     Function(HirFunctionTy<'hir>),
     PtrTy(HirPtrTy<'hir>),
     Atomic(HirAtomicTy<'hir>),
+    Associated(HirAssociatedTypeTy<'hir>),
 }
 
 impl HirTy<'_> {
+    pub fn type_key(&self) -> HirTyId {
+        HirTyId::from(self)
+    }
+
     /// Returns true if this is a const pointer type (*const T)
     pub fn is_const_ptr(&self) -> bool {
         matches!(self, HirTy::PtrTy(p) if p.is_const)
@@ -270,6 +285,13 @@ impl HirTy<'_> {
         )
     }
 
+    pub fn is_enum(&self, signatures: &HirModuleSignature) -> bool {
+        match self {
+            HirTy::Named(named_ty) => signatures.enums.contains_key(named_ty.name),
+            _ => false,
+        }
+    }
+
     pub fn is_trivially_copyable(&self, signatures: &HirModuleSignature) -> bool {
         if self.is_primitive() {
             return true;
@@ -306,45 +328,7 @@ impl HirTy<'_> {
                 .is_some_and(|sig| sig.is_trivially_copyable),
             // Pointers are trivially copyable (they're just addresses)
             HirTy::PtrTy(_) => true,
-            HirTy::InlineArray(arr) => arr.inner.is_copyable(signatures),
-            _ => false,
-        }
-    }
-
-    pub fn is_copyable(&self, signatures: &HirModuleSignature<'_>) -> bool {
-        if self.is_primitive() {
-            return true;
-        }
-        match self {
-            HirTy::LiteralInteger(_)
-            | HirTy::LiteralFloat(_)
-            | HirTy::LiteralUnsignedInteger(_)
-            | HirTy::Function(_)
-            | HirTy::Error(_)
-            | HirTy::Slice(_) => true,
-            HirTy::Named(named_ty) => signatures
-                .structs
-                .get(named_ty.name)
-                .is_some_and(|sig| sig.is_trivially_copyable || sig.is_std_copyable),
-            HirTy::Generic(generic_ty) => signatures
-                .structs
-                .get(generic_ty.name)
-                .copied()
-                .or_else(|| {
-                    signatures
-                        .structs
-                        .values()
-                        .find(|sig| {
-                            sig.pre_mangled_ty.is_some_and(|pre| {
-                                pre.name == generic_ty.name && pre.inner == generic_ty.inner
-                            })
-                        })
-                        .copied()
-                })
-                .is_some_and(|sig| sig.is_trivially_copyable || sig.is_std_copyable),
-            // Pointers are trivially copyable (they're just addresses)
-            HirTy::PtrTy(_) => true,
-            HirTy::InlineArray(arr) => arr.inner.is_copyable(signatures),
+            HirTy::InlineArray(arr) => arr.inner.is_trivially_copyable(signatures),
             _ => false,
         }
     }
@@ -358,11 +342,11 @@ impl HirTy<'_> {
     /// Which is not a valid C identifier. It should returns `Foo_T_ptr` instead.
     pub fn get_valid_c_string(&self) -> String {
         match self {
-            HirTy::Integer(_) => "int64".to_string(),
+            HirTy::Integer(i) => format!("int{}", i.size_in_bits),
             HirTy::LiteralInteger(li) => format!("int{}", li.get_minimal_int_ty().size_in_bits),
-            HirTy::Float(_) => "float64".to_string(),
+            HirTy::Float(f) => format!("float{}", f.size_in_bits),
             HirTy::LiteralFloat(lf) => format!("float{}", lf.get_float_ty().size_in_bits),
-            HirTy::UnsignedInteger(_) => "uint64".to_string(),
+            HirTy::UnsignedInteger(u) => format!("uint{}", u.size_in_bits),
             HirTy::LiteralUnsignedInteger(lu) => {
                 format!("uint{}", lu.get_minimal_uint_ty().size_in_bits)
             }
@@ -409,6 +393,7 @@ impl HirTy<'_> {
             HirTy::Atomic(a) => {
                 format!("_Atomic_{}", a.inner.get_valid_c_string())
             }
+            HirTy::Associated(a) => format!("{}_assoc_{}", a.base.get_valid_c_string(), a.name),
         }
     }
 }
@@ -481,6 +466,7 @@ impl fmt::Display for HirTy<'_> {
             HirTy::Atomic(a) => {
                 write!(f, "__atomic {}", a.inner)
             }
+            HirTy::Associated(a) => write!(f, "{}::{}", a.base, a.name),
         }
     }
 }
@@ -498,6 +484,13 @@ pub struct HirPtrTy<'hir> {
 #[derive(Debug, Clone, Eq, Hash, PartialEq, Serialize)]
 pub struct HirAtomicTy<'hir> {
     pub inner: &'hir HirTy<'hir>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Eq, Hash, PartialEq, Serialize)]
+pub struct HirAssociatedTypeTy<'hir> {
+    pub base: &'hir HirTy<'hir>,
+    pub name: &'hir str,
     pub span: Span,
 }
 

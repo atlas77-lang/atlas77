@@ -7,17 +7,20 @@ use crate::atlas_c::{
         HirModule,
         arena::HirArena,
         error::{
-            CannotMoveFromRvalueError, HirError, HirResult, OwnershipAnalysisFailedError,
-            TryingToAccessAConsumedValueError, TryingToAccessADeletedValueError,
-            TryingToAccessAMovedValueError, TryingToAccessAPotentiallyConsumedValueError,
+            CannotMoveFromRvalueError, CannotMoveGlobalConstantsError, HirError, HirResult,
+            OwnershipAnalysisFailedError, TryingToAccessAConsumedValueError,
+            TryingToAccessADeletedValueError, TryingToAccessAMovedValueError,
+            TryingToAccessAPotentiallyConsumedValueError,
             TryingToAccessAPotentiallyDeletedValueError, TryingToAccessAPotentiallyMovedValueError,
             TypeIsNotTriviallyCopyableError,
         },
         expr::{HirDeleteExpr, HirExpr, HirIdentExpr, HirUnaryOp},
         monomorphization_pass::MonomorphizationPass,
+        pretty_print::HirPrettyPrinter,
         signature::{HirFunctionParameterSignature, HirModuleSignature, HirStructMethodModifier},
         stmt::{HirAssignStmt, HirBlock, HirExprStmt, HirStatement},
         ty::HirTy,
+        warning::{HirWarning, UnusedResultFromFunctionWarning},
     },
     utils::{self, Span},
 };
@@ -50,6 +53,7 @@ pub struct HirOwnershipPass<'hir> {
     _hir_arena: &'hir HirArena<'hir>,
     signature: HirModuleSignature<'hir>,
     errors: Vec<HirError>,
+    pub warnings: Vec<HirWarning>,
 }
 
 impl<'hir> HirOwnershipPass<'hir> {
@@ -58,6 +62,7 @@ impl<'hir> HirOwnershipPass<'hir> {
             _hir_arena: hir_arena,
             signature: signature.clone(),
             errors: Vec::new(),
+            warnings: Vec::new(),
         }
     }
 
@@ -215,7 +220,32 @@ impl<'hir> HirOwnershipPass<'hir> {
                     if let Some((name, span)) = self.deleted_identifier(&expr_stmt.expr) {
                         self.mark_deleted(scope_stack, name, span);
                     }
-                    statements.push(HirStatement::Expr(expr_stmt));
+
+                    if self.should_auto_delete(expr_stmt.expr.ty())
+                        && let HirExpr::Call(c) = self.strip_noop_unary(&expr_stmt.expr)
+                    {
+                        let path = expr_stmt.span.path;
+                        let src = utils::get_file_content(path).unwrap();
+                        let mut pretty_printer = HirPrettyPrinter::new();
+                        pretty_printer.print_expr(&c.callee);
+                        let func_name = pretty_printer.get_output();
+                        self.warnings.push(HirWarning::UnusedResultFromFunction(
+                            UnusedResultFromFunctionWarning {
+                                func_name,
+                                span: expr_stmt.span,
+                                src: NamedSource::new(path, src),
+                            },
+                        ));
+                        statements.push(HirStatement::Expr(HirExprStmt {
+                            span: expr_stmt.span,
+                            expr: HirExpr::Delete(HirDeleteExpr {
+                                span: expr_stmt.span,
+                                expr: Box::new(expr_stmt.expr),
+                            }),
+                        }));
+                    } else {
+                        statements.push(HirStatement::Expr(expr_stmt));
+                    }
                 }
                 HirStatement::Let(let_stmt) => {
                     self.validate_expr(&let_stmt.value, scope_stack);
@@ -653,6 +683,7 @@ impl<'hir> HirOwnershipPass<'hir> {
                 for arg in &call.args {
                     self.validate_expr(arg, scope_stack);
                     self.record_result(self.ensure_identifier_copy_allowed(scope_stack, arg, None));
+                    self.mark_compiler_temp_consumed(scope_stack, arg);
                 }
                 if let Some((name, span, _ty)) = self.consuming_method_receiver(expr, scope_stack) {
                     self.mark_consumed(scope_stack, name, span);
@@ -664,16 +695,17 @@ impl<'hir> HirOwnershipPass<'hir> {
                 }
             }
             HirExpr::ListLiteralWithSize(list) => {
+                self.validate_expr(&list.item, scope_stack);
                 // list.size > 1, we need to ensure the type isn't being moved into the list multiple times.
                 let size = list.size_as_usize().unwrap_or(0);
                 if size > 1 {
-                    self.validate_expr(&list.item, scope_stack);
                     self.record_result(self.ensure_identifier_copy_allowed(
                         scope_stack,
                         &list.item,
                         None,
                     ));
                 }
+                self.mark_compiler_temp_consumed(scope_stack, &list.item);
             }
             HirExpr::ObjLiteral(obj) => {
                 for field in &obj.fields {
@@ -683,6 +715,7 @@ impl<'hir> HirOwnershipPass<'hir> {
                         &field.value,
                         None,
                     ));
+                    self.mark_compiler_temp_consumed(scope_stack, &field.value);
                 }
             }
             HirExpr::FieldAccess(field) => self.validate_expr(&field.target, scope_stack),
@@ -792,7 +825,20 @@ impl<'hir> HirOwnershipPass<'hir> {
     ) -> HirResult<()> {
         let stripped = self.strip_noop_unary(arg);
         let (id_name, id_span) = match stripped {
-            HirExpr::Ident(id) => (id.name, id.span),
+            HirExpr::Ident(id) => {
+                if let Some(c) = self.signature.global_consts.get(id.name) {
+                    let path = id.span.path;
+                    let src = utils::get_file_content(path).expect("Didn't work lil bro");
+                    return Err(HirError::CannotMoveGlobalConstants(
+                        CannotMoveGlobalConstantsError {
+                            definition_span: c.span,
+                            moved_span: id.span,
+                            src: NamedSource::new(path, src),
+                        },
+                    ));
+                }
+                (id.name, id.span)
+            }
             HirExpr::ThisLiteral(t) => ("this", t.span),
             _ => {
                 let path = arg.span().path;
@@ -1087,6 +1133,36 @@ impl<'hir> HirOwnershipPass<'hir> {
                 }
             }
         }
+    }
+
+    /// After an argument/field/item expression has passed `ensure_identifier_copy_allowed`,
+    /// if it turned out to be a bare compiler temporary being handed off by value, record
+    /// that hand-off so scope-exit drop insertion doesn't also try to delete it.
+    fn mark_compiler_temp_consumed(
+        &self,
+        scope_stack: &mut [ScopeFrame<'hir>],
+        expr: &HirExpr<'hir>,
+    ) {
+        let (name, span) = match self.strip_noop_unary(expr) {
+            HirExpr::Ident(id) => (id.name, id.span),
+            HirExpr::ThisLiteral(t) => ("this", t.span),
+            _ => return,
+        };
+
+        let Some(local) = self.find_local(scope_stack, name) else {
+            return;
+        };
+        if !local.is_compiler_temp {
+            return;
+        }
+        if !matches!(
+            self.find_state(scope_stack, name),
+            Some(OwnershipState::Alive)
+        ) {
+            return;
+        }
+
+        self.mark_moved(scope_stack, name, span);
     }
 
     fn pre_delete_before_assign(

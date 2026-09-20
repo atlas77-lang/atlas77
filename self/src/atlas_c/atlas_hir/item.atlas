@@ -1,0 +1,44 @@
+import "src/utils/span.atlas";
+
+public struct HirItem {
+  public:
+    tag: HirItemKind;
+    val: HirItemUnion;
+    span: Span;
+}
+
+public enum HirItemKind {
+    FUNCTION;
+    STRUCT;
+    UNION;
+    ENUM;
+    CONCEPT;
+    EXTEND_BLOCK;
+}
+
+union HirItemUnion {
+    function: HirFunction;
+    struct_: HirStruct;
+    union_: HirUnion;
+    enum_: HirEnum;
+    concept_: HirConcept;
+    extend_block: HirExtendBlock;
+}
+
+public struct HirFunction {
+  public:
+    name: str;
+    span: Span;
+}
+
+//! Only contains the type itself. Methods are already extracted into functions
+//! The global symbol table knows which function is related to which struct
+public struct HirStruct {}
+
+public struct HirUnion {}
+
+public struct HirEnum {}
+
+public struct HirConcept {}
+
+public struct HirExtendBlock {}

@@ -22,10 +22,84 @@ declare_error_type! {
         SizeOfArrayMustBeKnownAtCompileTime(SizeOfArrayMustBeKnownAtCompileTimeError),
         ConstTypeNotSupportedYet(ConstTypeNotSupportedYetError),
         MissPlacedComment(MissPlacedCommentError),
+        InvalidInteger(InvalidIntegerError),
+        InvalidFloat(InvalidFloatError),
+        InvalidUnsignedInteger(InvalidUnsignedIntegerError),
+        InvalidBool(InvalidBoolError),
+        NonAsciiChar(NonAsciiCharError),
     }
 }
 
 pub type ParseResult<T> = Result<T, Box<SyntaxError>>;
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(syntax::invalid_integer),
+    severity(warning),
+    help("Try making it smaller")
+)]
+#[error("{text}")]
+pub struct InvalidIntegerError {
+    pub(crate) text: String,
+    #[label = "This integer"]
+    pub(crate) span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(syntax::invalid_unsigned_integer),
+    severity(warning),
+    help("Try making it smaller")
+)]
+#[error("{text}")]
+pub struct InvalidUnsignedIntegerError {
+    pub(crate) text: String,
+    #[label = "This integer"]
+    pub(crate) span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(syntax::invalid_float),
+    severity(warning),
+    help("Try making it smaller")
+)]
+#[error("{text}")]
+pub struct InvalidFloatError {
+    pub(crate) text: String,
+    #[label = "This float"]
+    pub(crate) span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(
+    code(syntax::invalid_integer),
+    severity(warning),
+    help("Try making it smaller")
+)]
+#[error("{text}")]
+pub struct InvalidBoolError {
+    pub(crate) text: String,
+    #[label = "This bool"]
+    pub(crate) span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug)]
+#[diagnostic(code(syntax::non_ascii_char), severity(warning))]
+#[error("Non ASCII character")]
+pub struct NonAsciiCharError {
+    #[label = "This integer"]
+    pub(crate) span: Span,
+    #[source_code]
+    pub src: NamedSource<String>,
+}
 
 #[derive(Error, Diagnostic, Debug)]
 #[diagnostic(
@@ -149,6 +223,31 @@ pub struct SizeOfArrayMustBeKnownAtCompileTimeError {
 impl From<SyntaxError> for CompilerError {
     fn from(e: SyntaxError) -> CompilerError {
         match e {
+            SyntaxError::InvalidInteger(error) => CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Error,
+            },
+            SyntaxError::InvalidUnsignedInteger(error) => CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Error,
+            },
+            SyntaxError::InvalidFloat(error) => CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Error,
+            },
+            SyntaxError::InvalidBool(error) => CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Error,
+            },
+            SyntaxError::NonAsciiChar(error) => CompilerError {
+                message: error.to_string(),
+                span: error.span,
+                kind: CompilerErrorKind::Error,
+            },
             SyntaxError::UnexpectedEndOfFile(error) => CompilerError {
                 message: error.to_string(),
                 span: error.span,

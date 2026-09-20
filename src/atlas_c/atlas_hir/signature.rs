@@ -5,7 +5,7 @@ use crate::atlas_c::atlas_frontend::parser::ast::{
     AstFlag, AstMethodAttribute, AstNullablePredicateSemantics, AstVisibility,
 };
 use crate::atlas_c::atlas_hir::expr::{HirBinaryOperator, HirExpr, HirUnaryOp};
-use crate::atlas_c::atlas_hir::item::HirEnum;
+use crate::atlas_c::atlas_hir::item::{HirEnum, HirGlobalConst};
 use crate::atlas_c::atlas_hir::ty::HirGenericTy;
 use crate::atlas_c::utils::Span;
 use std::collections::BTreeMap;
@@ -21,11 +21,77 @@ pub struct HirModuleSignature<'hir> {
     //No need for enum signatures for now
     pub enums: BTreeMap<&'hir str, &'hir HirEnum<'hir>>,
     pub unions: BTreeMap<&'hir str, &'hir HirUnionSignature<'hir>>,
+    pub concepts: BTreeMap<&'hir str, &'hir HirConceptSignature<'hir>>,
+    pub conformances: Vec<HirConformanceSignature<'hir>>,
+    pub global_consts: BTreeMap<&'hir str, &'hir HirGlobalConst<'hir>>,
+    /// Namespaces declared in this module, keyed by fully-qualified name (`std::io`).
+    /// HIR itself doesn't nest by namespace, item names are qualified instead, so this
+    /// exists purely so a namespace's own `//!` docs survive lowering and can be shown
+    /// against the namespace in generated documentation.
+    pub namespaces: BTreeMap<&'hir str, HirNamespaceSignature<'hir>>,
+    /// Per-source-file docs (the `//!` block at the top of a file), keyed by that file's
+    /// path. Kept as a map rather than a single field because signatures of imported
+    /// modules are merged into their importer, so one signature covers many files.
+    pub file_docs: BTreeMap<&'hir str, &'hir str>,
     pub docstring: Option<&'hir str>,
     /// Name of the module (e.g.: `package name;`)
     pub module_name: &'hir str,
     /// Imported modules and their signatures
     pub imported_modules: BTreeMap<&'hir str, &'hir HirModuleSignature<'hir>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HirNamespaceSignature<'hir> {
+    pub name: &'hir str,
+    pub span: Span,
+    pub docstring: Option<&'hir str>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HirConformanceSignature<'hir> {
+    pub target: &'hir HirTy<'hir>,
+    pub concept: &'hir HirTy<'hir>,
+    pub span: Span,
+    pub where_clause: Option<Vec<&'hir HirGenericConstraint<'hir>>>,
+    pub associated_types: Vec<HirAssociatedTypeAssignment<'hir>>,
+    pub is_local: bool,
+    /// Docs written on this specific `extend T with C` block. Takes precedence over the
+    /// concept's own docs when rendering this conformance.
+    pub docstring: Option<&'hir str>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HirAssociatedTypeAssignment<'hir> {
+    pub span: Span,
+    pub name: &'hir str,
+    pub ty: &'hir HirTy<'hir>,
+    pub docstring: Option<&'hir str>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HirConceptSignature<'hir> {
+    pub declaration_span: Span,
+    pub vis: HirVisibility,
+    pub name: &'hir str,
+    pub name_span: Span,
+    pub generics: Vec<&'hir HirGenericConstraint<'hir>>,
+    pub associated_types: BTreeMap<&'hir str, HirAssociatedTypeSignature<'hir>>,
+    pub required_methods: Vec<&'hir HirStructMethodSignature<'hir>>,
+    pub required_method_names: Vec<&'hir str>,
+    pub required_operators: BTreeMap<HirOverloadableOperatorKind, HirStructMethodSignature<'hir>>,
+    pub required_operator_names: Vec<&'hir str>,
+    /// The concept's own docs. The default explanation of how conformances are expected
+    /// to behave, shown when an `extend` block doesn't document itself.
+    pub docstring: Option<&'hir str>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HirAssociatedTypeSignature<'hir> {
+    pub span: Span,
+    pub name: &'hir str,
+    pub name_span: Span,
+    pub ty: Option<&'hir HirTy<'hir>>,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -49,13 +115,6 @@ pub struct HirStructSignature<'hir> {
     /// It's only optional, because at the beginning of the pass, the destructor might not exist yet
     pub destructor: Option<HirStructDestructorSignature<'hir>>,
     pub had_user_defined_destructor: bool,
-    /// True when the struct provides a userland `copy(*const this) -> This`-style API
-    /// (or legacy copyable flag during transition).
-    pub is_std_copyable: bool,
-    /// True when the struct provides a userland `default() -> This` static API.
-    pub is_std_default: bool,
-    /// True when the struct provides a userland `hash(*const this) -> uint64`-style API.
-    pub is_std_hashable: bool,
     /// True when this type is explicitly marked as trivially copyable.
     pub is_trivially_copyable: bool,
     /// Marker set when the struct declaration includes `#[std::nullable]`.
@@ -65,6 +124,7 @@ pub struct HirStructSignature<'hir> {
     pub is_extern: bool,
     /// Optional C type name override for extern structs.
     pub c_name: Option<&'hir str>,
+    pub represents_ty: Option<&'hir HirTy<'hir>>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]

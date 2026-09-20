@@ -5,11 +5,6 @@ public struct Key {
 public:
     value: uint64;
 
-    fun hash(*const this) -> uint64 {
-        // Tiny deterministic mixer for test purposes.
-        return (this->value * 11400714819323198485u) + 1469598103934665603u;
-    }
-
     fun copy(*const this) -> Key {
         return Key { .value = this->value };
     }
@@ -18,8 +13,14 @@ public:
         return Key { .value = 0u };
     }
 
-    fun eq(*const this, other: *const Key) -> bool {
+    operator equal(*const this, other: *const Key) -> bool {
         return this->value == other->value;
+    }
+}
+
+extend Key with std::hashable {
+    fun hash(*const this) -> uint64 {
+        return (this->value * 11400714819323198485u) + 1469598103934665603u;
     }
 }
 

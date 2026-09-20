@@ -1,11 +1,13 @@
 use serde::Serialize;
 
 use super::{signature::HirFunctionSignature, stmt::HirBlock};
+use crate::atlas_c::atlas_hir::expr::HirExpr;
 use crate::atlas_c::atlas_hir::signature::{
-    HirFlag, HirStructDestructorSignature, HirStructFieldSignature, HirStructMethodSignature,
-    HirStructSignature, HirUnionSignature, HirVisibility,
+    HirConceptSignature, HirFlag, HirStructDestructorSignature, HirStructFieldSignature,
+    HirStructMethodSignature, HirStructSignature, HirUnionSignature, HirVisibility,
 };
 use crate::atlas_c::atlas_hir::ty::HirGenericTy;
+use crate::atlas_c::atlas_hir::ty::{HirTy, HirTyId};
 use crate::atlas_c::utils::Span;
 
 #[derive(Debug, Clone, Serialize)]
@@ -13,11 +15,12 @@ pub struct HirGlobalConst<'hir> {
     pub span: Span,
     pub name: &'hir str,
     pub name_span: Span,
-    pub ty: &'hir str,
+    pub ty: &'hir HirTy<'hir>,
     pub ty_span: Span,
-    pub value: &'hir str,
+    pub value: &'hir HirExpr<'hir>,
     pub value_span: Span,
     pub vis: HirVisibility,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -88,6 +91,7 @@ pub struct HirEnumVariant<'hir> {
     pub name_span: Span,
     //Only supporting discriminant values for now
     pub value: u64,
+    pub docstring: Option<&'hir str>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -97,6 +101,43 @@ pub struct HirStructMethod<'hir> {
     pub name_span: Span,
     pub signature: &'hir HirStructMethodSignature<'hir>,
     pub body: HirBlock<'hir>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+/// A type extension block such as `extend T with SomeConcept { ... }`.
+pub struct HirExtendBlock<'hir> {
+    pub span: Span,
+    pub ty: &'hir HirTy<'hir>,
+    pub ty_key: HirTyId,
+    pub ty_span: Span,
+    pub concept: &'hir HirTy<'hir>,
+    pub concept_key: HirTyId,
+    pub concept_span: Span,
+    pub methods: Vec<HirStructMethod<'hir>>,
+    pub operators: Vec<HirStructMethod<'hir>>,
+    pub associated_types: Vec<HirAssociatedType<'hir>>,
+    pub where_clause:
+        Option<Vec<&'hir crate::atlas_c::atlas_hir::signature::HirGenericConstraint<'hir>>>,
+    pub docstring: Option<&'hir str>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HirAssociatedType<'hir> {
+    pub span: Span,
+    pub name: &'hir str,
+    pub name_span: Span,
+    pub ty: Option<&'hir HirTy<'hir>>,
+    pub docstring: Option<&'hir str>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HirConcept<'hir> {
+    pub span: Span,
+    pub name: &'hir str,
+    pub name_span: Span,
+    pub signature: HirConceptSignature<'hir>,
+    pub default_methods: Vec<HirStructMethod<'hir>>,
+    pub default_operators: Vec<HirStructMethod<'hir>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
