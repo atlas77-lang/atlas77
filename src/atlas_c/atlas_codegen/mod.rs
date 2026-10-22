@@ -16,7 +16,13 @@ use crate::atlas_c::{
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub const HEADER_NAME: &str = "atlas77.h";
-pub const PORTABLE_ATLAS77_HEADER: &str = include_str!("../../.././libraries/std/atlas77.h");
+/// A minimal, `std`-independent C compat shim (fixed-width int typedefs for pre-C99
+/// compilers) vendored directly in the compiler, so it's available even for builds that
+/// don't use `std` at all and never touch the network. The bulk of what a full Atlas77
+/// runtime needs (panic, I/O, time, directory listing, ...) is a `std` concern and lives
+/// in the `std` package's own `include/atlas77.h` (see `atlas77-lang/std`), pulled in via
+/// its `[c]` config only for projects that actually depend on `std`.
+pub const PORTABLE_ATLAS77_HEADER: &str = include_str!("atlas77_runtime.h");
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum TypeDependency {
@@ -33,6 +39,10 @@ pub struct CCodeGen {
     pub union_names: Vec<String>,
     struct_field_tys: HashMap<String, BTreeMap<String, LirTy>>,
     indent_level: usize,
+    // Semantic LIR name -> exact C spelling
+    struct_c_names: HashMap<String, String>,
+    union_c_names: HashMap<String, String>,
+    enum_c_names: HashMap<String, String>,
 }
 
 impl CCodeGen {
@@ -94,14 +104,42 @@ impl CCodeGen {
             union_names: vec![],
             struct_field_tys: HashMap::new(),
             indent_level: 0,
+            enum_c_names: HashMap::new(),
+            struct_c_names: HashMap::new(),
+            union_c_names: HashMap::new(),
         }
     }
 
     pub fn emit_c(&mut self, program: &LirProgram, extra_headers: &[String]) -> Result<(), String> {
         self.struct_field_tys.clear();
+        self.struct_c_names.clear();
+        self.union_c_names.clear();
+        self.enum_c_names.clear();
+
         for strukt in program.structs.iter() {
-            self.struct_field_tys
-                .insert(strukt.name.clone(), strukt.fields.clone());
+            let mut map = BTreeMap::new();
+            for (field, ty) in strukt.fields.iter() {
+                map.insert(field.clone(), ty.clone());
+            }
+            self.struct_field_tys.insert(strukt.name.clone(), map);
+
+            if let Some(c_name) = &strukt.c_name {
+                self.struct_c_names
+                    .insert(strukt.name.clone(), c_name.clone());
+            }
+        }
+
+        for union in &program.unions {
+            if let Some(c_name) = &union.c_name {
+                self.union_c_names
+                    .insert(union.name.clone(), c_name.clone());
+            }
+        }
+
+        for enum_ in &program.enums {
+            if let Some(c_name) = &enum_.c_name {
+                self.enum_c_names.insert(enum_.name.clone(), c_name.clone());
+            }
         }
 
         self.emit_type_forward_declarations(program);
@@ -133,7 +171,10 @@ impl CCodeGen {
 
     fn emit_type_forward_declarations(&mut self, program: &LirProgram) {
         for union in program.unions.iter() {
-            let union_name = Self::c_ident(&union.name);
+            if union.is_extern {
+                continue;
+            }
+            let union_name = self.codegen_union_name(&union.name);
             Self::write_to_top(
                 &mut self.c_header,
                 &format!("typedef union {} {};", union_name, union_name),
@@ -143,7 +184,7 @@ impl CCodeGen {
             if strukt.is_extern {
                 continue;
             }
-            let struct_name = Self::c_ident(&strukt.name);
+            let struct_name = self.codegen_struct_name(&strukt.name);
             Self::write_to_top(
                 &mut self.c_header,
                 &format!("typedef struct {} {};", struct_name, struct_name),
@@ -153,12 +194,33 @@ impl CCodeGen {
             if enum_.is_extern {
                 continue;
             }
-            let enum_name = Self::c_ident(&enum_.name);
+            let enum_name = self.codegen_enum_name(&enum_.name);
             Self::write_to_top(
                 &mut self.c_header,
                 &format!("typedef enum {} {};", enum_name, enum_name),
             );
         }
+    }
+
+    fn codegen_struct_name(&self, name: &str) -> String {
+        self.struct_c_names
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| Self::c_ident(name))
+    }
+
+    fn codegen_union_name(&self, name: &str) -> String {
+        self.union_c_names
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| Self::c_ident(name))
+    }
+
+    fn codegen_enum_name(&self, name: &str) -> String {
+        self.enum_c_names
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| Self::c_ident(name))
     }
 
     fn type_dependencies_for_ty(ty: &LirTy, deps: &mut HashSet<TypeDependency>) {
@@ -178,7 +240,7 @@ impl CCodeGen {
 
     fn type_dependencies_for_struct(strukt: &LirStruct) -> HashSet<TypeDependency> {
         let mut deps = HashSet::new();
-        for ty in strukt.fields.values() {
+        for (_, ty) in strukt.fields.iter() {
             Self::type_dependencies_for_ty(ty, &mut deps);
         }
         deps.remove(&TypeDependency::Struct(strukt.name.clone()));
@@ -187,7 +249,7 @@ impl CCodeGen {
 
     fn type_dependencies_for_union(union: &LirUnion) -> HashSet<TypeDependency> {
         let mut deps = HashSet::new();
-        for ty in union.variants.values() {
+        for (_, ty) in union.variants.iter() {
             Self::type_dependencies_for_ty(ty, &mut deps);
         }
         deps.remove(&TypeDependency::Union(union.name.clone()));
@@ -208,15 +270,18 @@ impl CCodeGen {
     fn codegen_type_definitions_dependency_order(&mut self, program: &LirProgram) {
         let mut remaining_structs: Vec<&LirStruct> =
             program.structs.iter().filter(|s| !s.is_extern).collect();
-        let mut remaining_unions: Vec<&LirUnion> = program.unions.iter().collect();
+        let mut remaining_unions: Vec<&LirUnion> =
+            program.unions.iter().filter(|s| !s.is_extern).collect();
 
         let mut defined_structs: HashSet<String> = HashSet::new();
         let mut defined_unions: HashSet<String> = HashSet::new();
 
         for enum_ in program.enums.iter() {
-            self.codegen_enum(enum_);
-            // Kinda spaghetti code but hey
-            defined_structs.insert(enum_.name.clone());
+            if !enum_.is_extern {
+                self.codegen_enum(enum_);
+                // Kinda spaghetti code but hey
+                defined_structs.insert(enum_.name.clone());
+            }
         }
 
         loop {
@@ -278,21 +343,29 @@ impl CCodeGen {
     }
 
     fn codegen_enum(&mut self, enum_: &LirEnum) {
-        let enum_name = Self::c_ident(&enum_.name);
+        let enum_name = self.codegen_enum_name(&enum_.name);
         let mut enum_def = format!("enum {} {{\n", enum_name);
         for (variant_name, variant_value) in enum_.variants.iter() {
-            enum_def.push_str(&format!("\t{} = {},\n", variant_name, variant_value));
+            // Prefix each enumerator with its own enum's mangled name (mirroring the
+            // `{struct}_{method}` convention used for methods) so that two different
+            // enums sharing a variant name (e.g. both declaring `EQUAL`) don't collide
+            // in C's flat, unscoped enumerator namespace. Enum variant accesses are
+            // always const-folded to integer literals during type checking, so nothing
+            // downstream ever references this identifier by name.
+            enum_def.push_str(&format!(
+                "\t{}_{} = {},\n",
+                enum_name, variant_name, variant_value
+            ));
         }
         enum_def.push_str("};\n\n");
         Self::write_to_file(&mut self.c_header, &enum_def, self.indent_level);
     }
 
     fn codegen_union(&mut self, union: &LirUnion) {
-        let union_name = Self::c_ident(&union.name);
+        let union_name = self.codegen_union_name(&union.name);
         let mut union_def = format!("union {} {{\n", union_name);
-        let mut variants: Vec<(&String, &LirTy)> = union.variants.iter().collect();
-        variants.sort_by_key(|(a, _)| *a);
-        for (variant_name, variant_type) in variants {
+        // variants.sort_by_key(|(a, _)| *a);
+        for (variant_name, variant_type) in union.variants.iter() {
             let variant_type_str = self.codegen_type(variant_type);
             union_def.push_str(&format!("\t{} {};\n", variant_type_str, variant_name));
         }
@@ -302,15 +375,14 @@ impl CCodeGen {
     }
 
     fn codegen_struct(&mut self, strukt: &LirStruct) {
-        let struct_name = Self::c_ident(&strukt.name);
+        let struct_name = self.codegen_struct_name(&strukt.name);
         let mut struct_def = format!("struct {} {{\n", struct_name);
         if strukt.fields.is_empty() {
             // C doesn't allow empty structs, so we add a dummy field if there are no fields
             struct_def.push_str("\tuint8_t _dummy;\n");
         }
-        let mut fields: Vec<(&String, &LirTy)> = strukt.fields.iter().collect();
-        fields.sort_by_key(|(a, _)| *a);
-        for (field_name, field_type) in fields {
+        // fields.sort_by_key(|(a, _)| *a);
+        for (field_name, field_type) in strukt.fields.iter() {
             let field_sig = match field_type {
                 LirTy::ArrayTy { .. } => {
                     format!("\t{};\n", self.codegen_array_decl(field_type, field_name))
@@ -442,7 +514,7 @@ impl CCodeGen {
             LirTy::UInt8 => "uint8_t".to_string(),
             LirTy::Boolean => "bool".to_string(),
             // TODO: Add a separate `c_char` type to represent C's char type for ABI compatibility.
-            LirTy::Char => "char".to_string(),
+            LirTy::Char => "uint32_t".to_string(),
             LirTy::Str => "char *".to_string(),
             LirTy::FnPtr { ret, args } => {
                 let ret_str = self.codegen_type(ret);
@@ -461,9 +533,9 @@ impl CCodeGen {
                 format!("{}{}*", if *is_const { "const " } else { "" }, inner_type)
             }
             // Struct type is a value type in LIR. Pointer semantics are represented by LirTy::Ptr.
-            LirTy::StructType(name) => Self::c_ident(name),
+            LirTy::StructType(name) => self.codegen_struct_name(name),
             // For union types, we don't use pointers for now
-            LirTy::UnionType(name) => Self::c_ident(name),
+            LirTy::UnionType(name) => self.codegen_union_name(name),
             LirTy::ArrayTy { inner, size } => format!("{}[{}]", self.codegen_type(inner), size),
             LirTy::AtomicTy { inner } => format!("_Atomic {}", self.codegen_type(inner)),
             /* _ => unimplemented!("Type codegen not implemented for {:?}", ty), */
@@ -954,79 +1026,6 @@ impl CCodeGen {
                 );
                 Self::write_to_file(&mut self.c_file, &line, self.indent_level);
             }
-            // Creates an array on the stack.
-            // C equivalent to T dest[size] = {0};
-            LirInstr::ConstructArray { ty, dst, size: _ } => {
-                let dest_str = self.codegen_operand(dst);
-                // In C, arrays are defined as T name[size];
-                // This will probably not work for multi-dimensional arrays yet
-                let line = match ty {
-                    LirTy::ArrayTy { .. } => {
-                        format!("{} = {{0}};", self.codegen_array_decl(ty, &dest_str))
-                    }
-                    _ => panic!("ConstructArray expected ArrayTy"),
-                };
-                Self::write_to_file(&mut self.c_file, &line, self.indent_level);
-            }
-            // Similar to {foo: bar, baz: qux}
-            // It DOES NOT allocate memory, just creates a raw object on the stack
-            LirInstr::ConstructObject {
-                ty,
-                dst,
-                field_values,
-            } => {
-                let dest_str = self.codegen_operand(dst);
-                let type_str = self.codegen_type(ty);
-                let type_name_str = type_str.trim_end_matches('*').to_string();
-
-                // Use assignment-style construction so array fields can be copied safely.
-                // Compound literals with `.field = temp_array` are invalid C for array members.
-                let decl_line = format!("{} {} = ({}) {{0}};", type_name_str, dest_str, type_str);
-                Self::write_to_file(&mut self.c_file, &decl_line, self.indent_level);
-
-                if field_values.is_empty() {
-                    let dummy_line = format!("{}._dummy = 'A';", dest_str);
-                    Self::write_to_file(&mut self.c_file, &dummy_line, self.indent_level);
-                    return;
-                }
-
-                let mut fields: Vec<(&String, &LirOperand)> = field_values.iter().collect();
-                fields.sort_by_key(|(a, _)| *a);
-
-                let array_fields: HashSet<String> = if let LirTy::StructType(struct_name) = ty {
-                    self.struct_field_tys
-                        .get(struct_name)
-                        .map(|m| {
-                            m.iter()
-                                .filter_map(|(k, v)| {
-                                    if matches!(v, LirTy::ArrayTy { .. }) {
-                                        Some(k.clone())
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default()
-                } else {
-                    HashSet::new()
-                };
-
-                for (field_name, field_value) in fields {
-                    let value_str = self.codegen_operand(field_value);
-                    let is_array_field = array_fields.contains(field_name);
-
-                    let line = if is_array_field {
-                        format!(
-                            "memcpy({0}.{1}, {2}, sizeof({0}.{1}));",
-                            dest_str, field_name, value_str
-                        )
-                    } else {
-                        format!("{}.{} = {};", dest_str, field_name, value_str)
-                    };
-                    Self::write_to_file(&mut self.c_file, &line, self.indent_level);
-                }
-            }
             LirInstr::Cast { ty, from, dst, src } => {
                 if !(ty == from) {
                     let dest_str = self.codegen_operand(dst);
@@ -1073,15 +1072,15 @@ impl CCodeGen {
             LirOperand::ImmInt { val: i, size } => match size {
                 64 => format!("{}LL", i),
                 32 => format!("{}L", i),
-                16 => format!("(int16_t){}", i),
-                8 => format!("(int8_t){}", i),
+                16 => format!("{}", i),
+                8 => format!("{}", i),
                 _ => panic!("Invalid integer size: {}", size),
             },
             LirOperand::ImmUInt { val: u, size } => match size {
                 64 => format!("{}ULL", u),
                 32 => format!("{}UL", u),
-                16 => format!("(uint16_t){}", u),
-                8 => format!("(uint8_t){}", u),
+                16 => format!("{}", u),
+                8 => format!("{}", u),
                 _ => panic!("Invalid unsigned integer size: {}", size),
             },
             LirOperand::ImmFloat { val: f, size } => match size {
@@ -1098,6 +1097,25 @@ impl CCodeGen {
                 } else {
                     format!("(&{})", self.codegen_operand(a))
                 }
+            }
+            LirOperand::LiteralObj { field_values, ty } => format!(
+                "({}) {{ {} }}",
+                self.codegen_type(ty),
+                field_values
+                    .iter()
+                    .map(|(k, v)| format!(".{} = {}", k, self.codegen_operand(v)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            LirOperand::LiteralArray { elements } => {
+                format!(
+                    "{{ {} }}",
+                    elements
+                        .iter()
+                        .map(|i| self.codegen_operand(i))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             }
             LirOperand::FieldAccess {
                 src,

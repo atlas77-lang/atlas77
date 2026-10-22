@@ -55,11 +55,15 @@ fun main() {
     let some_value = NullableBox<int64>::of(77);
     let none_value = NullableBox<int64>::none();
 
+    // Using any of the two values will return a warning "potential null/empty value used"
+
     if (some_value.is_present()) {
+        // You can use some_value in here because we are sure it's present
         std::printf("some=%d\n", *some_value.unwrap_ref());
     }
 
     if (none_value.is_empty()) {
+        // You will get an error
         std::printf("none=%d\n", none_value.unwrap_or(10));
     }
 }

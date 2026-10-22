@@ -13,8 +13,8 @@ pub fn parse<'ast>(
     let token_res = lex.tokenize();
     let tokens = match token_res {
         Ok(tokens) => tokens,
-        Err(e) => panic!("Error while lexing: {:?}", e),
+        Err(e) => return Err(Box::new(e.into())),
     };
-    let mut parser = parser::Parser::new(arena, tokens, path);
+    let mut parser = parser::Parser::new(arena, tokens, path, source);
     parser.parse()
 }

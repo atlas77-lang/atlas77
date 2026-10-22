@@ -1,0 +1,54 @@
+import "std/io";
+import "std/map";
+import "std/vector";
+import "std/concepts";
+import "std/optional";
+
+// This file is only there for testing purposes rn
+
+public struct test {
+  public:
+    val: int32;
+}
+
+extend test with std::hashable {
+    fun hash(*const this) -> uint64 {
+        return this->val as uint64;
+    }
+}
+
+struct test_concept<T> {
+  public:
+    val1: T;
+    val2: T;
+    fun new(val1: T, val2: T) -> This {
+        return test_concept<T> {
+            .val1 = val1,
+            .val2 = val2
+        };
+    }
+}
+
+fun foo<T: std::default>() -> T {
+    return T::std::default();
+}
+
+extend test_concept<T> with std::hashable where T: std::hashable {
+    fun hash(*const this) -> uint64 {
+        return this->val1.hash() + this->val2.hash();
+    }
+}
+
+fun main() {
+    let cpt = test_concept<test>::new(test {.val = 5}, test{.val = 10});
+    let hashed = cpt.hash();
+    std::printf("%llu\n", hashed);
+    foo<*int32>();
+    let s = foo<[int32]>();
+    if s as *int32 == null {
+        std::println("s is null");
+    }
+    let vec = std::vector<int32>::with_capacity(6);
+    vec.push(5);
+    vec.get(0);
+}

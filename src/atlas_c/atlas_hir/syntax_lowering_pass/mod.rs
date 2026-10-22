@@ -7,11 +7,12 @@ use crate::atlas_c::{
         parser::{
             arena::AstArena,
             ast::{
-                AstArg, AstBinaryOp, AstBlock, AstDestructor, AstEnum, AstExpr, AstExternFunction,
-                AstFlag, AstFunction, AstGeneric, AstGenericConstraint, AstIdentifier, AstImport,
-                AstItem, AstLiteral, AstMethod, AstMethodModifier, AstNamespace,
-                AstOperatorOverload, AstProgram, AstStatement, AstStruct, AstType, AstUnaryOp,
-                AstUnion,
+                AstArg, AstBinaryOp, AstBlock, AstConcept, AstDestructor, AstEnum, AstExpr,
+                AstExtendBlock, AstExternFunction, AstFlag, AstFunction, AstGeneric,
+                AstGenericConstraint, AstGlobalConst, AstIdentifier, AstImport, AstItem,
+                AstLiteral, AstMethod, AstMethodModifier, AstMethodSignature, AstNamedType,
+                AstNamespace, AstOperatorOverload, AstProgram, AstStatement, AstStruct, AstType,
+                AstUnaryOp, AstUnaryOpExpr, AstUnion,
             },
         },
     },
@@ -19,11 +20,12 @@ use crate::atlas_c::{
         HirImport, HirModule, HirModuleBody,
         arena::HirArena,
         error::{
-            AssignmentCannotBeAnExpressionError, HirError, HirResult,
-            IncorrectIntrinsicCallArgumentsError, NonConstantValueError, ReservedVariableNameError,
-            StructNameCannotBeOneLetterError, UnknownFileImportError,
+            AssignmentCannotBeAnExpressionError, ConceptMissingMemberError, ConceptOrphanError,
+            ConceptOverlapError, ConceptSignatureMismatchError, FileNotFoundInDependencyError,
+            HirError, HirResult, IncorrectIntrinsicCallArgumentsError, NonConstantValueError,
+            ReservedVariableNameError, StructNameCannotBeOneLetterError, UnknownFileImportError,
             UnknownOverloadableOperatorError, UnknownTypeError, UnsupportedExpr,
-            UnsupportedItemError, UselessError,
+            UnsupportedItemError, UsedThisTyOutsideOfCorrectContextError, UselessError,
         },
         expr::{
             HirBinaryOpExpr, HirBinaryOperator, HirBooleanLiteralExpr, HirCastExpr,
@@ -34,34 +36,30 @@ use crate::atlas_c::{
             HirStringLiteralExpr, HirThisLiteral, HirUnaryOp, HirUnitLiteralExpr,
             HirUnsignedIntegerLiteralExpr, UnaryOpExpr,
         },
+        intrinsic_methods::{
+            INTRINSIC_ALIGNOF, INTRINSIC_SIZEOF, INTRINSIC_TYPE_ID, INTRINSIC_TYPE_OF,
+        },
         item::{
-            HirEnum, HirEnumVariant, HirFunction, HirStruct, HirStructDestructor, HirStructMethod,
-            HirUnion,
+            HirAssociatedType, HirConcept, HirEnum, HirEnumVariant, HirExtendBlock, HirFunction,
+            HirGlobalConst, HirStruct, HirStructDestructor, HirStructMethod, HirUnion,
         },
         monomorphization_pass::generic_pool::HirGenericPool,
-        pretty_print::HirPrettyPrinter,
         signature::{
-            ConstantValue, HirFunctionParameterSignature, HirFunctionSignature,
-            HirGenericConstraint, HirGenericConstraintKind, HirMethodAttribute, HirModuleSignature,
-            HirOverloadableOperator, HirOverloadableOperatorKind, HirStructConstantSignature,
-            HirStructDestructorSignature, HirStructFieldSignature, HirStructMethodModifier,
-            HirStructMethodSignature, HirStructSignature, HirTypeParameterItemSignature,
-            HirUnionSignature, HirVisibility,
-        },
-        special_methods::{
-            INTRINSIC_ALIGNOF, INTRINSIC_SIZEOF, INTRINSIC_TYPE_ID, INTRINSIC_TYPE_OF,
-            SpecialMethodKind, expected_signature_for_struct, special_method_by_name,
-            special_method_enabled_by_flag,
+            ConstantValue, HirAssociatedTypeAssignment, HirAssociatedTypeSignature,
+            HirConceptSignature, HirConformanceSignature, HirFunctionParameterSignature,
+            HirFunctionSignature, HirGenericConstraint, HirGenericConstraintKind,
+            HirMethodAttribute, HirModuleSignature, HirNamespaceSignature, HirOverloadableOperator,
+            HirOverloadableOperatorKind, HirStructConstantSignature, HirStructDestructorSignature,
+            HirStructFieldSignature, HirStructMethodModifier, HirStructMethodSignature,
+            HirStructSignature, HirTypeParameterItemSignature, HirUnionSignature, HirVisibility,
         },
         stmt::{
             HirAssignStmt, HirBlock, HirExprStmt, HirIfElseStmt, HirReturn, HirStatement,
             HirVariableStmt, HirWhileStmt,
         },
-        ty::{HirGenericTy, HirNamedTy, HirTy},
-        warning::{
-            HirWarning, MethodLooksLikeAnOperatorWarning,
-            SpecialMethodMightHaveWrongSignatureWarning,
-        },
+        ty::{HirGenericTy, HirNamedTy, HirTy, HirTyId},
+        type_check_pass::primitive_bypass::{PRIMITIVE_TYPE_NAMES, synthetic_primitive_signature},
+        warning::{HirWarning, MethodLooksLikeAnOperatorWarning},
     },
     utils::{self, Span},
 };
@@ -80,6 +78,7 @@ pub struct AstSyntaxLoweringPass<'ast, 'hir> {
     pub using_std: bool,
     temp_counter: usize,
     namespace_stack: Vec<&'hir str>,
+    current_this_ty: Option<AstType<'ast>>,
 }
 
 impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
@@ -89,18 +88,25 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         ast_arena: &'ast AstArena<'ast>,
         using_std: bool,
     ) -> Self {
+        let mut module_signature = HirModuleSignature::default();
+        for name in PRIMITIVE_TYPE_NAMES {
+            module_signature
+                .structs
+                .insert(name, arena.intern(synthetic_primitive_signature(name)));
+        }
         Self {
             arena,
             ast,
             ast_arena,
             generic_pool: HirGenericPool::new(arena),
             module_body: HirModuleBody::default(),
-            module_signature: HirModuleSignature::default(),
+            module_signature,
             warnings: Vec::new(),
             already_imported: BTreeMap::new(),
             using_std,
             temp_counter: 0,
             namespace_stack: Vec::new(),
+            current_this_ty: None,
         }
     }
 }
@@ -133,6 +139,25 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
     fn visit_namespace(&mut self, node: &'ast AstNamespace<'ast>) -> HirResult<()> {
         let ns_name = self.arena.names().get(node.name.name);
         self.enter_namespace(ns_name);
+        // Recorded under the fully-qualified name so nested namespaces stay distinct;
+        // HIR keeps no namespace tree of its own, only qualified item names.
+        let qualified = self.arena.names().get(&self.namespace_stack.join("::"));
+        let entry =
+            self.module_signature
+                .namespaces
+                .entry(qualified)
+                .or_insert(HirNamespaceSignature {
+                    name: qualified,
+                    span: node.span,
+                    docstring: None,
+                });
+        if let Some(doc) = node.docstring {
+            // A namespace can be reopened in several places; keep every block's docs.
+            entry.docstring = Some(match entry.docstring {
+                Some(existing) => self.arena.names().get(&format!("{existing}\n\n{doc}")),
+                None => self.arena.names().get(doc),
+            });
+        }
         for item in node.items {
             self.visit_item(item)?;
         }
@@ -140,47 +165,21 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         Ok(())
     }
 
-    fn method_returns_self(
-        &self,
-        sig: &HirStructMethodSignature<'hir>,
-        struct_name: &'hir str,
-    ) -> bool {
-        match &sig.return_ty {
-            HirTy::Named(n) => n.name == struct_name,
-            HirTy::Generic(g) => g.name == struct_name,
-            _ => false,
-        }
-    }
-
-    fn special_method_matches_signature(
-        &self,
-        sig: &HirStructMethodSignature<'hir>,
-        kind: SpecialMethodKind,
-        struct_name: &'hir str,
-    ) -> bool {
-        match kind {
-            SpecialMethodKind::Copy => {
-                sig.modifier == HirStructMethodModifier::Const
-                    && sig.params.is_empty()
-                    && self.method_returns_self(sig, struct_name)
-            }
-            SpecialMethodKind::Default => {
-                sig.modifier == HirStructMethodModifier::Static
-                    && sig.params.is_empty()
-                    && self.method_returns_self(sig, struct_name)
-            }
-            SpecialMethodKind::Hash => {
-                sig.modifier == HirStructMethodModifier::Const
-                    && sig.params.is_empty()
-                    && &sig.return_ty == self.arena.types().get_uint_ty(64)
-            }
-        }
-    }
-
     pub fn lower(&mut self) -> HirResult<&'hir mut HirModule<'hir>> {
+        if let Some(docs) = self.ast.docstring
+            && let Some(first) = self.ast.items.first()
+        {
+            let path = self.arena.names().get(first.span().path);
+            let docs = self.arena.names().get(docs);
+            self.module_signature.file_docs.insert(path, docs);
+            self.module_signature.docstring = Some(docs);
+        }
+
         for item in self.ast.items {
             self.visit_item(item)?;
         }
+
+        self.validate_conformances()?;
 
         for warning in self.warnings.iter() {
             let report: miette::ErrReport = warning.clone().into();
@@ -193,6 +192,221 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             signature: self.module_signature.clone(),
         }))
     }
+
+    fn validate_conformances(&self) -> HirResult<()> {
+        for (index, left) in self.module_signature.conformances.iter().enumerate() {
+            for right in self.module_signature.conformances.iter().skip(index + 1) {
+                if left.concept.type_key() == right.concept.type_key()
+                    && Self::patterns_overlap(left.target, right.target)
+                {
+                    return self.unsupported_concept_item(
+                        right.span,
+                        format!("overlapping concept conformances for {}", left.concept),
+                    );
+                }
+            }
+        }
+        for blocks in self.module_body.extends.values() {
+            for block in blocks {
+                let Some(concept_name) = (match block.concept {
+                    HirTy::Named(name) => Some(name.name),
+                    HirTy::Generic(generic) => Some(generic.name),
+                    _ => None,
+                }) else {
+                    continue;
+                };
+                let Some(concept) = self.module_body.concepts.get(concept_name) else {
+                    continue;
+                };
+                let target_is_local = match block.ty {
+                    HirTy::Named(name) => self.module_body.structs.contains_key(name.name),
+                    HirTy::Generic(generic) => self.module_body.structs.contains_key(generic.name),
+                    _ => false,
+                };
+                let concept_is_local = self.module_body.concepts.contains_key(concept_name);
+                let is_local = self
+                    .module_signature
+                    .conformances
+                    .iter()
+                    .find(|conformance| conformance.span == block.span)
+                    .is_some_and(|conformance| conformance.is_local);
+                if is_local && !target_is_local && !concept_is_local {
+                    return self.unsupported_concept_item(
+                        block.span,
+                        "orphan concept conformance".to_string(),
+                    );
+                }
+                let mut assignment_names = std::collections::BTreeSet::new();
+                for assignment in &block.associated_types {
+                    if !assignment_names.insert(assignment.name) {
+                        return self.unsupported_concept_item(
+                            assignment.span,
+                            format!("duplicate associated type assignment {}", assignment.name),
+                        );
+                    }
+                }
+                for associated in concept.signature.associated_types.values() {
+                    if associated.ty.is_none()
+                        && !block
+                            .associated_types
+                            .iter()
+                            .any(|implementation| implementation.name == associated.name)
+                    {
+                        return self.unsupported_concept_item(
+                            block.span,
+                            format!("missing associated type {}", associated.name),
+                        );
+                    }
+                }
+                for required_name in &concept.signature.required_method_names {
+                    let Some(implementation) = block
+                        .methods
+                        .iter()
+                        .find(|method| method.name == *required_name)
+                    else {
+                        return self.unsupported_concept_item(
+                            block.span,
+                            format!("missing required method {}", required_name),
+                        );
+                    };
+                    let required = concept
+                        .signature
+                        .required_methods
+                        .iter()
+                        .zip(&concept.signature.required_method_names)
+                        .find(|(_, name)| *name == required_name)
+                        .map(|(signature, _)| *signature)
+                        .unwrap();
+                    if !Self::method_signatures_compatible(
+                        required,
+                        implementation.signature,
+                        block.ty,
+                    ) {
+                        return self.unsupported_concept_item(
+                            implementation.span,
+                            format!("signature mismatch for required method {}", required_name),
+                        );
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn patterns_overlap(left: &HirTy<'hir>, right: &HirTy<'hir>) -> bool {
+        match (left, right) {
+            (HirTy::Named(left), HirTy::Named(right)) => left.name == right.name,
+            (HirTy::Generic(left), HirTy::Generic(right)) => {
+                left.name == right.name && left.inner.len() == right.inner.len()
+            }
+            _ => left.type_key() == right.type_key(),
+        }
+    }
+
+    fn method_signatures_compatible(
+        required: &HirStructMethodSignature<'hir>,
+        implementation: &HirStructMethodSignature<'hir>,
+        target: &HirTy<'hir>,
+    ) -> bool {
+        required.modifier == implementation.modifier
+            && required.params.len() == implementation.params.len()
+            && required.params.iter().zip(&implementation.params).all(
+                |(required, implementation)| {
+                    Self::types_compatible(&required.ty, &implementation.ty, target)
+                },
+            )
+            && Self::types_compatible(&required.return_ty, &implementation.return_ty, target)
+    }
+
+    fn types_compatible(
+        required: &HirTy<'hir>,
+        implementation: &HirTy<'hir>,
+        target: &HirTy<'hir>,
+    ) -> bool {
+        match required {
+            HirTy::Named(name) if name.name == "This" => implementation == target,
+            HirTy::PtrTy(required) => match implementation {
+                HirTy::PtrTy(implementation) => {
+                    required.is_const == implementation.is_const
+                        && Self::types_compatible(required.inner, implementation.inner, target)
+                }
+                _ => false,
+            },
+            HirTy::Generic(required) => match implementation {
+                HirTy::Generic(implementation) => {
+                    required.name == implementation.name
+                        && required.inner.len() == implementation.inner.len()
+                        && required.inner.iter().zip(&implementation.inner).all(
+                            |(required, implementation)| {
+                                Self::types_compatible(required, implementation, target)
+                            },
+                        )
+                }
+                _ => false,
+            },
+            HirTy::Associated(a) => {
+                if let HirTy::Associated(b) = implementation {
+                    a.name == b.name && (a.base == b.base || b.base == target)
+                } else {
+                    false
+                }
+            }
+            _ => required == implementation,
+        }
+    }
+
+    fn unsupported_concept_item<T>(&self, span: Span, item: String) -> HirResult<T> {
+        let path = span.path;
+        let src = utils::get_file_content(path).unwrap();
+        let source = NamedSource::new(path, src);
+        if let Some(member) = item.strip_prefix("missing required method ") {
+            Err(HirError::ConceptMissingMember(ConceptMissingMemberError {
+                span,
+                concept: "concept".to_string(),
+                member: member.to_string(),
+                src: source,
+            }))
+        } else if let Some(member) = item.strip_prefix("missing associated type ") {
+            Err(HirError::ConceptMissingMember(ConceptMissingMemberError {
+                span,
+                concept: "concept".to_string(),
+                member: member.to_string(),
+                src: source,
+            }))
+        } else if item.starts_with("signature mismatch") {
+            Err(HirError::ConceptSignatureMismatch(
+                ConceptSignatureMismatchError {
+                    span,
+                    concept: "concept".to_string(),
+                    member: item,
+                    expected: "concept requirement".to_string(),
+                    actual: "implementation".to_string(),
+                    src: source,
+                },
+            ))
+        } else if let Some(concept_name) =
+            item.strip_prefix("overlapping concept conformances for ")
+        {
+            Err(HirError::ConceptOverlap(ConceptOverlapError {
+                span,
+                concept: concept_name.to_string(),
+                src: source,
+            }))
+        } else if item.starts_with("orphan") {
+            Err(HirError::ConceptOrphan(ConceptOrphanError {
+                span,
+                concept: item,
+                src: source,
+            }))
+        } else {
+            Err(HirError::UnsupportedItem(UnsupportedItemError {
+                span,
+                item,
+                src: source,
+            }))
+        }
+    }
+
     pub fn visit_item(&mut self, ast_item: &'ast AstItem<'ast>) -> HirResult<()> {
         match ast_item {
             AstItem::Namespace(ns) => {
@@ -211,11 +425,10 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                         })
                     )
                 }
-                return Err(HirError::UnsupportedItem(UnsupportedItemError {
-                    span: ast_item.span(),
-                    item: "Global constants".to_string(),
-                    src: NamedSource::new(path, src),
-                }));
+                let global = self.visit_global_const(c)?;
+                self.module_signature
+                    .global_consts
+                    .insert(global.name, self.arena.intern(global));
             }
             AstItem::Function(ast_function) => {
                 let hir_func = self.visit_func(ast_function)?;
@@ -228,7 +441,16 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 self.module_body.functions.insert(name, hir_func);
             }
             AstItem::Struct(ast_struct) => {
+                let qualified_name = self.qualified_name(ast_struct.name.name);
+                self.current_this_ty = Some(ast_struct.get_struct_ty(
+                    self.ast_arena,
+                    self.ast_arena.alloc(AstIdentifier {
+                        name: self.ast_arena.alloc(qualified_name),
+                        span: ast_struct.name_span,
+                    }),
+                ));
                 let class = self.visit_struct(ast_struct)?;
+                self.current_this_ty = None;
                 self.module_signature
                     .structs
                     .insert(class.name, self.arena.intern(class.signature.clone()));
@@ -250,6 +472,20 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     for (name, signature) in allocated_hir.signature.structs.iter() {
                         self.module_signature.structs.insert(name, *signature);
                     }
+                    for (name, signature) in allocated_hir.signature.concepts.iter() {
+                        self.module_signature.concepts.insert(name, *signature);
+                    }
+                    self.module_signature.conformances.extend(
+                        allocated_hir.signature.conformances.iter().cloned().map(
+                            |mut conformance| {
+                                conformance.is_local = false;
+                                conformance
+                            },
+                        ),
+                    );
+                    for (name, concept) in allocated_hir.body.concepts.iter() {
+                        self.module_body.concepts.insert(name, concept.clone());
+                    }
                     for (name, hir_struct) in allocated_hir.body.structs.iter() {
                         self.module_body.structs.insert(name, hir_struct.clone());
                     }
@@ -265,8 +501,44 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     for (name, hir_union) in allocated_hir.body.unions.iter() {
                         self.module_body.unions.insert(name, hir_union.clone());
                     }
+                    for (ty_key, blocks) in allocated_hir.body.extends.iter() {
+                        self.module_body
+                            .extends
+                            .entry(*ty_key)
+                            .or_default()
+                            .extend(blocks.iter().cloned());
+                    }
                     for (name, signature) in allocated_hir.signature.unions.iter() {
                         self.module_signature.unions.insert(name, signature);
+                    }
+                    for (name, global_const) in allocated_hir.signature.global_consts.iter() {
+                        self.module_signature
+                            .global_consts
+                            .insert(name, global_const);
+                    }
+                    for (path, docs) in allocated_hir.signature.file_docs.iter() {
+                        self.module_signature.file_docs.insert(path, docs);
+                    }
+                    // A namespace is one logical entity even when several files reopen it,
+                    // so their docs are combined rather than one file's winning.
+                    for (name, namespace) in allocated_hir.signature.namespaces.iter() {
+                        match self.module_signature.namespaces.get_mut(name) {
+                            Some(existing) => {
+                                existing.docstring = match (existing.docstring, namespace.docstring)
+                                {
+                                    (Some(kept), Some(added)) if kept != added => {
+                                        Some(self.arena.names().get(&format!("{kept}\n\n{added}")))
+                                    }
+                                    (Some(kept), _) => Some(kept),
+                                    (None, added) => added,
+                                };
+                            }
+                            None => {
+                                self.module_signature
+                                    .namespaces
+                                    .insert(name, namespace.clone());
+                            }
+                        }
                     }
                     self.generic_pool.structs.append(&mut generic_pool.structs);
                 }
@@ -309,6 +581,46 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                     .unions
                     .insert(union_name, self.arena.intern(hir_union.signature.clone()));
             }
+            AstItem::Concept(concept) => {
+                let hir_concept = self.visit_concept(concept)?;
+                self.module_signature.concepts.insert(
+                    hir_concept.name,
+                    self.arena.intern(hir_concept.signature.clone()),
+                );
+                self.module_body
+                    .concepts
+                    .insert(hir_concept.name, hir_concept);
+            }
+            AstItem::Extend(e) => {
+                let extend = self.visit_extend_block(e)?;
+                let ty_key = extend.ty_key;
+                let conformance = HirConformanceSignature {
+                    target: extend.ty,
+                    concept: extend.concept,
+                    span: extend.span,
+                    where_clause: extend.where_clause.clone(),
+                    associated_types: extend
+                        .associated_types
+                        .iter()
+                        .filter_map(|associated| {
+                            associated.ty.map(|ty| HirAssociatedTypeAssignment {
+                                span: associated.span,
+                                name: associated.name,
+                                ty,
+                                docstring: associated.docstring,
+                            })
+                        })
+                        .collect(),
+                    is_local: true,
+                    docstring: extend.docstring,
+                };
+                self.module_body
+                    .extends
+                    .entry(ty_key)
+                    .or_default()
+                    .push(extend);
+                self.module_signature.conformances.push(conformance);
+            }
             _ => {
                 let path = ast_item.span().path;
                 let src = utils::get_file_content(path).unwrap();
@@ -320,6 +632,193 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             }
         }
         Ok(())
+    }
+
+    fn force_public_vis(
+        arena: &'hir HirArena<'hir>,
+        mut method: HirStructMethod<'hir>,
+    ) -> HirStructMethod<'hir> {
+        let mut signature = method.signature.clone();
+        signature.vis = HirVisibility::Public;
+        method.signature = arena.intern(signature);
+        method
+    }
+
+    fn visit_extend_block(
+        &mut self,
+        ast_extend: &'ast AstExtendBlock<'ast>,
+    ) -> HirResult<HirExtendBlock<'hir>> {
+        let ty = self.visit_ty(ast_extend.ty)?;
+        let concept = self.visit_ty(ast_extend.concept)?;
+        let previous_this = self.current_this_ty.replace(ast_extend.ty.clone());
+
+        // Methods and operators in an extend block are always public
+        let mut methods = Vec::new();
+        for method in ast_extend.methods.iter() {
+            methods.push(Self::force_public_vis(
+                self.arena,
+                self.visit_method(method)?,
+            ));
+        }
+
+        let mut operators = Vec::new();
+        for operator in ast_extend.operators.iter() {
+            let (method, _op_kind) = self.visit_operator_overload(operator)?;
+            operators.push(Self::force_public_vis(self.arena, method));
+        }
+        self.current_this_ty = previous_this;
+
+        let associated_types = ast_extend
+            .associated_types
+            .iter()
+            .map(|associated| {
+                Ok(HirAssociatedType {
+                    span: associated.span,
+                    name: self.arena.names().get(associated.name.name),
+                    name_span: associated.name_span,
+                    ty: associated.ty.map(|ty| self.visit_ty(ty)).transpose()?,
+                    docstring: associated.docstring.map(|doc| self.arena.names().get(doc)),
+                })
+            })
+            .collect::<HirResult<Vec<_>>>()?;
+        let where_clause = ast_extend
+            .where_clause
+            .map(
+                |clause| -> HirResult<Vec<&'hir HirGenericConstraint<'hir>>> {
+                    let mut constraints: Vec<&'hir HirGenericConstraint<'hir>> = Vec::new();
+                    for generic in clause.iter() {
+                        for constraint in generic.constraints.iter() {
+                            let kind = self.visit_constraint(constraint)?;
+                            let kind: &'hir HirGenericConstraintKind<'hir> =
+                                self.arena.intern(kind);
+                            constraints.push(self.arena.intern(HirGenericConstraint {
+                                span: generic.span,
+                                generic_name: self.arena.names().get(generic.name.name),
+                                kind: vec![kind],
+                            }));
+                        }
+                    }
+                    Ok(constraints)
+                },
+            )
+            .transpose()?;
+
+        Ok(HirExtendBlock {
+            span: ast_extend.span,
+            ty,
+            ty_key: HirTyId::from(ty),
+            ty_span: ast_extend.ty.span(),
+            concept,
+            concept_key: HirTyId::from(concept),
+            concept_span: ast_extend.concept.span(),
+            methods,
+            operators,
+            associated_types,
+            where_clause,
+            docstring: ast_extend.docstring.map(|doc| self.arena.names().get(doc)),
+        })
+    }
+
+    fn visit_concept(&mut self, node: &'ast AstConcept<'ast>) -> HirResult<HirConcept<'hir>> {
+        let qualified_name = self.qualified_name(node.name.name);
+        let name = self.arena.names().get(&qualified_name);
+        let previous_this = self.current_this_ty.take();
+        self.current_this_ty = Some(AstType::Named(AstNamedType {
+            span: node.name_span,
+            name: self.ast_arena.alloc(AstIdentifier {
+                name: self.ast_arena.alloc("This"),
+                span: node.name_span,
+            }),
+        }));
+        let generics = node
+            .generics
+            .iter()
+            .map(|generic| {
+                let kind = generic
+                    .constraints
+                    .iter()
+                    .map(|constraint| {
+                        self.visit_constraint(constraint)
+                            .map(|c| self.arena.intern(c))
+                    })
+                    .collect::<HirResult<Vec<_>>>()?
+                    .into_iter()
+                    .map(|kind| kind as &'hir HirGenericConstraintKind<'hir>)
+                    .collect();
+                let constraint: &'hir HirGenericConstraint<'hir> =
+                    self.arena.intern(HirGenericConstraint {
+                        span: generic.span,
+                        generic_name: self.arena.names().get(generic.name.name),
+                        kind,
+                    });
+                Ok(constraint)
+            })
+            .collect::<HirResult<Vec<_>>>()?;
+        let associated_types = node
+            .associated_types
+            .iter()
+            .map(|associated| {
+                Ok((
+                    self.arena.names().get(associated.name.name),
+                    HirAssociatedTypeSignature {
+                        span: associated.span,
+                        name: self.arena.names().get(associated.name.name),
+                        name_span: associated.name_span,
+                        ty: associated.ty.map(|ty| self.visit_ty(ty)).transpose()?,
+                        docstring: associated.docstring.map(|doc| self.arena.names().get(doc)),
+                    },
+                ))
+            })
+            .collect::<HirResult<BTreeMap<_, _>>>()?;
+        let default_methods = node
+            .implemented_methods
+            .iter()
+            .map(|method| self.visit_method(method))
+            .collect::<HirResult<Vec<_>>>()?;
+        let default_operators = node
+            .implemented_operators
+            .iter()
+            .map(|operator| {
+                self.visit_operator_overload(operator)
+                    .map(|(method, _)| method)
+            })
+            .collect::<HirResult<Vec<_>>>()?;
+        let required_methods = node
+            .required_methods
+            .iter()
+            .map(|method| self.visit_method_signature(method))
+            .collect::<HirResult<Vec<_>>>()?;
+        let required_method_names = node
+            .required_methods
+            .iter()
+            .map(|method| self.arena.names().get(method.name.name))
+            .collect();
+        self.current_this_ty = previous_this;
+        let signature = HirConceptSignature {
+            declaration_span: node.span,
+            vis: node.vis.into(),
+            name,
+            name_span: node.name_span,
+            generics,
+            associated_types,
+            required_methods,
+            required_method_names,
+            required_operators: BTreeMap::new(),
+            required_operator_names: node
+                .required_operators
+                .iter()
+                .map(|operator| self.arena.names().get(operator.name.name))
+                .collect(),
+            docstring: node.docstring.map(|doc| self.arena.names().get(doc)),
+        };
+        Ok(HirConcept {
+            span: node.span,
+            name,
+            name_span: node.name_span,
+            signature,
+            default_methods,
+            default_operators,
+        })
     }
 
     fn visit_union(&mut self, ast_union: &'ast AstUnion<'ast>) -> HirResult<HirUnion<'hir>> {
@@ -412,6 +911,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 name: self.arena.names().get(variant.name.name),
                 name_span: variant.name.span,
                 value: variant.value,
+                docstring: variant.docstring.map(|doc| self.arena.names().get(doc)),
             };
             variants.push(variant);
         }
@@ -602,48 +1102,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             None
         };
 
-        let mut has_copy_method = false;
-        let mut has_default_method = false;
-        let mut has_hash_method = false;
-        for method in methods.iter() {
-            if let Some(descriptor) = special_method_by_name(method.name) {
-                let kind = descriptor.kind;
-                if self.special_method_matches_signature(method.signature, kind, name) {
-                    match kind {
-                        SpecialMethodKind::Copy => has_copy_method = true,
-                        SpecialMethodKind::Default => has_default_method = true,
-                        SpecialMethodKind::Hash => has_hash_method = true,
-                    }
-                    continue;
-                }
-
-                // We only warn because it's not really an error to have this method name
-                // with a different signature, though it's most probably a mistake.
-                let path = method.span.path;
-                let src = utils::get_file_content(path).unwrap();
-                let mut pretty_printer = HirPrettyPrinter::new();
-                pretty_printer.print_method_signature(method.name, method.signature);
-                let signature = pretty_printer.get_output();
-                self.warnings
-                    .push(HirWarning::SpecialMethodMightHaveWrongSignature(
-                        SpecialMethodMightHaveWrongSignatureWarning {
-                            signature,
-                            expected_signature: expected_signature_for_struct(kind, name),
-                            method_name: method.name.into(),
-                            src: NamedSource::new(path, src),
-                            span: method.span,
-                        },
-                    ));
-            }
-        }
-
         let is_trivially_copyable = matches!(node.flag, AstFlag::TriviallyCopyable(_));
-        let has_copy_capability =
-            has_copy_method || special_method_enabled_by_flag(SpecialMethodKind::Copy, node.flag);
-        let has_default_capability = has_default_method
-            || special_method_enabled_by_flag(SpecialMethodKind::Default, node.flag);
-        let has_hash_capability =
-            has_hash_method || special_method_enabled_by_flag(SpecialMethodKind::Hash, node.flag);
 
         let signature = HirStructSignature {
             declaration_span: node.span,
@@ -679,9 +1138,6 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             generics,
             destructor: destructor.as_ref().map(|d| d.signature.clone()),
             had_user_defined_destructor,
-            is_std_copyable: has_copy_capability,
-            is_std_default: has_default_capability,
-            is_std_hashable: has_hash_capability,
             is_trivially_copyable,
             nullable_attribute_span: node.nullable_attribute_span,
             docstring: if let Some(docstring) = node.docstring {
@@ -691,6 +1147,7 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             },
             is_extern: node.is_extern,
             c_name: node.c_name.map(|name| self.arena.names().get(name)),
+            represents_ty: None,
         };
 
         Ok(HirStruct {
@@ -743,13 +1200,15 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         node: &'ast AstOperatorOverload,
     ) -> HirResult<(HirStructMethod<'hir>, HirOverloadableOperator)> {
         let type_parameters = node
+            .signature
             .args
             .iter()
             .map(|arg| self.visit_type_param_item(arg))
             .collect::<HirResult<Vec<_>>>();
-        let ret_type_span = node.ret.span();
-        let ret_type = self.visit_ty(node.ret)?.clone();
+        let ret_type_span = node.signature.ret.span();
+        let ret_type = self.visit_ty(node.signature.ret)?.clone();
         let parameters = node
+            .signature
             .args
             .iter()
             .map(|arg| self.visit_func_param(arg))
@@ -757,23 +1216,21 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
 
         let body = self.visit_block(node.body)?;
         let (generics, where_clause) =
-            self.merge_generic_constraints(node.generics, node.where_clause);
+            self.merge_generic_constraints(node.signature.generics, node.signature.where_clause);
 
-        let operator = node
-            .name
-            .name
-            .try_into()
-            .map_err(|_| Self::unknown_overloadable_operator(node.name.name, &node.span))?;
+        let operator = node.signature.name.name.try_into().map_err(|_| {
+            Self::unknown_overloadable_operator(node.signature.name.name, &node.signature.span)
+        })?;
 
         let signature = self.arena.intern(HirStructMethodSignature {
-            modifier: match node.modifier {
+            modifier: match node.signature.modifier {
                 AstMethodModifier::Const => HirStructMethodModifier::Const,
                 AstMethodModifier::Static => HirStructMethodModifier::Static,
                 AstMethodModifier::Mutable => HirStructMethodModifier::Mutable,
                 AstMethodModifier::Consuming => HirStructMethodModifier::Consuming,
             },
-            span: node.span,
-            vis: node.vis.into(),
+            span: node.signature.span,
+            vis: node.signature.vis.into(),
             params: parameters?,
             generics,
             type_params: type_parameters?,
@@ -783,21 +1240,22 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             // Sets to true by default; monomorphization pass will update if needed
             is_constraint_satisfied: true,
             attributes: node
+                .signature
                 .attributes
                 .iter()
                 .map(|attr| HirMethodAttribute::from(**attr))
                 .collect(),
             is_instantiated: true,
-            docstring: if let Some(docstring) = node.docstring {
+            docstring: if let Some(docstring) = node.signature.docstring {
                 Some(self.arena.names().get(docstring))
             } else {
                 None
             },
         });
         let method = HirStructMethod {
-            span: node.span,
-            name: self.arena.names().get(node.name.name),
-            name_span: node.name.span,
+            span: node.signature.span,
+            name: self.arena.names().get(node.signature.name.name),
+            name_span: node.signature.name.span,
             signature,
             body,
         };
@@ -805,40 +1263,30 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             method,
             HirOverloadableOperator {
                 kind: operator,
-                span: node.span,
+                span: node.signature.span,
             },
         ))
     }
 
-    fn visit_method(&mut self, node: &'ast AstMethod<'ast>) -> HirResult<HirStructMethod<'hir>> {
-        if TryInto::<HirOverloadableOperatorKind>::try_into(node.name.name).is_ok() {
-            let path = node.span.path;
-            let src = utils::get_file_content(path).unwrap();
-            let warning = HirWarning::MethodLooksLikeAnOperator(MethodLooksLikeAnOperatorWarning {
-                method_name: node.name.name.into(),
-                src: NamedSource::new(path, src),
-                span: node.name.span,
-            });
-            self.warnings.push(warning);
-        }
+    fn visit_method_signature(
+        &mut self,
+        node: &'ast AstMethodSignature<'ast>,
+    ) -> HirResult<&'hir HirStructMethodSignature<'hir>> {
         let type_parameters = node
             .args
             .iter()
             .map(|arg| self.visit_type_param_item(arg))
-            .collect::<HirResult<Vec<_>>>();
+            .collect::<HirResult<Vec<_>>>()?;
         let ret_type_span = node.ret.span();
         let ret_type = self.visit_ty(node.ret)?.clone();
         let parameters = node
             .args
             .iter()
             .map(|arg| self.visit_func_param(arg))
-            .collect::<HirResult<Vec<_>>>();
-
-        let body = self.visit_block(node.body)?;
+            .collect::<HirResult<Vec<_>>>()?;
         let (generics, where_clause) =
             self.merge_generic_constraints(node.generics, node.where_clause);
-
-        let signature = self.arena.intern(HirStructMethodSignature {
+        Ok(self.arena.intern(HirStructMethodSignature {
             modifier: match node.modifier {
                 AstMethodModifier::Const => HirStructMethodModifier::Const,
                 AstMethodModifier::Static => HirStructMethodModifier::Static,
@@ -847,6 +1295,64 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             },
             span: node.span,
             vis: node.vis.into(),
+            params: parameters,
+            generics,
+            type_params: type_parameters,
+            return_ty: ret_type,
+            return_ty_span: Some(ret_type_span),
+            where_clause,
+            is_constraint_satisfied: true,
+            attributes: node
+                .attributes
+                .iter()
+                .map(|attr| HirMethodAttribute::from(**attr))
+                .collect(),
+            is_instantiated: true,
+            docstring: node
+                .docstring
+                .map(|docstring| self.arena.names().get(docstring)),
+        }))
+    }
+
+    fn visit_method(&mut self, node: &'ast AstMethod<'ast>) -> HirResult<HirStructMethod<'hir>> {
+        if TryInto::<HirOverloadableOperatorKind>::try_into(node.signature.name.name).is_ok() {
+            let path = node.signature.span.path;
+            let src = utils::get_file_content(path).unwrap();
+            let warning = HirWarning::MethodLooksLikeAnOperator(MethodLooksLikeAnOperatorWarning {
+                method_name: node.signature.name.name.into(),
+                src: NamedSource::new(path, src),
+                span: node.signature.name.span,
+            });
+            self.warnings.push(warning);
+        }
+        let type_parameters = node
+            .signature
+            .args
+            .iter()
+            .map(|arg| self.visit_type_param_item(arg))
+            .collect::<HirResult<Vec<_>>>();
+        let ret_type_span = node.signature.ret.span();
+        let ret_type = self.visit_ty(node.signature.ret)?.clone();
+        let parameters = node
+            .signature
+            .args
+            .iter()
+            .map(|arg| self.visit_func_param(arg))
+            .collect::<HirResult<Vec<_>>>();
+
+        let body = self.visit_block(node.body)?;
+        let (generics, where_clause) =
+            self.merge_generic_constraints(node.signature.generics, node.signature.where_clause);
+
+        let signature = self.arena.intern(HirStructMethodSignature {
+            modifier: match node.signature.modifier {
+                AstMethodModifier::Const => HirStructMethodModifier::Const,
+                AstMethodModifier::Static => HirStructMethodModifier::Static,
+                AstMethodModifier::Mutable => HirStructMethodModifier::Mutable,
+                AstMethodModifier::Consuming => HirStructMethodModifier::Consuming,
+            },
+            span: node.signature.span,
+            vis: node.signature.vis.into(),
             params: parameters?,
             generics,
             type_params: type_parameters?,
@@ -856,21 +1362,22 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
             // Sets to true by default; monomorphization pass will update if needed
             is_constraint_satisfied: true,
             attributes: node
+                .signature
                 .attributes
                 .iter()
                 .map(|attr| HirMethodAttribute::from(**attr))
                 .collect(),
             is_instantiated: true,
-            docstring: if let Some(docstring) = node.docstring {
+            docstring: if let Some(docstring) = node.signature.docstring {
                 Some(self.arena.names().get(docstring))
             } else {
                 None
             },
         });
         let method = HirStructMethod {
-            span: node.span,
-            name: self.arena.names().get(node.name.name),
-            name_span: node.name.span,
+            span: node.signature.span,
+            name: self.arena.names().get(node.signature.name.name),
+            name_span: node.signature.name.span,
             signature,
             body,
         };
@@ -1050,27 +1557,70 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         &mut self,
         node: &'ast AstImport<'ast>,
     ) -> HirResult<(&'hir HirModule<'hir>, HirGenericPool<'hir>)> {
+        let dedup_key = utils::resolve_import_path(node.path, Some(node.span.path));
+        let canonical_key: &'hir str = self.arena.intern(dedup_key);
+
         //TODO: Handle errors properly
-        if !self.already_imported.contains_key(node.path) {
+        if !self.already_imported.contains_key(canonical_key) {
             self.already_imported
-                .insert(self.arena.intern(node.path.to_owned()), ());
-            let src = match crate::atlas_c::utils::get_file_content(node.path) {
+                .insert(self.arena.intern(canonical_key.to_owned()), ());
+            let src = match crate::atlas_c::utils::get_file_content_for_import(
+                node.path,
+                node.span.path,
+            ) {
                 Ok(src) => src,
                 Err(_) => {
-                    let report: ErrReport = HirError::UnknownFileImport(UnknownFileImportError {
-                        span: node.span,
-                        src: NamedSource::new(
-                            node.span.path,
-                            utils::get_file_content(node.span.path).unwrap(),
-                        ),
-                        file_name: node.path.to_string(),
-                    })
-                    .into();
+                    let report: ErrReport = match utils::missing_dependency_file(
+                        node.path,
+                        Some(node.span.path),
+                    ) {
+                        Some((dependency_name, requested_file)) => {
+                            let help = if node.path.contains('/') {
+                                format!(
+                                    "'{dependency_name}' was fetched into build/libs/{dependency_name}, \
+                                     but that doesn't include '{requested_file}' check the spelling, \
+                                     or that this matches the dependency's actual layout."
+                                )
+                            } else {
+                                format!(
+                                    "'{dependency_name}' was fetched into build/libs/{dependency_name}, \
+                                     but it has no default entry file ('{requested_file}') import a \
+                                     specific file from it instead, e.g. \
+                                     \"{dependency_name}/some_file.atlas\"."
+                                )
+                            };
+                            HirError::FileNotFoundInDependency(FileNotFoundInDependencyError {
+                                span: node.span,
+                                src: NamedSource::new(
+                                    node.span.path,
+                                    utils::get_file_content(node.span.path).unwrap(),
+                                ),
+                                help,
+                                dependency_name,
+                                requested_file,
+                            })
+                            .into()
+                        }
+                        None => HirError::UnknownFileImport(UnknownFileImportError {
+                            span: node.span,
+                            src: NamedSource::new(
+                                node.span.path,
+                                utils::get_file_content(node.span.path).unwrap(),
+                            ),
+                            file_name: node.path.to_string(),
+                        })
+                        .into(),
+                    };
                     eprintln!("{:?}", report);
                     std::process::exit(1);
                 }
             };
-            let path = crate::atlas_c::utils::string_to_static_str(node.path.to_owned());
+            // Use the already-scoped dedup key (e.g. `std/libc.atlas`, not the raw
+            // `libc.atlas` as written) as this file's logical path, so that further
+            // relative imports written *inside* it can still tell which dependency
+            // they belong to, however deep the import chain goes (see
+            // `utils::dependency_root_of_file`).
+            let path = crate::atlas_c::utils::string_to_static_str(canonical_key.to_owned());
             let ast: AstProgram<'ast> = match parse(path, self.ast_arena, src) {
                 Ok(ast) => ast,
                 Err(e) => {
@@ -1635,10 +2185,11 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                                     ));
                                 }
                                 let ty = self.arena.types().get_uint_ty(64);
+                                let target_ty = self.visit_ty(c.generics[0])?;
                                 let hir = HirExpr::IntrinsicCall(HirIntrinsicCallExpr {
                                     name: INTRINSIC_SIZEOF,
                                     args: vec![],
-                                    args_ty: vec![ty],
+                                    args_ty: vec![target_ty],
                                     span: node.span(),
                                     ty,
                                 });
@@ -2024,6 +2575,46 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
         Ok(op)
     }
 
+    fn visit_global_const(
+        &mut self,
+        node: &'ast AstGlobalConst<'ast>,
+    ) -> HirResult<HirGlobalConst<'hir>> {
+        match node.value {
+            // Temporary restriction until we get const functions/methods
+            AstExpr::FieldAccess(_)
+            | AstExpr::Assign(_)
+            | AstExpr::Call(_)
+            | AstExpr::Delete(_)
+            | AstExpr::IfElse(_)
+            | AstExpr::StaticAccess(_)
+            | AstExpr::ObjLiteral(_)
+            | AstExpr::UnaryOp(AstUnaryOpExpr {
+                op: Some(AstUnaryOp::Deref) | Some(AstUnaryOp::AsRef),
+                ..
+            }) => {
+                let path = node.span.path;
+                let src = utils::get_file_content(path)
+                    .unwrap_or_else(|_| panic!("Failed to open file {path}"));
+                return Err(HirError::UnsupportedItem(UnsupportedItemError {
+                    span: node.span,
+                    item: "Global constants with that kind of value".to_string(),
+                    src: NamedSource::new(path, src),
+                }));
+            }
+            _ => Ok(HirGlobalConst {
+                span: node.span,
+                name: self.arena.names().get(node.name.name),
+                name_span: node.name.span,
+                ty: self.visit_ty(node.ty)?,
+                ty_span: node.ty.span(),
+                value: self.arena.intern(self.visit_expr(node.value)?),
+                value_span: node.value.span(),
+                vis: node.vis.into(),
+                docstring: node.docstring.map(|doc| self.arena.names().get(doc)),
+            }),
+        }
+    }
+
     fn visit_func(&mut self, node: &'ast AstFunction<'ast>) -> HirResult<HirFunction<'hir>> {
         let type_parameters = node
             .args
@@ -2170,6 +2761,13 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 }
                 ty
             }
+            AstType::Associated(associated) => {
+                let base = self.visit_ty(associated.base)?;
+                let name = self.arena.names().get(associated.name.name);
+                self.arena
+                    .types()
+                    .get_associated_ty(base, name, associated.span)
+            }
             AstType::Variadic(_) => {
                 let path = node.span().path;
                 let src = utils::get_file_content(path)
@@ -2181,7 +2779,20 @@ impl<'ast, 'hir> AstSyntaxLoweringPass<'ast, 'hir> {
                 }));
             }
             //The "this" ty is replaced during the type checking phase
-            AstType::ThisTy(_) => self.arena.types().get_uninitialized_ty(),
+            AstType::ThisTy(this) => {
+                if let Some(ty) = &self.current_this_ty {
+                    self.visit_ty(self.ast_arena.alloc(ty.clone()))?
+                } else {
+                    let path = this.span.path;
+                    let src = utils::get_file_content(path).unwrap();
+                    return Err(HirError::UsedThisTyOutsideOfCorrectContext(
+                        UsedThisTyOutsideOfCorrectContextError {
+                            span: this.span,
+                            src: NamedSource::new(path, src),
+                        },
+                    ));
+                }
+            }
             AstType::PtrTy(ptr_ty) => {
                 let inner_ty = self.visit_ty(ptr_ty.inner)?;
                 self.arena

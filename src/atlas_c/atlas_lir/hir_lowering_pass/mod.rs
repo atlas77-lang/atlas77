@@ -7,12 +7,12 @@ use crate::atlas_c::{
         HirModule,
         arena::HirArena,
         expr::{HirBinaryOperator, HirExpr, HirUnaryOp},
+        intrinsic_methods::{
+            INTRINSIC_ALIGNOF, INTRINSIC_SIZEOF, INTRINSIC_TYPE_ID, INTRINSIC_TYPE_OF,
+        },
         item::{HirEnum, HirFunction, HirStruct, HirStructDestructor, HirStructMethod, HirUnion},
         monomorphization_pass::MonomorphizationPass,
         signature::{ConstantValue, HirOverloadableOperatorKind, HirStructMethodModifier},
-        special_methods::{
-            INTRINSIC_PRIMITIVE_COPY, INTRINSIC_PRIMITIVE_DEFAULT, INTRINSIC_PRIMITIVE_HASH,
-        },
         stmt::HirStatement,
         ty::{HirGenericTy, HirTy, HirTyId},
     },
@@ -45,6 +45,9 @@ pub struct HirLoweringPass<'hir> {
     param_map: HashMap<&'hir str, u8>,
     /// Maps local variable names to their temp ID
     local_map: HashMap<&'hir str, u32>,
+    /// Maps local variable names to their concrete HIR type.
+    local_types: HashMap<&'hir str, &'hir HirTy<'hir>>,
+    current_struct_name: Option<String>,
     hir_arena: &'hir HirArena<'hir>,
 }
 
@@ -57,7 +60,27 @@ impl<'hir> HirLoweringPass<'hir> {
             block_counter: 0,
             param_map: HashMap::new(),
             local_map: HashMap::new(),
+            local_types: HashMap::new(),
+            current_struct_name: None,
             hir_arena,
+        }
+    }
+
+    fn ty_contains_placeholder(&self, ty: &HirTy<'hir>) -> bool {
+        match ty {
+            HirTy::Named(n) => {
+                n.name == "This"
+                    || (n.name.len() == 1
+                        && !self.hir_module.signature.structs.contains_key(n.name)
+                        && !self.hir_module.signature.unions.contains_key(n.name))
+            }
+            HirTy::PtrTy(p) => self.ty_contains_placeholder(p.inner),
+            HirTy::Generic(g) => g.inner.iter().any(|t| self.ty_contains_placeholder(t)),
+            HirTy::Slice(s) => self.ty_contains_placeholder(s.inner),
+            HirTy::InlineArray(a) => self.ty_contains_placeholder(a.inner),
+            HirTy::Atomic(a) => self.ty_contains_placeholder(a.inner),
+            HirTy::Associated(a) => self.ty_contains_placeholder(a.base),
+            _ => false,
         }
     }
 
@@ -77,7 +100,7 @@ impl<'hir> HirLoweringPass<'hir> {
         op: HirOverloadableOperatorKind,
         span: Span,
     ) -> LirResult<LirTy> {
-        let Some(owner_name) = self.class_name_from_receiver_ty(receiver_ty) else {
+        let Some(owner_name) = self.get_name_of_receiver_ty(receiver_ty) else {
             return Err(unsupported_expr(
                 span,
                 format!(
@@ -87,7 +110,7 @@ impl<'hir> HirLoweringPass<'hir> {
             ));
         };
 
-        let Some(struct_sig) = self.hir_module.signature.structs.get(owner_name) else {
+        let Some(struct_sig) = self.hir_module.signature.structs.get(owner_name.as_str()) else {
             return Err(unsupported_expr(
                 span,
                 format!(
@@ -152,6 +175,19 @@ impl<'hir> HirLoweringPass<'hir> {
         let mut structs = Vec::new();
         for body in self.hir_module.body.structs.values() {
             structs.push(self.lower_struct(body, &mut functions)?);
+        }
+        for blocks in self.hir_module.body.extends.values() {
+            for block in blocks {
+                if self.ty_contains_placeholder(block.ty) {
+                    continue;
+                }
+                for method in block.methods.iter() {
+                    functions.push(self.lower_method(block.ty, method)?);
+                }
+                for operator in block.operators.iter() {
+                    functions.push(self.lower_method(block.ty, operator)?);
+                }
+            }
         }
         let mut unions = Vec::new();
         for body in self.hir_module.body.unions.values() {
@@ -259,17 +295,18 @@ impl<'hir> HirLoweringPass<'hir> {
     }
 
     fn lower_union(&mut self, union_body: &'hir HirUnion<'hir>) -> LirResult<LirUnion> {
-        let mut variants = BTreeMap::new();
+        let mut variants = Vec::new();
         for variant in union_body.variants.iter() {
-            variants.insert(
+            variants.push((
                 variant.name.to_string(),
                 self.hir_ty_to_lir_ty(variant.ty, variant.span),
-            );
+            ));
         }
 
         let lir_union = LirUnion {
             name: union_body.name.to_string(),
             c_name: union_body.signature.c_name.map(|s| s.to_string()),
+            is_extern: union_body.signature.is_extern,
             variants,
         };
 
@@ -281,12 +318,12 @@ impl<'hir> HirLoweringPass<'hir> {
         struct_body: &'hir HirStruct<'hir>,
         functions: &mut Vec<LirFunction>,
     ) -> LirResult<LirStruct> {
-        let mut fields = BTreeMap::new();
+        let mut fields = Vec::new();
         for field in struct_body.fields.iter() {
-            fields.insert(
+            fields.push((
                 field.name.to_string(),
                 self.hir_ty_to_lir_ty(field.ty, field.span),
-            );
+            ));
         }
 
         let lir_struct = LirStruct {
@@ -296,13 +333,17 @@ impl<'hir> HirLoweringPass<'hir> {
             c_name: struct_body.signature.c_name.map(|s| s.to_string()),
         };
 
+        let self_ty = self
+            .hir_arena
+            .types()
+            .get_named_ty(struct_body.name, struct_body.name_span);
         for method in struct_body.methods.iter() {
-            let lir_method = self.lower_method(struct_body.name, method)?;
+            let lir_method = self.lower_method(self_ty, method)?;
             functions.push(lir_method);
         }
 
         for operator in struct_body.operators.iter() {
-            let lir_operator = self.lower_method(struct_body.name, operator)?;
+            let lir_operator = self.lower_method(self_ty, operator)?;
             functions.push(lir_operator);
         }
 
@@ -324,6 +365,8 @@ impl<'hir> HirLoweringPass<'hir> {
         self.block_counter = 0;
         self.param_map.clear();
         self.local_map.clear();
+        self.local_types.clear();
+        self.current_struct_name = Some(struct_name.to_string());
 
         self.param_map.insert("this", 0);
         let args = vec![LirTy::Ptr {
@@ -357,7 +400,7 @@ impl<'hir> HirLoweringPass<'hir> {
 
     fn lower_method(
         &mut self,
-        struct_name: &str,
+        self_ty: &'hir HirTy<'hir>,
         method: &'hir HirStructMethod<'hir>,
     ) -> LirResult<LirFunction> {
         // Reset state for new function
@@ -365,8 +408,14 @@ impl<'hir> HirLoweringPass<'hir> {
         self.block_counter = 0;
         self.param_map.clear();
         self.local_map.clear();
+        self.local_types.clear();
+        let struct_name = self_ty.get_valid_c_string();
+        self.current_struct_name = Some(struct_name.clone());
 
         let mut args = Vec::new();
+
+        let self_lir_ty = self.hir_ty_to_lir_ty(self_ty, method.signature.span);
+
         if matches!(
             method.signature.modifier,
             HirStructMethodModifier::Mutable | HirStructMethodModifier::Const
@@ -375,7 +424,7 @@ impl<'hir> HirLoweringPass<'hir> {
             self.param_map.insert("this", 0);
             args.push(LirTy::Ptr {
                 is_const: method.signature.modifier == HirStructMethodModifier::Const,
-                inner: Box::new(LirTy::StructType(struct_name.to_string())),
+                inner: Box::new(self_lir_ty),
             });
         } else if matches!(
             method.signature.modifier,
@@ -383,7 +432,7 @@ impl<'hir> HirLoweringPass<'hir> {
         ) {
             // Consuming methods take ownership of `this` by value.
             self.param_map.insert("this", 0);
-            args.push(LirTy::StructType(struct_name.to_string()));
+            args.push(self_lir_ty);
         } else {
             // Static method, no "this" parameter
         }
@@ -459,6 +508,7 @@ impl<'hir> HirLoweringPass<'hir> {
         self.block_counter = 0;
         self.param_map.clear();
         self.local_map.clear();
+        self.local_types.clear();
 
         // Build parameter map
         for (idx, param) in func.signature.params.iter().enumerate() {
@@ -604,6 +654,7 @@ impl<'hir> HirLoweringPass<'hir> {
                         panic!("Expected a temp operand");
                     }
                 }
+                self.local_types.insert(const_stmt.name, const_stmt.ty);
             }
             HirStatement::Let(let_stmt) => {
                 let value = self.lower_expr(&let_stmt.value)?;
@@ -624,6 +675,7 @@ impl<'hir> HirLoweringPass<'hir> {
                         panic!("Expected a temp operand");
                     }
                 }
+                self.local_types.insert(let_stmt.name, let_stmt.ty);
             }
             HirStatement::Assign(assign) => {
                 let value = self.lower_expr(&assign.val)?;
@@ -689,9 +741,9 @@ impl<'hir> HirLoweringPass<'hir> {
         }
     }
 
-    fn class_name_from_receiver_ty(&self, ty: &'hir HirTy<'hir>) -> Option<&'hir str> {
+    fn get_name_of_receiver_ty(&self, ty: &'hir HirTy<'hir>) -> Option<String> {
         match ty {
-            HirTy::Named(n) => Some(n.name),
+            HirTy::Named(n) => Some(n.name.to_string()),
             HirTy::Generic(g) => {
                 let mangled_struct =
                     MonomorphizationPass::generate_mangled_name(self.hir_arena, g, "struct");
@@ -701,19 +753,19 @@ impl<'hir> HirLoweringPass<'hir> {
                     .structs
                     .contains_key(mangled_struct)
                 {
-                    Some(mangled_struct)
+                    Some(mangled_struct.to_string())
                 } else {
                     let mangled_union =
                         MonomorphizationPass::generate_mangled_name(self.hir_arena, g, "union");
                     if self.hir_module.signature.unions.contains_key(mangled_union) {
-                        Some(mangled_union)
+                        Some(mangled_union.to_string())
                     } else {
-                        None
+                        Some(ty.get_valid_c_string())
                     }
                 }
             }
-            HirTy::PtrTy(ptr) => self.class_name_from_receiver_ty(ptr.inner),
-            _ => None,
+            HirTy::PtrTy(ptr) => self.get_name_of_receiver_ty(ptr.inner),
+            _ => Some(ty.get_valid_c_string()),
         }
     }
 
@@ -725,8 +777,10 @@ impl<'hir> HirLoweringPass<'hir> {
                 let size = match lit.ty {
                     HirTy::Integer(i) => i.size_in_bits,
                     HirTy::LiteralInteger(i) => i.get_minimal_int_ty().size_in_bits,
+                    HirTy::LiteralUnsignedInteger(u) => u.get_minimal_uint_ty().size_in_bits,
+                    HirTy::UnsignedInteger(u) => u.size_in_bits,
                     _ => {
-                        return Err(unsupported_expr(lit.span, format!("{:?}", expr)));
+                        return Err(unsupported_expr(lit.span, format!("[HERE1] {:?}", expr)));
                     }
                 };
                 Ok(LirOperand::ImmInt {
@@ -739,8 +793,10 @@ impl<'hir> HirLoweringPass<'hir> {
                 let size = match lit.ty {
                     HirTy::UnsignedInteger(u) => u.size_in_bits,
                     HirTy::LiteralUnsignedInteger(u) => u.get_minimal_uint_ty().size_in_bits,
+                    HirTy::LiteralInteger(i) => i.get_minimal_int_ty().size_in_bits,
+                    HirTy::Integer(i) => i.size_in_bits,
                     _ => {
-                        return Err(unsupported_expr(lit.span, format!("{:?}", expr)));
+                        return Err(unsupported_expr(lit.span, format!("[HERE2] {:?}", expr)));
                     }
                 };
                 Ok(LirOperand::ImmUInt {
@@ -783,43 +839,12 @@ impl<'hir> HirLoweringPass<'hir> {
             }
 
             HirExpr::ListLiteral(list) => {
-                let dst = self.new_temp();
-                let lir_arr_ty = self.hir_ty_to_lir_ty(list.ty, list.span);
-                self.emit(LirInstr::ConstructArray {
-                    ty: lir_arr_ty,
-                    dst: dst.clone(),
-                    size: list.items.len(),
-                })?;
-
-                let elem_hir_ty = match list.ty {
-                    HirTy::InlineArray(arr) => arr.inner,
-                    _ => {
-                        if let Some(first) = list.items.first() {
-                            first.ty()
-                        } else {
-                            return Ok(dst);
-                        }
-                    }
-                };
-                let elem_lir_ty = self.hir_ty_to_lir_ty(elem_hir_ty, list.span);
-
-                for (idx, item) in list.items.iter().enumerate() {
-                    let src = self.lower_expr(item)?;
-                    let index_operand = LirOperand::Index {
-                        src: Box::new(dst.clone()),
-                        index: Box::new(LirOperand::ImmUInt {
-                            val: idx as u64,
-                            size: 64,
-                        }),
-                    };
-                    self.emit(LirInstr::Assign {
-                        ty: elem_lir_ty.clone(),
-                        dst: index_operand,
-                        src,
-                    })?;
+                let mut elements = Vec::with_capacity(list.items.len());
+                for item in &list.items {
+                    elements.push(self.lower_expr(item)?);
                 }
 
-                Ok(dst)
+                Ok(LirOperand::LiteralArray { elements })
             }
             HirExpr::ListLiteralWithSize(list) => {
                 fn const_list_size(expr: &HirExpr<'_>) -> Option<usize> {
@@ -838,42 +863,11 @@ impl<'hir> HirLoweringPass<'hir> {
                     )
                 })?;
 
-                let dst = self.new_temp();
-                let lir_arr_ty = self.hir_ty_to_lir_ty(list.ty, list.span);
-                self.emit(LirInstr::ConstructArray {
-                    ty: lir_arr_ty,
-                    dst: dst.clone(),
-                    size,
-                })?;
-
-                if size == 0 {
-                    return Ok(dst);
+                let mut elements = Vec::with_capacity(size);
+                for _ in 0..size {
+                    elements.push(self.lower_expr(&list.item)?);
                 }
-
-                let elem_hir_ty = match list.ty {
-                    HirTy::InlineArray(arr) => arr.inner,
-                    _ => list.item.ty(),
-                };
-                let elem_lir_ty = self.hir_ty_to_lir_ty(elem_hir_ty, list.span);
-
-                // Evaluate the repeated item once and reuse it for each slot.
-                let repeated_item = self.lower_expr(&list.item)?;
-                for idx in 0..size {
-                    let index_operand = LirOperand::Index {
-                        src: Box::new(dst.clone()),
-                        index: Box::new(LirOperand::ImmUInt {
-                            val: idx as u64,
-                            size: 64,
-                        }),
-                    };
-                    self.emit(LirInstr::Assign {
-                        ty: elem_lir_ty.clone(),
-                        dst: index_operand,
-                        src: repeated_item.clone(),
-                    })?;
-                }
-
-                Ok(dst)
+                Ok(LirOperand::LiteralArray { elements })
             }
 
             // === Casting ===
@@ -911,6 +905,19 @@ impl<'hir> HirLoweringPass<'hir> {
                         .unwrap_or(ident.name)
                         .to_string();
                     Ok(LirOperand::GlobalFn(function_name))
+                } else if let Some(c) = self.hir_module.signature.global_consts.get(ident.name) {
+                    self.lower_expr(c.value)
+                } else if let Some(struct_name) = &self.current_struct_name
+                    && let Some(structure) =
+                        self.hir_module.signature.structs.get(struct_name.as_str())
+                    && let Some(field) = structure.fields.get(ident.name)
+                {
+                    Ok(LirOperand::FieldAccess {
+                        src: Box::new(LirOperand::Arg(0)),
+                        field_name: ident.name.to_string(),
+                        ty: self.hir_ty_to_lir_ty(field.ty, field.span),
+                        is_arrow: true,
+                    })
                 } else {
                     // Unknown identifier - shouldn't happen after type checking
                     panic!("Unknown identifier: {}", ident.name);
@@ -945,6 +952,15 @@ impl<'hir> HirLoweringPass<'hir> {
                     }
                     Some(HirUnaryOp::AsRef) => {
                         let expr_operand = self.lower_expr(&unary.expr)?;
+                        if expr_operand.is_immediate() {
+                            let dest = self.new_temp();
+                            self.emit(LirInstr::LoadImm {
+                                ty: self.hir_ty_to_lir_ty(unary.expr.ty(), unary.span),
+                                dst: dest.clone(),
+                                value: expr_operand,
+                            })?;
+                            return Ok(LirOperand::AsRef(Box::new(dest)));
+                        }
                         Ok(LirOperand::AsRef(Box::new(expr_operand)))
                     }
                     Some(HirUnaryOp::Neg) => {
@@ -1008,7 +1024,19 @@ impl<'hir> HirLoweringPass<'hir> {
                     return Ok(dest);
                 }
 
-                let ty = self.hir_ty_to_lir_ty(binop.ty, binop.span);
+                let ty = if matches!(
+                    binop.op,
+                    HirBinaryOperator::Eq
+                        | HirBinaryOperator::Neq
+                        | HirBinaryOperator::Lt
+                        | HirBinaryOperator::Lte
+                        | HirBinaryOperator::Gt
+                        | HirBinaryOperator::Gte
+                ) {
+                    LirTy::Boolean
+                } else {
+                    self.hir_ty_to_lir_ty(binop.ty, binop.span)
+                };
 
                 let instr = match binop.op {
                     HirBinaryOperator::Add => LirInstr::Add {
@@ -1127,20 +1155,19 @@ impl<'hir> HirLoweringPass<'hir> {
 
             // === ObjLiteral ===
             HirExpr::ObjLiteral(obj_lit) => {
-                let mut args = Vec::new();
-                for field_value in &obj_lit.fields {
-                    let value_operand = self.lower_expr(&field_value.value)?;
-                    args.push((field_value.name.to_string(), value_operand));
+                let mut field_values = BTreeMap::new();
+                if obj_lit.fields.is_empty() {
+                    field_values.insert(String::from("_dummy"), LirOperand::ImmChar('A'));
+                } else {
+                    for field_value in &obj_lit.fields {
+                        let value_operand = self.lower_expr(&field_value.value)?;
+                        field_values.insert(field_value.name.to_string(), value_operand);
+                    }
                 }
-
-                let dest = self.new_temp();
-
-                self.emit(LirInstr::ConstructObject {
+                Ok(LirOperand::LiteralObj {
+                    field_values,
                     ty: self.hir_ty_to_lir_ty(obj_lit.ty, obj_lit.span),
-                    dst: dest.clone(),
-                    field_values: args.into_iter().collect(),
-                })?;
-                Ok(dest)
+                })
             }
 
             // === Function calls ===
@@ -1254,21 +1281,15 @@ impl<'hir> HirLoweringPass<'hir> {
                                 g,
                                 "struct",
                             ),
-                            _ => {
-                                return Err(unsupported_expr(
-                                    expr.span(),
-                                    format!("{:?}", static_access),
-                                ));
-                            }
+                            _ => &static_access.target.get_valid_c_string(),
                         };
-                        (
-                            format!("{}_{}", object_name, static_access.field.name),
-                            false,
-                        )
+                        let func_name = format!("{}_{}", object_name, static_access.field.name);
+
+                        (func_name, false)
                     }
                     HirExpr::FieldAccess(field_access) => {
                         let object_name = match self
-                            .class_name_from_receiver_ty(field_access.target.ty())
+                            .get_name_of_receiver_ty(field_access.target.ty())
                         {
                             Some(name) => name,
                             None => {
@@ -1287,8 +1308,14 @@ impl<'hir> HirLoweringPass<'hir> {
                     if let HirExpr::FieldAccess(field_access) = call.callee.as_ref() {
                         let target_operand = self.lower_expr(&field_access.target)?;
                         let is_consuming_method = self
-                            .class_name_from_receiver_ty(field_access.target.ty())
-                            .and_then(|name| self.hir_module.signature.structs.get(name).copied())
+                            .get_name_of_receiver_ty(field_access.target.ty())
+                            .and_then(|name| {
+                                self.hir_module
+                                    .signature
+                                    .structs
+                                    .get(name.as_str())
+                                    .copied()
+                            })
                             .and_then(|class| class.methods.get(field_access.field.name))
                             .is_some_and(|method| {
                                 method.modifier == HirStructMethodModifier::Consuming
@@ -1489,15 +1516,15 @@ impl<'hir> HirLoweringPass<'hir> {
             }
 
             HirExpr::IntrinsicCall(intrinsic) => match intrinsic.name {
-                "type_of" => {
+                INTRINSIC_TYPE_OF => {
                     let target_ty = intrinsic.args_ty.first().copied().unwrap_or(intrinsic.ty);
                     self.construct_type_info_object(target_ty, intrinsic.span)
                 }
-                "type_id" => {
+                INTRINSIC_TYPE_ID => {
                     let target_ty = intrinsic.args_ty.first().copied().unwrap_or(intrinsic.ty);
                     self.construct_type_id(target_ty)
                 }
-                "size_of" => {
+                INTRINSIC_SIZEOF => {
                     let target_ty = intrinsic.args_ty.first().copied().unwrap_or(intrinsic.ty);
                     let lir_target_ty = self.hir_ty_to_lir_ty(target_ty, intrinsic.span);
                     let size = self.lir_type_size_and_align(&lir_target_ty).0;
@@ -1512,7 +1539,7 @@ impl<'hir> HirLoweringPass<'hir> {
                     })?;
                     Ok(dest)
                 }
-                "align_of" => {
+                INTRINSIC_ALIGNOF => {
                     let target_ty = intrinsic.args_ty.first().copied().unwrap_or(intrinsic.ty);
                     let lir_target_ty = self.hir_ty_to_lir_ty(target_ty, intrinsic.span);
                     let align = self.lir_type_size_and_align(&lir_target_ty).1;
@@ -1526,132 +1553,6 @@ impl<'hir> HirLoweringPass<'hir> {
                         },
                     })?;
                     Ok(dest)
-                }
-                INTRINSIC_PRIMITIVE_DEFAULT => {
-                    let target_ty = intrinsic.args_ty.first().copied().unwrap_or(intrinsic.ty);
-                    let lir_target_ty = self.hir_ty_to_lir_ty(target_ty, intrinsic.span);
-                    let dest = self.new_temp();
-                    match &lir_target_ty {
-                        LirTy::Int8 | LirTy::Int16 | LirTy::Int32 | LirTy::Int64 => {
-                            self.emit(LirInstr::LoadImm {
-                                ty: lir_target_ty,
-                                dst: dest.clone(),
-                                value: LirOperand::ImmInt { val: 0, size: 64 },
-                            })?;
-                        }
-                        LirTy::UInt8 | LirTy::UInt16 | LirTy::UInt32 | LirTy::UInt64 => {
-                            self.emit(LirInstr::LoadImm {
-                                ty: lir_target_ty,
-                                dst: dest.clone(),
-                                value: LirOperand::ImmUInt { val: 0, size: 64 },
-                            })?;
-                        }
-                        LirTy::Float32 | LirTy::Float64 => {
-                            self.emit(LirInstr::LoadImm {
-                                ty: lir_target_ty,
-                                dst: dest.clone(),
-                                value: LirOperand::ImmFloat { val: 0.0, size: 64 },
-                            })?;
-                        }
-                        LirTy::Boolean => {
-                            self.emit(LirInstr::LoadImm {
-                                ty: lir_target_ty,
-                                dst: dest.clone(),
-                                value: LirOperand::ImmBool(false),
-                            })?;
-                        }
-                        LirTy::Char => {
-                            self.emit(LirInstr::LoadImm {
-                                ty: lir_target_ty,
-                                dst: dest.clone(),
-                                value: LirOperand::ImmChar('\0'),
-                            })?;
-                        }
-                        LirTy::Unit => {
-                            self.emit(LirInstr::LoadConst {
-                                dst: dest.clone(),
-                                value: LirOperand::ImmUnit,
-                            })?;
-                        }
-                        LirTy::Str => {
-                            self.emit(LirInstr::LoadConst {
-                                dst: dest.clone(),
-                                value: LirOperand::Const(ConstantValue::String(String::new())),
-                            })?;
-                        }
-                        // Pointer-like defaults are null.
-                        LirTy::Ptr { .. } | LirTy::FnPtr { .. } => {
-                            let zero = self.new_temp();
-                            self.emit(LirInstr::LoadImm {
-                                ty: LirTy::UInt64,
-                                dst: zero.clone(),
-                                value: LirOperand::ImmUInt { val: 0, size: 64 },
-                            })?;
-                            self.emit(LirInstr::Cast {
-                                ty: lir_target_ty,
-                                from: LirTy::UInt64,
-                                dst: dest.clone(),
-                                src: zero,
-                            })?;
-                        }
-                        // This intrinsic is intended for primitive-like targets; keep a safe fallback.
-                        _ => {
-                            let zero = self.new_temp();
-                            self.emit(LirInstr::LoadImm {
-                                ty: LirTy::UInt64,
-                                dst: zero.clone(),
-                                value: LirOperand::ImmUInt { val: 0, size: 64 },
-                            })?;
-                            self.emit(LirInstr::Cast {
-                                ty: lir_target_ty,
-                                from: LirTy::UInt64,
-                                dst: dest.clone(),
-                                src: zero,
-                            })?;
-                        }
-                    }
-                    Ok(dest)
-                }
-                // This purely exists to allow for constraints and use of `primitive.copy()`
-                INTRINSIC_PRIMITIVE_COPY => {
-                    let arg = self.lower_expr(&intrinsic.args[0])?;
-                    Ok(arg)
-                }
-                INTRINSIC_PRIMITIVE_HASH => {
-                    let arg = self.lower_expr(&intrinsic.args[0])?;
-                    let arg_ty = self.hir_ty_to_lir_ty(intrinsic.args[0].ty(), intrinsic.span);
-
-                    let dest = self.new_temp();
-                    match arg_ty {
-                        LirTy::UInt64 => Ok(arg),
-                        LirTy::Unit => {
-                            self.emit(LirInstr::LoadImm {
-                                ty: LirTy::UInt64,
-                                dst: dest.clone(),
-                                value: LirOperand::ImmUInt { val: 0, size: 64 },
-                            })?;
-                            Ok(dest)
-                        }
-                        LirTy::Str => {
-                            self.emit(LirInstr::Call {
-                                ty: LirTy::UInt64,
-                                dst: Some(dest.clone()),
-                                func_name: "atlas77_string_hash".into(),
-                                args: vec![arg],
-                            })?;
-                            Ok(dest)
-                        }
-                        // Default numeric/address-like hashing: cast to uint64.
-                        _ => {
-                            self.emit(LirInstr::Cast {
-                                ty: LirTy::UInt64,
-                                from: arg_ty,
-                                dst: dest.clone(),
-                                src: arg,
-                            })?;
-                            Ok(dest)
-                        }
-                    }
                 }
                 "std::move" => self.lower_expr(&intrinsic.args[0]),
                 "std::ptr::read" => {
@@ -1784,23 +1685,10 @@ impl<'hir> HirLoweringPass<'hir> {
                 size: arr.size,
             },
             HirTy::Named(n) => {
-                if let Some(sig) = self.hir_module.signature.unions.get(n.name) {
-                    if sig.is_extern {
-                        let name = sig.c_name.unwrap_or(n.name);
-                        LirTy::UnionType(name.to_string())
-                    } else {
-                        LirTy::UnionType(n.name.to_string())
-                    }
+                if self.hir_module.signature.unions.contains_key(n.name) {
+                    LirTy::UnionType(n.name.to_string())
                 } else {
-                    let name = self
-                        .hir_module
-                        .signature
-                        .structs
-                        .get(n.name)
-                        .filter(|sig| sig.is_extern)
-                        .and_then(|sig| sig.c_name)
-                        .unwrap_or(n.name);
-                    LirTy::StructType(name.to_string())
+                    LirTy::StructType(n.name.to_string())
                 }
             }
             HirTy::Generic(g) => {
@@ -1841,6 +1729,30 @@ impl<'hir> HirLoweringPass<'hir> {
                 let inner = self.hir_ty_to_lir_ty(a.inner, span);
                 LirTy::AtomicTy {
                     inner: Box::new(inner),
+                }
+            }
+            HirTy::Associated(a) => {
+                let ty_id = HirTyId::from(a.base);
+                if let Some(extend) = self.hir_module.body.extends.get(&ty_id) {
+                    for e in extend.iter() {
+                        for t in e.associated_types.iter() {
+                            if t.name == a.name {
+                                if t.ty.is_none() {
+                                    break;
+                                }
+                                return self.hir_ty_to_lir_ty(t.ty.unwrap(), a.span);
+                            }
+                        }
+                    }
+                    let report: miette::Report =
+                        (*unknown_type_err(&format!("{}", ty), span)).into();
+                    eprintln!("{:?}", report);
+                    std::process::exit(1);
+                } else {
+                    let report: miette::Report =
+                        (*unknown_type_err(&format!("{}", ty), span)).into();
+                    eprintln!("{:?}", report);
+                    std::process::exit(1);
                 }
             }
         }
@@ -1969,7 +1881,6 @@ impl<'hir> HirLoweringPass<'hir> {
         let mut method_names = Vec::new();
         let mut field_count = 0u64;
         let mut field_names = Vec::new();
-        let mut is_default = false;
         let type_name;
         let mangled_name;
 
@@ -1980,7 +1891,6 @@ impl<'hir> HirLoweringPass<'hir> {
                     method_names = sig.methods.keys().copied().collect();
                     field_count = sig.fields.len() as u64;
                     field_names = sig.fields.keys().copied().collect();
-                    is_default = sig.is_std_default;
                     if let Some(c_name) = &sig.c_name {
                         type_name = c_name.to_string();
                         mangled_name = c_name.to_string();
@@ -2027,7 +1937,6 @@ impl<'hir> HirLoweringPass<'hir> {
                     method_names = sig.methods.keys().copied().collect();
                     field_count = sig.fields.len() as u64;
                     field_names = sig.fields.keys().copied().collect();
-                    is_default = sig.is_std_default;
                     if let Some(c_name) = &sig.c_name {
                         type_name = c_name.to_string();
                         mangled_name = c_name.to_string();
@@ -2085,7 +1994,6 @@ impl<'hir> HirLoweringPass<'hir> {
         }
 
         let is_trivially_copyable = ty.is_trivially_copyable(&self.hir_module.signature);
-        let is_copyable = ty.is_copyable(&self.hir_module.signature);
 
         let lir_target_ty = self.hir_ty_to_lir_ty(ty, span);
         let (size, align) = self.lir_type_size_and_align(&lir_target_ty);
@@ -2117,42 +2025,7 @@ impl<'hir> HirLoweringPass<'hir> {
         let method_names_array = if method_names.is_empty() {
             LirOperand::ImmUnit
         } else {
-            let array_dst = self.new_temp();
-            self.emit(LirInstr::LoadConst {
-                dst: array_dst.clone(),
-                value: LirOperand::ImmUnit, // Placeholder for the actual array data
-            })?;
-            let dst = self.new_temp();
-            self.emit(LirInstr::ConstructArray {
-                ty: LirTy::ArrayTy {
-                    inner: Box::new(LirTy::Ptr {
-                        is_const: true,
-                        inner: Box::new(LirTy::UInt8),
-                    }),
-                    size: method_names.len(),
-                },
-                dst: dst.clone(),
-                size,
-            })?;
-            for (idx, item) in method_names.iter().enumerate() {
-                let src = LirOperand::Const(ConstantValue::String(item.to_string()));
-                let index_operand = LirOperand::Index {
-                    src: Box::new(dst.clone()),
-                    index: Box::new(LirOperand::ImmUInt {
-                        val: idx as u64,
-                        size: 64,
-                    }),
-                };
-                self.emit(LirInstr::Assign {
-                    ty: LirTy::Ptr {
-                        is_const: true,
-                        inner: Box::new(LirTy::UInt8),
-                    },
-                    dst: index_operand,
-                    src,
-                })?;
-            }
-            dst
+            LirOperand::ImmUnit
         };
         field_values.insert("method_names".to_string(), method_names_array);
         field_values.insert(
@@ -2165,42 +2038,7 @@ impl<'hir> HirLoweringPass<'hir> {
         let field_names_array = if field_names.is_empty() {
             LirOperand::ImmUnit
         } else {
-            let array_dst = self.new_temp();
-            self.emit(LirInstr::LoadConst {
-                dst: array_dst.clone(),
-                value: LirOperand::ImmUnit, // Placeholder for the actual array data
-            })?;
-            let dst = self.new_temp();
-            self.emit(LirInstr::ConstructArray {
-                ty: LirTy::ArrayTy {
-                    inner: Box::new(LirTy::Ptr {
-                        is_const: true,
-                        inner: Box::new(LirTy::UInt8),
-                    }),
-                    size: field_names.len(),
-                },
-                dst: dst.clone(),
-                size,
-            })?;
-            for (idx, item) in field_names.iter().enumerate() {
-                let src = LirOperand::Const(ConstantValue::String(item.to_string()));
-                let index_operand = LirOperand::Index {
-                    src: Box::new(dst.clone()),
-                    index: Box::new(LirOperand::ImmUInt {
-                        val: idx as u64,
-                        size: 64,
-                    }),
-                };
-                self.emit(LirInstr::Assign {
-                    ty: LirTy::Ptr {
-                        is_const: true,
-                        inner: Box::new(LirTy::UInt8),
-                    },
-                    dst: index_operand,
-                    src,
-                })?;
-            }
-            dst
+            LirOperand::ImmUnit
         };
         field_values.insert("field_names".to_string(), field_names_array);
         field_values.insert(
@@ -2214,14 +2052,15 @@ impl<'hir> HirLoweringPass<'hir> {
             "is_trivially_copyable".to_string(),
             LirOperand::ImmBool(is_trivially_copyable),
         );
-        field_values.insert("is_copyable".to_string(), LirOperand::ImmBool(is_copyable));
-        field_values.insert("is_default".to_string(), LirOperand::ImmBool(is_default));
 
         let dst = self.new_temp();
-        self.emit(LirInstr::ConstructObject {
+        self.emit(LirInstr::LoadImm {
             ty: LirTy::StructType("core::type_info".to_string()),
+            value: LirOperand::LiteralObj {
+                field_values,
+                ty: LirTy::StructType("core::type_info".to_string()),
+            },
             dst: dst.clone(),
-            field_values,
         })?;
 
         Ok(dst)
@@ -2463,21 +2302,6 @@ impl std::fmt::Display for LirInstr {
                     write!(f, "call_ptr {}({})", callee, args_str)
                 }
             }
-            LirInstr::ConstructArray { ty, dst, size } => {
-                write!(f, "{} = new_array {}[{}]", dst, ty, size)
-            }
-            LirInstr::ConstructObject {
-                ty,
-                dst,
-                field_values,
-            } => {
-                let fields_str = field_values
-                    .iter()
-                    .map(|(name, value)| format!("{}: {}", name, value))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "{} = raw_obj {} {{ {} }}", dst, ty, fields_str)
-            }
             LirInstr::Delete {
                 ty,
                 src,
@@ -2521,6 +2345,26 @@ impl std::fmt::Display for LirOperand {
             LirOperand::ImmUnit => write!(f, "%imm()"),
             LirOperand::Deref(d) => write!(f, "*{}", d),
             LirOperand::AsRef(a) => write!(f, "&{}", a),
+            LirOperand::LiteralArray { elements } => write!(
+                f,
+                "[{}]",
+                elements
+                    .iter()
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            LirOperand::LiteralObj { field_values, ty } => write!(
+                f,
+                "({}) {{ {} }}",
+                ty,
+                field_values
+                    .iter()
+                    .map(|(k, v)| format!(".{} = {}", k, v))
+                    .collect::<Vec<_>>()
+                    .join(" ,")
+            ),
+
             LirOperand::FieldAccess {
                 src,
                 field_name,

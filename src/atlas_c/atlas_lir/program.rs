@@ -47,13 +47,12 @@ impl LirProgram {
 
                 if let Some(strukt) = self.structs.iter().find(|s| s.name == *name) {
                     let dummy_key = "_dummy".to_string();
-                    let mut fields: Vec<(&String, &LirTy)> = if strukt.fields.is_empty() {
-                        vec![(&dummy_key, &LirTy::UInt8)]
-                    } else {
-                        strukt.fields.iter().collect()
-                    };
 
-                    fields.sort_by(|a, b| a.0.cmp(b.0));
+                    let fields: &[(String, LirTy)] = if strukt.fields.is_empty() {
+                        &[(dummy_key, LirTy::UInt8)]
+                    } else {
+                        &strukt.fields
+                    };
 
                     for (_, field_ty) in fields {
                         let (field_size, field_align) = self.layout_of_ty(field_ty, visiting);
@@ -80,10 +79,7 @@ impl LirProgram {
                 let mut max_align = 1usize;
 
                 if let Some(union) = self.unions.iter().find(|u| u.name == *name) {
-                    let mut variants: Vec<(&String, &LirTy)> = union.variants.iter().collect();
-                    variants.sort_by(|a: &(&String, &LirTy), b| a.0.cmp(b.0));
-
-                    for (_, variant_ty) in variants {
+                    for (_, variant_ty) in union.variants.iter() {
                         let (variant_size, variant_align) = self.layout_of_ty(variant_ty, visiting);
                         max_size = max_size.max(variant_size);
                         max_align = max_align.max(variant_align.max(1));
@@ -124,7 +120,8 @@ pub struct LirExternFunction {
 pub struct LirUnion {
     pub name: String,
     pub c_name: Option<String>,
-    pub variants: BTreeMap<String, LirTy>,
+    pub is_extern: bool,
+    pub variants: Vec<(String, LirTy)>,
 }
 
 #[derive(Debug, Clone)]
@@ -142,7 +139,7 @@ pub struct LirEnum {
 /// The methods of the struct are not included here; they are part of the functions in the program.
 pub struct LirStruct {
     pub name: String,
-    pub fields: BTreeMap<String, LirTy>,
+    pub fields: Vec<(String, LirTy)>,
     pub is_extern: bool,
     pub c_name: Option<String>,
 }
@@ -414,16 +411,6 @@ pub enum LirInstr {
         dst: LirOperand,
         src: LirOperand,
     },
-    ConstructArray {
-        ty: LirTy,
-        dst: LirOperand,
-        size: usize,
-    },
-    ConstructObject {
-        ty: LirTy,
-        dst: LirOperand,
-        field_values: BTreeMap<String, LirOperand>,
-    },
     /// Delete semantics for a value of the given type.
     ///
     /// - `should_free = true`: delete pointer-like storage (may also run destructor)
@@ -474,6 +461,13 @@ pub enum LirOperand {
         src: Box<LirOperand>,
         index: Box<LirOperand>,
     },
+    LiteralObj {
+        field_values: BTreeMap<String, LirOperand>,
+        ty: LirTy,
+    },
+    LiteralArray {
+        elements: Vec<LirOperand>,
+    },
     /// Immediate values
     ImmInt {
         val: i64,
@@ -498,6 +492,18 @@ impl LirOperand {
     }
     pub fn is_arg(&self) -> bool {
         matches!(self, LirOperand::Arg(_))
+    }
+    pub fn is_immediate(&self) -> bool {
+        matches!(
+            self,
+            LirOperand::ImmBool(_)
+                | LirOperand::ImmChar(_)
+                | LirOperand::ImmInt { .. }
+                | LirOperand::ImmUInt { .. }
+                | LirOperand::ImmFloat { .. }
+                | LirOperand::LiteralArray { .. }
+                | LirOperand::LiteralObj { .. }
+        )
     }
     pub fn get_temp_id(&self) -> Option<u32> {
         if let LirOperand::Temp(id) = self {

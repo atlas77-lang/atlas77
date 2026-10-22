@@ -15,9 +15,6 @@ use std::fmt::Debug;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StdCapability {
-    Copyable,
-    Default,
-    Hashable,
     TriviallyCopyable,
 }
 
@@ -58,9 +55,6 @@ pub struct HirGenericInstance<'hir> {
 impl<'hir> HirGenericPool<'hir> {
     fn std_capability_from_name(name: &str) -> Option<StdCapability> {
         match name {
-            "copyable" => Some(StdCapability::Copyable),
-            "default" => Some(StdCapability::Default),
-            "hashable" => Some(StdCapability::Hashable),
             "trivially_copyable" => Some(StdCapability::TriviallyCopyable),
             _ => None,
         }
@@ -68,23 +62,7 @@ impl<'hir> HirGenericPool<'hir> {
 
     fn type_is_primitive_capability(ty: &HirTy<'hir>, capability: StdCapability) -> bool {
         match capability {
-            StdCapability::Copyable => matches!(
-                ty,
-                HirTy::Boolean(_)
-                    | HirTy::Integer(_)
-                    | HirTy::Float(_)
-                    | HirTy::Char(_)
-                    | HirTy::String(_)
-                    | HirTy::UnsignedInteger(_)
-                    | HirTy::PtrTy(_)
-                    | HirTy::Function(_)
-                    | HirTy::Slice(_)
-                    | HirTy::Unit(_)
-                    | HirTy::LiteralInteger(_)
-                    | HirTy::LiteralUnsignedInteger(_)
-                    | HirTy::LiteralFloat(_)
-            ),
-            StdCapability::Default | StdCapability::Hashable | StdCapability::TriviallyCopyable => {
+            StdCapability::TriviallyCopyable => {
                 matches!(
                     ty,
                     HirTy::Boolean(_)
@@ -115,9 +93,6 @@ impl<'hir> HirGenericPool<'hir> {
                 .structs
                 .get(name)
                 .is_some_and(|sig| match capability {
-                    StdCapability::Copyable => sig.is_std_copyable,
-                    StdCapability::Default => sig.is_std_default,
-                    StdCapability::Hashable => sig.is_std_hashable,
                     StdCapability::TriviallyCopyable => sig.is_trivially_copyable,
                 })
         };
@@ -135,11 +110,6 @@ impl<'hir> HirGenericPool<'hir> {
         ty: &HirTy<'hir>,
         capability: StdCapability,
     ) -> bool {
-        if matches!(capability, StdCapability::Copyable) {
-            // Keep copyability semantics centralized in HirTy for ownership rules.
-            return ty.is_copyable(module);
-        }
-
         if Self::type_is_primitive_capability(ty, capability) {
             return true;
         }
@@ -284,17 +254,112 @@ impl<'hir> HirGenericPool<'hir> {
     ) -> bool {
         match kind {
             HirGenericConstraintKind::Std { name, .. } => {
-                let Some(std_constraint) = Self::std_capability_from_name(name) else {
-                    return false;
-                };
-                self.implements_std_capability(module, ty, std_constraint)
+                if let Some(std_constraint) = Self::std_capability_from_name(name) {
+                    self.implements_std_capability(module, ty, std_constraint)
+                } else {
+                    self.implements_concept(module, ty, name)
+                        || self.implements_concept(module, ty, &format!("std::{}", name))
+                }
             }
             HirGenericConstraintKind::Operator { op, .. } => {
                 self.implements_operator_constraint(module, ty, op.kind)
             }
-            // User concepts are parsed/lowered, but not enforced by semantic checks yet.
-            HirGenericConstraintKind::Concept { .. } => true,
+            HirGenericConstraintKind::Concept { name, .. } => {
+                self.implements_concept(module, ty, name)
+            }
         }
+    }
+
+    fn implements_concept(
+        &self,
+        module: &HirModuleSignature<'hir>,
+        ty: &HirTy<'hir>,
+        concept_name: &str,
+    ) -> bool {
+        let Some(_concept) = module.concepts.get(concept_name) else {
+            return false;
+        };
+        module.conformances.iter().any(|conformance| {
+            matches!(conformance.concept, HirTy::Named(name) if name.name == concept_name)
+                && Self::type_pattern_matches(module, conformance.target, ty)
+        })
+    }
+
+    pub fn type_pattern_matches(
+        module: &HirModuleSignature<'hir>,
+        pattern: &HirTy<'hir>,
+        actual: &HirTy<'hir>,
+    ) -> bool {
+        match (pattern, actual) {
+            (HirTy::Generic(g), _) if g.inner.is_empty() => true,
+            (HirTy::Named(left), _) if Self::is_placeholder_name(left.name, module) => true,
+            (HirTy::Named(left), HirTy::Named(right)) => left.name == right.name,
+            (HirTy::Generic(left), HirTy::Generic(right)) => {
+                if left.name != right.name || left.inner.len() != right.inner.len() {
+                    return false;
+                }
+                let struct_generics = module
+                    .structs
+                    .get(left.name)
+                    .map(|s| s.generics.as_slice())
+                    .unwrap_or(&[]);
+                left.inner
+                    .iter()
+                    .enumerate()
+                    .zip(&right.inner)
+                    .all(|((i, l), r)| {
+                        let is_placeholder = struct_generics
+                            .get(i)
+                            .map(|g| matches!(l, HirTy::Named(n) if n.name == g.generic_name))
+                            .unwrap_or(false);
+                        is_placeholder || Self::type_pattern_matches(module, l, r)
+                    })
+            }
+            (HirTy::PtrTy(left), HirTy::PtrTy(right)) => {
+                // Check if they have the same constness
+                left.is_const == right.is_const
+                    && Self::type_pattern_matches(module, left.inner, right.inner)
+            }
+            (HirTy::Slice(left), HirTy::Slice(right)) => {
+                Self::type_pattern_matches(module, left.inner, right.inner)
+            }
+            _ => pattern.type_key() == actual.type_key(),
+        }
+    }
+
+    pub fn resolve_associated_type(
+        module: &HirModuleSignature<'hir>,
+        ty: &HirTy<'hir>,
+        concept_name: &str,
+        associated_name: &str,
+    ) -> Option<&'hir HirTy<'hir>> {
+        let concept = module.concepts.get(concept_name)?;
+        let conformance = module.conformances.iter().find(|conformance| {
+            matches!(conformance.concept, HirTy::Named(name) if name.name == concept_name)
+                && Self::type_pattern_matches(module, conformance.target, ty)
+        })?;
+        conformance
+            .associated_types
+            .iter()
+            .find(|assignment| assignment.name == associated_name)
+            .map(|assignment| assignment.ty)
+            .or_else(|| concept.associated_types.get(associated_name)?.ty)
+    }
+
+    pub fn resolve_projection(
+        module: &HirModuleSignature<'hir>,
+        ty: &HirTy<'hir>,
+        associated_name: &str,
+    ) -> Option<&'hir HirTy<'hir>> {
+        module.conformances.iter().find_map(|conformance| {
+            if !Self::type_pattern_matches(module, conformance.target, ty) {
+                return None;
+            }
+            let HirTy::Named(concept_name) = conformance.concept else {
+                return None;
+            };
+            Self::resolve_associated_type(module, ty, concept_name.name, associated_name)
+        })
     }
 
     fn constraint_span(kind: &HirGenericConstraintKind<'hir>) -> Span {
@@ -434,6 +499,13 @@ impl<'hir> HirGenericPool<'hir> {
         );
     }
 
+    fn is_placeholder_name(name: &str, module: &HirModuleSignature<'hir>) -> bool {
+        if name == "This" {
+            return true;
+        }
+        name.len() == 1 && !module.structs.contains_key(name) && !module.unions.contains_key(name)
+    }
+
     fn is_generic_instantiated(
         &mut self,
         generic: &HirGenericTy<'hir>,
@@ -441,51 +513,26 @@ impl<'hir> HirGenericPool<'hir> {
     ) -> bool {
         let mut is_instantiated = true;
         for ty in generic.inner.iter() {
-            match ty {
-                HirTy::Named(n) => {
-                    // Check if this is actually a defined struct/union in the module
-                    // If it's only 1 letter AND not defined as a struct/union, it's a generic type parameter
-                    if n.name.len() == 1
-                        && !module.structs.contains_key(n.name)
-                        && !module.unions.contains_key(n.name)
-                    {
-                        is_instantiated = false;
-                    }
+            if !self.is_ty_concrete(ty, module) {
+                is_instantiated = false;
+            }
+            if let HirTy::Generic(g) = ty {
+                if self.is_generic_instantiated(g, module) {
+                    self.register_struct_instance(g.clone(), module);
                 }
-                HirTy::Generic(g) => {
-                    //We register nested generics as well (e.g. MyStruct<Vector<uint64>>)
-                    //This ensures that they are also monomorphized if it's the only instance
-                    //But because the check is called in register_struct_instance it won't register generic definitions
-                    //Check if the nested generic is itself instantiated
-                    if !self.is_generic_instantiated(g, module) {
-                        is_instantiated = false;
-                    } else {
-                        self.register_struct_instance(g.clone(), module);
-                    }
-                }
-                HirTy::PtrTy(p) => match p.inner {
-                    HirTy::Named(n) => {
-                        // Check if this is actually a defined struct/union in the module
-                        if n.name.len() == 1
-                            && !module.structs.contains_key(n.name)
-                            && !module.unions.contains_key(n.name)
-                        {
-                            is_instantiated = false;
-                        }
-                    }
-                    HirTy::Generic(g) => {
-                        if !self.is_generic_instantiated(g, module) {
-                            is_instantiated = false;
-                        } else {
-                            self.register_struct_instance(g.clone(), module);
-                        }
-                    }
-                    _ => continue,
-                },
-                _ => continue,
             }
         }
         is_instantiated
+    }
+
+    fn is_ty_concrete(&mut self, ty: &HirTy<'hir>, module: &HirModuleSignature<'hir>) -> bool {
+        match ty {
+            HirTy::Named(n) => !Self::is_placeholder_name(n.name, module),
+            HirTy::Generic(g) => self.is_generic_instantiated(g, module),
+            HirTy::Associated(a) => self.is_ty_concrete(a.base, module),
+            HirTy::PtrTy(p) => self.is_ty_concrete(p.inner, module),
+            _ => true,
+        }
     }
 
     pub fn check_constraint_satisfaction(
@@ -524,30 +571,6 @@ impl<'hir> HirGenericPool<'hir> {
             }
         }
         are_constraints_satisfied
-    }
-
-    pub fn implements_std_copyable(
-        &self,
-        module: &HirModuleSignature<'hir>,
-        ty: &HirTy<'hir>,
-    ) -> bool {
-        self.implements_std_capability(module, ty, StdCapability::Copyable)
-    }
-
-    pub fn implements_std_hashable(
-        &self,
-        module: &HirModuleSignature<'hir>,
-        ty: &HirTy<'hir>,
-    ) -> bool {
-        self.implements_std_capability(module, ty, StdCapability::Hashable)
-    }
-
-    pub fn implements_std_default(
-        &self,
-        module: &HirModuleSignature<'hir>,
-        ty: &HirTy<'hir>,
-    ) -> bool {
-        self.implements_std_capability(module, ty, StdCapability::Default)
     }
 
     pub fn implements_std_trivially_copyable(
@@ -636,15 +659,13 @@ mod tests {
             constants: BTreeMap::new(),
             destructor: None,
             had_user_defined_destructor: false,
-            is_std_copyable: false,
-            is_std_default: false,
-            is_std_hashable: false,
             is_trivially_copyable: false,
             nullable_attribute_span: None,
             is_instantiated: false,
             docstring: None,
             is_extern: false,
             c_name: None,
+            represents_ty: None,
         };
         sig.operators.insert(
             HirOverloadableOperatorKind::Add,

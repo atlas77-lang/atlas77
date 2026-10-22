@@ -6,6 +6,9 @@ use crate::atlas_c::utils::Span;
 #[derive(Debug, Clone, Copy)]
 pub struct AstProgram<'ast> {
     pub items: &'ast [&'ast AstItem<'ast>],
+    /// Docs for the file itself: a `//!` block at the top, separated from the first item
+    /// by a blank line. Adjacent to an item, a `//!` block documents that item instead.
+    pub docstring: Option<&'ast str>,
 }
 
 /// An `Item` is anything that can be declared at the top-level scope of a program.
@@ -27,12 +30,15 @@ pub enum AstItem<'ast> {
     Enum(AstEnum<'ast>),
     Union(AstUnion<'ast>),
     Constant(AstGlobalConst<'ast>),
+    Concept(AstConcept<'ast>),
+    Extend(AstExtendBlock<'ast>),
 }
 
 impl AstItem<'_> {
     pub fn set_vis(&mut self, vis: AstVisibility) {
         match self {
             AstItem::Import(_) => {}
+            AstItem::Extend(_) => {}
             AstItem::Namespace(v) => v.vis = vis,
             AstItem::Struct(v) => v.vis = vis,
             AstItem::ExternFunction(v) => v.vis = vis,
@@ -44,6 +50,7 @@ impl AstItem<'_> {
             AstItem::ExternUnion(v) => v.vis = vis,
             AstItem::Constant(v) => v.vis = vis,
             AstItem::ExternConstant(v) => v.vis = vis,
+            AstItem::Concept(v) => v.vis = vis,
         }
     }
     pub fn set_flag(&mut self, flag: AstFlag) {
@@ -69,6 +76,8 @@ impl AstItem<'_> {
             AstItem::ExternUnion(v) => v.span,
             AstItem::Constant(v) => v.span,
             AstItem::ExternConstant(v) => v.span,
+            AstItem::Concept(v) => v.span,
+            AstItem::Extend(v) => v.span,
         }
     }
 }
@@ -93,81 +102,35 @@ impl<'ast> AstItem<'ast> {
 
     // If there is already a docstring, we need to push the new one before it
     pub fn set_docstring(&mut self, docstring: &'ast str, arena: &'ast AstArena<'ast>) {
-        match self {
-            AstItem::Struct(v) => match v.docstring {
-                Some(existing) => {
-                    let combined = format!("{}\n{}", docstring, existing);
-                    v.docstring = Some(arena.alloc(combined));
-                }
-                None => {
-                    v.docstring = Some(docstring);
-                }
-            },
-            AstItem::Namespace(v) => match v.docstring {
-                Some(existing) => {
-                    let combined = format!("{}\n{}", docstring, existing);
-                    v.docstring = Some(arena.alloc(combined));
-                }
-                None => {
-                    v.docstring = Some(docstring);
-                }
-            },
-            AstItem::ExternStruct(v) => match v.docstring {
-                Some(existing) => {
-                    let combined = format!("{}\n{}", docstring, existing);
-                    v.docstring = Some(arena.alloc(combined));
-                }
-                None => {
-                    v.docstring = Some(docstring);
-                }
-            },
-            AstItem::Function(v) => match v.docstring {
-                Some(existing) => {
-                    let combined = format!("{}\n{}", docstring, existing);
-                    v.docstring = Some(arena.alloc(combined));
-                }
-                None => {
-                    v.docstring = Some(docstring);
-                }
-            },
-            AstItem::ExternFunction(v) => match v.docstring {
-                Some(existing) => {
-                    let combined = format!("{}\n{}", docstring, existing);
-                    v.docstring = Some(arena.alloc(combined));
-                }
-                None => {
-                    v.docstring = Some(docstring);
-                }
-            },
-            AstItem::Enum(e) => match e.docstring {
-                Some(existing) => {
-                    let combined = format!("{}\n{}", docstring, existing);
-                    e.docstring = Some(arena.alloc(combined));
-                }
-                None => {
-                    e.docstring = Some(docstring);
-                }
-            },
-            AstItem::Union(u) => match u.docstring {
-                Some(existing) => {
-                    let combined = format!("{}\n{}", docstring, existing);
-                    u.docstring = Some(arena.alloc(combined));
-                }
-                None => {
-                    u.docstring = Some(docstring);
-                }
-            },
-            AstItem::Constant(c) => match c.docstring {
-                Some(existing) => {
-                    let combined = format!("{}\n{}", docstring, existing);
-                    c.docstring = Some(arena.alloc(combined));
-                }
-                None => {
-                    c.docstring = Some(docstring);
-                }
-            },
-            _ => {}
+        let slot = match self {
+            AstItem::Struct(v) | AstItem::ExternStruct(v) => &mut v.docstring,
+            AstItem::Namespace(v) => &mut v.docstring,
+            AstItem::Function(v) => &mut v.docstring,
+            AstItem::ExternFunction(v) => &mut v.docstring,
+            AstItem::Enum(e) | AstItem::ExternEnum(e) => &mut e.docstring,
+            AstItem::Union(u) | AstItem::ExternUnion(u) => &mut u.docstring,
+            AstItem::Constant(c) | AstItem::ExternConstant(c) => &mut c.docstring,
+            AstItem::Concept(c) => &mut c.docstring,
+            AstItem::Extend(e) => &mut e.docstring,
+            AstItem::Import(_) => return,
+        };
+        prepend_docstring(slot, docstring, arena);
+    }
+}
+
+/// Doc comments are parsed one line at a time, outermost line last, so a new line is
+/// prepended to whatever has already been collected for the same item.
+pub fn prepend_docstring<'ast>(
+    slot: &mut Option<&'ast str>,
+    docstring: &'ast str,
+    arena: &'ast AstArena<'ast>,
+) {
+    match *slot {
+        Some(existing) => {
+            let combined = format!("{}\n{}", docstring, existing);
+            *slot = Some(arena.alloc(combined));
         }
+        None => *slot = Some(docstring),
     }
 }
 
@@ -301,6 +264,48 @@ pub enum AstVisibility {
     #[default]
     Private,
 }
+
+#[derive(Debug, Clone)]
+pub struct AstConcept<'ast> {
+    pub span: Span,
+    pub name: &'ast AstIdentifier<'ast>,
+    pub name_span: Span,
+    pub vis: AstVisibility,
+    /// Signature: `~MyStruct()`
+    pub generics: &'ast [&'ast AstGeneric<'ast>],
+    pub implemented_operators: &'ast [&'ast AstOperatorOverload<'ast>],
+    pub required_operators: &'ast [&'ast AstOperatorOverloadSignature<'ast>],
+    pub implemented_methods: &'ast [&'ast AstMethod<'ast>],
+    pub required_methods: &'ast [&'ast AstMethodSignature<'ast>],
+    pub associated_types: &'ast [&'ast AstAssociatedType<'ast>],
+    pub docstring: Option<&'ast str>,
+    pub is_extern: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct AstExtendBlock<'ast> {
+    pub span: Span,
+    pub ty: &'ast AstType<'ast>,
+    pub concept: &'ast AstType<'ast>,
+    pub operators: &'ast [&'ast AstOperatorOverload<'ast>],
+    pub methods: &'ast [&'ast AstMethod<'ast>],
+    pub associated_types: &'ast [&'ast AstAssociatedType<'ast>],
+    pub where_clause: Option<&'ast [&'ast AstGeneric<'ast>]>,
+    /// Documents this specific conformance, overriding the concept's own docs for the
+    /// same target — `extend vector<T> with indexable` can explain itself differently
+    /// from `extend map<K, V> with indexable`.
+    pub docstring: Option<&'ast str>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AstAssociatedType<'ast> {
+    pub span: Span,
+    pub name: &'ast AstIdentifier<'ast>,
+    pub name_span: Span,
+    pub ty: Option<&'ast AstType<'ast>>,
+    pub docstring: Option<&'ast str>,
+}
+
 #[derive(Debug, Clone)]
 pub struct AstStruct<'ast> {
     pub span: Span,
@@ -323,6 +328,37 @@ pub struct AstStruct<'ast> {
     pub nullable_attribute_span: Option<Span>,
     /// Optional C symbol/type name override, used for extern structs.
     pub c_name: Option<&'ast str>,
+}
+
+impl<'ast> AstStruct<'ast> {
+    pub(crate) fn get_struct_ty(
+        &self,
+        ast_arena: &'ast AstArena<'ast>,
+        qualified_name: &'ast AstIdentifier,
+    ) -> AstType<'ast> {
+        if !self.generics.is_empty() {
+            AstType::Generic(AstGenericType {
+                span: self.name_span,
+                name: qualified_name,
+                inner_types: ast_arena.alloc(
+                    self.generics
+                        .iter()
+                        .map(|g| {
+                            AstType::Named(AstNamedType {
+                                span: g.span,
+                                name: g.name,
+                            })
+                        })
+                        .collect::<Vec<_>>(),
+                ),
+            })
+        } else {
+            AstType::Named(AstNamedType {
+                span: self.name_span,
+                name: qualified_name,
+            })
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Copy)]
@@ -363,6 +399,12 @@ pub enum AstMethodAttribute {
 
 #[derive(Debug, Clone)]
 pub struct AstOperatorOverload<'ast> {
+    pub signature: AstOperatorOverloadSignature<'ast>,
+    pub body: &'ast AstBlock<'ast>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AstOperatorOverloadSignature<'ast> {
     pub modifier: AstMethodModifier,
     pub vis: AstVisibility,
     pub span: Span,
@@ -370,7 +412,6 @@ pub struct AstOperatorOverload<'ast> {
     pub generics: Option<&'ast [&'ast AstGeneric<'ast>]>,
     pub args: &'ast [&'ast AstArg<'ast>],
     pub ret: &'ast AstType<'ast>,
-    pub body: &'ast AstBlock<'ast>,
     /// Optional where clause containing constraints on struct and method generics.
     /// During syntax lowering, method-level generic constraints are moved into the `generics` field as bounds.
     pub where_clause: Option<&'ast [&'ast AstGeneric<'ast>]>,
@@ -405,6 +446,12 @@ pub struct AstDestructor<'ast> {
 
 #[derive(Debug, Clone)]
 pub struct AstMethod<'ast> {
+    pub signature: AstMethodSignature<'ast>,
+    pub body: &'ast AstBlock<'ast>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AstMethodSignature<'ast> {
     pub modifier: AstMethodModifier,
     pub vis: AstVisibility,
     pub span: Span,
@@ -412,7 +459,6 @@ pub struct AstMethod<'ast> {
     pub generics: Option<&'ast [&'ast AstGeneric<'ast>]>,
     pub args: &'ast [&'ast AstArg<'ast>],
     pub ret: &'ast AstType<'ast>,
-    pub body: &'ast AstBlock<'ast>,
     /// Optional where clause containing constraints on struct and method generics.
     /// During syntax lowering, method-level generic constraints are moved into the `generics` field as bounds.
     pub where_clause: Option<&'ast [&'ast AstGeneric<'ast>]>,
@@ -882,6 +928,7 @@ pub enum AstType<'ast> {
     Slice(AstSliceType<'ast>),
     InlineArray(AstInlineArrayType<'ast>),
     Generic(AstGenericType<'ast>),
+    Associated(AstAssociatedTypeProjection<'ast>),
     Variadic(AstVariadicType<'ast>),
     PtrTy(AstPtrTy<'ast>),
     Const(&'ast AstType<'ast>),
@@ -911,6 +958,7 @@ impl AstType<'_> {
             AstType::Slice(t) => t.span,
             AstType::InlineArray(t) => t.span,
             AstType::Generic(t) => t.span,
+            AstType::Associated(t) => t.span,
             AstType::Variadic(t) => t.span,
             AstType::PtrTy(t) => t.span,
             AstType::Const(c) => c.span(),
@@ -945,6 +993,7 @@ impl AstType<'_> {
                     format!("{}<{}>", t.name.name, params)
                 }
             }
+            AstType::Associated(t) => format!("{}::{}", t.base.name(), t.name.name),
             AstType::Variadic(v) => format!("{}...", v.inner),
             AstType::Function(f) => {
                 let args = f
@@ -999,6 +1048,13 @@ pub struct AstGenericType<'ast> {
     pub span: Span,
     pub name: &'ast AstIdentifier<'ast>,
     pub inner_types: &'ast [AstType<'ast>],
+}
+
+#[derive(Debug, Clone)]
+pub struct AstAssociatedTypeProjection<'ast> {
+    pub span: Span,
+    pub base: &'ast AstType<'ast>,
+    pub name: &'ast AstIdentifier<'ast>,
 }
 
 #[derive(Debug, Clone)]

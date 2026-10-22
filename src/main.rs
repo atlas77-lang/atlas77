@@ -102,6 +102,13 @@ enum AtlasRuntimeCLI {
         #[arg(short = 'r', long)]
         /// Check in release mode
         release: bool,
+        #[arg(
+            long,
+            default_value_t = false,
+            help = "Do not include the standard library"
+        )]
+        /// Do not include the standard library
+        no_std: bool,
     },
     //#[cfg(feature = "docs")]
     Docs {
@@ -143,7 +150,7 @@ fn main() -> miette::Result<()> {
             file_path,
             release,
             debug,
-            no_std: no_standard_lib,
+            no_std,
             compiler,
             compiler_binary_override,
             output_dir,
@@ -161,7 +168,7 @@ fn main() -> miette::Result<()> {
                 } else {
                     CompilationFlag::Debug
                 },
-                no_standard_lib,
+                no_std,
                 compiler.as_deref().map(|value| {
                     SupportedCompiler::from_str(&value.to_lowercase())
                         .expect("Invalid compiler specified")
@@ -183,7 +190,11 @@ fn main() -> miette::Result<()> {
             }
             Ok(())
         }
-        AtlasRuntimeCLI::Check { file_path, release } => {
+        AtlasRuntimeCLI::Check {
+            file_path,
+            release,
+            no_std,
+        } => {
             let path = file_path.unwrap_or("src/main.atlas".to_string());
             build(
                 path,
@@ -192,7 +203,7 @@ fn main() -> miette::Result<()> {
                 } else {
                     CompilationFlag::Debug
                 },
-                true,
+                no_std,
                 // We don't care about the compiler here, as we won't compile
                 None,
                 None,

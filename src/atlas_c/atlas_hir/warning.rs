@@ -16,8 +16,8 @@ declare_warning_type!(
         UnnecessaryCopyDueToLaterBorrows(UnnecessaryCopyDueToLaterBorrowsWarning),
         UnionFieldCannotBeAutomaticallyDeleted(UnionFieldCannotBeAutomaticallyDeletedWarning),
         UnsafeRawPointerStruct(UnsafeRawPointerStructWarning),
-        SpecialMethodMightHaveWrongSignature(SpecialMethodMightHaveWrongSignatureWarning),
         MethodLooksLikeAnOperator(MethodLooksLikeAnOperatorWarning),
+        UnusedResultFromFunction(UnusedResultFromFunctionWarning),
     }
 );
 
@@ -141,22 +141,6 @@ pub struct UnionFieldCannotBeAutomaticallyDeletedWarning {
 }
 
 #[derive(Error, Diagnostic, Debug, Serialize, Clone)]
-#[diagnostic(code(sema::potential_wrong_signature), severity(warning))]
-#[error(
-    "Special method `{method_name}` might have the wrong signature `{signature}`\n\t(expected `{expected_signature}`)"
-)]
-pub struct SpecialMethodMightHaveWrongSignatureWarning {
-    pub signature: String,
-    pub expected_signature: String,
-    pub method_name: String,
-    #[source_code]
-    #[serde(skip_serializing)]
-    pub src: NamedSource<String>,
-    #[label = "Method `{method_name}` is a special method but its signature `{signature}` does not match the expected signature `{expected_signature}` for this method, which may lead to it not being recognized as a special method and not being called in certain situations"]
-    pub span: Span,
-}
-
-#[derive(Error, Diagnostic, Debug, Serialize, Clone)]
 #[diagnostic(
     code(sema::method_looks_like_an_operator),
     severity(warning),
@@ -168,6 +152,22 @@ pub struct SpecialMethodMightHaveWrongSignatureWarning {
 pub struct MethodLooksLikeAnOperatorWarning {
     pub method_name: String,
     #[label = "method looks like an operator"]
+    pub span: Span,
+    #[source_code]
+    #[serde(skip_serializing)]
+    pub src: NamedSource<String>,
+}
+
+#[derive(Error, Diagnostic, Debug, Serialize, Clone)]
+#[diagnostic(
+    code(sema::unused_result_from_non_trivial_function),
+    severity(warning),
+    help("Consider storing the result into a temporary variable or just ignore this warning")
+)]
+#[error("Function `{func_name}` returns a non trivial type, but its results is discarded...")]
+pub struct UnusedResultFromFunctionWarning {
+    pub func_name: String,
+    #[label = "Called here"]
     pub span: Span,
     #[source_code]
     #[serde(skip_serializing)]
@@ -243,12 +243,12 @@ impl From<HirWarning> for Vec<CompilerError> {
                     kind: CompilerErrorKind::Warning,
                 },
             ],
-            HirWarning::SpecialMethodMightHaveWrongSignature(warning) => vec![CompilerError {
+            HirWarning::MethodLooksLikeAnOperator(warning) => vec![CompilerError {
                 message: warning.to_string(),
                 span: warning.span,
                 kind: CompilerErrorKind::Warning,
             }],
-            HirWarning::MethodLooksLikeAnOperator(warning) => vec![CompilerError {
+            HirWarning::UnusedResultFromFunction(warning) => vec![CompilerError {
                 message: warning.to_string(),
                 span: warning.span,
                 kind: CompilerErrorKind::Warning,

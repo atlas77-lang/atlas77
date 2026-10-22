@@ -1,10 +1,198 @@
-body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: 0; color: #222; }
-header { background: #222; color: #fff; padding: 12px 20px }
-header a { color: #fff; text-decoration: none }
-main { padding: 20px }
-.toc ul { list-style: none; padding-left: 0 }
-.toc-item { margin: 6px 0 }
-.kind { color: #666; margin-left: 8px }
-.signature { background: #f6f8fa; padding: 10px; border-radius: 6px }
-.docs pre { background: #0b1220; color: #cfe; padding: 10px; overflow:auto }
-.footer { padding: 8px 20px; color: #666 }
+/* Deliberately plain: neutral greys, one accent for links, no gradients or bright
+   colours. Two panes — a navigation tree on the left, content on the right. */
+
+:root {
+    --text: #1a1a1a;
+    --muted: #666;
+    --link: #0a53b8;
+    --border: #e0e0e0;
+    --code-bg: #f6f7f8;
+    --sidebar-bg: #fafafa;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    color: var(--text);
+    background: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+        sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+}
+
+a {
+    color: var(--link);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+code,
+pre,
+.code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 0.875em;
+}
+
+#sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 260px;
+    height: 100vh;
+    overflow-y: auto;
+    padding: 20px 16px;
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--border);
+}
+
+#sidebar .home {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+
+#sidebar .ns {
+    margin-top: 10px;
+    font-weight: 600;
+    font-size: 0.9em;
+}
+
+#sidebar .item {
+    font-size: 0.875em;
+    line-height: 1.5;
+}
+
+#content {
+    margin-left: 260px;
+    max-width: 820px;
+    padding: 32px 40px 64px;
+}
+
+footer {
+    margin-left: 260px;
+    padding: 16px 40px 32px;
+    color: var(--muted);
+    font-size: 0.8125em;
+    border-top: 1px solid var(--border);
+}
+
+h1 {
+    font-size: 1.5em;
+    margin: 0 0 16px;
+    font-weight: 600;
+    word-break: break-word;
+}
+
+h1 .kind {
+    color: var(--muted);
+    font-weight: 400;
+}
+
+h2 {
+    font-size: 1.15em;
+    font-weight: 600;
+    margin: 32px 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+}
+
+h3 {
+    font-size: 1em;
+    font-weight: 600;
+    margin: 20px 0 8px;
+}
+
+p {
+    margin: 0 0 12px;
+}
+
+.lead,
+.source {
+    color: var(--muted);
+    font-size: 0.875em;
+}
+
+pre.code {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 12px;
+    margin: 0 0 10px;
+    overflow-x: auto;
+    white-space: pre;
+}
+
+.member {
+    margin: 0 0 20px;
+    padding-left: 12px;
+    border-left: 2px solid var(--border);
+}
+
+.member>p:last-child {
+    margin-bottom: 0;
+}
+
+.inherited {
+    color: var(--muted);
+    font-size: 0.8125em;
+    font-style: italic;
+    margin-bottom: 6px;
+}
+
+ul.listing {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+ul.listing li {
+    padding: 4px 0;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.blurb {
+    color: var(--muted);
+    font-size: 0.875em;
+}
+
+blockquote {
+    margin: 0 0 12px;
+    padding-left: 12px;
+    border-left: 3px solid var(--border);
+    color: var(--muted);
+}
+
+table {
+    border-collapse: collapse;
+    margin-bottom: 12px;
+}
+
+th,
+td {
+    border: 1px solid var(--border);
+    padding: 6px 10px;
+    text-align: left;
+}
+
+@media (max-width: 800px) {
+    #sidebar {
+        position: static;
+        width: auto;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+    }
+
+    #content,
+    footer {
+        margin-left: 0;
+        padding: 20px 16px 40px;
+    }
+}

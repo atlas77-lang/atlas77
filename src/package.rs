@@ -410,7 +410,7 @@ fn generate_atlas_module(
             continue;
         }
 
-        out.push_str(&format!("    public enum {} {{\n", en.name));
+        out.push_str(&format!("    public extern enum {} {{\n", en.name));
         for variant in &en.variants {
             match &variant.value {
                 Some(v) => out.push_str(&format!("        {} = {};\n", variant.name, v.trim())),

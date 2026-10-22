@@ -113,6 +113,35 @@ impl<'hir> HirExpr<'hir> {
             HirExpr::IntrinsicCall(expr) => expr.ty,
         }
     }
+
+    pub fn set_ty(&mut self, ty: &'hir HirTy<'hir>) {
+        match self {
+            HirExpr::Ident(expr) => expr.ty = ty,
+            HirExpr::IntegerLiteral(expr) => expr.ty = ty,
+            HirExpr::UnsignedIntegerLiteral(expr) => expr.ty = ty,
+            HirExpr::BooleanLiteral(expr) => expr.ty = ty,
+            HirExpr::FloatLiteral(expr) => expr.ty = ty,
+            HirExpr::CharLiteral(expr) => expr.ty = ty,
+            HirExpr::UnitLiteral(expr) => expr.ty = ty,
+            HirExpr::ThisLiteral(expr) => expr.ty = ty,
+            HirExpr::NullLiteral(expr) => expr.ty = ty,
+            HirExpr::Unary(expr) => {
+                expr.ty = ty;
+                expr.expr.set_ty(ty);
+            }
+            HirExpr::Delete(_) | HirExpr::Casting(_) => {}
+            HirExpr::HirBinaryOperation(expr) => expr.ty = ty,
+            HirExpr::Call(expr) => expr.ty = ty,
+            HirExpr::StringLiteral(expr) => expr.ty = ty,
+            HirExpr::ListLiteral(expr) => expr.ty = ty,
+            HirExpr::ListLiteralWithSize(expr) => expr.ty = ty,
+            HirExpr::ObjLiteral(expr) => expr.ty = ty,
+            HirExpr::FieldAccess(expr) => expr.ty = ty,
+            HirExpr::Indexing(expr) => expr.ty = ty,
+            HirExpr::StaticAccess(expr) => expr.ty = ty,
+            HirExpr::IntrinsicCall(expr) => expr.ty = ty,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

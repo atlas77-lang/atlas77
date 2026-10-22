@@ -15,7 +15,7 @@
 
 pub mod atlas_c;
 pub mod atlas_docs;
-pub mod atlas_lib;
+pub mod deps;
 pub mod package;
 #[cfg(all(feature = "embedded-tinycc", not(tinycc_unavailable)))]
 pub mod tcc;
@@ -35,7 +35,7 @@ use crate::atlas_c::{
     utils::Span,
 };
 use atlas_c::{
-    atlas_frontend::{parse, parser::arena::AstArena},
+    atlas_frontend::{parse, parser::arena::AstArena, parser::ast::AstItem},
     atlas_hir::{
         arena::HirArena, monomorphization_pass::MonomorphizationPass,
         syntax_lowering_pass::AstSyntaxLoweringPass, type_check_pass::TypeChecker,
@@ -356,6 +356,7 @@ struct AtlasBuildConfig {
     c_sources: Vec<String>,
     source_dirs: Vec<String>,
     compiler_args: Vec<String>,
+    dependencies: Vec<deps::AtlasPackageDependency>,
 }
 
 fn parse_supported_compiler(name: &str) -> Option<SupportedCompiler> {
@@ -465,6 +466,77 @@ fn collect_string_array(table: &toml::value::Table, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn splice_headers_at_anchor(
+    existing: &mut Vec<String>,
+    new_headers: Vec<String>,
+    anchor_before: Option<&str>,
+    anchor_after: Option<&str>,
+) {
+    if new_headers.is_empty() {
+        return;
+    }
+
+    let anchor_pos = anchor_before
+        .map(|anchor| (anchor, 0))
+        .or_else(|| anchor_after.map(|anchor| (anchor, 1)))
+        .and_then(|(anchor, offset)| {
+            existing
+                .iter()
+                .position(|h| h == anchor)
+                .map(|pos| pos + offset)
+        });
+
+    match anchor_pos {
+        Some(pos) => {
+            existing.splice(pos..pos, new_headers);
+        }
+        None => existing.extend(new_headers),
+    }
+}
+
+fn merge_c_table_into_config(config: &mut AtlasBuildConfig, table: &toml::value::Table) {
+    // `headers`/`headers_before`/`headers_after` used to live under `[dependencies]`;
+    // `[dependencies]` is now package dependencies (see `deps::parse_dependencies_table`),
+    // so header include-ordering config lives here under `[c]` instead.
+    let new_headers = collect_string_array(table, "headers");
+    let anchor_before = table.get("headers_before").and_then(|v| v.as_str());
+    let anchor_after = table.get("headers_after").and_then(|v| v.as_str());
+    splice_headers_at_anchor(
+        &mut config.headers,
+        new_headers,
+        anchor_before,
+        anchor_after,
+    );
+
+    config
+        .compiler_args
+        .extend(collect_string_array(table, "args"));
+    config
+        .compiler_args
+        .extend(collect_string_array(table, "c_args"));
+    config
+        .include_dirs
+        .extend(collect_string_array(table, "include_dirs"));
+    config
+        .library_dirs
+        .extend(collect_string_array(table, "lib_dirs"));
+    config
+        .library_dirs
+        .extend(collect_string_array(table, "library_dirs"));
+    config
+        .c_sources
+        .extend(collect_string_array(table, "sources"));
+    config
+        .c_sources
+        .extend(collect_string_array(table, "source_files"));
+    config
+        .c_sources
+        .extend(collect_string_array(table, "c_sources"));
+    config
+        .source_dirs
+        .extend(collect_string_array(table, "source_dirs"));
+}
+
 fn merge_link_table_into_config(config: &mut AtlasBuildConfig, table: &toml::value::Table) {
     config
         .compiler_args
@@ -546,12 +618,7 @@ fn load_build_config(project_dir: &Path) -> miette::Result<AtlasBuildConfig> {
     let mut config = AtlasBuildConfig::default();
 
     if let Some(dependencies) = root.get("dependencies").and_then(|v| v.as_table()) {
-        config
-            .headers
-            .extend(collect_string_array(dependencies, "headers"));
-        config
-            .include_dirs
-            .extend(collect_string_array(dependencies, "include_dirs"));
+        config.dependencies = deps::parse_dependencies_table(dependencies)?;
     }
 
     // Backward compatibility: older atlas.toml files used [package].compiler/args.
@@ -590,33 +657,20 @@ fn load_build_config(project_dir: &Path) -> miette::Result<AtlasBuildConfig> {
                 .and_then(|v| v.as_str())
                 .and_then(parse_supported_compiler);
         }
-        config
-            .compiler_args
-            .extend(collect_string_array(c_table, "args"));
-        config
-            .compiler_args
-            .extend(collect_string_array(c_table, "c_args"));
-        config
-            .include_dirs
-            .extend(collect_string_array(c_table, "include_dirs"));
-        config
-            .library_dirs
-            .extend(collect_string_array(c_table, "lib_dirs"));
-        config
-            .library_dirs
-            .extend(collect_string_array(c_table, "library_dirs"));
-        config
-            .c_sources
-            .extend(collect_string_array(c_table, "sources"));
-        config
-            .c_sources
-            .extend(collect_string_array(c_table, "source_files"));
-        config
-            .c_sources
-            .extend(collect_string_array(c_table, "c_sources"));
-        config
-            .source_dirs
-            .extend(collect_string_array(c_table, "source_dirs"));
+        merge_c_table_into_config(&mut config, c_table);
+
+        if let Some(platform_table) = c_table
+            .get(current_platform_config_key())
+            .and_then(|v| v.as_table())
+        {
+            if config.preferred_compiler.is_none() {
+                config.preferred_compiler = platform_table
+                    .get("compiler")
+                    .and_then(|v| v.as_str())
+                    .and_then(parse_supported_compiler);
+            }
+            merge_c_table_into_config(&mut config, platform_table);
+        }
     }
 
     if let Some(link_table) = root.get("link").and_then(|v| v.as_table()) {
@@ -898,14 +952,56 @@ pub fn init(name: String) {
     }
 }
 
+/// The file `docs` starts from when none was given. A library has no `main.atlas` to
+/// document, so `src/lib.atlas` is preferred, then `[package].entry`, then `src/main.atlas`.
+fn default_docs_entry(project_dir: &Path) -> String {
+    for candidate in ["src/lib.atlas", "lib.atlas"] {
+        if project_dir.join(candidate).is_file() {
+            return candidate.to_string();
+        }
+    }
+
+    let config_path = project_dir.join("atlas.toml");
+    if let Ok(content) = std::fs::read_to_string(&config_path)
+        && let Ok(root) = toml::from_str::<toml::value::Table>(&content)
+        && let Some(entry) = root
+            .get("package")
+            .and_then(|package| package.as_table())
+            .and_then(|package| package.get("entry"))
+            .and_then(|entry| entry.as_str())
+        && project_dir.join(entry).is_file()
+    {
+        return entry.to_string();
+    }
+
+    "src/main.atlas".to_string()
+}
+
+/// `[package].name` from the project's `atlas.toml`, used to title the generated site.
+fn package_name(project_dir: &Path) -> Option<String> {
+    let content = std::fs::read_to_string(project_dir.join("atlas.toml")).ok()?;
+    let root = toml::from_str::<toml::value::Table>(&content).ok()?;
+    let name = root
+        .get("package")?
+        .as_table()?
+        .get("name")?
+        .as_str()?
+        .to_owned();
+    (!name.is_empty()).then_some(name)
+}
+
 /// Compile up to the AST, then generate documentation in the specified output directory.
 pub fn generate_docs(output_dir: String, path: Option<&str>) {
     // Ensure output directory exists
     let output_path = get_path(&output_dir);
     std::fs::create_dir_all(&output_path).unwrap();
 
-    // This should find and do it for every .atlas file in the project, but for now we just do src/main.atlas
-    let source_path = get_path(path.unwrap_or("src/main.atlas"));
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let entry = match path {
+        Some(path) => path.to_string(),
+        None => default_docs_entry(&cwd),
+    };
+    let source_path = get_path(&entry);
     let source = std::fs::read_to_string(&source_path).unwrap_or_else(|_| {
         eprintln!(
             "Failed to read source file at path: {}",
@@ -939,7 +1035,9 @@ pub fn generate_docs(output_dir: String, path: Option<&str>) {
     let out_path = output_path.clone();
     #[allow(clippy::unit_arg)]
     {
-        if let Err(e) = crate::atlas_docs::generate_docs(&hir.signature, &out_path) {
+        if let Err(e) =
+            crate::atlas_docs::generate_docs(hir, &out_path, package_name(&cwd).as_deref())
+        {
             eprintln!("atlas_docs error: {}", e);
         }
     }
@@ -1051,21 +1149,39 @@ pub fn run_frontend<'ast, 'hir>(
         typecheck_result = type_checker.check(hir);
 
         let requests = type_checker.take_method_monomorphization_requests();
-        if requests.is_empty() {
+        let extend_requests = type_checker.take_extend_method_monomorphization_requests();
+        if requests.is_empty() && extend_requests.is_empty() {
             break;
         }
 
-        let changed = match monomorphizer.monomorphize_requested_methods(hir, requests) {
-            Err(e) => {
-                return FrontendResult {
-                    hir: Some(&*hir),
-                    hir_errors: vec![e],
-                    hir_warnings: warnings,
-                    ast_errors: Vec::new(),
+        let mut changed = false;
+        if !requests.is_empty() {
+            changed |= match monomorphizer.monomorphize_requested_methods(hir, requests) {
+                Err(e) => {
+                    return FrontendResult {
+                        hir: Some(&*hir),
+                        hir_errors: vec![e],
+                        hir_warnings: warnings,
+                        ast_errors: Vec::new(),
+                    };
+                }
+                Ok(changed) => changed,
+            };
+        }
+        if !extend_requests.is_empty() {
+            changed |=
+                match monomorphizer.monomorphize_requested_extend_methods(hir, extend_requests) {
+                    Err(e) => {
+                        return FrontendResult {
+                            hir: Some(&*hir),
+                            hir_errors: vec![e],
+                            hir_warnings: warnings,
+                            ast_errors: Vec::new(),
+                        };
+                    }
+                    Ok(changed) => changed,
                 };
-            }
-            Ok(changed) => changed,
-        };
+        }
         if !changed {
             break;
         }
@@ -1105,6 +1221,7 @@ pub fn run_frontend<'ast, 'hir>(
                 other => semantic_errors.push(other),
             }
         }
+        warnings.extend(ownership_pass.warnings);
     }
 
     FrontendResult {
@@ -1191,11 +1308,154 @@ pub fn to_json(path: String, output_file: Option<String>) -> miette::Result<()> 
     }
 }
 
+/// The Atlas77 standard library isn't embedded in the compiler; it's fetched from its own
+/// git repository the same way any other `[dependencies]` entry would be, except the user
+/// doesn't have to declare it themselves. The compiler adds it implicitly the moment a
+/// project's own source actually imports it (`import "std";` / `import "std/...";`), and
+/// never touches the network otherwise.
+const STD_DEPENDENCY_NAME: &str = "std";
+const STD_DEPENDENCY_GIT: &str = "https://github.com/atlas77-lang/std";
+
+/// Whether an import path names (or reaches into) the dependency `name`: either the bare
+/// default-entry form (e.g. `"std"`) or anything under its namespace (e.g. `"std/io"`).
+fn import_references_dependency(import_path: &str, name: &str) -> bool {
+    import_path == name || import_path.starts_with(&format!("{name}/"))
+}
+
+/// Resolves a local, in-project import path the same way `get_file_content`'s final
+/// fallback does (relative to the current directory, or under `src/`), without involving
+/// any fetched dependency. Returns `None` for anything that isn't a local project file,
+/// which includes every dependency-rooted import.
+fn resolve_local_import_file(import_path: &str) -> Option<PathBuf> {
+    let normalized = if import_path.ends_with(".atlas") {
+        import_path.to_string()
+    } else {
+        format!("{import_path}.atlas")
+    };
+
+    let direct = PathBuf::from(&normalized);
+    if direct.is_file() {
+        return Some(direct);
+    }
+    let in_src = PathBuf::from("src").join(&normalized);
+    if in_src.is_file() {
+        return Some(in_src);
+    }
+    None
+}
+
+/// Recursively scans `entry_path` and every local file it (transitively) imports for an
+/// import naming `dependency_name`, so `build()` can decide whether to implicitly add that
+/// dependency before fetching anything. Only follows local, in-project imports: an import
+/// that already names a git dependency stops the recursion there, since that dependency's
+/// own needs (std included) are that dependency's own `[dependencies]`' responsibility,
+/// handled by the existing recursion in `resolve_dependency_tree`.
+fn project_references_dependency(
+    entry_path: &Path,
+    dependency_name: &str,
+    visited: &mut std::collections::HashSet<PathBuf>,
+) -> bool {
+    let canonical = std::fs::canonicalize(entry_path).unwrap_or_else(|_| entry_path.to_path_buf());
+    if !visited.insert(canonical) {
+        return false;
+    }
+
+    let Ok(source) = std::fs::read_to_string(entry_path) else {
+        return false;
+    };
+    let bump = Bump::new();
+    let ast_arena = AstArena::new(&bump);
+    let file_path = atlas_c::utils::string_to_static_str(entry_path.to_string_lossy().into_owned());
+    let Ok(program) = parse(file_path, &ast_arena, source) else {
+        return false;
+    };
+
+    for item in program.items {
+        let AstItem::Import(import) = item else {
+            continue;
+        };
+        if import_references_dependency(import.path, dependency_name) {
+            return true;
+        }
+        if let Some(local_path) = resolve_local_import_file(import.path)
+            && project_references_dependency(&local_path, dependency_name, visited)
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
+type ClaimedDependencies =
+    std::collections::HashMap<String, (deps::AtlasPackageDependency, String)>;
+
+fn resolve_dependency_tree(
+    config: &mut AtlasBuildConfig,
+    requested_by: &str,
+    dependencies: &[deps::AtlasPackageDependency],
+    claimed: &mut ClaimedDependencies,
+) -> miette::Result<()> {
+    for dependency in dependencies {
+        if let Some((existing_request, existing_owner)) = claimed.get(&dependency.name) {
+            let same_request = existing_request.git == dependency.git
+                && existing_request.version == dependency.version
+                && existing_request.commit == dependency.commit;
+            if same_request {
+                continue; // already fetched and merged via another path through the graph
+            }
+            return Err(miette::miette!(
+                "Dependency name '{}' is claimed by two different requests: {} (required by {}) \
+                 and {} (required by {}). Atlas77 doesn't resolve two different versions of the \
+                 same dependency name yet. Pick one, or give one of them a different name.",
+                dependency.name,
+                describe_dependency_request(existing_request),
+                existing_owner,
+                describe_dependency_request(dependency),
+                requested_by,
+            ));
+        }
+
+        claimed.insert(
+            dependency.name.clone(),
+            (dependency.clone(), requested_by.to_owned()),
+        );
+
+        let target = deps::fetch_dependency(dependency)?;
+
+        let sub_config = load_build_config(&target)?;
+        merge_dependency_config_into(config, &sub_config);
+
+        resolve_dependency_tree(config, &dependency.name, &sub_config.dependencies, claimed)?;
+    }
+
+    Ok(())
+}
+
+fn describe_dependency_request(dependency: &deps::AtlasPackageDependency) -> String {
+    match (&dependency.version, &dependency.commit) {
+        (Some(version), _) => format!("{} @ version {version}", dependency.git),
+        (_, Some(commit)) => format!("{} @ commit {commit}", dependency.git),
+        (None, None) => dependency.git.clone(),
+    }
+}
+
+fn merge_dependency_config_into(config: &mut AtlasBuildConfig, sub: &AtlasBuildConfig) {
+    config.headers.extend(sub.headers.iter().cloned());
+    config.include_dirs.extend(sub.include_dirs.iter().cloned());
+    config.library_dirs.extend(sub.library_dirs.iter().cloned());
+    config.libraries.extend(sub.libraries.iter().cloned());
+    config.c_sources.extend(sub.c_sources.iter().cloned());
+    config.source_dirs.extend(sub.source_dirs.iter().cloned());
+    config
+        .compiler_args
+        .extend(sub.compiler_args.iter().cloned());
+}
+
 pub fn build(
     path: String,
     _flag: CompilationFlag,
-    //TODO: `using_std` is currently unused
-    _using_std: bool,
+    no_std: bool,
     compiler: Option<SupportedCompiler>,
     compiler_binary_override: Option<String>,
     output_dir: String,
@@ -1209,6 +1469,42 @@ pub fn build(
         .map_err(|err| miette::miette!("Failed to get current directory: {}", err))?;
     let project_dir = find_project_dir_for_source(&path_buf, &cwd);
     let mut atlas_build_config = load_build_config(&project_dir)?;
+    let mut top_level_dependencies = take(&mut atlas_build_config.dependencies);
+    let std_explicitly_declared = top_level_dependencies
+        .iter()
+        .any(|dependency| dependency.name == STD_DEPENDENCY_NAME);
+
+    let std_dir_is_official = match deps::lockfile_git_for(STD_DEPENDENCY_NAME) {
+        Some(git) => git == STD_DEPENDENCY_GIT,
+        None => true,
+    };
+    atlas_c::utils::set_no_std(no_std && !std_explicitly_declared && std_dir_is_official);
+
+    if !no_std && !std_explicitly_declared {
+        let mut visited = std::collections::HashSet::new();
+        if project_references_dependency(&path_buf, STD_DEPENDENCY_NAME, &mut visited) {
+            top_level_dependencies.push(deps::AtlasPackageDependency {
+                name: STD_DEPENDENCY_NAME.to_string(),
+                git: STD_DEPENDENCY_GIT.to_string(),
+                version: None,
+                commit: None,
+            });
+        }
+    }
+    let mut claimed_dependencies = std::collections::HashMap::new();
+    resolve_dependency_tree(
+        &mut atlas_build_config,
+        "your project's atlas.toml",
+        &top_level_dependencies,
+        &mut claimed_dependencies,
+    )?;
+    dedup_preserve_order(&mut atlas_build_config.headers);
+    dedup_preserve_order(&mut atlas_build_config.include_dirs);
+    dedup_preserve_order(&mut atlas_build_config.library_dirs);
+    dedup_preserve_order(&mut atlas_build_config.libraries);
+    dedup_preserve_order(&mut atlas_build_config.c_sources);
+    dedup_preserve_order(&mut atlas_build_config.source_dirs);
+    dedup_preserve_order(&mut atlas_build_config.compiler_args);
     let compiler = compiler
         .or(atlas_build_config.preferred_compiler)
         .unwrap_or(SupportedCompiler::TinyCC);
@@ -1227,21 +1523,37 @@ pub fn build(
     let hir_arena = HirArena::new();
 
     let frontend_res = run_frontend(path.clone(), source, &ast_arena, &hir_arena, true);
-    let hir = if let Some(hir) = frontend_res.hir {
+    let hir = if let Some(hir) = frontend_res.hir
+        && frontend_res.hir_errors.is_empty()
+    {
         hir
     } else {
-        // TODO this should absolutely return all the errors instead of just printing and exiting, but this is easier for now
-        eprintln!("Failed to generate HIR for path: {}", path);
-        std::process::exit(1);
-    };
+        if !frontend_res.ast_errors.is_empty() {
+            for err in frontend_res.ast_errors {
+                let report: miette::Report = err.into();
+                eprintln!("{:?}", report);
+            }
+            std::process::exit(1);
+        }
 
-    if !frontend_res.ast_errors.is_empty() {
-        for err in frontend_res.ast_errors {
-            let report: miette::Report = err.into();
-            eprintln!("{:?}", report);
+        if !frontend_res.hir_warnings.is_empty() {
+            for warning in frontend_res.hir_warnings {
+                let report: miette::Report = warning.into();
+                eprintln!("{:?}", report);
+            }
+        }
+
+        if !frontend_res.hir_errors.is_empty() {
+            return Err(
+                HirError::SemanticAnalysisFailed(SemanticAnalysisFailedError {
+                    error_count: frontend_res.hir_errors.len(),
+                    errors: frontend_res.hir_errors,
+                })
+                .into(),
+            );
         }
         std::process::exit(1);
-    }
+    };
 
     if !frontend_res.hir_warnings.is_empty() {
         for warning in frontend_res.hir_warnings {
@@ -1250,23 +1562,9 @@ pub fn build(
         }
     }
 
-    if !frontend_res.hir_errors.is_empty() {
-        return Err(
-            HirError::SemanticAnalysisFailed(SemanticAnalysisFailedError {
-                error_count: frontend_res.hir_errors.len(),
-                errors: frontend_res.hir_errors,
-            })
-            .into(),
-        );
-    }
-
-    //Dead code elimination (only in release mode)
-    // let mut dce_pass = DeadCodeEliminationPass::new(&hir_arena);
-    // hir = dce_pass.eliminate_dead_code(hir)?;
-
     // Write HIR output
     let mut hir_printer = HirPrettyPrinter::new();
-    let hir_output = hir_printer.print_module(hir, "Dead Code Elimination Pass");
+    let hir_output = hir_printer.print_module(hir, "After Semantic Analysis");
     let mut file_hir = std::fs::File::create("./build/output.atlas").unwrap();
     file_hir.write_all(hir_output.as_bytes()).unwrap();
 

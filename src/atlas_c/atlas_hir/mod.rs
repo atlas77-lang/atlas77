@@ -1,15 +1,12 @@
 use std::collections::BTreeMap;
 
-use crate::atlas_c::atlas_hir::item::{HirEnum, HirStruct, HirUnion};
+use crate::atlas_c::atlas_hir::item::{HirConcept, HirEnum, HirExtendBlock, HirStruct, HirUnion};
 use item::{HirFunction, HirImport};
 use signature::HirModuleSignature;
 
 //Should try to run even with a faulty AST
 /// Always run
 pub mod arena;
-/// Passes not run in debug mode
-pub mod constant_folding_pass;
-pub mod dead_code_elimination_pass;
 pub mod error;
 pub mod monomorphization_pass;
 /// Ownership analysis pass: implements MOVE/COPY semantics and destructor insertion
@@ -19,11 +16,11 @@ pub mod syntax_lowering_pass;
 pub mod type_check_pass;
 //todo: The Hir needs a little rework to correctly define what is an item, a statement, an expression, a type, etc.
 pub mod expr;
+pub mod intrinsic_methods;
 pub mod item;
 pub mod pretty_print;
 mod scope;
 pub mod signature;
-pub mod special_methods;
 pub mod stmt;
 pub mod ty;
 pub mod warning;
@@ -44,6 +41,8 @@ pub struct HirModuleId<'hir> {
 pub struct HirModuleBody<'hir> {
     pub functions: BTreeMap<&'hir str, HirFunction<'hir>>,
     pub structs: BTreeMap<&'hir str, HirStruct<'hir>>,
+    pub extends: BTreeMap<crate::atlas_c::atlas_hir::ty::HirTyId, Vec<HirExtendBlock<'hir>>>,
+    pub concepts: BTreeMap<&'hir str, HirConcept<'hir>>,
     pub imports: Vec<&'hir HirImport<'hir>>,
     // Not really useful for the current version, but I might add methods to enums later
     pub enums: BTreeMap<&'hir str, HirEnum<'hir>>,

@@ -1,6 +1,6 @@
 import "std/io";
 import "std/optional";
-import "core/experimental/i128";
+import "std/i128";
 
 extern fun time(tloc: *int64) -> int64;
 extern fun clock() -> int64;

@@ -14,11 +14,11 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            artifact_name: atlas_77
-            asset_name: atlas_77-linux-amd64
+            artifact_name: atlas77
+            asset_name: atlas77-linux-amd64
           - os: windows-latest
-            artifact_name: atlas_77.exe
-            asset_name: atlas_77-windows-amd64.exe
+            artifact_name: atlas77.exe
+            asset_name: atlas77-windows-amd64.exe
 
     name: release ${{ matrix.os }}
     runs-on: '${{ matrix.os }}'

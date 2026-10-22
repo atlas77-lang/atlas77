@@ -1,0 +1,5 @@
+import "std/io";
+
+fun main() {
+    std::println("Hello World");
+}
